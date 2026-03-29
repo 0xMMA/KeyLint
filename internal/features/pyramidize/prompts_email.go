@@ -33,6 +33,11 @@ Header rules:
 - Business impact comes before technical detail
 - Priority: decisions → actions → information
 
+Mail thread / history rules:
+- If the input contains a mail thread (quoted replies, "---- Mail historie:", forwarded messages), the referenced context is PART OF THE INPUT
+- Summarize the thread context in a dedicated section (e.g. "**Hintergrund aus Mail-Verlauf**") so the reader understands why this email is being sent
+- All persons, problems, requests, and decisions from the thread MUST appear in the output — do not treat quoted mail as disposable
+
 Tone preservation rules:
 - NEVER increase formality beyond the original. If the input is casual ("Grüße", "hey", lowercase), keep the output casual
 - NEVER switch person perspective. If the author writes in first person ("ich melde mich"), keep first person
