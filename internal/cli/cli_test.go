@@ -1,13 +1,15 @@
 package cli
 
 import (
+	"bytes"
 	"os"
 	"strings"
 	"testing"
 )
 
 func TestRunUnknownCommand(t *testing.T) {
-	err := Run([]string{"-unknown"}, nil, nil)
+	var stderr bytes.Buffer
+	err := Run([]string{"-unknown"}, nil, &stderr)
 	if err == nil {
 		t.Fatal("expected error for unknown command")
 	}
