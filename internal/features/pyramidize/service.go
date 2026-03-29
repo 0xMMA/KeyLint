@@ -70,6 +70,9 @@ func (svc *Service) CancelOperation() {
 // SendBack writes text to the system clipboard and pastes it back into the
 // captured source application window.
 func (svc *Service) SendBack(text string) error {
+	if svc.clipboard == nil {
+		return fmt.Errorf("SendBack is not available in CLI mode")
+	}
 	if err := svc.clipboard.Write(text); err != nil {
 		return fmt.Errorf("clipboard write failed: %w", err)
 	}
