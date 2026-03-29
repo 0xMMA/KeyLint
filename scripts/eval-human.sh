@@ -11,6 +11,10 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
+# Load .env if present (contains API keys for eval).
+# shellcheck disable=SC1091
+[[ -f .env ]] && set -a && source .env && set +a
+
 PROVIDER=""
 MODEL=""
 while [[ $# -gt 0 ]]; do

@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joho/godotenv"
 	"keylint/internal/features/settings"
 )
 
@@ -68,23 +69,44 @@ func loadTestSamples(t *testing.T) []testSample {
 
 var fenceBlockRegex = regexp.MustCompile("(?s)```\\w*\\n?(.*?)```")
 
+// rawInputHeader matches "# Raw Input" / "# Raw input" / "# raw input" (case-insensitive).
+var rawInputHeader = regexp.MustCompile(`(?im)^#\s+raw\s+input\s*$`)
+
+// baselineHeader matches "# User accepted output(s)" including the typo "accpted" (case-insensitive).
+var baselineHeader = regexp.MustCompile(`(?im)^#\s+user\s+acce?pted\s+outputs?\s*$`)
+
 func parseTestData(content string) (rawInput, baseline string) {
-	sections := strings.Split(content, "# User accepted output")
-	if len(sections) < 2 {
+	// Find the baseline header position first — it delimits the two sections.
+	blLoc := baselineHeader.FindStringIndex(content)
+	if blLoc == nil {
 		return "", ""
 	}
 
-	rawSection := strings.TrimPrefix(sections[0], "# Raw Input")
+	rawSection := content[:blLoc[0]]
+	baselineSection := content[blLoc[1]:]
+
+	// Strip the raw-input header from the first section.
+	rawSection = rawInputHeader.ReplaceAllString(rawSection, "")
+
+	// Try fenced block first; fall back to plain text after stripping the header.
 	if m := fenceBlockRegex.FindStringSubmatch(rawSection); len(m) > 1 {
 		rawInput = strings.TrimSpace(m[1])
+	} else {
+		rawInput = strings.TrimSpace(rawSection)
 	}
-	if m := fenceBlockRegex.FindStringSubmatch(sections[1]); len(m) > 1 {
+	if m := fenceBlockRegex.FindStringSubmatch(baselineSection); len(m) > 1 {
 		baseline = strings.TrimSpace(m[1])
+	} else {
+		baseline = strings.TrimSpace(baselineSection)
 	}
 	return
 }
 
 func TestEvalPyramidize(t *testing.T) {
+	// Load .env from project root (contains API keys for eval).
+	rootEnv := filepath.Join("..", "..", "..", ".env")
+	_ = godotenv.Load(rootEnv) // ignore error — env vars may be set externally
+
 	settingsSvc, err := settings.NewService()
 	if err != nil {
 		t.Fatalf("settings init: %v", err)

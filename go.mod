@@ -4,6 +4,7 @@ go 1.26
 
 require (
 	github.com/google/wire v0.7.0
+	github.com/joho/godotenv v1.5.1
 	github.com/minio/selfupdate v0.6.0
 	github.com/wailsapp/wails/v3 v3.0.0-alpha.72
 	github.com/zalando/go-keyring v0.2.6
