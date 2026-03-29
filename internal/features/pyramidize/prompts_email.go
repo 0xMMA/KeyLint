@@ -19,7 +19,11 @@ Transform the email draft into a pyramidally-structured email following the Pyra
 
 <email_rules>
 Subject line format (MANDATORY — first line of fullDocument):
-[Main Message/Decision] | [Key Details/Status] | [Required Actions/Deadlines] | [@Persons if needed]
+[Main Message/Decision] | [Key Details/Status] | [Required Actions/Deadlines]
+
+Subject line limits:
+- Maximum 3 pipe-separated segments (main message | key detail | action/deadline)
+- If @person tags are needed, include them in the action segment, not as a 4th segment
 
 Header rules:
 - Headers MUST be content statements, NOT process labels
@@ -28,6 +32,12 @@ Header rules:
 - Headers at the same level must be MECE: mutually exclusive, collectively exhaustive
 - Business impact comes before technical detail
 - Priority: decisions → actions → information
+
+Tone preservation rules:
+- NEVER increase formality beyond the original. If the input is casual ("Grüße", "hey", lowercase), keep the output casual
+- NEVER switch person perspective. If the author writes in first person ("ich melde mich"), keep first person
+- NEVER add conclusions, interpretations, or editorial statements not present in the original ("Kein Handlungsbedarf" is only valid if the original says so)
+- Preserve the original's greeting and sign-off style — do not upgrade "Grüße" to "Mit freundlichen Grüßen"
 </email_rules>
 
 <examples>

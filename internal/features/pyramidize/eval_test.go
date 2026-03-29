@@ -105,7 +105,7 @@ func parseTestData(content string) (rawInput, baseline string) {
 func TestEvalPyramidize(t *testing.T) {
 	// Load .env from project root (contains API keys for eval).
 	rootEnv := filepath.Join("..", "..", "..", ".env")
-	_ = godotenv.Load(rootEnv) // ignore error — env vars may be set externally
+	_ = godotenv.Overload(rootEnv) // Overload so .env wins over inherited session vars
 
 	settingsSvc, err := settings.NewService()
 	if err != nil {
@@ -196,11 +196,30 @@ func TestEvalPyramidize(t *testing.T) {
 		})
 	}
 
+	// Resolve effective provider/model for logging (matches service defaults).
+	effectiveProvider := provider
+	if effectiveProvider == "" {
+		effectiveProvider = "openai" // settings.DefaultSettings().ActiveProvider
+	}
+	effectiveModel := model
+	if effectiveModel == "" {
+		switch effectiveProvider {
+		case "claude":
+			effectiveModel = "claude-sonnet-4-6"
+		case "openai":
+			effectiveModel = "gpt-4o"
+		case "ollama":
+			effectiveModel = "llama3"
+		}
+	}
+
 	// Write summary.
 	summary := map[string]any{
 		"timestamp":        timestamp,
-		"provider":         provider,
-		"model":            model,
+		"provider":         effectiveProvider,
+		"model":            effectiveModel,
+		"providerOverride": provider,
+		"modelOverride":    model,
 		"sampleCount":      len(samples),
 		"avgDeterministic": totalDet / float64(len(samples)),
 	}
@@ -212,6 +231,7 @@ func TestEvalPyramidize(t *testing.T) {
 	os.WriteFile(filepath.Join(runDir, "summary.json"), summaryData, 0644)
 
 	t.Logf("\n=== EVAL SUMMARY ===")
+	t.Logf("Provider: %s | Model: %s", effectiveProvider, effectiveModel)
 	t.Logf("Samples: %d", len(samples))
 	t.Logf("Avg deterministic: %.2f", totalDet/float64(len(samples)))
 	if judgeCount > 0 {
