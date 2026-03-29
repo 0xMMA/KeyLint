@@ -3,9 +3,12 @@ package main
 import (
 	"embed"
 	"flag"
+	"fmt"
 	"log"
+	"os"
 
 	"keylint/internal/app"
+	"keylint/internal/cli"
 	"keylint/internal/features/enhance"
 	featurelogger "keylint/internal/features/logger"
 	"keylint/internal/features/pyramidize"
@@ -32,6 +35,18 @@ func init() {
 }
 
 func main() {
+	// CLI dispatch — runs headlessly, no Wails/GUI.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "-fix", "-pyramidize":
+			if err := cli.Run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
+		}
+	}
+
 	simulateShortcut := flag.Bool("simulate-shortcut", false, "Fire a synthetic shortcut event on startup (Linux dev mode)")
 	flag.Parse()
 
