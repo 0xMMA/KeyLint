@@ -6,7 +6,8 @@
 
 **Key directories:**
 - `main.go` — Wails entry point, service registration, event loop
-- `internal/features/` — vertical slices: settings, shortcut, clipboard, tray, enhance, welcome
+- `internal/features/` — vertical slices: settings, shortcut, clipboard, tray, enhance, welcome, pyramidize
+- `internal/cli/` — headless CLI commands (`-fix`, `-pyramidize`), dispatched from `main.go` before Wails boots
 - `internal/app/wire.go` + `wire_gen.go` — Wire DI (never edit `wire_gen.go` manually)
 - `frontend/src/app/core/wails.service.ts` — sole RPC bridge; all Go calls go through here
 - `frontend/src/app/features/` — one directory per route: fix, text-enhancement, settings, welcome-wizard, dev-tools
@@ -23,6 +24,20 @@ wails3 generate bindings             # Regenerate JS bindings after Go service c
 cd frontend && npm test              # Vitest unit tests (10 spec files, ~80 tests)
 go test ./internal/...               # Go unit tests (settings, welcome, clipboard)
 npx playwright test                  # E2E tests (requires ng serve on :4200)
+
+# CLI commands (headless, no GUI):
+./bin/KeyLint -fix "text to fix"                       # silent grammar fix
+./bin/KeyLint -fix -f input.txt                        # fix from file
+cat input.txt | ./bin/KeyLint -fix                     # fix from stdin
+./bin/KeyLint -pyramidize -type email -f input.md      # pyramidize from file
+./bin/KeyLint -pyramidize --json -f input.md           # JSON output with quality score
+./bin/KeyLint -pyramidize --provider claude --model claude-sonnet-4-6 -f input.md
+
+# Evaluation tests (real API calls — NOT run by default):
+go test -tags eval ./internal/features/pyramidize/ -v -timeout 300s
+EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 go test -tags eval ...
+./scripts/eval.sh                                      # automated eval with summary
+./scripts/eval-human.sh                                # interactive human review mode
 ```
 
 ## Why (The Context)
@@ -33,6 +48,8 @@ KeyLint is a desktop app that fixes/enhances clipboard text via AI (OpenAI, Anth
 - AI API calls go through the Go backend (`internal/features/enhance/service.go:1`) — WebKit2GTK on Linux blocks external HTTPS fetch from the webview
 - API keys stored in OS keyring (`github.com/zalando/go-keyring`); env vars take priority over keyring — see `internal/features/settings/service.go`
 - PrimeNG Stepper was replaced with a custom `@switch`-based wizard (`welcome-wizard.component.ts`) because PrimeNG v21 StepPanel animations broke DOM visibility
+- CLI mode (`-fix`, `-pyramidize`) dispatches before Wails boots in `main.go`, uses the same service layer with manual wiring (no Wire/Wails). Prompts are identical between CLI and GUI — output formatting is the caller's concern.
+- Evaluation tests use `//go:build eval` build tag to isolate from normal `go test` runs. They make real API calls and write results to `test-data/eval-runs/<timestamp>/`.
 
 **Component flow:** `main.go` → Wire DI initializes services → Wails registers them → `wails3 generate bindings` generates JS → `wails.service.ts` wraps bindings → Angular components call `WailsService`
 
