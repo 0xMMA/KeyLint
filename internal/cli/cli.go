@@ -5,6 +5,9 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"keylint/internal/features/enhance"
+	"keylint/internal/features/settings"
 )
 
 // Run dispatches a CLI command. args[0] is the command name ("-fix" or "-pyramidize").
@@ -63,4 +66,14 @@ func stdinIfPiped() io.Reader {
 		return os.Stdin
 	}
 	return nil
+}
+
+// initSettings creates a settings service for CLI use.
+func initSettings() (*settings.Service, error) {
+	return settings.NewService()
+}
+
+// newEnhanceService creates an enhance service for CLI use.
+func newEnhanceService(s *settings.Service) *enhance.Service {
+	return enhance.NewService(s)
 }
