@@ -41,41 +41,53 @@ Focus: the two core features — **Silent Fix** and **Pyramidize**.
 
 ## Pyramidize (Advanced Mode)
 
-The current `TextEnhancementComponent` is a single-pass generic fix with no pyramidal logic.
-The entire v1 `PyramidalAgentService` pipeline needs to be rebuilt in Go + Angular.
+### Pipeline (Generate → Self-QA → Refine)
 
-### Pipeline (Generate → Specialists → QA)
-
-- [ ] **Document type detection** — LLM classifies input as EMAIL / WIKI / POWERPOINT / MEMO
+- [x] **Document type detection** — LLM classifies input as EMAIL / WIKI / POWERPOINT / MEMO
       (or user selects manually). Returns `{type, language, confidence}`.
+      See `internal/features/pyramidize/prompts_detect.go`, `service.go:detect()`.
 
-- [ ] **Oneshot foundation generator** — document-type-specific prompt templates (German + English)
-      that convert raw text into a structured document: subject + headers + body.
-      Output: `{subject, headers[], fullDocument, documentType, language}`.
+- [x] **Oneshot foundation generator** — document-type-specific prompt templates (German + English)
+      that convert raw text into a structured document with embedded self-QA.
+      Output: `{fullDocument, headers[], language, qualityScore, qualityFlags[]}`.
+      See `prompts_email.go`, `prompts_wiki.go`, `prompts_memo.go`, `prompts_powerpoint.go`.
 
-- [ ] **Parallel specialist agents** — run concurrently after the foundation step:
-  - Subject Line Specialist — validates format + information density
-  - Header Structure Specialist — MECE principle + pyramidal hierarchy
-  - Information Completeness Specialist — detects info loss vs original
-  - Style & Language Specialist — tone, consistency, professional polish
-  - Each returns a confidence score (0.0–1.0).
+- [x] **Self-evaluation specialists** — 5 specialist lenses embedded in the foundation call
+      (subject/title, MECE, completeness, style, fidelity). Returns qualityScore + qualityFlags.
+      Design decision: single-call self-eval instead of parallel specialist agents for efficiency.
+      See `prompts_selfqa.go`.
 
-- [ ] **Integration coordinator** — selectively applies specialist improvements where
-      confidence > 0.7; preserves baseline on low-confidence suggestions.
+- [x] **Quality threshold + conditional refinement** — if qualityScore < threshold (default 0.65),
+      a targeted refinement pass runs using the qualityFlags to fix specific issues.
+      Threshold configurable via `SetQualityThreshold()`. See `service.go`, `prompts_refine.go`.
 
-- [ ] **Quality assurance check** — final pass returns
-      `{informationLoss[], accuracyIssues[], missingElements[], overallScore, passed}`.
+- [ ] **Parallel specialist agents (v1 design, not yet ported)** — run separate specialist LLM
+      calls concurrently, each returning individual confidence scores. Integration coordinator
+      selectively applies improvements where confidence > 0.7. Currently simplified as self-eval.
 
-### UI Controls (missing from v2)
+### Evaluation Pipeline (CLI + automated tests)
 
-- [ ] Document type selector (AUTO / EMAIL / WIKI / POWERPOINT / MEMO)
-- [ ] Communication style selector (concise / detailed / persuasive / neutral /
-      diplomatic / direct / casual / professional)
-- [ ] Relationship level selector (formal / professional / casual / friendly)
-- [ ] Custom instructions textarea
-- [ ] Markdown rendering for output (replace readonly `<textarea>`)
-- [ ] Editable output (allow manual tweaks after AI generation)
-- [ ] Tab view: Draft vs Original
+- [x] **CLI mode** — `-fix` and `-pyramidize` commands dispatched headlessly from `main.go`.
+      See `internal/cli/`.
+
+- [x] **Deterministic eval checks** — structure, info coverage, hallucination detection.
+      See `eval_deterministic.go`.
+
+- [x] **LLM-as-judge scoring** — 5-dimension quality assessment against baseline test data.
+      See `eval_judge.go`, `eval_test.go`.
+
+- [x] **Eval run logging** — results persisted to `test-data/eval-runs/<timestamp>/`.
+      Run with: `EVAL_PROVIDER=claude go test -tags eval ./internal/features/pyramidize/ -v -timeout 600s`
+
+### UI Controls
+
+- [x] Document type selector (AUTO / EMAIL / WIKI / POWERPOINT / MEMO)
+- [x] Communication style selector
+- [x] Relationship level selector
+- [x] Custom instructions textarea
+- [x] Markdown rendering for output (custom Angular pipe)
+- [x] Editable output (canvas textarea with edit/preview toggle)
+- [x] Tab view: Original vs Editor
 
 ### Clipboard integration
 
