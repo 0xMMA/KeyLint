@@ -4,9 +4,13 @@
 
 Wire DI flow: `internal/app/wire.go` declares providers → `wire gen ./internal/app/` writes `wire_gen.go` → `main.go` calls `app.InitializeApp(wailsApp)`.
 
-Services registered with Wails (so they're callable from JS):
-- `SettingsService`, `WelcomeService`, `ClipboardService`, `EnhanceService`, `SimulateService`
-- Registration: `wailsApp.RegisterService(svc)` — NOT `wailsApp.Options.Services`
+Services registered with Wails (callable from JS via `main.go:60-73`):
+- `Settings`, `Welcome`, `Clipboard` — via Wire-injected `App` struct
+- `EnhanceService` — wraps `Settings` for AI calls
+- `LoggerService` — forwards frontend log messages to `debug.log`
+- `UpdaterService` — version check + GitHub Releases API
+- `simulateService` — local struct in `main.go`, exposes `SimulateShortcut` for dev-tools
+- Registration pattern: `wailsApp.RegisterService(application.NewService(svc))`
 
 After adding or changing a Go service method signature: run `wire gen ./internal/app/` then `wails3 generate bindings`. Both steps are required — Wire for DI, bindings for the JS RPC layer.
 
