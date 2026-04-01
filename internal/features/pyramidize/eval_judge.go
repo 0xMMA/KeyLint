@@ -41,14 +41,23 @@ func RunJudge(settingsSvc *settings.Service, opts aiOpts, rawInput, baseline, ca
 	userMessage := fmt.Sprintf("<raw_input>\n%s\n</raw_input>\n\n<baseline>\n%s\n</baseline>\n\n<candidate>\n%s\n</candidate>",
 		rawInput, baseline, candidate)
 
-	client := &http.Client{Timeout: 90 * time.Second}
-	svc := &Service{
-		settings:  settingsSvc,
-		clipboard: nil,
-		client:    client,
+	// Resolve API key upfront so callAISync has no keyring dependency.
+	provider := opts.provider
+	if provider == "" {
+		provider = cfg.ActiveProvider
+	}
+	apiKey := ""
+	switch provider {
+	case "openai":
+		apiKey = settingsSvc.GetKey("openai")
+	case "claude":
+		apiKey = settingsSvc.GetKey("claude")
 	}
 
-	raw, err := svc.callAISync(cfg, opts, judgeSystemPrompt, userMessage)
+	client := &http.Client{Timeout: 90 * time.Second}
+	svc := &Service{client: client}
+
+	raw, err := svc.callAISync(cfg, opts, apiKey, judgeSystemPrompt, userMessage)
 	if err != nil {
 		return JudgeScore{}, fmt.Errorf("judge AI call failed: %w", err)
 	}

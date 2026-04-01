@@ -13,6 +13,7 @@ import { MessageModule } from 'primeng/message';
 import { Tabs, TabList, Tab, TabPanels, TabPanel } from 'primeng/tabs';
 import { TooltipModule } from 'primeng/tooltip';
 import { WailsService } from '../../core/wails.service';
+import { DOCUMENT_TYPE_OPTIONS } from '../../core/constants';
 import { TextEnhancementService } from './text-enhancement.service';
 import { MarkdownPipe } from './markdown.pipe';
 
@@ -1047,10 +1048,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
 
   readonly docTypeOptions = [
     { label: 'AUTO (detect)', value: 'auto' },
-    { label: 'Email', value: 'email' },
-    { label: 'Wiki', value: 'wiki' },
-    { label: 'PowerPoint', value: 'powerpoint' },
-    { label: 'Memo', value: 'memo' },
+    ...DOCUMENT_TYPE_OPTIONS,
   ];
 
   readonly commStyleOptions = [
@@ -1216,6 +1214,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
       customInstructions: this.customInstructions,
       provider: selectedProvider,
       model: selectedModel,
+      promptVariant: 0,
     };
 
     const doCall = async (): Promise<void> => {
@@ -1275,6 +1274,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     if (!this.globalInstruction.trim() || !canvasText.trim()) return;
 
     const instruction = this.globalInstruction;
+    this.lastRequest = () => this.applyGlobalInstruction();
     this.isLoading = true;
     this.stepLabel = 'Refining…';
     this.errorMessage = '';
@@ -1345,6 +1345,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     }
 
     const instruction = this.selectionInstruction;
+    this.lastRequest = () => this.applySelectionInstruction();
     this.closeSelectionBubble();
     this.isLoading = true;
     this.stepLabel = 'Splicing…';
@@ -1414,7 +1415,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   }
 
   async copyAsMarkdown(): Promise<void> {
-    await navigator.clipboard.writeText(canvasText);
+    await this.wails.writeClipboard(canvasText);
   }
 
   async copyAsRichText(): Promise<void> {
@@ -1422,6 +1423,8 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     const html = pipe.transform(canvasText);
     const plain = canvasText;
     try {
+      // Native Clipboard API required here for HTML MIME type support
+      // (WailsService.writeClipboard only handles plain text)
       await navigator.clipboard.write([
         new ClipboardItem({
           'text/html': new Blob([html], { type: 'text/html' }),
@@ -1429,12 +1432,12 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
         }),
       ]);
     } catch {
-      await navigator.clipboard.writeText(plain);
+      await this.wails.writeClipboard(plain);
     }
   }
 
   async copyError(): Promise<void> {
-    await navigator.clipboard.writeText(this.errorMessage);
+    await this.wails.writeClipboard(this.errorMessage);
   }
 
   async sendBack(): Promise<void> {

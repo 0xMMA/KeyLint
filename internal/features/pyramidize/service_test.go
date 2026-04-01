@@ -375,7 +375,7 @@ func TestBuildDocTypePromptDispatch(t *testing.T) {
 	types := []string{"email", "wiki", "memo", "powerpoint", "unknown"}
 	for _, dt := range types {
 		t.Run(dt, func(t *testing.T) {
-			sys, user := buildDocTypePrompt(dt, "professional", "professional", "", "some text")
+			sys, user := buildDocTypePrompt(dt, 0, "professional", "professional", "", "some text")
 			if sys == "" {
 				t.Error("system prompt should not be empty")
 			}
@@ -384,6 +384,45 @@ func TestBuildDocTypePromptDispatch(t *testing.T) {
 			}
 		})
 	}
+}
+
+// --- email prompt variant dispatch ---
+
+func TestEmailPromptVariants(t *testing.T) {
+	tests := []struct {
+		variant     int
+		wantContain string
+		desc        string
+	}{
+		{0, "emailSystemBaseV2", "variant 0 (latest) resolves to v2"},
+		{1, "selfQABlock", "variant 1 uses v1 with selfQA"},
+		{2, "emailSystemBaseV2", "variant 2 uses v2"},
+		{99, "selfQABlock", "unknown variant falls back to v1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			sys, _ := buildEmailPrompt(tt.variant, "professional", "professional", "", "test input")
+			if sys == "" {
+				t.Fatal("system prompt should not be empty")
+			}
+			// v1 includes selfQABlock (contains "self_evaluation"), v2 does not
+			hasSelfQA := containsSubstring(sys, "self_evaluation")
+			if tt.variant == 1 || tt.variant == 99 {
+				if !hasSelfQA {
+					t.Error("v1 prompt should contain selfQA block")
+				}
+			}
+			if tt.variant == 0 || tt.variant == 2 {
+				if hasSelfQA {
+					t.Error("v2 prompt should NOT contain selfQA block")
+				}
+			}
+		})
+	}
+}
+
+func containsSubstring(s, substr string) bool {
+	return len(s) > 0 && len(substr) > 0 && strings.Contains(s, substr)
 }
 
 // --- isValidDocType edge cases ---

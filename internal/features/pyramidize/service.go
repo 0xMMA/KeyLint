@@ -144,7 +144,7 @@ func (svc *Service) Pyramidize(req PyramidizeRequest) (PyramidizeResult, error) 
 	// Step 3: Optional refinement pass
 	threshold := cfg.PyramidizeQualityThreshold
 	if threshold == 0 {
-		threshold = 0.65
+		threshold = settings.DefaultQualityThreshold
 	}
 	if foundation.QualityScore < threshold && len(foundation.QualityFlags) > 0 {
 		logger.Info("pyramidize: quality below threshold, refining",
@@ -278,7 +278,7 @@ func (svc *Service) SetAppPreset(preset AppPreset) error {
 // DeleteAppPreset removes an app preset by source app name (case-insensitive).
 func (svc *Service) DeleteAppPreset(sourceApp string) error {
 	cfg := svc.settings.Get()
-	filtered := cfg.AppPresets[:0]
+	filtered := make([]settings.AppPreset, 0, len(cfg.AppPresets))
 	for _, p := range cfg.AppPresets {
 		if !strings.EqualFold(p.SourceApp, sourceApp) {
 			filtered = append(filtered, p)
@@ -292,7 +292,7 @@ func (svc *Service) DeleteAppPreset(sourceApp string) error {
 func (svc *Service) GetQualityThreshold() float64 {
 	cfg := svc.settings.Get()
 	if cfg.PyramidizeQualityThreshold == 0 {
-		return 0.65
+		return settings.DefaultQualityThreshold
 	}
 	return cfg.PyramidizeQualityThreshold
 }
@@ -329,7 +329,7 @@ func (svc *Service) detect(ctx context.Context, cfg settings.Settings, opts aiOp
 }
 
 func (svc *Service) foundation(ctx context.Context, cfg settings.Settings, opts aiOpts, req PyramidizeRequest, docType string) (foundationResult, error) {
-	systemPrompt, userMessage := buildDocTypePrompt(docType, req.CommunicationStyle, req.RelationshipLevel, req.CustomInstructions, req.Text)
+	systemPrompt, userMessage := buildDocTypePrompt(docType, req.PromptVariant, req.CommunicationStyle, req.RelationshipLevel, req.CustomInstructions, req.Text)
 	raw, err := svc.callAIWithContext(ctx, cfg, opts, systemPrompt, userMessage)
 	if err != nil {
 		return foundationResult{}, err
@@ -355,7 +355,8 @@ func (svc *Service) refine(ctx context.Context, cfg settings.Settings, opts aiOp
 }
 
 // buildDocTypePrompt dispatches to the correct prompt builder based on document type.
-func buildDocTypePrompt(docType, style, relationship, customInstructions, text string) (systemPrompt, userMessage string) {
+// variant is only used for doc types that have multiple prompt versions (currently email).
+func buildDocTypePrompt(docType string, variant int, style, relationship, customInstructions, text string) (systemPrompt, userMessage string) {
 	switch docType {
 	case "wiki":
 		return buildWikiPrompt(style, relationship, customInstructions, text)
@@ -364,13 +365,22 @@ func buildDocTypePrompt(docType, style, relationship, customInstructions, text s
 	case "powerpoint":
 		return buildPPTPrompt(style, relationship, customInstructions, text)
 	default: // "email" and any unrecognised type
-		return buildEmailPrompt(style, relationship, customInstructions, text)
+		return buildEmailPrompt(variant, style, relationship, customInstructions, text)
 	}
 }
 
-// callAIWithContext runs an AI call in a goroutine and returns when the call
-// completes or the context is cancelled (whichever comes first).
+// callAIWithContext resolves the API key, then runs an AI call in a goroutine
+// and returns when the call completes or the context is cancelled.
 func (svc *Service) callAIWithContext(ctx context.Context, cfg settings.Settings, opts aiOpts, systemPrompt, userMessage string) (string, error) {
+	provider := opts.provider
+	if provider == "" {
+		provider = cfg.ActiveProvider
+	}
+	apiKey, err := svc.resolveAPIKey(provider)
+	if err != nil {
+		return "", err
+	}
+
 	type result struct {
 		out string
 		err error
@@ -378,7 +388,7 @@ func (svc *Service) callAIWithContext(ctx context.Context, cfg settings.Settings
 	ch := make(chan result, 1)
 
 	go func() {
-		out, err := svc.callAISync(cfg, opts, systemPrompt, userMessage)
+		out, err := svc.callAISync(cfg, opts, apiKey, systemPrompt, userMessage)
 		ch <- result{out, err}
 	}()
 
@@ -390,8 +400,30 @@ func (svc *Service) callAIWithContext(ctx context.Context, cfg settings.Settings
 	}
 }
 
+// resolveAPIKey fetches the API key for the given provider from the keyring.
+// Returns an empty string (no error) for providers that don't require a key.
+func (svc *Service) resolveAPIKey(provider string) (string, error) {
+	switch provider {
+	case "openai":
+		key := svc.settings.GetKey("openai")
+		if key == "" {
+			return "", fmt.Errorf("OpenAI API key is not configured — go to Settings → AI Providers")
+		}
+		return key, nil
+	case "claude":
+		key := svc.settings.GetKey("claude")
+		if key == "" {
+			return "", fmt.Errorf("Anthropic API key is not configured — go to Settings → AI Providers")
+		}
+		return key, nil
+	default:
+		return "", nil
+	}
+}
+
 // callAISync dispatches to the configured (or overridden) provider synchronously.
-func (svc *Service) callAISync(cfg settings.Settings, opts aiOpts, systemPrompt, userMessage string) (string, error) {
+// The apiKey is resolved by the caller — this function has no keyring dependency.
+func (svc *Service) callAISync(cfg settings.Settings, opts aiOpts, apiKey, systemPrompt, userMessage string) (string, error) {
 	provider := opts.provider
 	if provider == "" {
 		provider = cfg.ActiveProvider
@@ -400,17 +432,9 @@ func (svc *Service) callAISync(cfg settings.Settings, opts aiOpts, systemPrompt,
 
 	switch provider {
 	case "openai":
-		key := svc.settings.GetKey("openai")
-		if key == "" {
-			return "", fmt.Errorf("OpenAI API key is not configured — go to Settings → AI Providers")
-		}
-		return callOpenAI(svc.client, systemPrompt, userMessage, key, model)
+		return callOpenAI(svc.client, systemPrompt, userMessage, apiKey, model)
 	case "claude":
-		key := svc.settings.GetKey("claude")
-		if key == "" {
-			return "", fmt.Errorf("Anthropic API key is not configured — go to Settings → AI Providers")
-		}
-		return callClaude(svc.client, systemPrompt, userMessage, key, model)
+		return callClaude(svc.client, systemPrompt, userMessage, apiKey, model)
 	case "ollama":
 		return callOllama(svc.client, systemPrompt, userMessage, cfg.Providers.OllamaURL, model)
 	default:

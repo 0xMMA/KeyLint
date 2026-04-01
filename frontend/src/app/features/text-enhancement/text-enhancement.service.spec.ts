@@ -51,7 +51,7 @@ describe('TextEnhancementService', () => {
 
   it('pyramidize() delegates to wails.pyramidize()', async () => {
     wailsMock.pyramidize.mockResolvedValue(mockPyramidizeResult);
-    const req = { text: 'hello', documentType: 'auto', communicationStyle: 'professional', relationshipLevel: 'professional', customInstructions: '', provider: 'claude', model: 'claude-sonnet-4-6' };
+    const req = { text: 'hello', documentType: 'auto', communicationStyle: 'professional', relationshipLevel: 'professional', customInstructions: '', provider: 'claude', model: 'claude-sonnet-4-6', promptVariant: 0 };
     const result = await svc.pyramidize(req);
     expect(wailsMock.pyramidize).toHaveBeenCalledWith(req);
     expect(result).toEqual(mockPyramidizeResult);

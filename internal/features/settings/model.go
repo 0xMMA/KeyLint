@@ -20,6 +20,9 @@ type AppPreset struct {
 	DocumentType string `json:"documentType"`
 }
 
+// DefaultQualityThreshold is the default quality threshold for Pyramidize refinement.
+const DefaultQualityThreshold = 0.65
+
 // Settings is the top-level application settings structure persisted to disk.
 type Settings struct {
 	ActiveProvider  string   `json:"active_provider"` // "openai" | "claude" | "ollama" | "bedrock"
@@ -43,6 +46,6 @@ func Default() Settings {
 		ActiveProvider:             "openai",
 		ShortcutKey:                "ctrl+g",
 		ThemePreference:            "dark",
-		PyramidizeQualityThreshold: 0.65,
+		PyramidizeQualityThreshold: DefaultQualityThreshold,
 	}
 }

@@ -51,21 +51,6 @@ describe('TextEnhancementComponent (Pyramidize)', () => {
   let wailsMock: ReturnType<typeof createWailsMock>;
   let svcMock: ReturnType<typeof makeEnhancementServiceMock>;
 
-  // Reset module-level state before each test by directly setting them
-  // via the component's setters (which write through to the module vars).
-  function resetModuleState(comp: TextEnhancementComponent): void {
-    comp.originalTextView = '';
-    comp.canvasTextView = '';
-    comp.docTypeView = 'auto';
-    comp.commStyleView = 'professional';
-    comp.relLevelView = 'professional';
-    // Clear trace log via addCheckpoint won't work; use direct cast
-    (comp as unknown as { traceLogView: unknown[] }).traceLogView.length = 0;
-    // Re-set canvasText and originalText
-    comp.originalTextView = '';
-    comp.canvasTextView = '';
-  }
-
   beforeEach(async () => {
     wailsMock = createWailsMock();
     svcMock = makeEnhancementServiceMock();
@@ -256,21 +241,13 @@ describe('TextEnhancementComponent (Pyramidize)', () => {
     expect(component.traceLogView[component.traceLogView.length - 1].label).toContain('Reverted to');
   });
 
-  // ── 12. copyAsMarkdown() writes to navigator.clipboard ──
+  // ── 12. copyAsMarkdown() writes via WailsService.writeClipboard ──
 
-  it('copyAsMarkdown() writes canvasText to navigator.clipboard', async () => {
-    // jsdom does not expose navigator.clipboard by default — install a mock.
-    const writeTextMock = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText: writeTextMock },
-      writable: true,
-      configurable: true,
-    });
-
+  it('copyAsMarkdown() writes canvasText via WailsService.writeClipboard', async () => {
     component.canvasTextView = '# Hello\n\nWorld';
     await component.copyAsMarkdown();
 
-    expect(writeTextMock).toHaveBeenCalledWith('# Hello\n\nWorld');
+    expect(wailsMock.writeClipboard).toHaveBeenCalledWith('# Hello\n\nWorld');
   });
 
   // ── 13. shortcutTriggered$ with empty originalText sets originalText from clipboard ──

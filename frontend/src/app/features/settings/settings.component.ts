@@ -11,6 +11,7 @@ import { CardModule } from 'primeng/card';
 import { TagModule } from 'primeng/tag';
 import { ActivatedRoute } from '@angular/router';
 import { WailsService, Settings as AppSettings, KeyStatus, UpdateInfo, AppPreset } from '../../core/wails.service';
+import { DOCUMENT_TYPE_OPTIONS } from '../../core/constants';
 import { LogService } from '../../core/log.service';
 
 interface ProviderKey {
@@ -409,12 +410,7 @@ export class SettingsComponent implements OnInit {
     { label: 'Pre-release', value: 'pre-release' },
   ];
 
-  readonly docTypeOptions = [
-    { label: 'Email', value: 'email' },
-    { label: 'Wiki', value: 'wiki' },
-    { label: 'Memo', value: 'memo' },
-    { label: 'PowerPoint', value: 'powerpoint' },
-  ];
+  readonly docTypeOptions = DOCUMENT_TYPE_OPTIONS;
 
   providerKeys: ProviderKey[] = [
     { id: 'openai',  label: 'OpenAI API Key',      status: null, editing: false, draftKey: '', saving: false },
