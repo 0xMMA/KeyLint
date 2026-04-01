@@ -2,7 +2,25 @@ package pyramidize
 
 import "fmt"
 
-const emailSystemBase = `<role>
+// LatestEmailVariant is the default prompt variant for email doc type.
+// Bump this when a new variant is added so releases default to it.
+const LatestEmailVariant = 2
+
+// buildEmailPrompt dispatches to the correct email prompt variant.
+// variant 0 (or unset) resolves to LatestEmailVariant.
+func buildEmailPrompt(variant int, style, relationship, customInstructions, inputText string) (systemPrompt, userMessage string) {
+	if variant <= 0 {
+		variant = LatestEmailVariant
+	}
+	switch variant {
+	case 2:
+		return buildEmailPromptV2(style, relationship, customInstructions, inputText)
+	default:
+		return buildEmailPromptV1(style, relationship, customInstructions, inputText)
+	}
+}
+
+const emailSystemBaseV1 = `<role>
 You are an expert business communication specialist applying the Pyramid Principle to transform unstructured email drafts into clearly structured, information-dense emails.
 </role>
 
@@ -85,8 +103,8 @@ Output:
 {"fullDocument": "Q1 Review Moved to Monday 2pm | Numbers Due Sunday, Slides Due Thursday | @Sarah @Tom Slides Thursday EOD\n\nhey team,\n\n**Q1 Review Monday 2pm statt Friday (CFO Conflict)**\n- Meeting moved to following Monday at 2pm\n- Reason: CFO scheduling conflict\n\n**Deadlines**\n- @Sarah, @Tom: slides by Thursday EOD\n- All: numbers ready by Sunday night", "headers": ["Q1 Review Monday 2pm statt Friday (CFO Conflict)", "Deadlines"], "language": "en", "qualityScore": 0.95, "qualityFlags": []}
 </examples>`
 
-// buildEmailPrompt builds the system prompt and user message for the email foundation call.
-func buildEmailPrompt(style, relationship, customInstructions, inputText string) (systemPrompt, userMessage string) {
+// buildEmailPromptV1 builds the system prompt and user message for the v1 email foundation call.
+func buildEmailPromptV1(style, relationship, customInstructions, inputText string) (systemPrompt, userMessage string) {
 	styleSection := fmt.Sprintf(`<style_injection>
 Communication style: %s
 Relationship level: %s`, style, relationship)
@@ -95,7 +113,7 @@ Relationship level: %s`, style, relationship)
 	}
 	styleSection += "\n</style_injection>"
 
-	systemPrompt = emailSystemBase + "\n\n" + styleSection + "\n" + selfQABlock
+	systemPrompt = emailSystemBaseV1 + "\n\n" + styleSection + "\n" + selfQABlock
 	userMessage = inputText
 	return
 }

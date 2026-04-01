@@ -109,6 +109,14 @@ export class PyramidizeRequest {
              */
             this["model"] = "";
         }
+        if (!("promptVariant" in $$source)) {
+            /**
+             * 0 = latest (default), 1 = v1, 2 = v2, etc.
+             * @member
+             * @type {number}
+             */
+            this["promptVariant"] = 0;
+        }
 
         Object.assign(this, $$source);
     }

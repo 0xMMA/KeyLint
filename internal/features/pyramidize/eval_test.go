@@ -114,9 +114,14 @@ func TestEvalPyramidize(t *testing.T) {
 
 	provider := os.Getenv("EVAL_PROVIDER")
 	model := os.Getenv("EVAL_MODEL")
+	variant := 0 // latest
+	if v := os.Getenv("EVAL_VARIANT"); v != "" {
+		fmt.Sscanf(v, "%d", &variant)
+	}
 
 	svc := NewService(settingsSvc, nil)
 	samples := loadTestSamples(t)
+	t.Logf("prompt variant: %d (0=latest=%d)", variant, LatestEmailVariant)
 
 	// Create eval run directory.
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
@@ -152,6 +157,7 @@ func TestEvalPyramidize(t *testing.T) {
 				RelationshipLevel:  "professional",
 				Provider:           provider,
 				Model:              model,
+				PromptVariant:      variant,
 			})
 
 			sr := sampleResult{Name: sample.Name}
@@ -214,12 +220,17 @@ func TestEvalPyramidize(t *testing.T) {
 	}
 
 	// Write summary.
+	effectiveVariant := variant
+	if effectiveVariant == 0 {
+		effectiveVariant = LatestEmailVariant
+	}
 	summary := map[string]any{
 		"timestamp":        timestamp,
 		"provider":         effectiveProvider,
 		"model":            effectiveModel,
 		"providerOverride": provider,
 		"modelOverride":    model,
+		"promptVariant":    effectiveVariant,
 		"sampleCount":      len(samples),
 		"avgDeterministic": totalDet / float64(len(samples)),
 	}
@@ -231,7 +242,7 @@ func TestEvalPyramidize(t *testing.T) {
 	os.WriteFile(filepath.Join(runDir, "summary.json"), summaryData, 0644)
 
 	t.Logf("\n=== EVAL SUMMARY ===")
-	t.Logf("Provider: %s | Model: %s", effectiveProvider, effectiveModel)
+	t.Logf("Provider: %s | Model: %s | Prompt Variant: v%d", effectiveProvider, effectiveModel, effectiveVariant)
 	t.Logf("Samples: %d", len(samples))
 	t.Logf("Avg deterministic: %.2f", totalDet/float64(len(samples)))
 	if judgeCount > 0 {

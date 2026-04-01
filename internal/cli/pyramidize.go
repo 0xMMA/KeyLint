@@ -36,6 +36,7 @@ func runPyramidizeWith(args []string, stdout io.Writer, stderr io.Writer, svc py
 	model := fs.String("model", "", "Model override (e.g. claude-sonnet-4-6)")
 	style := fs.String("style", "professional", "Communication style")
 	relationship := fs.String("relationship", "professional", "Relationship level")
+	variant := fs.Int("variant", 0, "Prompt variant (0=latest, 1=v1, 2=v2)")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -54,6 +55,7 @@ func runPyramidizeWith(args []string, stdout io.Writer, stderr io.Writer, svc py
 		RelationshipLevel:  *relationship,
 		Provider:           *provider,
 		Model:              *model,
+		PromptVariant:      *variant,
 	}
 
 	result, err := svc.Pyramidize(req)

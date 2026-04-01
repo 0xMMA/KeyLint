@@ -9,6 +9,7 @@ type PyramidizeRequest struct {
 	CustomInstructions string `json:"customInstructions"` // optional, not persisted
 	Provider           string `json:"provider"`           // optional override: "claude"|"openai"|"ollama" — falls back to settings.ActiveProvider
 	Model              string `json:"model"`              // optional override, e.g. "claude-sonnet-4-6" — falls back to provider default
+	PromptVariant      int    `json:"promptVariant"`      // 0 = latest (default), 1 = v1, 2 = v2, etc.
 }
 
 // PyramidizeResult is the RPC response from the main Pyramidize call.

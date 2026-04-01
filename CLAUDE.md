@@ -24,6 +24,8 @@ cat input.txt | ./bin/KeyLint -fix                     # fix from stdin
 ./bin/KeyLint -pyramidize -type email -f input.md      # pyramidize from file
 ./bin/KeyLint -pyramidize --json -f input.md           # JSON output with quality score
 ./bin/KeyLint -pyramidize --provider claude --model claude-sonnet-4-6 -f input.md
+./bin/KeyLint -pyramidize --variant 1 -f input.md     # use prompt variant v1
+./bin/KeyLint -pyramidize --variant 2 -f input.md     # use prompt variant v2 (0=latest)
 ```
 
 **Evaluation tests (real API calls — NOT run by default):**
@@ -36,6 +38,8 @@ EVAL_PROVIDER=claude go test -tags eval ./internal/features/pyramidize/ -v -time
 EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 go test -tags eval ...
 ./scripts/eval.sh                                      # automated eval with summary
 ./scripts/eval.sh --provider claude --model claude-sonnet-4-6
+./scripts/eval.sh --variant 1                          # compare v1 vs v2 prompts
+EVAL_VARIANT=2 go test -tags eval ...                  # variant via env var
 ./scripts/eval-human.sh                                # interactive human review mode
 ```
 
