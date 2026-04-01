@@ -2,17 +2,28 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { TextEnhancementService } from './text-enhancement.service';
 import { WailsService } from '../../core/wails.service';
-import { createWailsMock, defaultSettings } from '../../../testing/wails-mock';
+import { createWailsMock } from '../../../testing/wails-mock';
 
 describe('TextEnhancementService', () => {
   let svc: TextEnhancementService;
   let wailsMock: ReturnType<typeof createWailsMock>;
-  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  const mockPyramidizeResult = {
+    documentType: 'EMAIL',
+    language: 'en',
+    fullDocument: 'Body text',
+    headers: [],
+    qualityScore: 0.9,
+    qualityFlags: [],
+    appliedRefinement: false,
+    refinementWarning: '',
+    detectedType: 'EMAIL',
+    detectedLang: 'en',
+    detectedConfidence: 0.95,
+  };
 
   beforeEach(() => {
     wailsMock = createWailsMock();
-    // Default: backend enhance succeeds
-    wailsMock.enhance.mockResolvedValue('Backend enhanced text.');
 
     TestBed.configureTestingModule({
       providers: [
@@ -21,71 +32,99 @@ describe('TextEnhancementService', () => {
       ],
     });
     svc = TestBed.inject(TextEnhancementService);
-
-    fetchSpy = vi.spyOn(globalThis, 'fetch');
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  // --- Primary path: Go backend ---
+  // ── Legacy enhance() path ──
 
-  it('delegates to wails.enhance() and returns the result', async () => {
+  it('enhance() delegates to wails.enhance() and returns the result', async () => {
+    wailsMock.enhance.mockResolvedValue('Backend enhanced text.');
     const result = await svc.enhance('bad grammer');
     expect(wailsMock.enhance).toHaveBeenCalledWith('bad grammer');
     expect(result).toBe('Backend enhanced text.');
-    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('propagates backend errors to the caller', async () => {
-    wailsMock.enhance.mockRejectedValue(new Error('Anthropic API key is not configured'));
-    await expect(svc.enhance('text')).rejects.toThrow('Anthropic API key is not configured');
+  // ── Pyramidize delegation ──
+
+  it('pyramidize() delegates to wails.pyramidize()', async () => {
+    wailsMock.pyramidize.mockResolvedValue(mockPyramidizeResult);
+    const req = { text: 'hello', documentType: 'auto', communicationStyle: 'professional', relationshipLevel: 'professional', customInstructions: '', provider: 'claude', model: 'claude-sonnet-4-6', promptVariant: 0 };
+    const result = await svc.pyramidize(req);
+    expect(wailsMock.pyramidize).toHaveBeenCalledWith(req);
+    expect(result).toEqual(mockPyramidizeResult);
   });
 
-  // --- Browser-mode fallback path (Wails runtime unavailable) ---
+  // ── RefineGlobal delegation ──
 
-  it('falls back to direct OpenAI fetch when Wails runtime is unavailable', async () => {
-    // Simulate Wails runtime not initialised (synchronous-style error message)
-    wailsMock.enhance.mockRejectedValue(new Error('Call is not a function (wails runtime)'));
-    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, active_provider: 'openai' });
-    wailsMock.getKey.mockResolvedValue('sk-test-key');
-
-    const mockResponse = { choices: [{ message: { content: 'OpenAI fixed.' } }] };
-    fetchSpy.mockResolvedValue(new Response(JSON.stringify(mockResponse), { status: 200 }));
-
-    const result = await svc.enhance('bad text');
-
-    expect(fetchSpy).toHaveBeenCalledWith(
-      'https://api.openai.com/v1/chat/completions',
-      expect.objectContaining({ method: 'POST' }),
-    );
-    expect(result).toBe('OpenAI fixed.');
+  it('refineGlobal() delegates to wails.refineGlobal()', async () => {
+    const mockResult = { newCanvas: 'Refined text' };
+    wailsMock.refineGlobal.mockResolvedValue(mockResult);
+    const req = { fullCanvas: 'canvas', originalText: 'orig', instruction: 'shorter', documentType: 'email', communicationStyle: 'professional', relationshipLevel: 'professional', provider: 'claude', model: 'claude-sonnet-4-6' };
+    const result = await svc.refineGlobal(req);
+    expect(wailsMock.refineGlobal).toHaveBeenCalledWith(req);
+    expect(result).toEqual(mockResult);
   });
 
-  it('falls back to direct Ollama fetch when Wails runtime is unavailable', async () => {
-    wailsMock.enhance.mockRejectedValue(new Error('wails runtime not available'));
-    wailsMock.loadSettings.mockResolvedValue({
-      ...defaultSettings,
-      active_provider: 'ollama',
-      providers: { ollama_url: 'http://localhost:11434', aws_region: '' },
-    });
-    const mockResponse = { response: 'Ollama fixed.' };
-    fetchSpy.mockResolvedValue(new Response(JSON.stringify(mockResponse), { status: 200 }));
+  // ── Splice delegation ──
 
-    const result = await svc.enhance('some text');
-
-    expect(fetchSpy).toHaveBeenCalledWith(
-      'http://localhost:11434/api/generate',
-      expect.objectContaining({ method: 'POST' }),
-    );
-    expect(result).toBe('Ollama fixed.');
+  it('splice() delegates to wails.splice()', async () => {
+    const mockResult = { rewrittenSection: 'New section' };
+    wailsMock.splice.mockResolvedValue(mockResult);
+    const req = { fullCanvas: 'canvas', originalText: 'orig', selectedText: 'selected', instruction: 'rewrite', provider: 'claude', model: 'claude-sonnet-4-6' };
+    const result = await svc.splice(req);
+    expect(wailsMock.splice).toHaveBeenCalledWith(req);
+    expect(result).toEqual(mockResult);
   });
 
-  it('throws for unknown provider in browser fallback', async () => {
-    wailsMock.enhance.mockRejectedValue(new Error('wails runtime error'));
-    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, active_provider: 'unknown' as never });
+  // ── CancelOperation delegation ──
 
-    await expect(svc.enhance('text')).rejects.toThrow('Unknown provider: unknown');
+  it('cancelOperation() delegates to wails.cancelOperation()', async () => {
+    await svc.cancelOperation();
+    expect(wailsMock.cancelOperation).toHaveBeenCalled();
+  });
+
+  // ── AppPresets delegation ──
+
+  it('getAppPresets() delegates to wails.getAppPresets()', async () => {
+    const mockPresets = [{ sourceApp: 'Outlook', documentType: 'email' }];
+    wailsMock.getAppPresets.mockResolvedValue(mockPresets);
+    const result = await svc.getAppPresets();
+    expect(wailsMock.getAppPresets).toHaveBeenCalled();
+    expect(result).toEqual(mockPresets);
+  });
+
+  it('setAppPreset() delegates to wails.setAppPreset()', async () => {
+    const preset = { sourceApp: 'Outlook', documentType: 'email' };
+    await svc.setAppPreset(preset);
+    expect(wailsMock.setAppPreset).toHaveBeenCalledWith(preset);
+  });
+
+  it('deleteAppPreset() delegates to wails.deleteAppPreset()', async () => {
+    await svc.deleteAppPreset('Outlook');
+    expect(wailsMock.deleteAppPreset).toHaveBeenCalledWith('Outlook');
+  });
+
+  // ── QualityThreshold delegation ──
+
+  it('getQualityThreshold() delegates to wails.getQualityThreshold()', async () => {
+    wailsMock.getQualityThreshold.mockResolvedValue(0.75);
+    const result = await svc.getQualityThreshold();
+    expect(wailsMock.getQualityThreshold).toHaveBeenCalled();
+    expect(result).toBe(0.75);
+  });
+
+  it('setQualityThreshold() delegates to wails.setQualityThreshold()', async () => {
+    await svc.setQualityThreshold(0.8);
+    expect(wailsMock.setQualityThreshold).toHaveBeenCalledWith(0.8);
+  });
+
+  // ── enhance() propagates errors ──
+
+  it('enhance() propagates backend errors to caller', async () => {
+    wailsMock.enhance.mockRejectedValue(new Error('API key not configured'));
+    await expect(svc.enhance('text')).rejects.toThrow('API key not configured');
   });
 });

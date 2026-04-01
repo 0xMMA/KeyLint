@@ -16,8 +16,7 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as $models from "./models.js";
 
 /**
- * CheckForUpdate fetches latest.json and compares its version against the running binary.
- * Returns an UpdateInfo describing whether an update is available.
+ * CheckForUpdate fetches the GitHub Releases API and finds the best available update.
  * @returns {$CancellablePromise<$models.UpdateInfo>}
  */
 export function CheckForUpdate() {

@@ -3,11 +3,15 @@ package main
 import (
 	"embed"
 	"flag"
+	"fmt"
 	"log"
+	"os"
 
 	"keylint/internal/app"
+	"keylint/internal/cli"
 	"keylint/internal/features/enhance"
 	featurelogger "keylint/internal/features/logger"
+	"keylint/internal/features/pyramidize"
 	"keylint/internal/features/shortcut"
 	"keylint/internal/features/updater"
 	"keylint/internal/logger"
@@ -31,6 +35,18 @@ func init() {
 }
 
 func main() {
+	// CLI dispatch — runs headlessly, no Wails/GUI.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "-fix", "-pyramidize":
+			if err := cli.Run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
+		}
+	}
+
 	simulateShortcut := flag.Bool("simulate-shortcut", false, "Fire a synthetic shortcut event on startup (Linux dev mode)")
 	flag.Parse()
 
@@ -61,6 +77,10 @@ func main() {
 	wailsApp.RegisterService(application.NewService(services.Welcome))
 	wailsApp.RegisterService(application.NewService(services.Clipboard))
 	wailsApp.RegisterService(application.NewService(enhance.NewService(services.Settings)))
+
+	// Pyramidize service — captures source app on hotkey and exposes RPC methods.
+	pyramidizeSvc := pyramidize.NewService(services.Settings, services.Clipboard)
+	wailsApp.RegisterService(application.NewService(pyramidizeSvc))
 
 	// Log service — forwards frontend log messages into debug.log.
 	wailsApp.RegisterService(application.NewService(featurelogger.NewService()))
@@ -109,6 +129,9 @@ func main() {
 		ch := services.Shortcut.Triggered()
 		for event := range ch {
 			logger.Info("shortcut: triggered", "source", event.Source)
+			// Capture the source app window BEFORE copying from foreground,
+			// so SendBack() can restore focus to the correct window later.
+			pyramidizeSvc.CaptureSourceApp()
 			if err := services.Clipboard.CopyFromForeground(); err != nil {
 				logger.Warn("shortcut: CopyFromForeground failed", "err", err)
 			}

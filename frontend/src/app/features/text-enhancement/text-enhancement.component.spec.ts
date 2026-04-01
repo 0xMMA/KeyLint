@@ -1,142 +1,332 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { ComponentFixture } from '@angular/core/testing';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
+import { provideRouter } from '@angular/router';
 import { TextEnhancementComponent } from './text-enhancement.component';
 import { TextEnhancementService } from './text-enhancement.service';
 import { WailsService } from '../../core/wails.service';
 import { createWailsMock } from '../../../testing/wails-mock';
 
-describe('TextEnhancementComponent', () => {
+// PrimeNG TabList uses ResizeObserver which is not available in jsdom
+(globalThis as Record<string, unknown>)['ResizeObserver'] = class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
+
+function makeEnhancementServiceMock() {
+  return {
+    pyramidize: vi.fn().mockResolvedValue({
+      documentType: 'EMAIL',
+      language: 'en',
+      fullDocument: 'Subject | Details | Actions\n\nBody text',
+      headers: ['Header 1'],
+      qualityScore: 0.9,
+      qualityFlags: [],
+      appliedRefinement: false,
+      refinementWarning: '',
+      detectedType: 'EMAIL',
+      detectedLang: 'en',
+      detectedConfidence: 0.95,
+    }),
+    refineGlobal: vi.fn().mockResolvedValue({ newCanvas: 'Refined canvas text' }),
+    splice: vi.fn().mockResolvedValue({ rewrittenSection: 'Rewritten section' }),
+    cancelOperation: vi.fn().mockResolvedValue(undefined),
+    sendBack: vi.fn().mockResolvedValue(undefined),
+    getSourceApp: vi.fn().mockResolvedValue(''),
+    getAppPresets: vi.fn().mockResolvedValue([]),
+    setAppPreset: vi.fn().mockResolvedValue(undefined),
+    deleteAppPreset: vi.fn().mockResolvedValue(undefined),
+    getQualityThreshold: vi.fn().mockResolvedValue(0.65),
+    setQualityThreshold: vi.fn().mockResolvedValue(undefined),
+    enhance: vi.fn().mockResolvedValue('Enhanced text.'),
+  };
+}
+
+describe('TextEnhancementComponent (Pyramidize)', () => {
   let fixture: ComponentFixture<TextEnhancementComponent>;
   let component: TextEnhancementComponent;
   let el: HTMLElement;
   let wailsMock: ReturnType<typeof createWailsMock>;
-  let enhanceSpy: ReturnType<typeof vi.fn>;
+  let svcMock: ReturnType<typeof makeEnhancementServiceMock>;
 
   beforeEach(async () => {
     wailsMock = createWailsMock();
-    enhanceSpy = vi.fn().mockResolvedValue('Enhanced output.');
+    svcMock = makeEnhancementServiceMock();
 
     await TestBed.configureTestingModule({
       imports: [TextEnhancementComponent],
       providers: [
         provideAnimationsAsync(),
+        provideRouter([]),
         { provide: WailsService, useValue: wailsMock },
-        { provide: TextEnhancementService, useValue: { enhance: enhanceSpy } },
+        { provide: TextEnhancementService, useValue: svcMock },
       ],
     }).compileComponents();
 
     fixture = TestBed.createComponent(TextEnhancementComponent);
     component = fixture.componentInstance;
     el = fixture.nativeElement;
+
+    // Reset module-level state
+    component.originalTextView = '';
+    component.canvasTextView = '';
+    component.docTypeView = 'auto';
+    component.isLoading = false;
+    component.errorMessage = '';
+
     fixture.detectChanges();
     await fixture.whenStable();
   });
 
-  // --- DOM tests ---
-
-  it('renders input and output textareas', () => {
-    expect(el.querySelector('[data-testid="input-textarea"]')).toBeTruthy();
-    expect(el.querySelector('[data-testid="output-textarea"]')).toBeTruthy();
+  afterEach(() => {
+    vi.restoreAllMocks();
+    // Clean up module-level state
+    component.originalTextView = '';
+    component.canvasTextView = '';
   });
 
-  it('Enhance button is present and enabled initially', () => {
-    const btn = el.querySelector<HTMLButtonElement>('[data-testid="enhance-btn"] button');
-    expect(btn).toBeTruthy();
-    expect(btn?.disabled).toBe(false);
-  });
-
-  it('Enhance button shows loading state while enhancing', async () => {
-    let resolveEnhance!: (v: string) => void;
-    enhanceSpy.mockReturnValue(new Promise<string>(res => { resolveEnhance = res; }));
-
-    component.inputText = 'some text';
-    const enhancePromise = component.enhance();
-    fixture.detectChanges();
-
-    const btn = el.querySelector<HTMLButtonElement>('[data-testid="enhance-btn"] button');
-    expect(btn?.disabled).toBe(true);
-
-    resolveEnhance('done');
-    await enhancePromise;
-    fixture.detectChanges();
-    await fixture.whenStable();
-    expect(el.querySelector<HTMLButtonElement>('[data-testid="enhance-btn"] button')?.disabled).toBe(false);
-  });
-
-  it('output textarea shows enhanced text after enhancement', async () => {
-    component.inputText = 'bad grammer';
-    await component.enhance();
-    fixture.detectChanges();
-    await fixture.whenStable();
-
-    const output = el.querySelector<HTMLTextAreaElement>('[data-testid="output-textarea"]');
-    expect(output?.value).toBe('Enhanced output.');
-  });
-
-  it('error message appears in DOM on service failure', async () => {
-    enhanceSpy.mockRejectedValue(new Error('API error'));
-    component.inputText = 'some text';
-    await component.enhance();
-    fixture.detectChanges();
-    await fixture.whenStable();
-
-    const errEl = el.querySelector('[data-testid="error-message"]');
-    expect(errEl).toBeTruthy();
-  });
-
-  it('error message is absent when there is no error', () => {
-    expect(el.querySelector('[data-testid="error-message"]')).toBeFalsy();
-  });
-
-  // --- Logic tests ---
+  // ── 1. Creates successfully ──
 
   it('creates successfully', () => {
     expect(component).toBeTruthy();
   });
 
-  it('enhance() calls service and sets outputText', async () => {
-    component.inputText = 'bad grammer';
-    await component.enhance();
-    expect(enhanceSpy).toHaveBeenCalledWith('bad grammer');
-    expect(component.outputText).toBe('Enhanced output.');
-    expect(component.loading).toBe(false);
+  // ── 2. Original textarea renders with correct testid ──
+
+  it('renders original textarea with data-testid="original-textarea"', () => {
+    expect(el.querySelector('[data-testid="original-textarea"]')).toBeTruthy();
   });
 
-  it('enhance() does nothing when inputText is blank', async () => {
-    component.inputText = '   ';
-    await component.enhance();
-    expect(enhanceSpy).not.toHaveBeenCalled();
+  // ── 3. Pyramidize button disabled when originalText is empty ──
+
+  it('Pyramidize button is disabled when originalText is empty', () => {
+    component.originalTextView = '';
+    fixture.detectChanges();
+    const btn = el.querySelector<HTMLButtonElement>('[data-testid="pyramidize-btn"] button');
+    expect(btn?.disabled).toBe(true);
   });
 
-  it('enhance() sets error message on service failure', async () => {
-    enhanceSpy.mockRejectedValue(new Error('API error'));
-    component.inputText = 'some text';
-    await component.enhance();
-    expect(component.error).toBe('API error');
-    expect(component.loading).toBe(false);
+  // ── 4. Pyramidize button enabled when originalText has content ──
+
+  it('Pyramidize button is enabled when originalText has content', async () => {
+    component.originalTextView = 'Some text to pyramidize';
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const btn = el.querySelector<HTMLButtonElement>('[data-testid="pyramidize-btn"] button');
+    expect(btn?.disabled).toBe(false);
   });
 
-  it('enhance() clears previous error before each call', async () => {
-    component.error = 'old error';
-    component.inputText = 'new text';
-    await component.enhance();
-    expect(component.error).toBe('');
+  // ── 5. Paste from clipboard button reads clipboard and sets originalText ──
+
+  it('clicking paste from clipboard button reads clipboard and sets originalText', async () => {
+    wailsMock.readClipboard.mockResolvedValue('pasted content from clipboard');
+    component.originalTextView = ''; // ensure empty so button renders
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    await component.pasteFromClipboard();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(wailsMock.readClipboard).toHaveBeenCalled();
+    expect(component.originalTextView).toBe('pasted content from clipboard');
   });
 
-  it('shortcutTriggered$ reads clipboard and triggers enhance', async () => {
-    wailsMock.readClipboard.mockResolvedValue('clipboard content');
+  // ── 6. pyramidize() calls service with correct request ──
+
+  it('pyramidize() calls service.pyramidize with correct request', async () => {
+    component.originalTextView = 'Hello world';
+    component.docTypeView = 'email';
+    component.commStyleView = 'professional';
+    component.relLevelView = 'professional';
+    component.customInstructions = '';
+
+    await component.pyramidize();
+
+    expect(svcMock.pyramidize).toHaveBeenCalledWith(expect.objectContaining({
+      text: 'Hello world',
+      documentType: 'email',
+      communicationStyle: 'professional',
+      relationshipLevel: 'professional',
+    }));
+  });
+
+  // ── 7. After pyramidize(), canvas tab has content and trace log has entries ──
+
+  it('after pyramidize(), canvas has content and trace log has entries', async () => {
+    component.originalTextView = 'Some text';
+
+    await component.pyramidize();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(component.canvasTextView).toBe('Subject | Details | Actions\n\nBody text');
+    expect(component.traceLogView.length).toBeGreaterThan(0);
+    expect(component.traceLogView.some(e => e.label === 'Pyramidized')).toBe(true);
+  });
+
+  // ── 8. cancelOperation() calls service.cancelOperation() ──
+
+  it('cancelOperation() calls service.cancelOperation', async () => {
+    await component.cancelOperation();
+    expect(svcMock.cancelOperation).toHaveBeenCalled();
+    expect(component.isLoading).toBe(false);
+  });
+
+  // ── 9. applyGlobalInstruction() calls refineGlobal when there's canvas content and an instruction ──
+
+  it('applyGlobalInstruction() calls service.refineGlobal with canvas and instruction', async () => {
+    component.canvasTextView = 'Existing canvas content';
+    component.originalTextView = 'original';
+    component.globalInstruction = 'Make it shorter';
+
+    await component.applyGlobalInstruction();
+
+    expect(svcMock.refineGlobal).toHaveBeenCalledWith(expect.objectContaining({
+      fullCanvas: 'Existing canvas content',
+      instruction: 'Make it shorter',
+    }));
+    expect(component.canvasTextView).toBe('Refined canvas text');
+  });
+
+  it('applyGlobalInstruction() does nothing when instruction is empty', async () => {
+    component.canvasTextView = 'Some canvas';
+    component.globalInstruction = '';
+
+    await component.applyGlobalInstruction();
+    expect(svcMock.refineGlobal).not.toHaveBeenCalled();
+  });
+
+  it('applyGlobalInstruction() does nothing when canvas is empty', async () => {
+    component.canvasTextView = '';
+    component.globalInstruction = 'Make it shorter';
+
+    await component.applyGlobalInstruction();
+    expect(svcMock.refineGlobal).not.toHaveBeenCalled();
+  });
+
+  // ── 10. addCheckpoint() adds a trace entry ──
+
+  it('addCheckpoint() adds a trace entry when canvas has content', () => {
+    component.canvasTextView = 'Some canvas text';
+    const before = component.traceLogView.length;
+
+    component.addCheckpoint();
+
+    expect(component.traceLogView.length).toBe(before + 1);
+    expect(component.traceLogView[component.traceLogView.length - 1].label).toBe('Checkpoint');
+  });
+
+  it('addCheckpoint() does nothing when canvas is empty', () => {
+    component.canvasTextView = '';
+    const before = component.traceLogView.length;
+    component.addCheckpoint();
+    expect(component.traceLogView.length).toBe(before);
+  });
+
+  // ── 11. revertTo() restores canvas text and adds trace entry ──
+
+  it('revertTo() restores canvas text and adds a trace entry', () => {
+    component.canvasTextView = 'Current canvas';
+    const snapshot = 'Old snapshot text';
+    const entry = { id: 'test-id', label: 'Old version', snapshot, timestamp: new Date() };
+
+    const before = component.traceLogView.length;
+    component.revertTo(entry);
+
+    expect(component.canvasTextView).toBe(snapshot);
+    expect(component.traceLogView.length).toBe(before + 1);
+    expect(component.traceLogView[component.traceLogView.length - 1].label).toContain('Reverted to');
+  });
+
+  // ── 12. copyAsMarkdown() writes via WailsService.writeClipboard ──
+
+  it('copyAsMarkdown() writes canvasText via WailsService.writeClipboard', async () => {
+    component.canvasTextView = '# Hello\n\nWorld';
+    await component.copyAsMarkdown();
+
+    expect(wailsMock.writeClipboard).toHaveBeenCalledWith('# Hello\n\nWorld');
+  });
+
+  // ── 13. shortcutTriggered$ with empty originalText sets originalText from clipboard ──
+
+  it('shortcutTriggered$ with empty originalText sets originalText from clipboard', async () => {
+    component.originalTextView = '';
+    wailsMock.readClipboard.mockResolvedValue('clipboard hotkey content');
+    wailsMock.getSourceApp.mockResolvedValue('TestApp');
+
     wailsMock._shortcutTriggered$.next('hotkey');
     await new Promise(r => setTimeout(r, 0));
+
     expect(wailsMock.readClipboard).toHaveBeenCalled();
-    expect(component.inputText).toBe('clipboard content');
+    expect(component.originalTextView).toBe('clipboard hotkey content');
+  });
+
+  // ── 14. shortcutTriggered$ with existing originalText shows confirm dialog ──
+
+  it('shortcutTriggered$ with existing originalText shows confirm dialog', async () => {
+    component.originalTextView = 'existing content';
+    wailsMock.readClipboard.mockResolvedValue('new clipboard content');
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    wailsMock._shortcutTriggered$.next('hotkey');
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(confirmSpy).toHaveBeenCalled();
+    // Since user cancelled, originalText should remain unchanged
+    expect(component.originalTextView).toBe('existing content');
+  });
+
+  it('shortcutTriggered$ with existing originalText and confirm=true replaces content', async () => {
+    component.originalTextView = 'existing content';
+    wailsMock.readClipboard.mockResolvedValue('new clipboard content');
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    wailsMock._shortcutTriggered$.next('hotkey');
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(component.originalTextView).toBe('new clipboard content');
+  });
+
+  // ── Additional tests ──
+
+  it('renders API key banner when API key is not set', async () => {
+    wailsMock.getKeyStatus.mockResolvedValue({ is_set: false, source: 'none' });
+    // Force banner visible
+    (component as unknown as { bannerDismissedView: boolean });
+    component.apiKeySet = false;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid="api-key-banner"]')).toBeTruthy();
+  });
+
+  it('renders trace log panel', () => {
+    expect(el.querySelector('[data-testid="trace-log-panel"]')).toBeTruthy();
+  });
+
+  it('pyramidize() does nothing when originalText is empty', async () => {
+    component.originalTextView = '';
+    await component.pyramidize();
+    expect(svcMock.pyramidize).not.toHaveBeenCalled();
+  });
+
+  it('pyramidize() sets errorMessage on service failure', async () => {
+    component.originalTextView = 'Some text';
+    svcMock.pyramidize.mockRejectedValue(new Error('API failure'));
+
+    await component.pyramidize();
+
+    expect(component.errorMessage).toContain('API failure');
+    expect(component.isLoading).toBe(false);
   });
 
   it('ngOnDestroy unsubscribes from shortcut events', async () => {
     component.ngOnDestroy();
+    const prevReadCount = (wailsMock.readClipboard as ReturnType<typeof vi.fn>).mock.calls.length;
     wailsMock._shortcutTriggered$.next('hotkey');
     await new Promise(r => setTimeout(r, 0));
-    expect(wailsMock.readClipboard).not.toHaveBeenCalled();
+    expect((wailsMock.readClipboard as ReturnType<typeof vi.fn>).mock.calls.length).toBe(prevReadCount);
   });
 });

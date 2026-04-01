@@ -1,38 +1,94 @@
 .layout-wrapper {
-  display: flex;
+  display: block;
   height: 100vh;
   overflow: hidden;
+  position: relative;
+
+  // When collapsed, main content reserves only the 3rem strip.
+  // Hover-expand overlays without shifting the main content.
+  &.sidebar-collapsed .layout-main {
+    margin-left: 3rem;
+  }
 }
 
 .layout-sidebar {
-  width: 17rem;
+  position: absolute;
+  left: 0;
+  top: 0;
   height: 100%;
+  width: 17rem;
+  z-index: 50;
   display: flex;
   flex-direction: column;
   background: var(--p-surface-900, #18181b);
   border-right: 1px solid var(--p-surface-700, #3f3f46);
   box-shadow: 2px 0 6px rgba(0, 0, 0, 0.3);
-  flex-shrink: 0;
+  transition: width 0.2s ease;
+  overflow: hidden;
+
+  &.collapsed {
+    width: 3rem;
+
+    .nav-item a {
+      justify-content: center;
+      padding-left: 0;
+      padding-right: 0;
+    }
+
+    .version-row {
+      padding: 0;
+    }
+
+    // Collapsed (not hover-expanded): contract "ey" and "int" so only "K" and "L" show.
+    &:not(.hover-expanded) .layout-logo {
+      .logo-reveal {
+        max-width: 0;
+      }
+    }
+
+    // Hover-expand: full sidebar overlays main content without layout shift.
+    &.hover-expanded {
+      width: 17rem;
+
+      .nav-item a {
+        justify-content: flex-start;
+        padding-left: 1rem;
+        padding-right: 1rem;
+      }
+
+      .version-row {
+        padding: 0.5rem 1rem;
+      }
+    }
+  }
 }
 
 .layout-logo {
   display: flex;
   align-items: center;
+  justify-content: center;
   padding: 1.5rem 1rem 1rem;
   border-bottom: 1px solid var(--p-surface-700, #3f3f46);
+  overflow: hidden;
 
-  .logo-text {
+  // Shared type styles for all logo character spans.
+  .logo-k, .logo-reveal, .logo-l {
     font-size: 1.25rem;
     font-weight: 700;
     letter-spacing: -0.025em;
+    line-height: 1;
   }
 
-  .logo-key {
-    color: var(--p-surface-50, #fff);
-  }
+  .logo-key { color: var(--p-surface-50, #fff); }
+  .logo-lint { color: var(--p-primary-color, #f97316); }
 
-  .logo-lint {
-    color: var(--p-primary-color, #f97316);
+  // "ey" and "int" expand in as the sidebar opens.
+  // max-width clips characters without affecting flex alignment of neighbours.
+  .logo-reveal {
+    overflow: hidden;
+    white-space: nowrap;
+    max-width: 4em;
+    transition: max-width 0.18s ease;
   }
 }
 
@@ -40,6 +96,7 @@
   flex: 1;
   padding: 0.75rem 0;
   overflow-y: auto;
+  overflow-x: hidden;
 
   ul {
     list-style: none;
@@ -54,17 +111,33 @@
   gap: 0.75rem;
   padding: 0.75rem 1rem;
   border-radius: 6px;
-  margin: 2px 0.75rem;
+  margin: 2px 0.5rem;
   color: var(--p-surface-200, #e4e4e7);
   text-decoration: none;
   font-size: 0.9rem;
   transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+  overflow: hidden;
+
+  // line-height:1 on the text label keeps its box height = font-size (0.9rem),
+  // which is shorter than the icon height (1rem). This prevents the <a> from
+  // growing taller when the label appears on hover-expand, which would cause
+  // align-items:center to re-center the icon — the visible 1-2px "drop" bug.
+  span {
+    line-height: 1;
+  }
 
   i {
     font-size: 1rem;
     width: 1.25rem;
+    min-width: 1.25rem;
     text-align: center;
     color: var(--p-surface-400, #a1a1aa);
+    transition: color 0.15s;
+  }
+
+  .nav-icon-svg {
+    min-width: 1rem;
     transition: color 0.15s;
   }
 
@@ -72,7 +145,7 @@
     background: var(--p-surface-800, #27272a);
     color: var(--p-surface-50, #fafafa);
 
-    i {
+    i, .nav-icon-svg {
       color: var(--p-primary-color, #f97316);
     }
   }
@@ -81,7 +154,7 @@
     background: var(--p-primary-color, #f97316);
     color: #fff;
 
-    i {
+    i, .nav-icon-svg {
       color: #fff;
     }
   }
@@ -89,12 +162,20 @@
 
 .sidebar-footer {
   display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--p-surface-700, #3f3f46);
+  overflow: hidden;
+}
+
+.version-row {
+  display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.75rem 1rem;
-  border-top: 1px solid var(--p-surface-700, #3f3f46);
+  padding: 0.5rem 1rem;
   cursor: pointer;
   transition: background 0.15s;
+  white-space: nowrap;
+  overflow: hidden;
 
   &:hover {
     background: var(--p-surface-800, #27272a);
@@ -112,13 +193,37 @@
   }
 }
 
+.collapse-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.875rem 0.5rem;
+  color: var(--p-surface-400, #a1a1aa);
+  transition: background 0.15s, color 0.15s;
+  width: 100%;
+
+  i {
+    font-size: 0.85rem;
+  }
+
+  &:hover {
+    background: var(--p-surface-800, #27272a);
+    color: var(--p-surface-50, #fafafa);
+  }
+}
+
 @keyframes pulse-glow {
   0%, 100% { opacity: 0.7; }
   50% { opacity: 1; }
 }
 
 .layout-main {
-  flex: 1;
+  height: 100vh;
   overflow: auto;
   background: var(--p-surface-ground);
+  margin-left: 17rem;
+  transition: margin-left 0.2s ease;
 }

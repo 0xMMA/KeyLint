@@ -10,7 +10,8 @@ import { MessageModule } from 'primeng/message';
 import { CardModule } from 'primeng/card';
 import { TagModule } from 'primeng/tag';
 import { ActivatedRoute } from '@angular/router';
-import { WailsService, Settings as AppSettings, KeyStatus, UpdateInfo } from '../../core/wails.service';
+import { WailsService, Settings as AppSettings, KeyStatus, UpdateInfo, AppPreset } from '../../core/wails.service';
+import { DOCUMENT_TYPE_OPTIONS } from '../../core/constants';
 import { LogService } from '../../core/log.service';
 
 interface ProviderKey {
@@ -38,6 +39,7 @@ interface ProviderKey {
             <p-tablist>
               <p-tab value="general">General</p-tab>
               <p-tab value="providers">AI Providers</p-tab>
+              <p-tab value="app-defaults">App Defaults</p-tab>
               <p-tab value="about">About</p-tab>
             </p-tablist>
 
@@ -169,6 +171,44 @@ interface ProviderKey {
                   <label>Ollama Server URL</label>
                   <input pInputText [(ngModel)]="settings.providers.ollama_url" placeholder="http://localhost:11434" />
                   <small class="hint-text">Only needed when using Ollama as the provider.</small>
+                </div>
+              </p-tabpanel>
+
+              <!-- App Defaults tab -->
+              <p-tabpanel value="app-defaults">
+                <div class="form-group mt-4">
+                  <label>App Presets</label>
+                  @if (presets.length === 0 && !addingPreset) {
+                    <p class="hint-text">No app presets saved yet. Use Pyramidize with the global hotkey to detect apps automatically.</p>
+                  }
+                  @for (preset of presets; track preset.sourceApp) {
+                    @if (editingPreset?.sourceApp === preset.sourceApp) {
+                      <div class="preset-row editing">
+                        <input pInputText [(ngModel)]="editPresetDraft.sourceApp" style="flex:1" />
+                        <p-select [(ngModel)]="editPresetDraft.documentType" [options]="docTypeOptions" optionLabel="label" optionValue="value" style="width:140px" />
+                        <p-button icon="pi pi-check" size="small" (onClick)="saveEditPreset()" />
+                        <p-button icon="pi pi-times" size="small" severity="secondary" (onClick)="cancelEditPreset()" />
+                      </div>
+                    } @else {
+                      <div class="preset-row">
+                        <span style="flex:1">{{ preset.sourceApp }}</span>
+                        <span class="preset-type">{{ preset.documentType }}</span>
+                        <p-button icon="pi pi-pencil" size="small" severity="secondary" (onClick)="startEditPreset(preset)" />
+                        <p-button icon="pi pi-trash" size="small" severity="danger" (onClick)="deletePreset(preset.sourceApp)" />
+                      </div>
+                    }
+                  }
+
+                  @if (addingPreset) {
+                    <div class="preset-row editing">
+                      <input pInputText [(ngModel)]="addPresetDraft.sourceApp" placeholder="App name" style="flex:1" />
+                      <p-select [(ngModel)]="addPresetDraft.documentType" [options]="docTypeOptions" optionLabel="label" optionValue="value" style="width:140px" />
+                      <p-button icon="pi pi-check" size="small" (onClick)="saveAddPreset()" [disabled]="!addPresetDraft.sourceApp" />
+                      <p-button icon="pi pi-times" size="small" severity="secondary" (onClick)="cancelAddPreset()" />
+                    </div>
+                  } @else {
+                    <p-button label="+ Add manually" size="small" severity="secondary" outlined (onClick)="startAddPreset()" />
+                  }
                 </div>
               </p-tabpanel>
 
@@ -315,6 +355,19 @@ interface ProviderKey {
       font-family: monospace;
       font-size: 0.85em;
     }
+    .preset-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid var(--p-content-border-color);
+    }
+    .preset-type {
+      font-size: 0.8rem;
+      color: var(--p-text-muted-color);
+      text-transform: uppercase;
+      width: 80px;
+    }
   `],
 })
 export class SettingsComponent implements OnInit {
@@ -329,6 +382,14 @@ export class SettingsComponent implements OnInit {
   updateInstalling = false;
   updateError = '';
   updateSuccess = false;
+
+  // App Defaults tab state
+  presets: AppPreset[] = [];
+  qualityThreshold = 0.65;
+  editingPreset: AppPreset | null = null;
+  editPresetDraft: AppPreset = { sourceApp: '', documentType: 'email' };
+  addingPreset = false;
+  addPresetDraft: AppPreset = { sourceApp: '', documentType: 'email' };
 
   readonly providers = [
     { label: 'OpenAI', value: 'openai' },
@@ -349,6 +410,8 @@ export class SettingsComponent implements OnInit {
     { label: 'Pre-release', value: 'pre-release' },
   ];
 
+  readonly docTypeOptions = DOCUMENT_TYPE_OPTIONS;
+
   providerKeys: ProviderKey[] = [
     { id: 'openai',  label: 'OpenAI API Key',      status: null, editing: false, draftKey: '', saving: false },
     { id: 'claude',  label: 'Anthropic API Key',    status: null, editing: false, draftKey: '', saving: false },
@@ -368,6 +431,8 @@ export class SettingsComponent implements OnInit {
     this.log.info('settings: loaded');
     await this.refreshKeyStatuses();
     this.appVersion = await this.wails.getVersion();
+    this.presets = await this.wails.getAppPresets();
+    this.qualityThreshold = await this.wails.getQualityThreshold();
     this.cdr.detectChanges();
   }
 
@@ -477,5 +542,50 @@ export class SettingsComponent implements OnInit {
     this.saved = true;
     this.cdr.detectChanges();
     setTimeout(() => { this.saved = false; this.cdr.detectChanges(); }, 3000);
+  }
+
+  // ── App Defaults tab methods ──
+
+  async saveThreshold(): Promise<void> {
+    await this.wails.setQualityThreshold(this.qualityThreshold);
+  }
+
+  startEditPreset(preset: AppPreset): void {
+    this.editingPreset = preset;
+    this.editPresetDraft = { ...preset };
+  }
+
+  cancelEditPreset(): void {
+    this.editingPreset = null;
+  }
+
+  async saveEditPreset(): Promise<void> {
+    await this.wails.setAppPreset(this.editPresetDraft);
+    this.presets = await this.wails.getAppPresets();
+    this.editingPreset = null;
+    this.cdr.detectChanges();
+  }
+
+  async deletePreset(sourceApp: string): Promise<void> {
+    await this.wails.deleteAppPreset(sourceApp);
+    this.presets = await this.wails.getAppPresets();
+    this.cdr.detectChanges();
+  }
+
+  startAddPreset(): void {
+    this.addingPreset = true;
+    this.addPresetDraft = { sourceApp: '', documentType: 'email' };
+  }
+
+  cancelAddPreset(): void {
+    this.addingPreset = false;
+  }
+
+  async saveAddPreset(): Promise<void> {
+    if (!this.addPresetDraft.sourceApp) return;
+    await this.wails.setAppPreset(this.addPresetDraft);
+    this.presets = await this.wails.getAppPresets();
+    this.addingPreset = false;
+    this.cdr.detectChanges();
   }
 }

@@ -5,5 +5,7 @@ frontend/dist
 frontend/node_modules
 build/linux/appimage/build
 build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+test-data/eval-runs/
+.superpowers/
 .claude/settings.local.json
 frontend/test-results

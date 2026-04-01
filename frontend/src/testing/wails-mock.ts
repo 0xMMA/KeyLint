@@ -15,6 +15,8 @@ export const defaultSettings: Settings = {
   debug_logging: false,
   sensitive_logging: false,
   update_channel: '',
+  app_presets: [],
+  pyramidize_quality_threshold: 0.65,
 };
 
 export const defaultKeyStatus: KeyStatus = { is_set: false, source: 'none' };
@@ -56,7 +58,33 @@ export function createWailsMock() {
     checkForUpdate: vi.fn().mockResolvedValue({ ...defaultUpdateInfo }),
     downloadAndInstall: vi.fn().mockResolvedValue(undefined),
     log: vi.fn().mockResolvedValue(undefined),
+    pasteToForeground: vi.fn().mockResolvedValue(undefined),
     ngOnDestroy: vi.fn(),
+
+    // Pyramidize mocks
+    pyramidize: vi.fn().mockResolvedValue({
+      documentType: 'EMAIL',
+      language: 'en',
+      fullDocument: 'Subject | Details | Actions\n\nBody text',
+      headers: ['Header 1'],
+      qualityScore: 0.9,
+      qualityFlags: [],
+      appliedRefinement: false,
+      refinementWarning: '',
+      detectedType: 'EMAIL',
+      detectedLang: 'en',
+      detectedConfidence: 0.95,
+    }),
+    refineGlobal: vi.fn().mockResolvedValue({ newCanvas: 'Refined canvas text' }),
+    splice: vi.fn().mockResolvedValue({ rewrittenSection: 'Rewritten section' }),
+    cancelOperation: vi.fn().mockResolvedValue(undefined),
+    sendBack: vi.fn().mockResolvedValue(undefined),
+    getSourceApp: vi.fn().mockResolvedValue(''),
+    getAppPresets: vi.fn().mockResolvedValue([]),
+    setAppPreset: vi.fn().mockResolvedValue(undefined),
+    deleteAppPreset: vi.fn().mockResolvedValue(undefined),
+    getQualityThreshold: vi.fn().mockResolvedValue(0.65),
+    setQualityThreshold: vi.fn().mockResolvedValue(undefined),
   };
 }
 

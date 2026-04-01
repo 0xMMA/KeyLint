@@ -2,56 +2,91 @@ import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { Router, RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { isDevMode } from '@angular/core';
 import { Subscription } from 'rxjs';
+import { TooltipModule } from 'primeng/tooltip';
 import { WailsService } from '../core/wails.service';
+
+// Persists across navigation
+let sidebarCollapsed = false;
+let sidebarHovered   = false;
 
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, TooltipModule],
   styleUrls: ['./shell.component.scss'],
   template: `
-    <div class="layout-wrapper">
-      <aside class="layout-sidebar">
+    <div class="layout-wrapper" [class.sidebar-collapsed]="collapsedView">
+      <aside class="layout-sidebar"
+        [class.collapsed]="collapsedView"
+        [class.hover-expanded]="hoverExpanded"
+        (mouseenter)="onSidebarEnter()"
+        (mouseleave)="onSidebarLeave()">
         <div class="layout-logo">
-          <span class="logo-text"><span class="logo-key">Key</span><span class="logo-lint">Lint</span></span>
+          <span class="logo-k logo-key">K</span><span class="logo-reveal logo-ey logo-key">ey</span><span class="logo-l logo-lint">L</span><span class="logo-reveal logo-int logo-lint">int</span>
         </div>
         <nav class="sidebar-nav">
           <ul>
             <li class="nav-item">
-              <a routerLink="/fix" routerLinkActive="active-route">
+              <a routerLink="/fix" routerLinkActive="active-route"
+                [pTooltip]="collapsedView && !hoverExpanded ? 'Fix' : ''"
+                tooltipPosition="right"
+                appendTo="body">
                 <i class="pi pi-sparkles"></i>
-                <span>Fix</span>
+                @if (!collapsedView || hoverExpanded) { <span>Fix</span> }
               </a>
             </li>
             <li class="nav-item">
-              <a routerLink="/enhance" routerLinkActive="active-route">
+              <a routerLink="/enhance" routerLinkActive="active-route"
+                [pTooltip]="collapsedView && !hoverExpanded ? 'Pyramidize' : ''"
+                tooltipPosition="right"
+                appendTo="body">
                 <svg class="nav-icon-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" width="1rem" height="1rem">
                   <polygon points="12,3 22,21 2,21"/>
                 </svg>
-                <span>Pyramidize</span>
+                @if (!collapsedView || hoverExpanded) { <span>Pyramidize</span> }
               </a>
             </li>
             <li class="nav-item">
-              <a routerLink="/settings" routerLinkActive="active-route">
+              <a routerLink="/settings" routerLinkActive="active-route"
+                [pTooltip]="collapsedView && !hoverExpanded ? 'Settings' : ''"
+                tooltipPosition="right"
+                appendTo="body">
                 <i class="pi pi-cog"></i>
-                <span>Settings</span>
+                @if (!collapsedView || hoverExpanded) { <span>Settings</span> }
               </a>
             </li>
             @if (dev) {
               <li class="nav-item">
-                <a routerLink="/dev-tools" routerLinkActive="active-route">
+                <a routerLink="/dev-tools" routerLinkActive="active-route"
+                  [pTooltip]="collapsedView && !hoverExpanded ? 'Dev Tools' : ''"
+                  tooltipPosition="right"
+                  appendTo="body">
                   <i class="pi pi-wrench"></i>
-                  <span>Dev Tools</span>
+                  @if (!collapsedView || hoverExpanded) { <span>Dev Tools</span> }
                 </a>
               </li>
             }
           </ul>
         </nav>
-        <div class="sidebar-footer" data-testid="version-footer" (click)="goToAbout()">
-          <span class="version-text">v{{ appVersion || '…' }}</span>
-          @if (updateAvailable) {
-            <i class="pi pi-arrow-circle-up update-indicator" data-testid="update-indicator" title="Update available"></i>
-          }
+        <div class="sidebar-footer">
+          <div class="version-row" data-testid="version-footer" (click)="goToAbout()">
+            @if (!collapsedView || hoverExpanded) {
+              <span class="version-text">v{{ appVersion || '…' }}</span>
+              @if (updateAvailable) {
+                <i class="pi pi-arrow-circle-up update-indicator" data-testid="update-indicator" title="Update available"></i>
+              }
+            } @else {
+              @if (updateAvailable) {
+                <i class="pi pi-arrow-circle-up update-indicator" data-testid="update-indicator" title="Update available"></i>
+              }
+            }
+          </div>
+          <button class="collapse-btn" (click)="toggleSidebar()" type="button"
+            [pTooltip]="collapsedView ? 'Expand sidebar' : 'Collapse sidebar'"
+            tooltipPosition="right"
+            appendTo="body">
+            <i class="pi" [class.pi-chevron-left]="!collapsedView" [class.pi-chevron-right]="collapsedView"></i>
+          </button>
         </div>
       </aside>
       <div class="layout-main">
@@ -65,6 +100,9 @@ export class ShellComponent implements OnInit, OnDestroy {
   appVersion = '';
   updateAvailable = false;
   private sub?: Subscription;
+
+  get collapsedView(): boolean  { return sidebarCollapsed; }
+  get hoverExpanded(): boolean  { return sidebarCollapsed && sidebarHovered; }
 
   constructor(
     private readonly wails: WailsService,
@@ -80,6 +118,24 @@ export class ShellComponent implements OnInit, OnDestroy {
 
   goToAbout(): void {
     void this.router.navigate(['/settings'], { queryParams: { tab: 'about' } });
+  }
+
+  toggleSidebar(): void {
+    sidebarCollapsed = !sidebarCollapsed;
+    sidebarHovered = false; // Don't immediately re-expand on manual toggle
+    this.cdr.detectChanges();
+  }
+
+  onSidebarEnter(): void {
+    if (sidebarCollapsed) {
+      sidebarHovered = true;
+      this.cdr.detectChanges();
+    }
+  }
+
+  onSidebarLeave(): void {
+    sidebarHovered = false;
+    this.cdr.detectChanges();
   }
 
   private async loadVersionInfo(): Promise<void> {
@@ -100,8 +156,6 @@ export class ShellComponent implements OnInit, OnDestroy {
 
   private async applyTheme(): Promise<void> {
     const settings = await this.wails.loadSettings();
-    // Dark-first app: only explicit 'light' disables dark mode.
-    // 'dark', 'system', or anything else → keep dark mode.
     const dark = settings.theme_preference !== 'light';
     document.body.classList.toggle('app-dark', dark);
   }

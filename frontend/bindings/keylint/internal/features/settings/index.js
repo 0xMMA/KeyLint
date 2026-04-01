@@ -8,6 +8,7 @@ export {
 };
 
 export {
+    AppPreset,
     KeyStatus,
     Provider,
     Settings

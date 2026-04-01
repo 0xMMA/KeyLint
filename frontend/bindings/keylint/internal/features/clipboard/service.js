@@ -4,7 +4,7 @@
 
 /**
  * Service reads from and writes to the system clipboard.
- * Uses xclip/xdotool on Linux, native Win32 via Go on Windows.
+ * Uses xclip, xsel, or wl-paste/wl-copy on Linux (tries each in order).
  * @module
  */
 
@@ -15,6 +15,7 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 /**
  * CopyFromForeground sends Ctrl+C to the currently focused window via xdotool,
  * then waits 150 ms for the clipboard to be populated.
+ * Best-effort: if xdotool is not installed, logs a warning and returns nil.
  * @returns {$CancellablePromise<void>}
  */
 export function CopyFromForeground() {
@@ -23,9 +24,7 @@ export function CopyFromForeground() {
 
 /**
  * PasteToForeground sends a Ctrl+V keystroke to the currently focused window.
- * Uses xdotool; intended to be called after writing fixed text to the clipboard
- * so the result is pasted back into the source application.
- * A 150 ms delay is applied first to let the clipboard write settle.
+ * Best-effort: if xdotool is not installed, logs a warning and returns nil.
  * @returns {$CancellablePromise<void>}
  */
 export function PasteToForeground() {
@@ -34,6 +33,7 @@ export function PasteToForeground() {
 
 /**
  * Read returns the current clipboard text content.
+ * Tries xclip → xsel → wl-paste. Returns a clear error if none are available.
  * @returns {$CancellablePromise<string>}
  */
 export function Read() {
@@ -42,6 +42,7 @@ export function Read() {
 
 /**
  * Write sets the clipboard text content.
+ * Tries xclip → xsel → wl-copy. Returns a clear error if none are available.
  * @param {string} text
  * @returns {$CancellablePromise<void>}
  */

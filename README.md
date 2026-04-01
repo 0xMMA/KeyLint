@@ -101,6 +101,27 @@ go test ./internal/...
 npx playwright test
 ```
 
+### Evaluation (Pyramidize Quality)
+
+The pyramidize feature has an automated eval pipeline that measures output quality against baseline test data using deterministic checks (structure, info coverage, hallucination detection) and LLM-as-judge scoring.
+
+```bash
+# Setup: create .env in project root with your API key
+echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
+
+# Run eval (uses //go:build eval tag — isolated from normal tests)
+EVAL_PROVIDER=claude go test -tags eval ./internal/features/pyramidize/ -v -timeout 600s
+
+# Or use the wrapper script (supports --provider / --model flags)
+./scripts/eval.sh --provider claude
+
+# Interactive human review mode (side-by-side comparison)
+./scripts/eval-human.sh --provider claude
+
+# Results are logged to test-data/eval-runs/<timestamp>/
+# Each run produces: summary.json, results.jsonl, samples/
+```
+
 ### Wire DI Regeneration
 
 ```bash
@@ -116,7 +137,8 @@ KeyLint/
 ├── main.go                         # Entry point — CLI flags, Wails app setup
 ├── internal/
 │   ├── app/                        # Wire DI (wire.go + wire_gen.go)
-│   └── features/                   # Vertical slices: settings, shortcut, clipboard, tray, enhance, welcome
+│   ├── cli/                        # Headless CLI commands (-fix, -pyramidize)
+│   └── features/                   # Vertical slices: settings, shortcut, clipboard, tray, enhance, welcome, pyramidize
 ├── frontend/
 │   ├── src/app/
 │   │   ├── core/                   # WailsService (bindings bridge), MessageBus, guards

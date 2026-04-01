@@ -10,10 +10,13 @@ import * as SimulateService from '../../../bindings/keylint/simulateservice.js';
 import * as EnhanceService from '../../../bindings/keylint/internal/features/enhance/service.js';
 import * as UpdaterService from '../../../bindings/keylint/internal/features/updater/service.js';
 import * as LoggerService from '../../../bindings/keylint/internal/features/logger/service.js';
+import * as PyramidizeService from '../../../bindings/keylint/internal/features/pyramidize/service.js';
 import { Settings, KeyStatus } from '../../../bindings/keylint/internal/features/settings/models.js';
 import { UpdateInfo } from '../../../bindings/keylint/internal/features/updater/models.js';
+import type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset } from '../../../bindings/keylint/internal/features/pyramidize/models.js';
 
 export type { Settings, KeyStatus, UpdateInfo };
+export type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset };
 
 
 // Default settings used when the Wails backend is unavailable (browser dev / Playwright mode).
@@ -27,6 +30,8 @@ const BROWSER_MODE_DEFAULTS: Settings = {
   debug_logging: false,
   sensitive_logging: false,
   update_channel: '',
+  app_presets: [],
+  pyramidize_quality_threshold: 0.65,
 };
 
 @Injectable({ providedIn: 'root' })
@@ -170,6 +175,68 @@ export class WailsService implements OnDestroy {
     } catch {
       return Promise.resolve();
     }
+  }
+
+  // ── Pyramidize RPCs ────────────────────────────────────────────────────────
+
+  pyramidize(req: PyramidizeRequest): Promise<PyramidizeResult> {
+    return PyramidizeService.Pyramidize(req);
+  }
+
+  refineGlobal(req: RefineGlobalRequest): Promise<RefineGlobalResult> {
+    return PyramidizeService.RefineGlobal(req);
+  }
+
+  splice(req: SpliceRequest): Promise<SpliceResult> {
+    return PyramidizeService.Splice(req);
+  }
+
+  cancelOperation(): Promise<void> {
+    try {
+      return PyramidizeService.CancelOperation().catch(() => {});
+    } catch {
+      return Promise.resolve();
+    }
+  }
+
+  sendBack(text: string): Promise<void> {
+    return PyramidizeService.SendBack(text);
+  }
+
+  getSourceApp(): Promise<string> {
+    try {
+      return PyramidizeService.GetSourceApp().catch(() => '');
+    } catch {
+      return Promise.resolve('');
+    }
+  }
+
+  getAppPresets(): Promise<AppPreset[]> {
+    try {
+      return PyramidizeService.GetAppPresets().catch(() => []);
+    } catch {
+      return Promise.resolve([]);
+    }
+  }
+
+  setAppPreset(preset: AppPreset): Promise<void> {
+    return PyramidizeService.SetAppPreset(preset);
+  }
+
+  deleteAppPreset(sourceApp: string): Promise<void> {
+    return PyramidizeService.DeleteAppPreset(sourceApp);
+  }
+
+  getQualityThreshold(): Promise<number> {
+    try {
+      return PyramidizeService.GetQualityThreshold().catch(() => 0.65);
+    } catch {
+      return Promise.resolve(0.65);
+    }
+  }
+
+  setQualityThreshold(v: number): Promise<void> {
+    return PyramidizeService.SetQualityThreshold(v);
   }
 
   ngOnDestroy(): void {

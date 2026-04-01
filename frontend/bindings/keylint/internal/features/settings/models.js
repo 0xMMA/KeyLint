@@ -7,6 +7,44 @@
 import { Create as $Create } from "@wailsio/runtime";
 
 /**
+ * AppPreset maps a source application name to a preferred document type for Pyramidize.
+ */
+export class AppPreset {
+    /**
+     * Creates a new AppPreset instance.
+     * @param {Partial<AppPreset>} [$$source = {}] - The source object to create the AppPreset.
+     */
+    constructor($$source = {}) {
+        if (!("sourceApp" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["sourceApp"] = "";
+        }
+        if (!("documentType" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["documentType"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AppPreset instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AppPreset}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AppPreset(/** @type {Partial<AppPreset>} */($$parsedSource));
+    }
+}
+
+/**
  * KeyStatus describes whether a key is configured and where it comes from.
  */
 export class KeyStatus {
@@ -163,6 +201,22 @@ export class Settings {
              */
             this["update_channel"] = "";
         }
+        if (!("app_presets" in $$source)) {
+            /**
+             * Pyramidize settings
+             * @member
+             * @type {AppPreset[]}
+             */
+            this["app_presets"] = [];
+        }
+        if (!("pyramidize_quality_threshold" in $$source)) {
+            /**
+             * default 0.65
+             * @member
+             * @type {number}
+             */
+            this["pyramidize_quality_threshold"] = 0;
+        }
 
         Object.assign(this, $$source);
     }
@@ -174,9 +228,13 @@ export class Settings {
      */
     static createFrom($$source = {}) {
         const $$createField1_0 = $$createType0;
+        const $$createField9_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("providers" in $$parsedSource) {
             $$parsedSource["providers"] = $$createField1_0($$parsedSource["providers"]);
+        }
+        if ("app_presets" in $$parsedSource) {
+            $$parsedSource["app_presets"] = $$createField9_0($$parsedSource["app_presets"]);
         }
         return new Settings(/** @type {Partial<Settings>} */($$parsedSource));
     }
@@ -184,3 +242,5 @@ export class Settings {
 
 // Private type creation functions
 const $$createType0 = Provider.createFrom;
+const $$createType1 = AppPreset.createFrom;
+const $$createType2 = $Create.Array($$createType1);
