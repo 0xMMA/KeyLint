@@ -36,6 +36,18 @@ cwd=$(echo "$input" | jq -r '.workspace.current_dir // .cwd // empty')
 branch=""
 if [ -n "$cwd" ] && [ -d "$cwd" ]; then
     branch=$(GIT_OPTIONAL_LOCKS=0 git -C "$cwd" symbolic-ref --short HEAD 2>/dev/null)
+    # Compact git status counts via porcelain
+    if [ -n "$branch" ]; then
+        porcelain=$(GIT_OPTIONAL_LOCKS=0 git -C "$cwd" status --porcelain 2>/dev/null)
+        staged=$(echo "$porcelain" | grep -c '^[MADRC]')
+        modified=$(echo "$porcelain" | grep -c '^.[MD]')
+        untracked=$(echo "$porcelain" | grep -c '^??')
+        git_bits=""
+        [ "$staged" -gt 0 ] && git_bits="+${staged}"
+        [ "$modified" -gt 0 ] && git_bits="${git_bits} ~${modified}"
+        [ "$untracked" -gt 0 ] && git_bits="${git_bits} ?${untracked}"
+        git_bits=$(echo "$git_bits" | sed 's/^ //')
+    fi
 fi
 
 # --- Folder (basename of project dir or cwd) ---
@@ -96,9 +108,13 @@ ctx_gradient_color() {
 
 parts=()
 
-# 1. Branch
+# 1. Branch + git status
 if [ -n "$branch" ]; then
-    parts+=("$(printf '%b%s%b' "$GREEN" "$branch" "$RESET")")
+    if [ -n "$git_bits" ]; then
+        parts+=("$(printf '%b%s %b%s%b' "$GREEN" "$branch" "$YELLOW" "$git_bits" "$RESET")")
+    else
+        parts+=("$(printf '%b%s%b' "$GREEN" "$branch" "$RESET")")
+    fi
 fi
 
 # 2. Project name (KeyLint accent orange)
