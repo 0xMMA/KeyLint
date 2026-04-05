@@ -69,7 +69,11 @@ func main() {
 
 	// Initialize structured logger based on the saved settings.
 	cfg := services.Settings.Get()
-	logger.Init(cfg.DebugLogging, cfg.SensitiveLogging)
+	logLevel := "off"
+	if cfg.DebugLogging {
+		logLevel = "debug"
+	}
+	logger.Init(logLevel, cfg.SensitiveLogging)
 	logger.Info("app initializing", "version", AppVersion)
 
 	// Register backend services so the frontend can call their methods.
