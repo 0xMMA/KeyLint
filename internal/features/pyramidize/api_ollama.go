@@ -34,7 +34,7 @@ func callOllama(client *http.Client, systemPrompt, userMessage, baseURL, model s
 		return "", fmt.Errorf("pyramidize/ollama: marshal error: %w", err)
 	}
 
-	logger.Sensitive("pyramidize: ollama request", "len", len(payload))
+	logger.Debug("pyramidize: ollama request", "payload", logger.Redact(string(payload)))
 
 	req, err := http.NewRequest(http.MethodPost, baseURL+"/api/generate", bytes.NewReader(payload))
 	if err != nil {
@@ -49,7 +49,7 @@ func callOllama(client *http.Client, systemPrompt, userMessage, baseURL, model s
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	logger.Sensitive("pyramidize: ollama response", "status", resp.StatusCode, "len", len(body))
+	logger.Debug("pyramidize: ollama response", "status", resp.StatusCode, "body", logger.Redact(string(body)))
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("pyramidize/ollama: error %d: %s", resp.StatusCode, body)

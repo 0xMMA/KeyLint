@@ -104,7 +104,7 @@ func callOpenAI(client *http.Client, text, apiKey string) (string, error) {
 			{Role: "user", Content: text},
 		},
 	})
-	logger.Sensitive("enhance: request", "provider", "openai", "payload", string(payload))
+	logger.Debug("enhance: request", "provider", "openai", "payload", logger.Redact(string(payload)))
 	req, _ := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader(payload))
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -115,7 +115,7 @@ func callOpenAI(client *http.Client, text, apiKey string) (string, error) {
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	logger.Sensitive("enhance: response", "provider", "openai", "status", resp.StatusCode, "body", string(body))
+	logger.Debug("enhance: response", "provider", "openai", "status", resp.StatusCode, "body", logger.Redact(string(body)))
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("OpenAI error %d: %s", resp.StatusCode, body)
 	}
@@ -137,7 +137,7 @@ func callClaude(client *http.Client, text, apiKey string) (string, error) {
 		"system":     systemPrompt,
 		"messages":   []map[string]string{{"role": "user", "content": text}},
 	})
-	logger.Sensitive("enhance: request", "provider", "claude", "payload", string(payload))
+	logger.Debug("enhance: request", "provider", "claude", "payload", logger.Redact(string(payload)))
 	req, _ := http.NewRequest(http.MethodPost, "https://api.anthropic.com/v1/messages", bytes.NewReader(payload))
 	req.Header.Set("x-api-key", apiKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
@@ -149,7 +149,7 @@ func callClaude(client *http.Client, text, apiKey string) (string, error) {
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	logger.Sensitive("enhance: response", "provider", "claude", "status", resp.StatusCode, "body", string(body))
+	logger.Debug("enhance: response", "provider", "claude", "status", resp.StatusCode, "body", logger.Redact(string(body)))
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("Claude error %d: %s", resp.StatusCode, body)
 	}
@@ -171,7 +171,7 @@ func callOllama(client *http.Client, text, baseURL string) (string, error) {
 		"prompt": systemPrompt + "\n\nText: " + text,
 		"stream": false,
 	})
-	logger.Sensitive("enhance: request", "provider", "ollama", "payload", string(payload))
+	logger.Debug("enhance: request", "provider", "ollama", "payload", logger.Redact(string(payload)))
 	req, _ := http.NewRequest(http.MethodPost, baseURL+"/api/generate", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 
@@ -181,7 +181,7 @@ func callOllama(client *http.Client, text, baseURL string) (string, error) {
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	logger.Sensitive("enhance: response", "provider", "ollama", "status", resp.StatusCode, "body", string(body))
+	logger.Debug("enhance: response", "provider", "ollama", "status", resp.StatusCode, "body", logger.Redact(string(body)))
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("Ollama error %d: %s", resp.StatusCode, body)
 	}

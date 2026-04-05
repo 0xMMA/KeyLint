@@ -28,7 +28,7 @@ func callClaude(client *http.Client, systemPrompt, userMessage, apiKey, model st
 		return "", fmt.Errorf("pyramidize/claude: marshal error: %w", err)
 	}
 
-	logger.Sensitive("pyramidize: claude request", "len", len(payload))
+	logger.Debug("pyramidize: claude request", "payload", logger.Redact(string(payload)))
 
 	req, err := http.NewRequest(http.MethodPost, "https://api.anthropic.com/v1/messages", bytes.NewReader(payload))
 	if err != nil {
@@ -45,7 +45,7 @@ func callClaude(client *http.Client, systemPrompt, userMessage, apiKey, model st
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	logger.Sensitive("pyramidize: claude response", "status", resp.StatusCode, "len", len(body))
+	logger.Debug("pyramidize: claude response", "status", resp.StatusCode, "body", logger.Redact(string(body)))
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("pyramidize/claude: error %d: %s", resp.StatusCode, body)
