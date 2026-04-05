@@ -31,7 +31,7 @@ type Settings struct {
 	StartOnBoot     bool     `json:"start_on_boot"`
 	ThemePreference string   `json:"theme_preference"` // "light" | "dark" | "system"
 	CompletedSetup  bool     `json:"completed_setup"`
-	DebugLogging      bool     `json:"debug_logging"`      // writes debug.log to the app config dir
+	LogLevel          string   `json:"log_level"`           // "off"|"trace"|"debug"|"info"|"warning"|"error"
 	SensitiveLogging  bool     `json:"sensitive_logging"`  // logs full API payloads; never share the log file while enabled
 	UpdateChannel     string   `json:"update_channel"`     // "" (auto-detect), "stable", or "pre-release"
 
@@ -46,6 +46,7 @@ func Default() Settings {
 		ActiveProvider:             "openai",
 		ShortcutKey:                "ctrl+g",
 		ThemePreference:            "dark",
+		LogLevel:                   "off",
 		PyramidizeQualityThreshold: DefaultQualityThreshold,
 	}
 }
