@@ -12,7 +12,7 @@ import (
 func initWithBuffer(t *testing.T, level string, sensitive bool) *bytes.Buffer {
 	t.Helper()
 	var buf bytes.Buffer
-	initWithWriter(&buf, level, sensitive)
+	InitWithWriter(&buf, level, sensitive)
 	t.Cleanup(func() {
 		l = slog.New(slog.NewTextHandler(io.Discard, nil))
 		sensitiveEnabled = false

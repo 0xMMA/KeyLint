@@ -86,9 +86,9 @@ func Init(level string, sensitive bool) {
 	l.Info("logger initialized", "path", logPath, "sensitive", sensitive)
 }
 
-// initWithWriter is the same as Init but writes to w instead of a log file.
+// InitWithWriter is the same as Init but writes to w instead of a log file.
 // Used by tests.
-func initWithWriter(w io.Writer, level string, sensitive bool) {
+func InitWithWriter(w io.Writer, level string, sensitive bool) {
 	sensitiveEnabled = sensitive
 
 	if logFile != nil {
@@ -163,12 +163,3 @@ func Redact(v any) slog.LogValuer {
 	return redacted{v: v}
 }
 
-// --- Backward compatibility (will be removed in Task 5) ---
-
-// Sensitive logs only when sensitive logging is enabled.
-// Deprecated: use Debug(msg, "key", Redact(value)) instead.
-func Sensitive(msg string, args ...any) {
-	if sensitiveEnabled {
-		l.Debug(msg, args...)
-	}
-}
