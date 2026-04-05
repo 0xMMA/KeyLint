@@ -63,10 +63,10 @@ describe('SettingsComponent', () => {
     expect(el.querySelector('p-tablist')).toBeTruthy();
   });
 
-  it('debug-logging section contains both toggle and hint text', () => {
-    const section = el.querySelector('[data-testid="debug-logging-section"]');
+  it('log-level section contains select and hint text', () => {
+    const section = el.querySelector('[data-testid="log-level-section"]');
     expect(section).toBeTruthy();
-    expect(section!.querySelector('p-toggle-switch')).toBeTruthy();
+    expect(section!.querySelector('p-select')).toBeTruthy();
     expect(section!.querySelector('small')).toBeTruthy();
   });
 
@@ -138,6 +138,14 @@ describe('SettingsComponent', () => {
     await Promise.resolve();
     vi.advanceTimersByTime(3000);
     expect(component.saved).toBe(false);
+  });
+
+  it('save sends log_level to backend', async () => {
+    component.settings!.log_level = 'warning';
+    await component.save();
+    expect(wailsMock.saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ log_level: 'warning' }),
+    );
   });
 
   it('save() does nothing when settings is null', async () => {
