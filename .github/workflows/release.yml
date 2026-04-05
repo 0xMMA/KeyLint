@@ -49,9 +49,8 @@ jobs:
       - name: Build Linux binary
         run: |
           export PATH=$PATH:$HOME/go/bin
-          VERSION=$(git describe --tags --always)
           CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -tags production -trimpath \
-            -ldflags="-w -s -X main.AppVersion=${VERSION}" -o bin/KeyLint .
+            -ldflags="-w -s -X main.AppVersion=${{ github.ref_name }}" -o bin/KeyLint .
 
       - name: Upload Linux artifact
         uses: actions/upload-artifact@v4
@@ -109,10 +108,9 @@ jobs:
       - name: Build Windows binary
         run: |
           export PATH=$PATH:$HOME/go/bin
-          VERSION=$(git describe --tags --always)
           GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc \
             go build -tags production -trimpath \
-            -ldflags="-w -s -H windowsgui -X main.AppVersion=${VERSION}" \
+            -ldflags="-w -s -H windowsgui -X main.AppVersion=${{ github.ref_name }}" \
             -o bin/KeyLint.exe .
 
       - name: Install NSIS
@@ -128,9 +126,9 @@ jobs:
 
       - name: Build NSIS installer
         run: |
-          VERSION=$(git describe --tags --always)
+          TAG="${{ github.ref_name }}"
           makensis -DARG_WAILS_AMD64_BINARY=../../../bin/KeyLint.exe \
-            -DINFO_PRODUCTVERSION="${VERSION#v}" \
+            -DINFO_PRODUCTVERSION="${TAG#v}" \
             build/windows/nsis/project.nsi
 
       - name: Upload Windows artifact
@@ -155,7 +153,7 @@ jobs:
 
       - name: Get version
         id: version
-        run: echo "VERSION=$(git describe --tags --always)" >> $GITHUB_OUTPUT
+        run: echo "VERSION=${{ github.ref_name }}" >> $GITHUB_OUTPUT
 
       - name: Download Linux artifact
         uses: actions/download-artifact@v4
