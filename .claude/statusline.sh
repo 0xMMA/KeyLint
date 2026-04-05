@@ -146,7 +146,7 @@ if [ -n "$five_h_resets" ] && [ -n "$five_h_pct" ]; then
     else
         lim_color="$DARK_GREY"
     fi
-    parts+=("$(printf '%b%s%b' "$lim_color" "5h:${countdown}" "$RESET")")
+    parts+=("$(printf '%b%s %s%%%b' "$lim_color" "5h:${countdown}" "$pct_int" "$RESET")")
 fi
 
 # 6. 7d countdown timer (dark grey at rest, yellow/red when hot)
@@ -161,7 +161,7 @@ if [ -n "$seven_d_resets" ] && [ -n "$seven_d_pct" ]; then
     else
         lim_color="$DARK_GREY"
     fi
-    parts+=("$(printf '%b%s%b' "$lim_color" "7d:${countdown}" "$RESET")")
+    parts+=("$(printf '%b%s %s%%%b' "$lim_color" "7d:${countdown}" "$pct_int" "$RESET")")
 fi
 
 # 7. Clock (last)
