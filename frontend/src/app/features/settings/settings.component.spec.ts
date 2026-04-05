@@ -241,11 +241,27 @@ describe('SettingsComponent', () => {
     });
 
     it('installUpdate() sets updateSuccess on success', async () => {
-      wailsMock.downloadAndInstall.mockResolvedValue(undefined);
+      wailsMock.downloadAndInstall.mockResolvedValue({ restart_required: false });
       component.updateInfo = { ...defaultUpdateInfo, is_available: true, latest_version: '3.7.0' };
       await component.installUpdate();
       expect(component.updateSuccess).toBe(true);
       expect(wailsMock.downloadAndInstall).toHaveBeenCalled();
+    });
+
+    it('installUpdate() shows restart message when restart_required is true', async () => {
+      wailsMock.downloadAndInstall.mockResolvedValue({ restart_required: true });
+      component.updateInfo = { ...defaultUpdateInfo, is_available: true, latest_version: '3.7.0' };
+      await component.installUpdate();
+      expect(component.updateSuccess).toBe(true);
+      expect(component.updateRestartRequired).toBe(true);
+    });
+
+    it('installUpdate() shows standard success when restart_required is false', async () => {
+      wailsMock.downloadAndInstall.mockResolvedValue({ restart_required: false });
+      component.updateInfo = { ...defaultUpdateInfo, is_available: true, latest_version: '3.7.0' };
+      await component.installUpdate();
+      expect(component.updateSuccess).toBe(true);
+      expect(component.updateRestartRequired).toBe(false);
     });
   });
 });

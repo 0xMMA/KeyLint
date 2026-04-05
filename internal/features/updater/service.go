@@ -2,7 +2,9 @@ package updater
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"runtime"
@@ -10,18 +12,18 @@ import (
 	"strings"
 
 	"keylint/internal/features/settings"
-
-	"github.com/minio/selfupdate"
 )
 
 const defaultReleasesAPIURL = "https://api.github.com/repos/0xMMA/KeyLint/releases?per_page=20"
 
-// Service checks for updates and can apply them in-place using minio/selfupdate.
+// Service checks for updates and can apply them using platform-specific strategies.
 type Service struct {
-	currentVersion  string
-	releasesAPIURL  string
-	client          *http.Client
-	settingsSvc     *settings.Service
+	currentVersion string
+	releasesAPIURL string
+	client         *http.Client
+	settingsSvc    *settings.Service
+	quitFunc       func()                                                    // called after launching installer on Windows; set via SetQuitFunc
+	applyFunc      func(svc *Service, tmpPath string) (InstallResult, error) // override for testing; nil uses applyPlatformUpdate
 }
 
 // NewService creates an updater Service with the given current version string.
@@ -38,6 +40,12 @@ func NewService(version string, settingsSvc *settings.Service) *Service {
 // GetVersion returns the current application version.
 func (s *Service) GetVersion() string {
 	return s.currentVersion
+}
+
+// SetQuitFunc sets the callback invoked after launching the installer on Windows.
+// The callback should wait briefly (for the frontend to display a message) then quit the app.
+func (s *Service) SetQuitFunc(fn func()) {
+	s.quitFunc = fn
 }
 
 // CheckForUpdate fetches the GitHub Releases API and finds the best available update.
@@ -141,40 +149,56 @@ func matchPlatformAsset(assets []githubAsset) string {
 	return ""
 }
 
-// DownloadAndInstall fetches the binary for the current platform and replaces the running exe.
-func (s *Service) DownloadAndInstall() error {
+// DownloadAndInstall fetches the release asset for the current platform, saves it
+// to a temp file, and delegates to the platform-specific installer.
+// On Windows this launches the NSIS setup and returns InstallResult{RestartRequired: true}.
+// On Linux this applies the binary in-place via selfupdate.
+func (s *Service) DownloadAndInstall() (InstallResult, error) {
 	updateInfo, err := s.CheckForUpdate()
 	if err != nil {
-		return fmt.Errorf("checking for update: %w", err)
+		return InstallResult{}, fmt.Errorf("checking for update: %w", err)
 	}
 	if !updateInfo.IsAvailable {
-		return fmt.Errorf("no update available")
+		return InstallResult{}, fmt.Errorf("no update available")
 	}
 	if updateInfo.ReleaseURL == "" {
-		return fmt.Errorf("no download URL for current platform")
+		return InstallResult{}, fmt.Errorf("no download URL for current platform")
 	}
 
 	resp, err := s.client.Get(updateInfo.ReleaseURL)
 	if err != nil {
-		return fmt.Errorf("downloading update: %w", err)
+		return InstallResult{}, fmt.Errorf("downloading update: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download returned status %d", resp.StatusCode)
+		return InstallResult{}, fmt.Errorf("download returned status %d", resp.StatusCode)
 	}
 
-	if err := selfupdate.Apply(resp.Body, selfupdate.Options{}); err != nil {
-		return fmt.Errorf("applying update: %w", err)
-	}
-
-	// Restart the process so the new binary takes effect immediately.
-	executable, err := os.Executable()
+	// Write to a temp file so platform-specific code can work with a path on disk.
+	tmpFile, err := os.CreateTemp("", "KeyLint-update-*.exe")
 	if err != nil {
-		return fmt.Errorf("finding executable path: %w", err)
+		return InstallResult{}, fmt.Errorf("creating temp file: %w", err)
 	}
-	_ = executable // exec.Command would be used here for a restart; omitted for simplicity.
-	return nil
+
+	n, err := io.Copy(tmpFile, resp.Body)
+	if err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		return InstallResult{}, fmt.Errorf("writing update to temp file: %w", err)
+	}
+	tmpFile.Close()
+
+	if n == 0 {
+		os.Remove(tmpFile.Name())
+		return InstallResult{}, errors.New("downloaded update is empty")
+	}
+
+	applyFn := applyPlatformUpdate
+	if s.applyFunc != nil {
+		applyFn = s.applyFunc
+	}
+	return applyFn(s, tmpFile.Name())
 }
 
 // parsedVersion holds the decomposed parts of a semver string with optional pre-release suffix.

@@ -263,7 +263,9 @@ interface ProviderKey {
                   <p-message
                     data-testid="update-success-msg"
                     severity="success"
-                    text="Update installed! Restart the app to use the new version."
+                    [text]="updateRestartRequired
+                      ? 'Update is installing — the app will close shortly.'
+                      : 'Update installed! Restart the app to use the new version.'"
                     styleClass="mt-3"
                   />
                 }
@@ -383,6 +385,7 @@ export class SettingsComponent implements OnInit {
   updateInstalling = false;
   updateError = '';
   updateSuccess = false;
+  updateRestartRequired = false;
 
   // App Defaults tab state
   presets: AppPreset[] = [];
@@ -525,9 +528,11 @@ export class SettingsComponent implements OnInit {
     this.updateInstalling = true;
     this.updateError = '';
     this.updateSuccess = false;
+    this.updateRestartRequired = false;
     try {
-      await this.wails.downloadAndInstall();
+      const result = await this.wails.downloadAndInstall();
       this.updateSuccess = true;
+      this.updateRestartRequired = result.restart_required;
       this.updateInfo = null;
     } catch (e) {
       this.updateError = `Install failed: ${e instanceof Error ? e.message : String(e)}`;

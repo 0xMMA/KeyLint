@@ -24,6 +24,12 @@ type PlatformAsset struct {
 	Signature string `json:"signature"`
 }
 
+// InstallResult is returned by DownloadAndInstall to indicate the outcome.
+// On Windows, RestartRequired is true because the NSIS installer needs the app to exit.
+type InstallResult struct {
+	RestartRequired bool `json:"restart_required"`
+}
+
 // githubRelease represents a single release from the GitHub Releases API.
 type githubRelease struct {
 	TagName    string        `json:"tag_name"`

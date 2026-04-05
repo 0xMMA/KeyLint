@@ -13,6 +13,8 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 
 /**
  * Log writes a frontend message at the given level into debug.log.
+ * The msg is wrapped in Redact() because frontend messages may contain user text.
+ * Error and warn levels log the msg directly (operational).
  * @param {string} level
  * @param {string} msg
  * @returns {$CancellablePromise<void>}

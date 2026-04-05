@@ -8,5 +8,6 @@ export {
 };
 
 export {
+    InstallResult,
     UpdateInfo
 } from "./models.js";

@@ -1,4 +1,4 @@
-name: Build Linux
+name: Build
 
 on:
   pull_request:
@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,6 +50,44 @@ jobs:
       - name: Run Go tests
         run: go test ./internal/...
 
+  build-linux:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install system deps
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev gcc
+          version: 1.0
+
+      - name: Install Wails v3 CLI
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.72
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
       - name: Build Linux binary
         run: |
           export PATH=$PATH:$HOME/go/bin
@@ -61,3 +99,93 @@ jobs:
         with:
           name: KeyLint-linux-amd64
           path: bin/KeyLint
+          retention-days: 3
+
+  build-windows:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install system deps
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev gcc gcc-mingw-w64
+          version: 1.0
+
+      - name: Install Wails v3 CLI
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.72
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Generate Windows resource file
+        run: |
+          export PATH=$PATH:$HOME/go/bin
+          wails3 generate syso \
+            -arch amd64 \
+            -icon build/windows/icon.ico \
+            -manifest build/windows/wails.exe.manifest \
+            -info build/windows/info.json \
+            -out wails_windows_amd64.syso
+
+      - name: Build Windows binary
+        run: |
+          export PATH=$PATH:$HOME/go/bin
+          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc \
+            go build -tags production -trimpath \
+            -ldflags="-w -s -H windowsgui -X main.AppVersion=${VERSION}" \
+            -o bin/KeyLint.exe .
+
+      - name: Install NSIS
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: nsis
+          version: 1.0
+
+      - name: Download WebView2 bootstrapper
+        run: |
+          curl -sSL "https://go.microsoft.com/fwlink/p/?LinkId=2124703" \
+            -o build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+
+      - name: Build NSIS installer
+        run: |
+          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+          makensis -DARG_WAILS_AMD64_BINARY=../../../bin/KeyLint.exe \
+            -DINFO_PRODUCTVERSION="${VERSION#v}" \
+            build/windows/nsis/project.nsi
+
+      - name: Upload Windows binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: KeyLint-windows-amd64
+          path: bin/KeyLint.exe
+          retention-days: 3
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: KeyLint-windows-amd64-setup
+          path: bin/KeyLint-amd64-installer.exe
+          retention-days: 3
