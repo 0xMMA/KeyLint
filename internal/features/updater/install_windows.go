@@ -5,20 +5,35 @@ package updater
 import (
 	"fmt"
 	"os"
-	"os/exec"
+	"syscall"
+	"unsafe"
 )
 
-// applyPlatformUpdate launches the downloaded NSIS installer and signals the app to quit.
-// The NSIS installer's own manifest requests UAC elevation, so no special privileges
-// are needed here — Windows will show the UAC prompt to the user.
-func applyPlatformUpdate(svc *Service, tmpPath string) (InstallResult, error) {
-	cmd := exec.Command(tmpPath)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+var (
+	shell32             = syscall.NewLazyDLL("shell32.dll")
+	procShellExecuteW   = shell32.NewProc("ShellExecuteW")
+)
 
-	if err := cmd.Start(); err != nil {
+// applyPlatformUpdate launches the downloaded NSIS installer with UAC elevation
+// and signals the app to quit. Go's exec.Command uses CreateProcess which cannot
+// trigger UAC — ShellExecuteW with "runas" is required for elevated installers.
+func applyPlatformUpdate(svc *Service, tmpPath string) (InstallResult, error) {
+	verb, _ := syscall.UTF16PtrFromString("runas")
+	file, _ := syscall.UTF16PtrFromString(tmpPath)
+
+	ret, _, _ := procShellExecuteW.Call(
+		0, // hwnd
+		uintptr(unsafe.Pointer(verb)),
+		uintptr(unsafe.Pointer(file)),
+		0, // parameters
+		0, // directory
+		uintptr(syscall.SW_SHOWNORMAL),
+	)
+
+	// ShellExecuteW returns a value > 32 on success.
+	if ret <= 32 {
 		os.Remove(tmpPath)
-		return InstallResult{}, fmt.Errorf("launching installer: %w", err)
+		return InstallResult{}, fmt.Errorf("launching installer: ShellExecute returned %d", ret)
 	}
 
 	// Schedule app quit so the installer can replace the locked executable.
