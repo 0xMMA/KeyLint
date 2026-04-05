@@ -2,7 +2,11 @@
 // can forward log messages into the Go debug.log file.
 package logger
 
-import "keylint/internal/logger"
+import (
+	"context"
+
+	"keylint/internal/logger"
+)
 
 // Service forwards frontend log messages into the Go structured logger.
 type Service struct{}
@@ -11,15 +15,20 @@ type Service struct{}
 func NewService() *Service { return &Service{} }
 
 // Log writes a frontend message at the given level into debug.log.
+// The msg is wrapped in Redact() because frontend messages may contain user text.
+// Error and warn levels log the msg directly (operational).
 func (s *Service) Log(level, msg string) {
+	fl := logger.FrontendLogger()
 	switch level {
+	case "trace":
+		fl.Log(context.Background(), logger.LevelTrace, "frontend", "msg", logger.Redact(msg))
 	case "debug":
-		logger.Debug("frontend: " + msg)
+		fl.Debug("frontend", "msg", logger.Redact(msg))
 	case "warn":
-		logger.Warn("frontend: " + msg)
+		fl.Warn("frontend", "msg", msg)
 	case "error":
-		logger.Error("frontend: " + msg)
+		fl.Error("frontend", "msg", msg)
 	default:
-		logger.Info("frontend: " + msg)
+		fl.Info("frontend", "msg", logger.Redact(msg))
 	}
 }

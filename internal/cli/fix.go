@@ -26,7 +26,11 @@ func runFixWith(args []string, stdout io.Writer, stderr io.Writer, svc enhancer)
 	fs := flag.NewFlagSet("fix", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	filePath := fs.String("f", "", "Input file path")
+	logLevel := addLogFlag(fs)
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := initLogger(*logLevel); err != nil {
 		return err
 	}
 

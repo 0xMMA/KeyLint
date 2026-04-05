@@ -74,14 +74,15 @@ interface ProviderKey {
                     optionValue="value"
                   />
                 </div>
-                <div class="form-group" data-testid="debug-logging-section">
-                  <div class="toggle-row">
-                    <div class="toggle-label-group">
-                      <label>Debug Logging</label>
-                      <small class="hint-text">When enabled, writes a <code>debug.log</code> to the app config folder. Takes effect on next launch.</small>
-                    </div>
-                    <p-toggle-switch [(ngModel)]="settings.debug_logging" />
-                  </div>
+                <div class="form-group" data-testid="log-level-section">
+                  <label>Log Level</label>
+                  <p-select
+                    [(ngModel)]="settings.log_level"
+                    [options]="logLevels"
+                    optionLabel="label"
+                    optionValue="value"
+                  />
+                  <small class="hint-text">Writes to <code>~/.config/KeyLint/debug.log</code> (Linux) or <code>%AppData%/KeyLint/debug.log</code> (Windows). Takes effect on next launch.</small>
                 </div>
                 <div class="form-group" data-testid="sensitive-logging-section">
                   <div class="toggle-row">
@@ -89,7 +90,7 @@ interface ProviderKey {
                       <label>Sensitive Logging</label>
                       <small class="hint-text">Logs full API request payloads and responses. <strong>Do not share the log file while this is enabled.</strong> Takes effect on next launch.</small>
                     </div>
-                    <p-toggle-switch [(ngModel)]="settings.sensitive_logging" [disabled]="!settings.debug_logging" />
+                    <p-toggle-switch [(ngModel)]="settings.sensitive_logging" [disabled]="settings.log_level === 'off'" />
                   </div>
                 </div>
               </p-tabpanel>
@@ -408,6 +409,15 @@ export class SettingsComponent implements OnInit {
     { label: 'Auto (detect from version)', value: '' },
     { label: 'Stable', value: 'stable' },
     { label: 'Pre-release', value: 'pre-release' },
+  ];
+
+  readonly logLevels = [
+    { label: 'Off', value: 'off' },
+    { label: 'Trace', value: 'trace' },
+    { label: 'Debug', value: 'debug' },
+    { label: 'Info', value: 'info' },
+    { label: 'Warning', value: 'warning' },
+    { label: 'Error', value: 'error' },
   ];
 
   readonly docTypeOptions = DOCUMENT_TYPE_OPTIONS;

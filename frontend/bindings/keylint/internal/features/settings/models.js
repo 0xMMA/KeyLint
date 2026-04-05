@@ -177,13 +177,13 @@ export class Settings {
              */
             this["completed_setup"] = false;
         }
-        if (!("debug_logging" in $$source)) {
+        if (!("log_level" in $$source)) {
             /**
-             * writes debug.log to the app config dir
+             * "off" | "trace" | "debug" | "info" | "warning" | "error"
              * @member
-             * @type {boolean}
+             * @type {string}
              */
-            this["debug_logging"] = false;
+            this["log_level"] = "";
         }
         if (!("sensitive_logging" in $$source)) {
             /**

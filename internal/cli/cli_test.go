@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"keylint/internal/features/pyramidize"
 )
 
 func TestRunUnknownCommand(t *testing.T) {
@@ -81,5 +83,54 @@ func TestReadInputFilePriority(t *testing.T) {
 	}
 	if got != "from file" {
 		t.Fatalf("got %q, want %q", got, "from file")
+	}
+}
+
+func TestLogFlagValidation_InvalidLevel(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	mock := &mockEnhancer{result: "fixed"}
+	err := runFixWith([]string{"--log", "banana", "hello"}, &stdout, &stderr, mock)
+	if err == nil {
+		t.Fatal("expected error for invalid log level")
+	}
+	if !strings.Contains(err.Error(), "invalid log level") {
+		t.Fatalf("error %q should contain %q", err.Error(), "invalid log level")
+	}
+}
+
+func TestLogFlagValidation_ValidLevels(t *testing.T) {
+	levels := []string{"off", "trace", "debug", "info", "warning", "error"}
+	for _, level := range levels {
+		t.Run(level, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			mock := &mockEnhancer{result: "fixed"}
+			err := runFixWith([]string{"--log", level, "hello"}, &stdout, &stderr, mock)
+			if err != nil {
+				t.Fatalf("unexpected error for level %q: %v", level, err)
+			}
+		})
+	}
+}
+
+func TestLogFlagDefault_IsOff(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	mock := &mockEnhancer{result: "fixed"}
+	err := runFixWith([]string{"hello"}, &stdout, &stderr, mock)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestPyramidizeLogFlag(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	mock := &mockPyramidizer{
+		result: pyramidize.PyramidizeResult{
+			FullDocument: "output",
+			QualityFlags: []string{},
+		},
+	}
+	err := runPyramidizeWith([]string{"--log", "debug", "hello"}, &stdout, &stderr, mock)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

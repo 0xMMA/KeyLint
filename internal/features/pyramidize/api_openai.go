@@ -33,7 +33,7 @@ func callOpenAI(client *http.Client, systemPrompt, userMessage, apiKey, model st
 		return "", fmt.Errorf("pyramidize/openai: marshal error: %w", err)
 	}
 
-	logger.Sensitive("pyramidize: openai request", "len", len(payload))
+	logger.Debug("pyramidize: openai request", "payload", logger.Redact(string(payload)))
 
 	req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader(payload))
 	if err != nil {
@@ -49,7 +49,7 @@ func callOpenAI(client *http.Client, systemPrompt, userMessage, apiKey, model st
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	logger.Sensitive("pyramidize: openai response", "status", resp.StatusCode, "len", len(body))
+	logger.Debug("pyramidize: openai response", "status", resp.StatusCode, "body", logger.Redact(string(body)))
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("pyramidize/openai: error %d: %s", resp.StatusCode, body)

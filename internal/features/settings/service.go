@@ -60,6 +60,27 @@ func (s *Service) load() error {
 		logger.Error("settings: unmarshal failed", "err", err)
 		return err
 	}
+
+	// Migrate legacy debug_logging → log_level.
+	// Check whether the raw JSON contains "log_level"; if not, this is a legacy
+	// file and we derive the level from the old "debug_logging" boolean.
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err == nil {
+		if _, hasLogLevel := raw["log_level"]; !hasLogLevel {
+			if val, ok := raw["debug_logging"]; ok {
+				var debugOn bool
+				if json.Unmarshal(val, &debugOn) == nil && debugOn {
+					s.current.LogLevel = "debug"
+				} else {
+					s.current.LogLevel = "off"
+				}
+			} else {
+				s.current.LogLevel = "off"
+			}
+			logger.Info("settings: migrated debug_logging to log_level", "log_level", s.current.LogLevel)
+		}
+	}
+
 	logger.Info("settings: loaded", "path", s.filePath)
 	return nil
 }

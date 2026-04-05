@@ -12,7 +12,7 @@ export const defaultSettings: Settings = {
   start_on_boot: false,
   theme_preference: 'dark',
   completed_setup: false,
-  debug_logging: false,
+  log_level: 'off',
   sensitive_logging: false,
   update_channel: '',
   app_presets: [],
