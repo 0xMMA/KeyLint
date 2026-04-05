@@ -2,6 +2,7 @@ package updater
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -190,5 +191,29 @@ func TestDownloadAndInstall_EmptyBody(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "empty") {
 		t.Errorf("expected 'empty' in error, got: %v", err)
+	}
+}
+
+func TestDownloadAndInstall_ApplyFuncError(t *testing.T) {
+	assetSrv := serveAsset([]byte("binary"))
+	defer assetSrv.Close()
+
+	releases := []githubRelease{
+		makeReleaseWithURL("v9.0.0", "KeyLint-v9.0.0-linux-amd64", assetSrv.URL+"/dl"),
+	}
+	releaseSrv := serveGitHubReleases(t, releases)
+	defer releaseSrv.Close()
+
+	svc := newTestService("1.0.0", releaseSrv)
+	svc.applyFunc = func(_ *Service, _ string) (InstallResult, error) {
+		return InstallResult{}, fmt.Errorf("simulated install failure")
+	}
+
+	_, err := svc.DownloadAndInstall()
+	if err == nil {
+		t.Fatal("expected error from applyFunc")
+	}
+	if !strings.Contains(err.Error(), "simulated install failure") {
+		t.Errorf("expected applyFunc error to propagate, got: %v", err)
 	}
 }

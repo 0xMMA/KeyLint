@@ -18,7 +18,6 @@ func applyPlatformUpdate(svc *Service, tmpPath string) (InstallResult, error) {
 		return InstallResult{}, fmt.Errorf("opening downloaded update: %w", err)
 	}
 	defer f.Close()
-	defer os.Remove(tmpPath)
 
 	if err := selfupdate.Apply(f, selfupdate.Options{}); err != nil {
 		return InstallResult{}, fmt.Errorf("applying update: %w — if this is a permission error, "+
@@ -26,5 +25,6 @@ func applyPlatformUpdate(svc *Service, tmpPath string) (InstallResult, error) {
 			err, tmpPath)
 	}
 
+	os.Remove(tmpPath)
 	return InstallResult{RestartRequired: false}, nil
 }
