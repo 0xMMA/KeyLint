@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -8,7 +9,33 @@ import (
 
 	"keylint/internal/features/enhance"
 	"keylint/internal/features/settings"
+	"keylint/internal/logger"
 )
+
+// validLogLevels enumerates accepted --log values.
+var validLogLevels = map[string]bool{
+	"off":     true,
+	"trace":   true,
+	"debug":   true,
+	"info":    true,
+	"warning": true,
+	"error":   true,
+}
+
+// addLogFlag registers the --log flag on the given FlagSet.
+func addLogFlag(fs *flag.FlagSet) *string {
+	return fs.String("log", "off", "Log level: off|trace|debug|info|warning|error")
+}
+
+// initLogger validates the level and initialises the logger.
+// Sensitive is always false in CLI mode.
+func initLogger(level string) error {
+	if !validLogLevels[level] {
+		return fmt.Errorf("invalid log level %q — must be one of: off, trace, debug, info, warning, error", level)
+	}
+	logger.Init(level, false)
+	return nil
+}
 
 // Run dispatches a CLI command. args[0] is the command name ("-fix" or "-pyramidize").
 // stdout receives the command output; stderr receives error messages.

@@ -37,8 +37,12 @@ func runPyramidizeWith(args []string, stdout io.Writer, stderr io.Writer, svc py
 	style := fs.String("style", "professional", "Communication style")
 	relationship := fs.String("relationship", "professional", "Relationship level")
 	variant := fs.Int("variant", 0, "Prompt variant (0=latest, 1=v1, 2=v2)")
+	logLevel := addLogFlag(fs)
 
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := initLogger(*logLevel); err != nil {
 		return err
 	}
 
