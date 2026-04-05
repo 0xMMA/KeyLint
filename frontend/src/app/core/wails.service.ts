@@ -12,10 +12,10 @@ import * as UpdaterService from '../../../bindings/keylint/internal/features/upd
 import * as LoggerService from '../../../bindings/keylint/internal/features/logger/service.js';
 import * as PyramidizeService from '../../../bindings/keylint/internal/features/pyramidize/service.js';
 import { Settings, KeyStatus } from '../../../bindings/keylint/internal/features/settings/models.js';
-import { UpdateInfo } from '../../../bindings/keylint/internal/features/updater/models.js';
+import { UpdateInfo, InstallResult } from '../../../bindings/keylint/internal/features/updater/models.js';
 import type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset } from '../../../bindings/keylint/internal/features/pyramidize/models.js';
 
-export type { Settings, KeyStatus, UpdateInfo };
+export type { Settings, KeyStatus, UpdateInfo, InstallResult };
 export type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset };
 
 
@@ -160,7 +160,7 @@ export class WailsService implements OnDestroy {
     return UpdaterService.CheckForUpdate();
   }
 
-  downloadAndInstall(): Promise<void> {
+  downloadAndInstall(): Promise<InstallResult> {
     return UpdaterService.DownloadAndInstall();
   }
 

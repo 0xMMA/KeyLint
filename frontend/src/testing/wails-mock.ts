@@ -1,6 +1,6 @@
 import { Subject } from 'rxjs';
 import { vi } from 'vitest';
-import type { Settings, KeyStatus, UpdateInfo } from '../app/core/wails.service';
+import type { Settings, KeyStatus, UpdateInfo, InstallResult } from '../app/core/wails.service';
 
 export const defaultSettings: Settings = {
   active_provider: 'openai',
@@ -56,7 +56,7 @@ export function createWailsMock() {
     resetSettings: vi.fn().mockResolvedValue(undefined),
     getVersion: vi.fn().mockResolvedValue('3.6.0'),
     checkForUpdate: vi.fn().mockResolvedValue({ ...defaultUpdateInfo }),
-    downloadAndInstall: vi.fn().mockResolvedValue(undefined),
+    downloadAndInstall: vi.fn().mockResolvedValue({ restart_required: false }),
     log: vi.fn().mockResolvedValue(undefined),
     pasteToForeground: vi.fn().mockResolvedValue(undefined),
     ngOnDestroy: vi.fn(),
