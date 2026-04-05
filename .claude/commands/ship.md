@@ -6,7 +6,7 @@ Perform a complete git workflow to ship the current changes in this repo.
 
 - **Branch convention:** `feat/<name>`, `fix/<name>`, `chore/<name>`
 - **Target branch:** `main`
-- **CI:** `build-linux.yml` runs automatically on PR open (tests + compile)
+- **CI:** `build-linux.yml (Build CI)` runs automatically on PR open (tests + compile)
 - **Release:** done separately via `git tag` — do NOT tag here
 
 ## Steps
@@ -43,7 +43,7 @@ Perform a complete git workflow to ship the current changes in this repo.
    - Otherwise: `gh pr create` with:
      - Title: same as commit subject
      - Body: what changed, why, and any manual verification steps
-     - Include note that `build-linux.yml` CI will run automatically
+     - Include note that `build-linux.yml (Build CI)` CI will run automatically
    - If $ARGUMENTS is provided, use it as extra context for the PR body
 
 ## Notes

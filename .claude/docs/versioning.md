@@ -14,7 +14,7 @@ Suffix is optional; use `-alpha` / `-beta` / `-rc` for pre-releases.
 ```
 feat/<name> branch
   → PR opened
-      └─ build-linux.yml runs automatically (tests + compile check)
+      └─ build-linux.yml runs automatically (tests + Linux/Windows builds)
   → PR merged to main
   → git tag vX.Y.Z[-suffix]     ← release trigger
   → git push origin vX.Y.Z[-suffix]
@@ -41,7 +41,8 @@ Then go to **GitHub → Releases** and publish the draft once the workflow compl
 
 **`build-linux.yml`** (PR + push to main):
 - Runs frontend tests (Vitest) + Go tests
-- Builds Linux binary (artifact only, not released)
+- Builds Linux binary + Windows binary + NSIS installer (artifacts only, not released)
+- PR artifacts auto-expire after 3 days
 
 **`release.yml`** (tag push):
 - Builds `KeyLint-vX.Y.Z-linux-amd64` and `KeyLint-vX.Y.Z-windows-amd64.exe`
