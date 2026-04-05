@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 )
 
 // LevelTrace is a custom slog level below Debug.
@@ -17,11 +18,21 @@ const LevelTrace = slog.Level(-8)
 
 // Package-level state.
 var (
-	l                = slog.New(slog.NewTextHandler(io.Discard, nil))
+	l       = slog.New(slog.NewTextHandler(io.Discard, nil))
 	baseH   slog.Handler = slog.NewTextHandler(io.Discard, nil)
-	logFile          *os.File
-	sensitiveEnabled bool
+	logFile *os.File
+	sensitive atomic.Bool
 )
+
+// replaceAttr renders LevelTrace as "TRACE" in log output.
+func replaceAttr(_ []string, a slog.Attr) slog.Attr {
+	if a.Key == slog.LevelKey {
+		if a.Value.Any().(slog.Level) == LevelTrace {
+			a.Value = slog.StringValue("TRACE")
+		}
+	}
+	return a
+}
 
 // levelNames maps level strings to slog.Level values.
 var levelNames = map[string]slog.Level{
@@ -37,8 +48,8 @@ var levelNames = map[string]slog.Level{
 // level is treated as "off". When a valid level is provided, output goes to
 // ~/.config/KeyLint/debug.log (or the platform equivalent).
 // sensitive controls whether Redact() reveals the underlying value.
-func Init(level string, sensitive bool) {
-	sensitiveEnabled = sensitive
+func Init(level string, sensitiveFlag bool) {
+	sensitive.Store(sensitiveFlag)
 
 	if logFile != nil {
 		_ = logFile.Close()
@@ -70,26 +81,18 @@ func Init(level string, sensitive bool) {
 	}
 	logFile = f
 
-	replaceFunc := func(groups []string, a slog.Attr) slog.Attr {
-		if a.Key == slog.LevelKey {
-			if a.Value.Any().(slog.Level) == LevelTrace {
-				a.Value = slog.StringValue("TRACE")
-			}
-		}
-		return a
-	}
 	baseH = slog.NewTextHandler(f, &slog.HandlerOptions{
 		Level:       lvl,
-		ReplaceAttr: replaceFunc,
+		ReplaceAttr: replaceAttr,
 	})
 	l = slog.New(baseH).With("source", "backend")
-	l.Info("logger initialized", "path", logPath, "sensitive", sensitive)
+	l.Info("logger initialized", "path", logPath, "sensitive", sensitiveFlag)
 }
 
 // InitWithWriter is the same as Init but writes to w instead of a log file.
 // Used by tests.
-func InitWithWriter(w io.Writer, level string, sensitive bool) {
-	sensitiveEnabled = sensitive
+func InitWithWriter(w io.Writer, level string, sensitiveFlag bool) {
+	sensitive.Store(sensitiveFlag)
 
 	if logFile != nil {
 		_ = logFile.Close()
@@ -103,17 +106,9 @@ func InitWithWriter(w io.Writer, level string, sensitive bool) {
 		return
 	}
 
-	replaceFunc := func(groups []string, a slog.Attr) slog.Attr {
-		if a.Key == slog.LevelKey {
-			if a.Value.Any().(slog.Level) == LevelTrace {
-				a.Value = slog.StringValue("TRACE")
-			}
-		}
-		return a
-	}
 	baseH = slog.NewTextHandler(w, &slog.HandlerOptions{
 		Level:       lvl,
-		ReplaceAttr: replaceFunc,
+		ReplaceAttr: replaceAttr,
 	})
 	l = slog.New(baseH).With("source", "backend")
 }
@@ -151,7 +146,7 @@ type redacted struct{ v any }
 
 // LogValue implements slog.LogValuer.
 func (r redacted) LogValue() slog.Value {
-	if sensitiveEnabled {
+	if sensitive.Load() {
 		return slog.AnyValue(r.v)
 	}
 	return slog.StringValue("[redacted]")

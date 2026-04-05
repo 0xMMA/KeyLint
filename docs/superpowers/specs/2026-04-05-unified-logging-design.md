@@ -100,7 +100,7 @@ This means:
 
 - `Log(level, msg string)` routes through logger functions with `"source", "frontend"` attribute.
 - Supports: `"trace"`, `"debug"`, `"info"`, `"warn"`, `"error"`.
-- The `msg` argument is always wrapped in `Redact()` — frontend messages may contain user text.
+- `msg` is wrapped in `Redact()` for trace/debug/info levels — these may contain user text. Error and warn messages pass through unredacted since they are operational (stack traces, lifecycle warnings).
 - Frontend errors (Angular `ErrorHandler`, uncaught exceptions) should call this service so they appear in `debug.log`.
 
 ### Backend Log Tagging

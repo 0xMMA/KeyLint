@@ -9,13 +9,13 @@ import (
 
 // initWithBuffer is a test helper that calls initWithWriter with a bytes.Buffer
 // and returns the buffer. It registers cleanup to reset package-level state.
-func initWithBuffer(t *testing.T, level string, sensitive bool) *bytes.Buffer {
+func initWithBuffer(t *testing.T, level string, sensitiveFlag bool) *bytes.Buffer {
 	t.Helper()
 	var buf bytes.Buffer
-	InitWithWriter(&buf, level, sensitive)
+	InitWithWriter(&buf, level, sensitiveFlag)
 	t.Cleanup(func() {
 		l = slog.New(slog.NewTextHandler(io.Discard, nil))
-		sensitiveEnabled = false
+		sensitive.Store(false)
 	})
 	return &buf
 }
