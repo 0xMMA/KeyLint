@@ -179,7 +179,7 @@ export class Settings {
         }
         if (!("log_level" in $$source)) {
             /**
-             * "off" | "trace" | "debug" | "info" | "warning" | "error"
+             * "off"|"trace"|"debug"|"info"|"warning"|"error"
              * @member
              * @type {string}
              */

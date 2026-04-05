@@ -7,6 +7,38 @@
 import { Create as $Create } from "@wailsio/runtime";
 
 /**
+ * InstallResult is returned by DownloadAndInstall to indicate the outcome.
+ * On Windows, RestartRequired is true because the NSIS installer needs the app to exit.
+ */
+export class InstallResult {
+    /**
+     * Creates a new InstallResult instance.
+     * @param {Partial<InstallResult>} [$$source = {}] - The source object to create the InstallResult.
+     */
+    constructor($$source = {}) {
+        if (!("restart_required" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["restart_required"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new InstallResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {InstallResult}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new InstallResult(/** @type {Partial<InstallResult>} */($$parsedSource));
+    }
+}
+
+/**
  * UpdateInfo is returned to the frontend to describe whether an update is available.
  */
 export class UpdateInfo {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"keylint/internal/app"
 	"keylint/internal/cli"
@@ -86,7 +87,13 @@ func main() {
 	wailsApp.RegisterService(application.NewService(featurelogger.NewService()))
 
 	// Updater service — AppVersion injected at build time via ldflags.
-	wailsApp.RegisterService(application.NewService(updater.NewService(AppVersion, services.Settings)))
+	updaterSvc := updater.NewService(AppVersion, services.Settings)
+	updaterSvc.SetQuitFunc(func() {
+		// Brief delay so the frontend can display the "closing" message.
+		time.Sleep(2 * time.Second)
+		wailsApp.Quit()
+	})
+	wailsApp.RegisterService(application.NewService(updaterSvc))
 
 	// Dev-tools shortcut simulation service.
 	sim := &simulateService{shortcut: services.Shortcut}
