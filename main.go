@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"sync/atomic"
 	"time"
 
 	"keylint/internal/app"
@@ -32,8 +31,8 @@ var assets embed.FS
 var appIcon []byte
 
 func init() {
-	application.RegisterEvent[string]("shortcut:single")
-	application.RegisterEvent[string]("shortcut:double")
+	application.RegisterEvent[string]("shortcut:fix")
+	application.RegisterEvent[string]("shortcut:pyramidize")
 	application.RegisterEvent[string]("settings:changed")
 }
 
@@ -122,50 +121,34 @@ func main() {
 
 	// Register the global shortcut (no-op on Linux).
 	// Unregister on shutdown so dev-mode restarts don't leave a stale registration.
-	if err := services.Shortcut.Register(); err != nil {
+	shortcutCfg := shortcut.ShortcutConfig{
+		Mode:            cfg.ShortcutMode,
+		FixCombo:        cfg.ShortcutFix,
+		PyramidizeCombo: cfg.ShortcutPyramidize,
+		DoubleTapDelay:  time.Duration(cfg.ShortcutDoubleTapDelay) * time.Millisecond,
+	}
+	if err := services.Shortcut.Register(shortcutCfg); err != nil {
 		log.Printf("warn: shortcut registration failed: %v", err)
 		logger.Warn("shortcut: registration failed", "err", err)
 	} else {
-		logger.Info("shortcut: registered", "key", cfg.ShortcutKey)
+		logger.Info("shortcut: registered", "mode", cfg.ShortcutMode, "fix", cfg.ShortcutFix)
 	}
 	wailsApp.OnShutdown(func() { services.Shortcut.Unregister() })
 
-	// Double-press detection: single press → silent fix, double press → show Pyramidize UI.
-	// Clipboard is captured on the first press (while source app still has focus).
-	// The detector classifies presses and emits Single/Double results.
-	detector := shortcut.NewDetector(200 * time.Millisecond)
-	wailsApp.OnShutdown(func() { detector.Stop() })
-
-	// Feed raw hotkey events into the detector; capture clipboard only on the first
-	// press of each cycle. CopyFromForeground() sleeps ~150ms (Ctrl+C + wait), so
-	// skipping it on the second press keeps the full 200ms window available.
-	var clipboardCaptured atomic.Bool
+	// Forward classified shortcut events to the frontend.
 	go func() {
-		ch := services.Shortcut.Triggered()
-		for event := range ch {
-			logger.Info("shortcut: triggered", "source", event.Source)
-			if clipboardCaptured.CompareAndSwap(false, true) {
-				pyramidizeSvc.CaptureSourceApp()
-				if err := services.Clipboard.CopyFromForeground(); err != nil {
-					logger.Warn("shortcut: CopyFromForeground failed", "err", err)
-				}
+		for event := range services.Shortcut.Triggered() {
+			logger.Info("shortcut: action", "action", event.Action, "source", event.Source)
+			pyramidizeSvc.CaptureSourceApp()
+			if err := services.Clipboard.CopyFromForeground(); err != nil {
+				logger.Warn("shortcut: CopyFromForeground failed", "err", err)
 			}
-			detector.Press()
-		}
-	}()
-
-	// Consume classified results and emit the appropriate Wails event.
-	go func() {
-		for result := range detector.Result() {
-			clipboardCaptured.Store(false)
-			switch result {
-			case shortcut.Single:
-				logger.Info("shortcut: single press detected")
-				wailsApp.Event.Emit("shortcut:single", "hotkey")
-			case shortcut.Double:
-				logger.Info("shortcut: double press detected")
+			switch event.Action {
+			case "fix":
+				wailsApp.Event.Emit("shortcut:fix", event.Source)
+			case "pyramidize":
 				window.Show().Focus()
-				wailsApp.Event.Emit("shortcut:double", "hotkey")
+				wailsApp.Event.Emit("shortcut:pyramidize", event.Source)
 			}
 		}
 	}()
