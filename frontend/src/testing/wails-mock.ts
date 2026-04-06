@@ -31,14 +31,17 @@ export const defaultUpdateInfo: UpdateInfo = {
 };
 
 export function createWailsMock() {
-  const shortcutTriggered$ = new Subject<string>();
+  const shortcutSingle$ = new Subject<string>();
+  const shortcutDouble$ = new Subject<string>();
   const settingsChanged$ = new Subject<void>();
 
   return {
-    shortcutTriggered$: shortcutTriggered$.asObservable(),
+    shortcutSingle$: shortcutSingle$.asObservable(),
+    shortcutDouble$: shortcutDouble$.asObservable(),
     settingsChanged$: settingsChanged$.asObservable(),
     // Expose subjects so tests can trigger events
-    _shortcutTriggered$: shortcutTriggered$,
+    _shortcutSingle$: shortcutSingle$,
+    _shortcutDouble$: shortcutDouble$,
     _settingsChanged$: settingsChanged$,
 
     loadSettings: vi.fn().mockResolvedValue({ ...defaultSettings }),
