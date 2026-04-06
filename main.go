@@ -135,6 +135,20 @@ func main() {
 	}
 	wailsApp.OnShutdown(func() { services.Shortcut.Unregister() })
 
+	// Hot-reload shortcuts when settings change.
+	wailsApp.Event.On("settings:changed", func(ev *application.CustomEvent) {
+		newCfg := services.Settings.Get()
+		newShortcutCfg := shortcut.ShortcutConfig{
+			Mode:            newCfg.ShortcutMode,
+			FixCombo:        newCfg.ShortcutFix,
+			PyramidizeCombo: newCfg.ShortcutPyramidize,
+			DoubleTapDelay:  time.Duration(newCfg.ShortcutDoubleTapDelay) * time.Millisecond,
+		}
+		if err := services.Shortcut.UpdateConfig(newShortcutCfg); err != nil {
+			logger.Warn("shortcut: hot-reload failed", "err", err)
+		}
+	})
+
 	// Forward classified shortcut events to the frontend.
 	go func() {
 		for event := range services.Shortcut.Triggered() {
