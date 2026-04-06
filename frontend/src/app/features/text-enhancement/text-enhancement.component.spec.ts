@@ -250,28 +250,28 @@ describe('TextEnhancementComponent (Pyramidize)', () => {
     expect(wailsMock.writeClipboard).toHaveBeenCalledWith('# Hello\n\nWorld');
   });
 
-  // ── 13. shortcutTriggered$ with empty originalText sets originalText from clipboard ──
+  // ── 13. shortcutDouble$ with empty originalText sets originalText from clipboard ──
 
-  it('shortcutTriggered$ with empty originalText sets originalText from clipboard', async () => {
+  it('shortcutDouble$ with empty originalText sets originalText from clipboard', async () => {
     component.originalTextView = '';
     wailsMock.readClipboard.mockResolvedValue('clipboard hotkey content');
     wailsMock.getSourceApp.mockResolvedValue('TestApp');
 
-    wailsMock._shortcutTriggered$.next('hotkey');
+    wailsMock._shortcutDouble$.next('hotkey');
     await new Promise(r => setTimeout(r, 0));
 
     expect(wailsMock.readClipboard).toHaveBeenCalled();
     expect(component.originalTextView).toBe('clipboard hotkey content');
   });
 
-  // ── 14. shortcutTriggered$ with existing originalText shows confirm dialog ──
+  // ── 14. shortcutDouble$ with existing originalText shows confirm dialog ──
 
-  it('shortcutTriggered$ with existing originalText shows confirm dialog', async () => {
+  it('shortcutDouble$ with existing originalText shows confirm dialog', async () => {
     component.originalTextView = 'existing content';
     wailsMock.readClipboard.mockResolvedValue('new clipboard content');
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
 
-    wailsMock._shortcutTriggered$.next('hotkey');
+    wailsMock._shortcutDouble$.next('hotkey');
     await new Promise(r => setTimeout(r, 0));
 
     expect(confirmSpy).toHaveBeenCalled();
@@ -279,12 +279,12 @@ describe('TextEnhancementComponent (Pyramidize)', () => {
     expect(component.originalTextView).toBe('existing content');
   });
 
-  it('shortcutTriggered$ with existing originalText and confirm=true replaces content', async () => {
+  it('shortcutDouble$ with existing originalText and confirm=true replaces content', async () => {
     component.originalTextView = 'existing content';
     wailsMock.readClipboard.mockResolvedValue('new clipboard content');
     vi.spyOn(window, 'confirm').mockReturnValue(true);
 
-    wailsMock._shortcutTriggered$.next('hotkey');
+    wailsMock._shortcutDouble$.next('hotkey');
     await new Promise(r => setTimeout(r, 0));
 
     expect(component.originalTextView).toBe('new clipboard content');
@@ -325,7 +325,7 @@ describe('TextEnhancementComponent (Pyramidize)', () => {
   it('ngOnDestroy unsubscribes from shortcut events', async () => {
     component.ngOnDestroy();
     const prevReadCount = (wailsMock.readClipboard as ReturnType<typeof vi.fn>).mock.calls.length;
-    wailsMock._shortcutTriggered$.next('hotkey');
+    wailsMock._shortcutDouble$.next('hotkey');
     await new Promise(r => setTimeout(r, 0));
     expect((wailsMock.readClipboard as ReturnType<typeof vi.fn>).mock.calls.length).toBe(prevReadCount);
   });
