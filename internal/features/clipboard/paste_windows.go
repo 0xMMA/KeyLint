@@ -21,7 +21,9 @@ var (
 const (
 	inputKeyboard = 1
 	keyEventKeyUp = 0x0002
+	vkShift       = 0x10
 	vkControl     = 0x11
+	vkMenu        = 0x12 // Alt
 	vkC           = 0x43
 	vkV           = 0x56
 )
@@ -52,7 +54,12 @@ func (s *Service) CopyFromForeground() error {
 	// Snapshot the clipboard sequence number before sending Ctrl+C.
 	seqBefore, _, _ := clipGetClipboardSeqNumber.Call()
 
-	inputs := [4]pasteInput{
+	// Release Shift and Alt before Ctrl+C — the user may still be holding modifier keys
+	// from the shortcut combo (e.g. Ctrl+Shift+G). Without this, the target app sees
+	// Ctrl+Shift+C instead of Ctrl+C, which Outlook and other apps ignore.
+	inputs := [6]pasteInput{
+		{inputType: inputKeyboard, wVk: vkShift, dwFlags: keyEventKeyUp, dwExtraInfo: 0x4B4C},
+		{inputType: inputKeyboard, wVk: vkMenu, dwFlags: keyEventKeyUp, dwExtraInfo: 0x4B4C},
 		{inputType: inputKeyboard, wVk: vkControl, dwExtraInfo: 0x4B4C},
 		{inputType: inputKeyboard, wVk: vkC, dwExtraInfo: 0x4B4C},
 		{inputType: inputKeyboard, wVk: vkC, dwFlags: keyEventKeyUp, dwExtraInfo: 0x4B4C},
@@ -93,7 +100,10 @@ func (s *Service) PasteToForeground() error {
 	time.Sleep(150 * time.Millisecond)
 	hwnd, _, _ := clipGetForegroundWindow.Call()
 	logger.Info("clipboard: PasteToForeground sending Ctrl+V", "foreground_hwnd", hwnd)
-	inputs := [4]pasteInput{
+	// Release Shift and Alt before Ctrl+V (same reason as CopyFromForeground).
+	inputs := [6]pasteInput{
+		{inputType: inputKeyboard, wVk: vkShift, dwFlags: keyEventKeyUp, dwExtraInfo: 0x4B4C},
+		{inputType: inputKeyboard, wVk: vkMenu, dwFlags: keyEventKeyUp, dwExtraInfo: 0x4B4C},
 		{inputType: inputKeyboard, wVk: vkControl, dwExtraInfo: 0x4B4C},
 		{inputType: inputKeyboard, wVk: vkV, dwExtraInfo: 0x4B4C},
 		{inputType: inputKeyboard, wVk: vkV, dwFlags: keyEventKeyUp, dwExtraInfo: 0x4B4C},
