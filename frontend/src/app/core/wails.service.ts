@@ -36,12 +36,15 @@ const BROWSER_MODE_DEFAULTS: Settings = {
 
 @Injectable({ providedIn: 'root' })
 export class WailsService implements OnDestroy {
-  private readonly shortcutTriggered = new Subject<string>();
+  private readonly shortcutSingle = new Subject<string>();
+  private readonly shortcutDouble = new Subject<string>();
   private readonly settingsChanged = new Subject<void>();
   private readonly unsubscribers: Array<() => void> = [];
 
-  /** Emits whenever the global shortcut fires (real hotkey or simulated). */
-  readonly shortcutTriggered$: Observable<string> = this.shortcutTriggered.asObservable();
+  /** Emits on single press of global shortcut (silent fix). */
+  readonly shortcutSingle$: Observable<string> = this.shortcutSingle.asObservable();
+  /** Emits on double press of global shortcut (open Pyramidize UI). */
+  readonly shortcutDouble$: Observable<string> = this.shortcutDouble.asObservable();
   /** Emits whenever settings are saved from the backend. */
   readonly settingsChanged$: Observable<void> = this.settingsChanged.asObservable();
 
@@ -51,8 +54,11 @@ export class WailsService implements OnDestroy {
 
   private listenToEvents(): void {
     this.unsubscribers.push(
-      Events.On('shortcut:triggered', (ev) => {
-        this.shortcutTriggered.next(ev.data as string);
+      Events.On('shortcut:single', (ev) => {
+        this.shortcutSingle.next(ev.data as string);
+      }),
+      Events.On('shortcut:double', (ev) => {
+        this.shortcutDouble.next(ev.data as string);
       }),
       Events.On('settings:changed', () => {
         this.settingsChanged.next();
@@ -241,7 +247,8 @@ export class WailsService implements OnDestroy {
 
   ngOnDestroy(): void {
     this.unsubscribers.forEach(fn => fn());
-    this.shortcutTriggered.complete();
+    this.shortcutSingle.complete();
+    this.shortcutDouble.complete();
     this.settingsChanged.complete();
   }
 }
