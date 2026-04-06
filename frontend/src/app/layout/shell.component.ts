@@ -99,7 +99,7 @@ export class ShellComponent implements OnInit, OnDestroy {
   readonly dev = isDevMode();
   appVersion = '';
   updateAvailable = false;
-  private sub?: Subscription;
+  private subs: Subscription[] = [];
 
   get collapsedView(): boolean  { return sidebarCollapsed; }
   get hoverExpanded(): boolean  { return sidebarCollapsed && sidebarHovered; }
@@ -113,7 +113,12 @@ export class ShellComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     void this.applyTheme();
     void this.loadVersionInfo();
-    this.sub = this.wails.settingsChanged$.subscribe(() => void this.applyTheme());
+    this.subs.push(
+      this.wails.settingsChanged$.subscribe(() => void this.applyTheme()),
+      this.wails.shortcutDouble$.subscribe(() => {
+        void this.router.navigate(['/enhance']);
+      }),
+    );
   }
 
   goToAbout(): void {
@@ -151,7 +156,7 @@ export class ShellComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.sub?.unsubscribe();
+    this.subs.forEach(s => s.unsubscribe());
   }
 
   private async applyTheme(): Promise<void> {

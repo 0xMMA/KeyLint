@@ -110,4 +110,15 @@ describe('ShellComponent — theme / body class', () => {
     fixture.componentInstance.goToAbout();
     expect(navigateSpy).toHaveBeenCalledWith(['/settings'], { queryParams: { tab: 'about' } });
   });
+
+  it('navigates to /enhance on shortcutDouble$', async () => {
+    const fixture = await createAndWait('dark');
+    const router = TestBed.inject(Router);
+    const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    wailsMock._shortcutDouble$.next('hotkey');
+    await fixture.whenStable();
+
+    expect(navigateSpy).toHaveBeenCalledWith(['/enhance']);
+  });
 });
