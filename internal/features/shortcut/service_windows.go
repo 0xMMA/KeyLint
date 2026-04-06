@@ -98,14 +98,16 @@ type windowsService struct {
 	pyramidizeCombo KeyCombo
 	doubleTapDelay  uint32 // milliseconds
 
-	// Double-tap state (only accessed on the hook thread — no lock needed).
-	tapState tapPhase // current detection phase
-	mods     Modifier // currently held modifier keys
+	// State — only accessed on the hook thread, no lock needed.
+	tapState       tapPhase // double-tap detection phase
+	mods           Modifier // currently held modifier keys
+	indepPending   int      // independent mode: -1=none, 0=fix, 1=pyramidize (fire on keyup)
+	indepPendingVK uint16   // trigger VK we're waiting for keyup on
 }
 
 // NewPlatformService returns the Windows WH_KEYBOARD_LL implementation.
 func NewPlatformService() Service {
-	return &windowsService{ch: make(chan ShortcutEvent, 2)}
+	return &windowsService{ch: make(chan ShortcutEvent, 2), indepPending: -1}
 }
 
 func (s *windowsService) Register(cfg ShortcutConfig) error {
@@ -150,11 +152,12 @@ func (s *windowsService) UpdateConfig(cfg ShortcutConfig) error {
 	if err := s.applyConfig(cfg); err != nil {
 		return err
 	}
-	// Reset any in-progress double-tap detection.
+	// Reset any in-progress detection state.
 	if s.threadID != 0 {
 		killTimer.Call(0, doubleTapTimerID)
 	}
 	s.tapState = tapIdle
+	s.indepPending = -1
 	logger.Info("shortcut: config updated", "mode", cfg.Mode, "fix", cfg.FixCombo)
 	return nil
 }
@@ -162,11 +165,12 @@ func (s *windowsService) UpdateConfig(cfg ShortcutConfig) error {
 func (s *windowsService) SetPaused(paused bool) {
 	s.paused.Store(paused)
 	if paused {
-		// Reset double-tap state when pausing.
+		// Reset detection state when pausing.
 		if s.threadID != 0 {
 			killTimer.Call(0, doubleTapTimerID)
 		}
 		s.tapState = tapIdle
+		s.indepPending = -1
 	}
 	logger.Info("shortcut: paused", "paused", paused)
 }
@@ -258,15 +262,24 @@ func (s *windowsService) hookCallback(nCode int, wParam uintptr, lParam uintptr)
 	if mode == "independent" {
 		if isDown {
 			if vk == fixKC.VK && s.mods == fixKC.Modifiers {
-				logger.Debug("shortcut: independent fix match", "vk", vk, "mods", s.mods)
-				s.postAction(0) // fix
-				return 1         // suppress
+				logger.Debug("shortcut: independent fix match (keydown)", "vk", vk, "mods", s.mods)
+				s.indepPending = 0
+				s.indepPendingVK = vk
+				return 1 // suppress — fire on keyup
 			}
 			if vk == pyrKC.VK && s.mods == pyrKC.Modifiers {
-				logger.Debug("shortcut: independent pyramidize match", "vk", vk, "mods", s.mods)
-				s.postAction(1) // pyramidize
-				return 1         // suppress
+				logger.Debug("shortcut: independent pyramidize match (keydown)", "vk", vk, "mods", s.mods)
+				s.indepPending = 1
+				s.indepPendingVK = vk
+				return 1 // suppress — fire on keyup
 			}
+		}
+		if isUp && s.indepPending >= 0 && vk == s.indepPendingVK {
+			action := s.indepPending
+			s.indepPending = -1
+			logger.Debug("shortcut: independent action (keyup)", "action", action)
+			s.postAction(uintptr(action))
+			return 1 // suppress
 		}
 	} else {
 		// Double-tap mode: match fix combo's trigger key + modifiers.
