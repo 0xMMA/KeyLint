@@ -31,7 +31,8 @@ var assets embed.FS
 var appIcon []byte
 
 func init() {
-	application.RegisterEvent[string]("shortcut:triggered")
+	application.RegisterEvent[string]("shortcut:single")
+	application.RegisterEvent[string]("shortcut:double")
 	application.RegisterEvent[string]("settings:changed")
 }
 
@@ -128,21 +129,37 @@ func main() {
 	}
 	wailsApp.OnShutdown(func() { services.Shortcut.Unregister() })
 
-	// Forward shortcut events to the frontend.
-	// First send Ctrl+C to copy selected text from the source app, then notify
-	// the frontend so it can read the clipboard and enhance the text.
-	// Show the window so the frontend can receive and process the event.
+	// Double-press detection: single press → silent fix, double press → show Pyramidize UI.
+	// Clipboard is captured on the first press (while source app still has focus).
+	// The detector classifies presses and emits Single/Double results.
+	detector := shortcut.NewDetector(200 * time.Millisecond)
+	wailsApp.OnShutdown(func() { detector.Stop() })
+
+	// Feed raw hotkey events into the detector; capture clipboard on each first press.
 	go func() {
 		ch := services.Shortcut.Triggered()
 		for event := range ch {
 			logger.Info("shortcut: triggered", "source", event.Source)
-			// Capture the source app window BEFORE copying from foreground,
-			// so SendBack() can restore focus to the correct window later.
 			pyramidizeSvc.CaptureSourceApp()
 			if err := services.Clipboard.CopyFromForeground(); err != nil {
 				logger.Warn("shortcut: CopyFromForeground failed", "err", err)
 			}
-			wailsApp.Event.Emit("shortcut:triggered", event.Source)
+			detector.Press()
+		}
+	}()
+
+	// Consume classified results and emit the appropriate Wails event.
+	go func() {
+		for result := range detector.Result() {
+			switch result {
+			case shortcut.Single:
+				logger.Info("shortcut: single press detected")
+				wailsApp.Event.Emit("shortcut:single", "hotkey")
+			case shortcut.Double:
+				logger.Info("shortcut: double press detected")
+				window.Show().Focus()
+				wailsApp.Event.Emit("shortcut:double", "hotkey")
+			}
 		}
 	}()
 
