@@ -104,7 +104,7 @@ export class FixComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     // On shortcut: silently fix clipboard and write result back.
-    this.sub = this.wails.shortcutTriggered$.subscribe(() => {
+    this.sub = this.wails.shortcutSingle$.subscribe(() => {
       this.log.info('fix: shortcut received');
       void this.fixClipboard();
     });
