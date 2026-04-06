@@ -103,11 +103,8 @@ export class FixComponent implements OnInit, OnDestroy {
   _syncAutoCopy(value: boolean): void { _autoCopyCache = value; }
 
   ngOnInit(): void {
-    // On shortcut: silently fix clipboard and write result back.
-    this.sub = this.wails.shortcutTriggered$.subscribe(() => {
-      this.log.info('fix: shortcut received');
-      void this.fixClipboard();
-    });
+    // Silent fix is handled by ShellComponent (always mounted).
+    // This component only provides the manual fix UI.
   }
 
   async fix(): Promise<void> {

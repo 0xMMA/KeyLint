@@ -77,10 +77,9 @@ describe('SettingsComponent', () => {
     expect(section!.querySelector('small')).toBeTruthy();
   });
 
-  it('shortcut key input is present with correct initial value', () => {
-    const input = el.querySelector<HTMLInputElement>('[data-testid="shortcut-input"]');
-    expect(input).toBeTruthy();
-    expect(input?.value).toBe('ctrl+g');
+  it('renders shortcut mode toggle in general tab', () => {
+    expect(el.querySelector('[data-testid="shortcut-mode-section"]')).toBeTruthy();
+    expect(el.querySelector('[data-testid="shortcut-fix-section"]')).toBeTruthy();
   });
 
   it('Save button is present', () => {

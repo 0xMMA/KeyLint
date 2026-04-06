@@ -110,4 +110,29 @@ describe('ShellComponent — theme / body class', () => {
     fixture.componentInstance.goToAbout();
     expect(navigateSpy).toHaveBeenCalledWith(['/settings'], { queryParams: { tab: 'about' } });
   });
+
+  it('navigates to /enhance on shortcutPyramidize$', async () => {
+    const fixture = await createAndWait('dark');
+    const router = TestBed.inject(Router);
+    const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    wailsMock._shortcutPyramidize$.next('hotkey');
+    await fixture.whenStable();
+
+    expect(navigateSpy).toHaveBeenCalledWith(['/enhance']);
+  });
+
+  it('shortcutFix$ triggers silent fix (enhance + paste)', async () => {
+    wailsMock.readClipboard.mockResolvedValue('bad grammer');
+    wailsMock.enhance.mockResolvedValue('bad grammar');
+    await createAndWait('dark');
+
+    wailsMock._shortcutFix$.next('hotkey');
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(wailsMock.readClipboard).toHaveBeenCalled();
+    expect(wailsMock.enhance).toHaveBeenCalledWith('bad grammer');
+    expect(wailsMock.writeClipboard).toHaveBeenCalledWith('bad grammar');
+    expect(wailsMock.pasteToForeground).toHaveBeenCalled();
+  });
 });

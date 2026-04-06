@@ -110,18 +110,6 @@ describe('FixComponent', () => {
     expect(component.loading).toBe(false);
   });
 
-  it('shortcutTriggered$ triggers fixClipboard', async () => {
-    wailsMock.readClipboard.mockResolvedValue('shortcut clipboard');
-    wailsMock._shortcutTriggered$.next('hotkey');
-    await new Promise(r => setTimeout(r, 0));
-    expect(wailsMock.readClipboard).toHaveBeenCalled();
-    expect(enhanceSpy).toHaveBeenCalledWith('shortcut clipboard');
-  });
-
-  it('ngOnDestroy unsubscribes from shortcut events', async () => {
-    component.ngOnDestroy();
-    wailsMock._shortcutTriggered$.next('hotkey');
-    await new Promise(r => setTimeout(r, 0));
-    expect(wailsMock.readClipboard).not.toHaveBeenCalled();
-  });
+  // Silent fix via shortcut is handled by ShellComponent (always mounted).
+  // See shell.component.spec.ts for shortcutFix$ tests.
 });

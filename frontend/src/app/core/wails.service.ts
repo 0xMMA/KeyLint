@@ -24,6 +24,10 @@ const BROWSER_MODE_DEFAULTS: Settings = {
   active_provider: 'claude',
   providers: { ollama_url: '', aws_region: '' },
   shortcut_key: 'ctrl+g',
+  shortcut_mode: 'double_tap',
+  shortcut_fix: 'ctrl+g',
+  shortcut_pyramidize: 'ctrl+shift+g',
+  shortcut_double_tap_delay: 200,
   start_on_boot: false,
   theme_preference: 'dark',
   completed_setup: false,
@@ -36,12 +40,15 @@ const BROWSER_MODE_DEFAULTS: Settings = {
 
 @Injectable({ providedIn: 'root' })
 export class WailsService implements OnDestroy {
-  private readonly shortcutTriggered = new Subject<string>();
+  private readonly shortcutFix = new Subject<string>();
+  private readonly shortcutPyramidize = new Subject<string>();
   private readonly settingsChanged = new Subject<void>();
   private readonly unsubscribers: Array<() => void> = [];
 
-  /** Emits whenever the global shortcut fires (real hotkey or simulated). */
-  readonly shortcutTriggered$: Observable<string> = this.shortcutTriggered.asObservable();
+  /** Emits on fix shortcut (silent grammar fix). */
+  readonly shortcutFix$: Observable<string> = this.shortcutFix.asObservable();
+  /** Emits on pyramidize shortcut (open Pyramidize UI). */
+  readonly shortcutPyramidize$: Observable<string> = this.shortcutPyramidize.asObservable();
   /** Emits whenever settings are saved from the backend. */
   readonly settingsChanged$: Observable<void> = this.settingsChanged.asObservable();
 
@@ -51,8 +58,11 @@ export class WailsService implements OnDestroy {
 
   private listenToEvents(): void {
     this.unsubscribers.push(
-      Events.On('shortcut:triggered', (ev) => {
-        this.shortcutTriggered.next(ev.data as string);
+      Events.On('shortcut:fix', (ev) => {
+        this.shortcutFix.next(ev.data as string);
+      }),
+      Events.On('shortcut:pyramidize', (ev) => {
+        this.shortcutPyramidize.next(ev.data as string);
       }),
       Events.On('settings:changed', () => {
         this.settingsChanged.next();
@@ -164,6 +174,14 @@ export class WailsService implements OnDestroy {
     return UpdaterService.DownloadAndInstall();
   }
 
+  setShortcutPaused(paused: boolean): Promise<void> {
+    try {
+      return SimulateService.SetShortcutPaused(paused).catch(() => {});
+    } catch {
+      return Promise.resolve();
+    }
+  }
+
   simulateShortcut(): Promise<void> {
     if (!isDevMode()) return Promise.resolve();
     return SimulateService.SimulateShortcut();
@@ -241,7 +259,8 @@ export class WailsService implements OnDestroy {
 
   ngOnDestroy(): void {
     this.unsubscribers.forEach(fn => fn());
-    this.shortcutTriggered.complete();
+    this.shortcutFix.complete();
+    this.shortcutPyramidize.complete();
     this.settingsChanged.complete();
   }
 }
