@@ -121,4 +121,18 @@ describe('ShellComponent — theme / body class', () => {
 
     expect(navigateSpy).toHaveBeenCalledWith(['/enhance']);
   });
+
+  it('shortcutFix$ triggers silent fix (enhance + paste)', async () => {
+    wailsMock.readClipboard.mockResolvedValue('bad grammer');
+    wailsMock.enhance.mockResolvedValue('bad grammar');
+    await createAndWait('dark');
+
+    wailsMock._shortcutFix$.next('hotkey');
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(wailsMock.readClipboard).toHaveBeenCalled();
+    expect(wailsMock.enhance).toHaveBeenCalledWith('bad grammer');
+    expect(wailsMock.writeClipboard).toHaveBeenCalledWith('bad grammar');
+    expect(wailsMock.pasteToForeground).toHaveBeenCalled();
+  });
 });
