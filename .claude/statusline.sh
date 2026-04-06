@@ -29,7 +29,7 @@ format_countdown() {
 now=$(date +%s)
 
 # --- Time ---
-time_str=$(date +%H:%M)
+time_str=$(TZ='Europe/Berlin' date +%H:%M)
 
 # --- Git branch (from cwd in JSON, skip optional locks) ---
 cwd=$(echo "$input" | jq -r '.workspace.current_dir // .cwd // empty')
@@ -122,16 +122,20 @@ if [ -n "$folder" ]; then
     parts+=("$(printf '%b%s%b' "$ORANGE" "$folder" "$RESET")")
 fi
 
-# 3. Model
+# 3. Model (placeholder when not yet known)
 if [ -n "$model" ]; then
     parts+=("$(printf '%b%s%b' "$MAGENTA" "$model" "$RESET")")
+else
+    parts+=("$(printf '%b%s%b' "$DARK_GREY" "..." "$RESET")")
 fi
 
-# 4. Context used (smooth gradient)
+# 4. Context used (smooth gradient, placeholder when not yet known)
 if [ -n "$used_pct" ]; then
     ctx_int=$(printf '%.0f' "$used_pct")
     ctx_color=$(ctx_gradient_color "$ctx_int")
     parts+=("$(printf '%b%s%b' "$ctx_color" "ctx:${ctx_int}%" "$RESET")")
+else
+    parts+=("$(printf '%b%s%b' "$DARK_GREY" "ctx:---" "$RESET")")
 fi
 
 # 5. 5h countdown timer (dark grey at rest, yellow/red when hot)
@@ -147,6 +151,8 @@ if [ -n "$five_h_resets" ] && [ -n "$five_h_pct" ]; then
         lim_color="$DARK_GREY"
     fi
     parts+=("$(printf '%b%s %s%%%b' "$lim_color" "5h:${countdown}" "$pct_int" "$RESET")")
+else
+    parts+=("$(printf '%b%s%b' "$DARK_GREY" "5h:---" "$RESET")")
 fi
 
 # 6. 7d countdown timer (dark grey at rest, yellow/red when hot)
@@ -162,6 +168,8 @@ if [ -n "$seven_d_resets" ] && [ -n "$seven_d_pct" ]; then
         lim_color="$DARK_GREY"
     fi
     parts+=("$(printf '%b%s %s%%%b' "$lim_color" "7d:${countdown}" "$pct_int" "$RESET")")
+else
+    parts+=("$(printf '%b%s%b' "$DARK_GREY" "7d:---" "$RESET")")
 fi
 
 # 7. Clock (last)
