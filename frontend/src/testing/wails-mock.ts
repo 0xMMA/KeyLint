@@ -9,6 +9,10 @@ export const defaultSettings: Settings = {
     aws_region: '',
   },
   shortcut_key: 'ctrl+g',
+  shortcut_mode: 'double_tap',
+  shortcut_fix: 'ctrl+g',
+  shortcut_pyramidize: 'ctrl+shift+g',
+  shortcut_double_tap_delay: 200,
   start_on_boot: false,
   theme_preference: 'dark',
   completed_setup: false,
@@ -31,17 +35,17 @@ export const defaultUpdateInfo: UpdateInfo = {
 };
 
 export function createWailsMock() {
-  const shortcutSingle$ = new Subject<string>();
-  const shortcutDouble$ = new Subject<string>();
+  const shortcutFix$ = new Subject<string>();
+  const shortcutPyramidize$ = new Subject<string>();
   const settingsChanged$ = new Subject<void>();
 
   return {
-    shortcutSingle$: shortcutSingle$.asObservable(),
-    shortcutDouble$: shortcutDouble$.asObservable(),
+    shortcutFix$: shortcutFix$.asObservable(),
+    shortcutPyramidize$: shortcutPyramidize$.asObservable(),
     settingsChanged$: settingsChanged$.asObservable(),
     // Expose subjects so tests can trigger events
-    _shortcutSingle$: shortcutSingle$,
-    _shortcutDouble$: shortcutDouble$,
+    _shortcutFix$: shortcutFix$,
+    _shortcutPyramidize$: shortcutPyramidize$,
     _settingsChanged$: settingsChanged$,
 
     loadSettings: vi.fn().mockResolvedValue({ ...defaultSettings }),

@@ -1093,7 +1093,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
 
     this.cdr.detectChanges();
 
-    this.sub = this.wails.shortcutDouble$.subscribe(async () => {
+    this.sub = this.wails.shortcutPyramidize$.subscribe(async () => {
       const clipboardContent = await this.wails.readClipboard();
       sourceApp = await this.wails.getSourceApp();
 

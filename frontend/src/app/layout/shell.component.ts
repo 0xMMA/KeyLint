@@ -115,7 +115,7 @@ export class ShellComponent implements OnInit, OnDestroy {
     void this.loadVersionInfo();
     this.subs.push(
       this.wails.settingsChanged$.subscribe(() => void this.applyTheme()),
-      this.wails.shortcutDouble$.subscribe(() => {
+      this.wails.shortcutPyramidize$.subscribe(() => {
         void this.router.navigate(['/enhance']);
       }),
     );

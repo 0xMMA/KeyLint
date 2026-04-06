@@ -110,9 +110,9 @@ describe('FixComponent', () => {
     expect(component.loading).toBe(false);
   });
 
-  it('shortcutSingle$ triggers fixClipboard', async () => {
+  it('shortcutFix$ triggers fixClipboard', async () => {
     wailsMock.readClipboard.mockResolvedValue('shortcut clipboard');
-    wailsMock._shortcutSingle$.next('hotkey');
+    wailsMock._shortcutFix$.next('hotkey');
     await new Promise(r => setTimeout(r, 0));
     expect(wailsMock.readClipboard).toHaveBeenCalled();
     expect(enhanceSpy).toHaveBeenCalledWith('shortcut clipboard');
@@ -120,7 +120,7 @@ describe('FixComponent', () => {
 
   it('ngOnDestroy unsubscribes from shortcut events', async () => {
     component.ngOnDestroy();
-    wailsMock._shortcutSingle$.next('hotkey');
+    wailsMock._shortcutFix$.next('hotkey');
     await new Promise(r => setTimeout(r, 0));
     expect(wailsMock.readClipboard).not.toHaveBeenCalled();
   });

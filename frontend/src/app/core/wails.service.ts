@@ -24,6 +24,10 @@ const BROWSER_MODE_DEFAULTS: Settings = {
   active_provider: 'claude',
   providers: { ollama_url: '', aws_region: '' },
   shortcut_key: 'ctrl+g',
+  shortcut_mode: 'double_tap',
+  shortcut_fix: 'ctrl+g',
+  shortcut_pyramidize: 'ctrl+shift+g',
+  shortcut_double_tap_delay: 200,
   start_on_boot: false,
   theme_preference: 'dark',
   completed_setup: false,
@@ -36,15 +40,15 @@ const BROWSER_MODE_DEFAULTS: Settings = {
 
 @Injectable({ providedIn: 'root' })
 export class WailsService implements OnDestroy {
-  private readonly shortcutSingle = new Subject<string>();
-  private readonly shortcutDouble = new Subject<string>();
+  private readonly shortcutFix = new Subject<string>();
+  private readonly shortcutPyramidize = new Subject<string>();
   private readonly settingsChanged = new Subject<void>();
   private readonly unsubscribers: Array<() => void> = [];
 
-  /** Emits on single press of global shortcut (silent fix). */
-  readonly shortcutSingle$: Observable<string> = this.shortcutSingle.asObservable();
-  /** Emits on double press of global shortcut (open Pyramidize UI). */
-  readonly shortcutDouble$: Observable<string> = this.shortcutDouble.asObservable();
+  /** Emits on fix shortcut (silent grammar fix). */
+  readonly shortcutFix$: Observable<string> = this.shortcutFix.asObservable();
+  /** Emits on pyramidize shortcut (open Pyramidize UI). */
+  readonly shortcutPyramidize$: Observable<string> = this.shortcutPyramidize.asObservable();
   /** Emits whenever settings are saved from the backend. */
   readonly settingsChanged$: Observable<void> = this.settingsChanged.asObservable();
 
@@ -54,11 +58,11 @@ export class WailsService implements OnDestroy {
 
   private listenToEvents(): void {
     this.unsubscribers.push(
-      Events.On('shortcut:single', (ev) => {
-        this.shortcutSingle.next(ev.data as string);
+      Events.On('shortcut:fix', (ev) => {
+        this.shortcutFix.next(ev.data as string);
       }),
-      Events.On('shortcut:double', (ev) => {
-        this.shortcutDouble.next(ev.data as string);
+      Events.On('shortcut:pyramidize', (ev) => {
+        this.shortcutPyramidize.next(ev.data as string);
       }),
       Events.On('settings:changed', () => {
         this.settingsChanged.next();
@@ -247,8 +251,8 @@ export class WailsService implements OnDestroy {
 
   ngOnDestroy(): void {
     this.unsubscribers.forEach(fn => fn());
-    this.shortcutSingle.complete();
-    this.shortcutDouble.complete();
+    this.shortcutFix.complete();
+    this.shortcutPyramidize.complete();
     this.settingsChanged.complete();
   }
 }
