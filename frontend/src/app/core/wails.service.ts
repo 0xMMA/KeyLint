@@ -174,6 +174,14 @@ export class WailsService implements OnDestroy {
     return UpdaterService.DownloadAndInstall();
   }
 
+  setShortcutPaused(paused: boolean): Promise<void> {
+    try {
+      return SimulateService.SetShortcutPaused(paused).catch(() => {});
+    } catch {
+      return Promise.resolve();
+    }
+  }
+
   simulateShortcut(): Promise<void> {
     if (!isDevMode()) return Promise.resolve();
     return SimulateService.SimulateShortcut();

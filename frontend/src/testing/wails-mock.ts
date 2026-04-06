@@ -55,6 +55,7 @@ export function createWailsMock() {
     readClipboard: vi.fn().mockResolvedValue('clipboard text'),
     writeClipboard: vi.fn().mockResolvedValue(undefined),
     enhance: vi.fn().mockResolvedValue('Enhanced text.'),
+    setShortcutPaused: vi.fn().mockResolvedValue(undefined),
     simulateShortcut: vi.fn().mockResolvedValue(undefined),
     getKeyStatus: vi.fn().mockResolvedValue({ ...defaultKeyStatus }),
     getKey: vi.fn().mockResolvedValue(''),

@@ -189,3 +189,8 @@ func (s *simulateService) SimulateShortcut() {
 		sim.Simulate()
 	}
 }
+
+// SetShortcutPaused temporarily disables shortcut detection (e.g. while recording a new shortcut in settings).
+func (s *simulateService) SetShortcutPaused(paused bool) {
+	s.shortcut.SetPaused(paused)
+}

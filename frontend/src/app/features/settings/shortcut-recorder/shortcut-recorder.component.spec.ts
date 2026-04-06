@@ -1,15 +1,22 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { ShortcutRecorderComponent } from './shortcut-recorder.component';
+import { WailsService } from '../../../core/wails.service';
+import { createWailsMock } from '../../../../testing/wails-mock';
 
 describe('ShortcutRecorderComponent', () => {
   let fixture: ComponentFixture<ShortcutRecorderComponent>;
   let component: ShortcutRecorderComponent;
   let el: HTMLElement;
+  let wailsMock: ReturnType<typeof createWailsMock>;
 
   beforeEach(async () => {
+    wailsMock = createWailsMock();
     await TestBed.configureTestingModule({
       imports: [ShortcutRecorderComponent],
+      providers: [
+        { provide: WailsService, useValue: wailsMock },
+      ],
     }).compileComponents();
 
     fixture = TestBed.createComponent(ShortcutRecorderComponent);

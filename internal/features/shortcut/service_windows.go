@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe"
@@ -75,10 +76,20 @@ const (
 	wmAction = wmApp + 1 // WParam: 0=fix, 1=pyramidize
 )
 
+// Double-tap state phases.
+type tapPhase int
+
+const (
+	tapIdle         tapPhase = iota // no tap in progress
+	tapWaitRelease                  // first tap received, waiting for trigger keyup (ignore auto-repeat)
+	tapWaitSecond                   // trigger released, waiting for second tap or timer expiry
+)
+
 type windowsService struct {
 	ch       chan ShortcutEvent
 	hookH    uintptr // hook handle
 	threadID uint32
+	paused   atomic.Bool // true = shortcut detection disabled (e.g. during recording)
 
 	// Configuration — guarded by mu for hot-reload from UpdateConfig.
 	mu              sync.Mutex
@@ -88,8 +99,8 @@ type windowsService struct {
 	doubleTapDelay  uint32 // milliseconds
 
 	// Double-tap state (only accessed on the hook thread — no lock needed).
-	waiting bool     // true = first tap received, waiting for second or timeout
-	mods    Modifier // currently held modifier keys
+	tapState tapPhase // current detection phase
+	mods     Modifier // currently held modifier keys
 }
 
 // NewPlatformService returns the Windows WH_KEYBOARD_LL implementation.
@@ -143,9 +154,21 @@ func (s *windowsService) UpdateConfig(cfg ShortcutConfig) error {
 	if s.threadID != 0 {
 		killTimer.Call(0, doubleTapTimerID)
 	}
-	s.waiting = false
+	s.tapState = tapIdle
 	logger.Info("shortcut: config updated", "mode", cfg.Mode, "fix", cfg.FixCombo)
 	return nil
+}
+
+func (s *windowsService) SetPaused(paused bool) {
+	s.paused.Store(paused)
+	if paused {
+		// Reset double-tap state when pausing.
+		if s.threadID != 0 {
+			killTimer.Call(0, doubleTapTimerID)
+		}
+		s.tapState = tapIdle
+	}
+	logger.Info("shortcut: paused", "paused", paused)
 }
 
 func (s *windowsService) applyConfig(cfg ShortcutConfig) error {
@@ -190,6 +213,12 @@ func (s *windowsService) hookCallback(nCode int, wParam uintptr, lParam uintptr)
 
 	kb := (*kbdLLHookStruct)(unsafe.Pointer(lParam))
 
+	// Pass through when paused (e.g. during shortcut recording in settings).
+	if s.paused.Load() {
+		ret, _, _ := callNextHookEx.Call(s.hookH, uintptr(nCode), wParam, lParam)
+		return ret
+	}
+
 	// Pass through our own synthetic keypresses (from CopyFromForeground / PasteToForeground).
 	if kb.DwExtraInfo == extraInfoTag {
 		ret, _, _ := callNextHookEx.Call(s.hookH, uintptr(nCode), wParam, lParam)
@@ -198,25 +227,22 @@ func (s *windowsService) hookCallback(nCode int, wParam uintptr, lParam uintptr)
 
 	vk := uint16(kb.VKCode)
 	isDown := wParam == wmKeyDown || wParam == wmSysKeyDown
+	isUp := wParam == wmKeyUp || wParam == wmSysKeyUp
 
 	// Track modifier state.
 	if mod := vkToModifier(vk); mod != 0 {
 		if isDown {
 			s.mods |= mod
-		} else {
+		} else if isUp {
 			s.mods &^= mod
-			// If modifier released while waiting for double-tap, fire fix immediately.
-			if s.waiting {
-				s.waiting = false
+			// If modifier released during double-tap detection, fire fix immediately.
+			if s.tapState != tapIdle {
+				logger.Debug("shortcut: modifier released during double-tap, firing fix")
+				s.tapState = tapIdle
 				killTimer.Call(0, doubleTapTimerID)
 				s.postAction(0) // fix
 			}
 		}
-		ret, _, _ := callNextHookEx.Call(s.hookH, uintptr(nCode), wParam, lParam)
-		return ret
-	}
-
-	if !isDown {
 		ret, _, _ := callNextHookEx.Call(s.hookH, uintptr(nCode), wParam, lParam)
 		return ret
 	}
@@ -230,29 +256,52 @@ func (s *windowsService) hookCallback(nCode int, wParam uintptr, lParam uintptr)
 	s.mu.Unlock()
 
 	if mode == "independent" {
-		// Independent mode: check both combos, fire immediately.
-		if vk == fixKC.VK && s.mods == fixKC.Modifiers {
-			s.postAction(0) // fix
-			return 1         // suppress
-		}
-		if vk == pyrKC.VK && s.mods == pyrKC.Modifiers {
-			s.postAction(1) // pyramidize
-			return 1         // suppress
+		if isDown {
+			if vk == fixKC.VK && s.mods == fixKC.Modifiers {
+				logger.Debug("shortcut: independent fix match", "vk", vk, "mods", s.mods)
+				s.postAction(0) // fix
+				return 1         // suppress
+			}
+			if vk == pyrKC.VK && s.mods == pyrKC.Modifiers {
+				logger.Debug("shortcut: independent pyramidize match", "vk", vk, "mods", s.mods)
+				s.postAction(1) // pyramidize
+				return 1         // suppress
+			}
 		}
 	} else {
 		// Double-tap mode: match fix combo's trigger key + modifiers.
-		if vk == fixKC.VK && s.mods == fixKC.Modifiers {
-			if s.waiting {
-				// Second tap within window → pyramidize.
-				s.waiting = false
+		isTrigger := vk == fixKC.VK && s.mods == fixKC.Modifiers
+
+		switch s.tapState {
+		case tapIdle:
+			if isDown && isTrigger {
+				// First tap → suppress, start timer, wait for keyup before accepting second tap.
+				logger.Debug("shortcut: first tap, starting timer", "delay", delay)
+				s.tapState = tapWaitRelease
+				setTimer.Call(0, doubleTapTimerID, uintptr(delay), 0)
+				return 1 // suppress
+			}
+
+		case tapWaitRelease:
+			if isUp && vk == fixKC.VK {
+				// Trigger key released after first tap → now accept second tap.
+				logger.Debug("shortcut: trigger released, waiting for second tap")
+				s.tapState = tapWaitSecond
+			}
+			// Suppress all trigger key events (including auto-repeat keydowns) during this phase.
+			if vk == fixKC.VK {
+				return 1 // suppress
+			}
+
+		case tapWaitSecond:
+			if isDown && isTrigger {
+				// Second tap → pyramidize!
+				logger.Debug("shortcut: second tap detected, firing pyramidize")
+				s.tapState = tapIdle
 				killTimer.Call(0, doubleTapTimerID)
 				s.postAction(1) // pyramidize
-			} else {
-				// First tap → start timer.
-				s.waiting = true
-				setTimer.Call(0, doubleTapTimerID, uintptr(delay), 0)
+				return 1         // suppress
 			}
-			return 1 // suppress
 		}
 	}
 
@@ -275,9 +324,10 @@ func (s *windowsService) messageLoop() {
 		}
 		switch m.Message {
 		case wmTimer:
-			// Double-tap timer expired → fix.
-			if s.waiting {
-				s.waiting = false
+			// Double-tap timer expired → fire fix.
+			if s.tapState != tapIdle {
+				logger.Debug("shortcut: timer expired, firing fix")
+				s.tapState = tapIdle
 				killTimer.Call(0, doubleTapTimerID)
 				s.postAction(0) // fix
 			}

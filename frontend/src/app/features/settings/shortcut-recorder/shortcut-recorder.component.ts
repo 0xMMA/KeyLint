@@ -1,6 +1,7 @@
-import { ChangeDetectionStrategy, Component, Input, Output, EventEmitter } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, Output, EventEmitter, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
+import { WailsService } from '../../../core/wails.service';
 
 const MODIFIER_KEYS = new Set(['Control', 'Shift', 'Alt', 'Meta']);
 
@@ -82,6 +83,7 @@ export class ShortcutRecorderComponent {
   @Input() value = '';
   @Output() valueChange = new EventEmitter<string>();
 
+  private readonly wails = inject(WailsService);
   recording = false;
 
   get displayValue(): string {
@@ -90,6 +92,8 @@ export class ShortcutRecorderComponent {
 
   toggleRecording(): void {
     this.recording = !this.recording;
+    // Pause/resume the global shortcut hook so it doesn't intercept keypresses during recording.
+    void this.wails.setShortcutPaused(this.recording);
   }
 
   onKeyDown(event: KeyboardEvent): void {
@@ -100,6 +104,7 @@ export class ShortcutRecorderComponent {
 
     if (event.key === 'Escape') {
       this.recording = false;
+      void this.wails.setShortcutPaused(false);
       return;
     }
 
@@ -125,5 +130,6 @@ export class ShortcutRecorderComponent {
     this.value = combo;
     this.valueChange.emit(combo);
     this.recording = false;
+    void this.wails.setShortcutPaused(false);
   }
 }

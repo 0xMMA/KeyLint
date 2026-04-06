@@ -27,4 +27,6 @@ type Service interface {
 	Triggered() <-chan ShortcutEvent
 	// UpdateConfig hot-reloads the shortcut configuration without restarting the app.
 	UpdateConfig(cfg ShortcutConfig) error
+	// SetPaused temporarily disables shortcut detection (e.g. while recording a new shortcut).
+	SetPaused(paused bool)
 }

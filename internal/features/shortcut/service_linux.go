@@ -29,6 +29,8 @@ func (s *linuxService) UpdateConfig(cfg ShortcutConfig) error {
 	return nil
 }
 
+func (s *linuxService) SetPaused(paused bool) {}
+
 // Simulate fires a synthetic shortcut event (used by --simulate-shortcut and dev UI).
 func (s *linuxService) Simulate() {
 	s.ch <- ShortcutEvent{Source: "simulate", Action: "fix"}
