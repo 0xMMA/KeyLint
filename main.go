@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"keylint/internal/app"
@@ -135,14 +136,19 @@ func main() {
 	detector := shortcut.NewDetector(200 * time.Millisecond)
 	wailsApp.OnShutdown(func() { detector.Stop() })
 
-	// Feed raw hotkey events into the detector; capture clipboard on each first press.
+	// Feed raw hotkey events into the detector; capture clipboard only on the first
+	// press of each cycle. CopyFromForeground() sleeps ~150ms (Ctrl+C + wait), so
+	// skipping it on the second press keeps the full 200ms window available.
+	var clipboardCaptured atomic.Bool
 	go func() {
 		ch := services.Shortcut.Triggered()
 		for event := range ch {
 			logger.Info("shortcut: triggered", "source", event.Source)
-			pyramidizeSvc.CaptureSourceApp()
-			if err := services.Clipboard.CopyFromForeground(); err != nil {
-				logger.Warn("shortcut: CopyFromForeground failed", "err", err)
+			if clipboardCaptured.CompareAndSwap(false, true) {
+				pyramidizeSvc.CaptureSourceApp()
+				if err := services.Clipboard.CopyFromForeground(); err != nil {
+					logger.Warn("shortcut: CopyFromForeground failed", "err", err)
+				}
 			}
 			detector.Press()
 		}
@@ -151,6 +157,7 @@ func main() {
 	// Consume classified results and emit the appropriate Wails event.
 	go func() {
 		for result := range detector.Result() {
+			clipboardCaptured.Store(false)
 			switch result {
 			case shortcut.Single:
 				logger.Info("shortcut: single press detected")
