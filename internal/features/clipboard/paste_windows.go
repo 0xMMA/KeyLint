@@ -47,10 +47,10 @@ func (s *Service) CopyFromForeground() error {
 	hwnd, _, _ := clipGetForegroundWindow.Call()
 	logger.Info("clipboard: CopyFromForeground sending Ctrl+C", "foreground_hwnd", hwnd)
 	inputs := [4]pasteInput{
-		{inputType: inputKeyboard, wVk: vkControl},
-		{inputType: inputKeyboard, wVk: vkC},
-		{inputType: inputKeyboard, wVk: vkC, dwFlags: keyEventKeyUp},
-		{inputType: inputKeyboard, wVk: vkControl, dwFlags: keyEventKeyUp},
+		{inputType: inputKeyboard, wVk: vkControl, dwExtraInfo: 0x4B4C},
+		{inputType: inputKeyboard, wVk: vkC, dwExtraInfo: 0x4B4C},
+		{inputType: inputKeyboard, wVk: vkC, dwFlags: keyEventKeyUp, dwExtraInfo: 0x4B4C},
+		{inputType: inputKeyboard, wVk: vkControl, dwFlags: keyEventKeyUp, dwExtraInfo: 0x4B4C},
 	}
 	ret, _, err := clipSendInput.Call(
 		uintptr(len(inputs)),
@@ -73,10 +73,10 @@ func (s *Service) PasteToForeground() error {
 	hwnd, _, _ := clipGetForegroundWindow.Call()
 	logger.Info("clipboard: PasteToForeground sending Ctrl+V", "foreground_hwnd", hwnd)
 	inputs := [4]pasteInput{
-		{inputType: inputKeyboard, wVk: vkControl},
-		{inputType: inputKeyboard, wVk: vkV},
-		{inputType: inputKeyboard, wVk: vkV, dwFlags: keyEventKeyUp},
-		{inputType: inputKeyboard, wVk: vkControl, dwFlags: keyEventKeyUp},
+		{inputType: inputKeyboard, wVk: vkControl, dwExtraInfo: 0x4B4C},
+		{inputType: inputKeyboard, wVk: vkV, dwExtraInfo: 0x4B4C},
+		{inputType: inputKeyboard, wVk: vkV, dwFlags: keyEventKeyUp, dwExtraInfo: 0x4B4C},
+		{inputType: inputKeyboard, wVk: vkControl, dwFlags: keyEventKeyUp, dwExtraInfo: 0x4B4C},
 	}
 	ret, _, err := clipSendInput.Call(
 		uintptr(len(inputs)),
