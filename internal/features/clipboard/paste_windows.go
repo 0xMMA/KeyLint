@@ -12,9 +12,10 @@ import (
 )
 
 var (
-	clipUser32             = syscall.NewLazyDLL("user32.dll")
-	clipSendInput          = clipUser32.NewProc("SendInput")
-	clipGetForegroundWindow = clipUser32.NewProc("GetForegroundWindow")
+	clipUser32                  = syscall.NewLazyDLL("user32.dll")
+	clipSendInput               = clipUser32.NewProc("SendInput")
+	clipGetForegroundWindow     = clipUser32.NewProc("GetForegroundWindow")
+	clipGetClipboardSeqNumber   = clipUser32.NewProc("GetClipboardSequenceNumber")
 )
 
 const (
@@ -42,10 +43,15 @@ type pasteInput struct {
 }
 
 // CopyFromForeground sends Ctrl+C to the foreground window via Win32 SendInput,
-// then waits 150 ms for the clipboard to be populated by the source app.
+// then polls GetClipboardSequenceNumber until the clipboard changes (or timeout).
+// This handles slow clipboard providers like Outlook that use delayed rendering.
 func (s *Service) CopyFromForeground() error {
 	hwnd, _, _ := clipGetForegroundWindow.Call()
 	logger.Info("clipboard: CopyFromForeground sending Ctrl+C", "foreground_hwnd", hwnd)
+
+	// Snapshot the clipboard sequence number before sending Ctrl+C.
+	seqBefore, _, _ := clipGetClipboardSeqNumber.Call()
+
 	inputs := [4]pasteInput{
 		{inputType: inputKeyboard, wVk: vkControl, dwExtraInfo: 0x4B4C},
 		{inputType: inputKeyboard, wVk: vkC, dwExtraInfo: 0x4B4C},
@@ -61,8 +67,23 @@ func (s *Service) CopyFromForeground() error {
 		logger.Error("clipboard: CopyFromForeground SendInput failed", "err", err)
 		return fmt.Errorf("SendInput (Ctrl+C) failed: %w", err)
 	}
-	time.Sleep(150 * time.Millisecond)
-	logger.Info("clipboard: CopyFromForeground ok")
+
+	// Poll until the clipboard sequence number changes, up to 1s.
+	// Apps like Outlook use delayed rendering and may take 200-500ms.
+	const pollInterval = 25 * time.Millisecond
+	const timeout = 1 * time.Second
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		time.Sleep(pollInterval)
+		seqNow, _, _ := clipGetClipboardSeqNumber.Call()
+		if seqNow != seqBefore {
+			logger.Info("clipboard: CopyFromForeground ok", "wait_ms", time.Since(deadline.Add(-timeout)).Milliseconds())
+			return nil
+		}
+	}
+
+	// Timeout — clipboard didn't change. Might still work (some apps don't update the sequence number).
+	logger.Warn("clipboard: CopyFromForeground timed out waiting for clipboard change")
 	return nil
 }
 
