@@ -12,6 +12,15 @@
 import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Create } from "@wailsio/runtime";
 
 /**
+ * SetShortcutPaused temporarily disables shortcut detection (e.g. while recording a new shortcut in settings).
+ * @param {boolean} paused
+ * @returns {$CancellablePromise<void>}
+ */
+export function SetShortcutPaused(paused) {
+    return $Call.ByID(2045995901, paused);
+}
+
+/**
  * @returns {$CancellablePromise<void>}
  */
 export function SimulateShortcut() {

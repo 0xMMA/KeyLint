@@ -9,7 +9,8 @@ declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
             "settings:changed": string;
-            "shortcut:triggered": string;
+            "shortcut:fix": string;
+            "shortcut:pyramidize": string;
         }
     }
 }

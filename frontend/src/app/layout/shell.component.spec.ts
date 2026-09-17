@@ -110,4 +110,89 @@ describe('ShellComponent — theme / body class', () => {
     fixture.componentInstance.goToAbout();
     expect(navigateSpy).toHaveBeenCalledWith(['/settings'], { queryParams: { tab: 'about' } });
   });
+
+  it('navigates to /enhance on shortcutPyramidize$', async () => {
+    const fixture = await createAndWait('dark');
+    const router = TestBed.inject(Router);
+    const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    wailsMock._shortcutPyramidize$.next('hotkey');
+    await fixture.whenStable();
+
+    expect(navigateSpy).toHaveBeenCalledWith(['/enhance']);
+  });
+
+  it('shortcutFix$ triggers silent fix (enhance + paste)', async () => {
+    wailsMock.readClipboard.mockResolvedValue('bad grammer');
+    wailsMock.enhance.mockResolvedValue('bad grammar');
+    await createAndWait('dark');
+
+    wailsMock._shortcutFix$.next('hotkey');
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(wailsMock.readClipboard).toHaveBeenCalled();
+    expect(wailsMock.enhance).toHaveBeenCalledWith('bad grammer');
+    expect(wailsMock.writeClipboard).toHaveBeenCalledWith('bad grammar');
+    expect(wailsMock.pasteToForeground).toHaveBeenCalled();
+  });
+
+  it('ignores a second shortcutFix$ while a silent fix is still in flight', async () => {
+    wailsMock.readClipboard.mockResolvedValue('bad grammer');
+    let resolveEnhance: (value: string) => void = () => { /* replaced once enhance is called */ };
+    wailsMock.enhance.mockImplementation(() => new Promise<string>(resolve => { resolveEnhance = resolve; }));
+    await createAndWait('dark');
+
+    wailsMock._shortcutFix$.next('hotkey');
+    await new Promise(r => setTimeout(r, 0));
+    wailsMock._shortcutFix$.next('hotkey');
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(wailsMock.readClipboard).toHaveBeenCalledTimes(1);
+    expect(wailsMock.enhance).toHaveBeenCalledTimes(1);
+    expect(wailsMock.log).toHaveBeenCalledWith('warn', 'shell: silent fix already running, ignoring shortcut');
+
+    // First cycle finishes — the guard must release.
+    resolveEnhance('bad grammar');
+    await new Promise(r => setTimeout(r, 0));
+    expect(wailsMock.pasteToForeground).toHaveBeenCalledTimes(1);
+
+    wailsMock._shortcutFix$.next('hotkey');
+    await new Promise(r => setTimeout(r, 0));
+    expect(wailsMock.enhance).toHaveBeenCalledTimes(2);
+  });
+
+  it('releases the guard when a silent fix fails', async () => {
+    wailsMock.readClipboard.mockResolvedValue('bad grammer');
+    wailsMock.enhance.mockRejectedValueOnce(new Error('boom')).mockResolvedValue('bad grammar');
+    await createAndWait('dark');
+
+    wailsMock._shortcutFix$.next('hotkey');
+    await new Promise(r => setTimeout(r, 0));
+    expect(wailsMock.log).toHaveBeenCalledWith('error', expect.stringContaining('boom'));
+
+    wailsMock._shortcutFix$.next('hotkey');
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(wailsMock.enhance).toHaveBeenCalledTimes(2);
+    expect(wailsMock.pasteToForeground).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the guard after the safety timeout when enhance never settles', async () => {
+    wailsMock.readClipboard.mockResolvedValue('bad grammer');
+    wailsMock.enhance.mockImplementation(() => new Promise<string>(() => { /* never settles */ }));
+    const fixture = await createAndWait('dark');
+    (fixture.componentInstance as unknown as { silentFixTimeoutMs: number }).silentFixTimeoutMs = 5;
+
+    wailsMock._shortcutFix$.next('hotkey');
+    await new Promise(r => setTimeout(r, 30));
+
+    expect(wailsMock.log).toHaveBeenCalledWith('warn', 'shell: silent fix timed out, releasing guard');
+
+    wailsMock.enhance.mockResolvedValue('bad grammar');
+    wailsMock._shortcutFix$.next('hotkey');
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(wailsMock.enhance).toHaveBeenCalledTimes(2);
+    expect(wailsMock.pasteToForeground).toHaveBeenCalledTimes(1);
+  });
 });

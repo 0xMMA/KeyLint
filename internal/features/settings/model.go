@@ -27,7 +27,11 @@ const DefaultQualityThreshold = 0.65
 type Settings struct {
 	ActiveProvider  string   `json:"active_provider"` // "openai" | "claude" | "ollama" | "bedrock"
 	Providers       Provider `json:"providers"`
-	ShortcutKey     string   `json:"shortcut_key"`    // e.g. "ctrl+g"
+	ShortcutKey             string `json:"shortcut_key"`              // LEGACY — migrated to ShortcutFix on load
+	ShortcutMode            string `json:"shortcut_mode"`             // "double_tap" | "independent"
+	ShortcutFix             string `json:"shortcut_fix"`              // e.g. "ctrl+g"
+	ShortcutPyramidize      string `json:"shortcut_pyramidize"`       // e.g. "ctrl+shift+g" (independent mode only)
+	ShortcutDoubleTapDelay  int    `json:"shortcut_double_tap_delay"` // ms, 100-500, default 200
 	StartOnBoot     bool     `json:"start_on_boot"`
 	ThemePreference string   `json:"theme_preference"` // "light" | "dark" | "system"
 	CompletedSetup  bool     `json:"completed_setup"`
@@ -45,6 +49,10 @@ func Default() Settings {
 	return Settings{
 		ActiveProvider:             "openai",
 		ShortcutKey:                "ctrl+g",
+		ShortcutMode:               "double_tap",
+		ShortcutFix:                "ctrl+g",
+		ShortcutPyramidize:         "ctrl+shift+g",
+		ShortcutDoubleTapDelay:     200,
 		ThemePreference:            "dark",
 		LogLevel:                   "off",
 		PyramidizeQualityThreshold: DefaultQualityThreshold,

@@ -81,6 +81,15 @@ func (s *Service) load() error {
 		}
 	}
 
+	// Migrate legacy shortcut_key → shortcut_fix + defaults.
+	if s.current.ShortcutFix == "" && s.current.ShortcutKey != "" {
+		s.current.ShortcutFix = s.current.ShortcutKey
+		s.current.ShortcutMode = "double_tap"
+		s.current.ShortcutPyramidize = "ctrl+shift+g"
+		s.current.ShortcutDoubleTapDelay = 200
+		logger.Info("settings: migrated shortcut_key to shortcut_fix", "key", s.current.ShortcutFix)
+	}
+
 	logger.Info("settings: loaded", "path", s.filePath)
 	return nil
 }

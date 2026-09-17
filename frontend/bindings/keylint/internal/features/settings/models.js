@@ -149,11 +149,43 @@ export class Settings {
         }
         if (!("shortcut_key" in $$source)) {
             /**
-             * e.g. "ctrl+g"
+             * LEGACY — migrated to ShortcutFix on load
              * @member
              * @type {string}
              */
             this["shortcut_key"] = "";
+        }
+        if (!("shortcut_mode" in $$source)) {
+            /**
+             * "double_tap" | "independent"
+             * @member
+             * @type {string}
+             */
+            this["shortcut_mode"] = "";
+        }
+        if (!("shortcut_fix" in $$source)) {
+            /**
+             * e.g. "ctrl+g"
+             * @member
+             * @type {string}
+             */
+            this["shortcut_fix"] = "";
+        }
+        if (!("shortcut_pyramidize" in $$source)) {
+            /**
+             * e.g. "ctrl+shift+g" (independent mode only)
+             * @member
+             * @type {string}
+             */
+            this["shortcut_pyramidize"] = "";
+        }
+        if (!("shortcut_double_tap_delay" in $$source)) {
+            /**
+             * ms, 100-500, default 200
+             * @member
+             * @type {number}
+             */
+            this["shortcut_double_tap_delay"] = 0;
         }
         if (!("start_on_boot" in $$source)) {
             /**
@@ -228,13 +260,13 @@ export class Settings {
      */
     static createFrom($$source = {}) {
         const $$createField1_0 = $$createType0;
-        const $$createField9_0 = $$createType2;
+        const $$createField13_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("providers" in $$parsedSource) {
             $$parsedSource["providers"] = $$createField1_0($$parsedSource["providers"]);
         }
         if ("app_presets" in $$parsedSource) {
-            $$parsedSource["app_presets"] = $$createField9_0($$parsedSource["app_presets"]);
+            $$parsedSource["app_presets"] = $$createField13_0($$parsedSource["app_presets"]);
         }
         return new Settings(/** @type {Partial<Settings>} */($$parsedSource));
     }

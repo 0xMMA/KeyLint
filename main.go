@@ -31,7 +31,8 @@ var assets embed.FS
 var appIcon []byte
 
 func init() {
-	application.RegisterEvent[string]("shortcut:triggered")
+	application.RegisterEvent[string]("shortcut:fix")
+	application.RegisterEvent[string]("shortcut:pyramidize")
 	application.RegisterEvent[string]("settings:changed")
 }
 
@@ -120,29 +121,49 @@ func main() {
 
 	// Register the global shortcut (no-op on Linux).
 	// Unregister on shutdown so dev-mode restarts don't leave a stale registration.
-	if err := services.Shortcut.Register(); err != nil {
+	shortcutCfg := shortcut.ShortcutConfig{
+		Mode:            cfg.ShortcutMode,
+		FixCombo:        cfg.ShortcutFix,
+		PyramidizeCombo: cfg.ShortcutPyramidize,
+		DoubleTapDelay:  time.Duration(cfg.ShortcutDoubleTapDelay) * time.Millisecond,
+	}
+	if err := services.Shortcut.Register(shortcutCfg); err != nil {
 		log.Printf("warn: shortcut registration failed: %v", err)
 		logger.Warn("shortcut: registration failed", "err", err)
 	} else {
-		logger.Info("shortcut: registered", "key", cfg.ShortcutKey)
+		logger.Info("shortcut: registered", "mode", cfg.ShortcutMode, "fix", cfg.ShortcutFix)
 	}
 	wailsApp.OnShutdown(func() { services.Shortcut.Unregister() })
 
-	// Forward shortcut events to the frontend.
-	// First send Ctrl+C to copy selected text from the source app, then notify
-	// the frontend so it can read the clipboard and enhance the text.
-	// Show the window so the frontend can receive and process the event.
+	// Hot-reload shortcuts when settings change.
+	wailsApp.Event.On("settings:changed", func(ev *application.CustomEvent) {
+		newCfg := services.Settings.Get()
+		newShortcutCfg := shortcut.ShortcutConfig{
+			Mode:            newCfg.ShortcutMode,
+			FixCombo:        newCfg.ShortcutFix,
+			PyramidizeCombo: newCfg.ShortcutPyramidize,
+			DoubleTapDelay:  time.Duration(newCfg.ShortcutDoubleTapDelay) * time.Millisecond,
+		}
+		if err := services.Shortcut.UpdateConfig(newShortcutCfg); err != nil {
+			logger.Warn("shortcut: hot-reload failed", "err", err)
+		}
+	})
+
+	// Forward classified shortcut events to the frontend.
 	go func() {
-		ch := services.Shortcut.Triggered()
-		for event := range ch {
-			logger.Info("shortcut: triggered", "source", event.Source)
-			// Capture the source app window BEFORE copying from foreground,
-			// so SendBack() can restore focus to the correct window later.
+		for event := range services.Shortcut.Triggered() {
+			logger.Info("shortcut: action", "action", event.Action, "source", event.Source)
 			pyramidizeSvc.CaptureSourceApp()
 			if err := services.Clipboard.CopyFromForeground(); err != nil {
 				logger.Warn("shortcut: CopyFromForeground failed", "err", err)
 			}
-			wailsApp.Event.Emit("shortcut:triggered", event.Source)
+			switch event.Action {
+			case "fix":
+				wailsApp.Event.Emit("shortcut:fix", event.Source)
+			case "pyramidize":
+				window.Show().Focus()
+				wailsApp.Event.Emit("shortcut:pyramidize", event.Source)
+			}
 		}
 	}()
 
@@ -167,4 +188,9 @@ func (s *simulateService) SimulateShortcut() {
 	if sim, ok := s.shortcut.(interface{ Simulate() }); ok {
 		sim.Simulate()
 	}
+}
+
+// SetShortcutPaused temporarily disables shortcut detection (e.g. while recording a new shortcut in settings).
+func (s *simulateService) SetShortcutPaused(paused bool) {
+	s.shortcut.SetPaused(paused)
 }
