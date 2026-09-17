@@ -23,6 +23,8 @@ Settings tests use `XDG_CONFIG_HOME` env override to redirect file I/O to a temp
 
 ## E2E (Playwright)
 
+- CI runs the whole suite (`build-linux.yml`, job `e2e`): add a spec and it runs, no allowlist to update
+- Generated output — `e2e/screenshots/`, `playwright-report/`, `test-results/` — is gitignored; `git status` must stay clean after a run
 - Config auto-starts `ng serve` on port 4200
 - Anthropic API is CORS-blocked in browsers — use `page.route()` proxy pattern
 - API key injection: `localStorage.setItem('_e2e_apikey_claude', key)`

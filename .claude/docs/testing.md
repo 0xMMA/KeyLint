@@ -38,5 +38,7 @@ Run: `cd frontend && npx playwright test`
 - Loads `.env` via dotenv; passes `NG_APP_ANTHROPIC_API_KEY` to webServer process
 - Anthropic API is CORS-blocked in browsers; use `page.route('https://api.anthropic.com/**', handler)` proxy pattern
 - API key injection for browser mode: `page.evaluate(k => localStorage.setItem('_e2e_apikey_claude', k), apiKey)`
-- Screenshots saved to `frontend/e2e/screenshots/`
-- `silent-fix.spec.ts` is wrapped in `test.describe.skip` (verified working, kept for reference)
+- Screenshots are written to `frontend/e2e/screenshots/`, the HTML report to `frontend/playwright-report/`, traces to `frontend/test-results/` — all three are generated output and gitignored
+- CI (`build-linux.yml`, job `e2e`, after `test`) runs `dark-mode`, `pyramidize-layout` and `shell-menu` on Chromium and uploads the report and traces as an artifact when the job fails
+- `silent-fix.spec.ts` is wrapped in `test.describe.skip` (verified working, kept for reference) and stays out of CI: it needs a real `ANTHROPIC_API_KEY`, which a fork PR cannot have
+- In CI the config does not reuse an existing dev server and allows `ng serve` 180s to come up; locally it still attaches to whatever is already on :4200
