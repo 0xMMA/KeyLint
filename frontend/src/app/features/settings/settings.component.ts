@@ -1,4 +1,4 @@
-import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
@@ -10,7 +10,7 @@ import { MessageModule } from 'primeng/message';
 import { CardModule } from 'primeng/card';
 import { TagModule } from 'primeng/tag';
 import { ActivatedRoute } from '@angular/router';
-import { WailsService, Settings as AppSettings, KeyStatus, UpdateInfo, AppPreset } from '../../core/wails.service';
+import { WailsService, Settings as AppSettings, KeyStatus, UpdateInfo, AppPreset, ClaudeCodeStatus } from '../../core/wails.service';
 import { DOCUMENT_TYPE_OPTIONS } from '../../core/constants';
 import { LogService } from '../../core/log.service';
 
@@ -101,6 +101,52 @@ interface ProviderKey {
                   Keys are stored in your OS keyring (Windows Credential Manager / libsecret on Linux).
                   Environment variables (<code>OPENAI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>) take priority and cannot be overridden here.
                 </p>
+
+                <!-- Claude Code CLI needs no key: the user signs in themselves. -->
+                <div class="key-row" data-testid="claude-code-card">
+                  <div class="key-header">
+                    <span class="key-label">Claude Code (installed CLI)</span>
+                    @if (claudeCodeStatus) {
+                      @if (claudeCodeStatus.installed && claudeCodeStatus.loggedIn) {
+                        <p-tag data-testid="claude-code-status-tag" value="● signed in" severity="success" />
+                      } @else if (claudeCodeStatus.installed) {
+                        <p-tag data-testid="claude-code-status-tag" value="not signed in" severity="warn" />
+                      } @else {
+                        <p-tag data-testid="claude-code-status-tag" value="not installed" severity="secondary" />
+                      }
+                    }
+                  </div>
+
+                  @if (claudeCodeStatus?.installed) {
+                    <p class="hint-text" data-testid="claude-code-detected">
+                      Detected at <code>{{ claudeCodeStatus!.path }}</code>
+                      @if (claudeCodeStatus!.version) {
+                        <span> · version {{ claudeCodeStatus!.version }}</span>
+                      }
+                    </p>
+                    @if (!claudeCodeStatus!.loggedIn) {
+                      <p class="hint-text" data-testid="claude-code-signin-hint">
+                        Open a terminal, run <code>claude</code>, and sign in. KeyLint never reads or stores your credentials.
+                      </p>
+                    }
+                  } @else if (claudeCodeStatus) {
+                    <p class="hint-text" data-testid="claude-code-missing">
+                      No Claude Code CLI found on this machine. Install it to use your own subscription instead of an API key.
+                    </p>
+                  }
+
+                  <div class="key-actions">
+                    <p-button
+                      data-testid="claude-code-recheck"
+                      label="Re-check"
+                      icon="pi pi-refresh"
+                      severity="secondary"
+                      size="small"
+                      (onClick)="recheckClaudeCode()"
+                      [loading]="claudeCodeChecking"
+                    />
+                  </div>
+                </div>
 
                 @for (pk of providerKeys; track pk.id) {
                   <div class="key-row">
@@ -373,7 +419,7 @@ interface ProviderKey {
     }
   `],
 })
-export class SettingsComponent implements OnInit {
+export class SettingsComponent implements OnInit, OnDestroy {
   settings: AppSettings | null = null;
   saved = false;
   keyError = '';
@@ -398,6 +444,7 @@ export class SettingsComponent implements OnInit {
   readonly providers = [
     { label: 'OpenAI', value: 'openai' },
     { label: 'Anthropic Claude', value: 'claude' },
+    { label: 'Claude Code (installed CLI)', value: 'claude-code' },
     { label: 'Ollama (local)', value: 'ollama' },
     { label: 'AWS Bedrock', value: 'bedrock' },
   ];
@@ -425,6 +472,12 @@ export class SettingsComponent implements OnInit {
 
   readonly docTypeOptions = DOCUMENT_TYPE_OPTIONS;
 
+  /** Null until the first detection run finishes. */
+  claudeCodeStatus: ClaudeCodeStatus | null = null;
+  claudeCodeChecking = false;
+  /** Detection can take seconds; the user may navigate away meanwhile. */
+  private destroyed = false;
+
   providerKeys: ProviderKey[] = [
     { id: 'openai',  label: 'OpenAI API Key',      status: null, editing: false, draftKey: '', saving: false },
     { id: 'claude',  label: 'Anthropic API Key',    status: null, editing: false, draftKey: '', saving: false },
@@ -447,6 +500,28 @@ export class SettingsComponent implements OnInit {
     this.presets = await this.wails.getAppPresets();
     this.qualityThreshold = await this.wails.getQualityThreshold();
     this.cdr.detectChanges();
+
+    // Detection spawns processes, so the rest of the screen must not wait for it.
+    void this.recheckClaudeCode();
+  }
+
+  ngOnDestroy(): void {
+    this.destroyed = true;
+  }
+
+  /** Re-runs Claude Code detection, e.g. after the user signed in elsewhere. */
+  async recheckClaudeCode(): Promise<void> {
+    this.claudeCodeChecking = true;
+    this.cdr.detectChanges();
+    try {
+      this.claudeCodeStatus = await this.wails.getClaudeCodeStatus();
+    } finally {
+      this.claudeCodeChecking = false;
+      // Detection can outlive the screen; refreshing a destroyed view throws.
+      if (!this.destroyed) {
+        this.cdr.detectChanges();
+      }
+    }
   }
 
   private async refreshKeyStatuses(): Promise<void> {

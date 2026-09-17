@@ -7,7 +7,7 @@
 **Key directories:**
 - `main.go` — Wails entry point, service registration, event loop
 - `internal/features/` — vertical slices: settings, shortcut, clipboard, tray, enhance, welcome, logger, updater, pyramidize
-- `internal/llm/` — provider layer: `Client` interface, registry, and the only place with provider HTTP calls
+- `internal/llm/` — provider layer: `Client` interface, registry, and the only place with provider HTTP calls or spawned provider CLIs
 - `internal/cli/` — headless CLI commands (`-fix`, `-pyramidize`), dispatched from `main.go` before Wails boots
 - `internal/app/wire.go` + `wire_gen.go` — Wire DI (never edit `wire_gen.go` manually)
 - `frontend/src/app/core/wails.service.ts` — sole RPC bridge; all Go calls go through here
@@ -46,13 +46,14 @@ EVAL_VARIANT=2 go test -tags eval ...                  # variant via env var
 
 ## Why (The Context)
 
-KeyLint is a desktop app that fixes/enhances clipboard text via AI (OpenAI, Anthropic, Ollama, Bedrock). A global hotkey silently grabs clipboard text, enhances it, and writes it back. The main UI provides manual fix and advanced enhancement modes.
+KeyLint is a desktop app that fixes/enhances clipboard text via AI (OpenAI, Anthropic, the installed Claude Code CLI, Ollama, Bedrock). A global hotkey silently grabs clipboard text, enhances it, and writes it back. The main UI provides manual fix and advanced enhancement modes.
 
 **Architecture decisions:**
 - AI API calls go through the Go backend (`internal/features/enhance/service.go:1`) — WebKit2GTK on Linux blocks external HTTPS fetch from the webview
 - API keys stored in OS keyring (`github.com/zalando/go-keyring`); env vars take priority over keyring — see `internal/features/settings/service.go`
 - PrimeNG Stepper was replaced with a custom `@switch`-based wizard (`welcome-wizard.component.ts`) because PrimeNG v21 StepPanel animations broke DOM visibility
 - CLI mode (`-fix`, `-pyramidize`) dispatches before Wails boots in `main.go`, uses the same service layer with manual wiring (no Wire/Wails). Prompts are identical between CLI and GUI — output formatting is the caller's concern.
+- The `claude-code` provider spawns the user's installed Claude Code CLI (`internal/llm/claudecode.go`) instead of calling an HTTP API. Anthropic's terms allow running the unmodified binary the user installed and signed in to themselves — so KeyLint never reads, stores or forwards credentials, never offers a login, and never uses the Claude Code or Anthropic name as part of a KeyLint feature name. Never pass `--bare`: it skips credential reads and makes a signed-in user look signed out.
 - Evaluation tests use `//go:build eval` build tag to isolate from normal `go test` runs. They make real API calls and write results to `test-data/eval-runs/<timestamp>/`.
 
 **Component flow:** `main.go` → Wire DI initializes services → Wails registers them → `wails3 generate bindings` generates JS → `wails.service.ts` wraps bindings → Angular components call `WailsService`

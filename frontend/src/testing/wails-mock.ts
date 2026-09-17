@@ -1,6 +1,6 @@
 import { Subject } from 'rxjs';
 import { vi } from 'vitest';
-import type { Settings, KeyStatus, UpdateInfo, InstallResult } from '../app/core/wails.service';
+import type { Settings, KeyStatus, UpdateInfo, InstallResult, ClaudeCodeStatus } from '../app/core/wails.service';
 
 export const defaultSettings: Settings = {
   active_provider: 'openai',
@@ -20,6 +20,14 @@ export const defaultSettings: Settings = {
 };
 
 export const defaultKeyStatus: KeyStatus = { is_set: false, source: 'none' };
+
+/** Default: no Claude Code CLI on the machine, so tests exercise the BYOK path. */
+export const defaultClaudeCodeStatus: ClaudeCodeStatus = {
+  installed: false,
+  path: '',
+  version: '',
+  loggedIn: false,
+};
 
 export const defaultUpdateInfo: UpdateInfo = {
   is_available: false,
@@ -54,6 +62,7 @@ export function createWailsMock() {
     setKey: vi.fn().mockResolvedValue(undefined),
     deleteKey: vi.fn().mockResolvedValue(undefined),
     resetSettings: vi.fn().mockResolvedValue(undefined),
+    getClaudeCodeStatus: vi.fn().mockResolvedValue({ ...defaultClaudeCodeStatus }),
     getVersion: vi.fn().mockResolvedValue('3.6.0'),
     checkForUpdate: vi.fn().mockResolvedValue({ ...defaultUpdateInfo }),
     downloadAndInstall: vi.fn().mockResolvedValue({ restart_required: false }),

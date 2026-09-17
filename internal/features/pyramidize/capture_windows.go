@@ -56,10 +56,10 @@ func sendBackToWindow(windowIDStr string) error {
 	}
 
 	const (
-		inputKeyboard   = 2
-		keyeventfKeyup  = 0x0002
-		vkControl       = 0x11
-		vkV             = 0x56
+		inputKeyboard  = 2
+		keyeventfKeyup = 0x0002
+		vkControl      = 0x11
+		vkV            = 0x56
 	)
 
 	inputs := [4]input{

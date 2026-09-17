@@ -22,6 +22,10 @@ const (
 	ProviderOpenAI = "openai"
 	ProviderClaude = "claude"
 	ProviderOllama = "ollama"
+	// ProviderClaudeCode runs the Claude Code CLI the user installed and signed
+	// into themselves. KeyLint spawns the unmodified binary and never reads,
+	// stores or forwards their credentials.
+	ProviderClaudeCode = "claude-code"
 )
 
 // provider pairs the stable ID used in settings and logs with the display name
@@ -45,7 +49,8 @@ type Request struct {
 	// (Anthropic) send it; the others keep the request shape they had before.
 	MaxTokens int
 	// JSONMode asks the provider to constrain output to a JSON object. Only
-	// OpenAI enforces it; for the others the caller parses defensively.
+	// OpenAI enforces it; for the others — including the Claude Code CLI, which
+	// could honour it through --json-schema — the caller parses defensively.
 	//
 	// The roadmap sketches this field as JSONSchema (docs/roadmap.md, E2 step 1).
 	// It is a bool here because a schema would change what the callers send —
@@ -75,10 +80,15 @@ type Config struct {
 	// HTTPClient is used for every request. nil falls back to a client with
 	// fallbackTimeout — never http.DefaultClient, which would never time out.
 	HTTPClient *http.Client
-	// Source names the feature making the call ("enhance", "pyramidize") and
-	// appears in the debug logs so a user's log file still says which flow a
-	// request came from.
-	Source string
+	// Feature names the caller ("enhance", "pyramidize") and appears in the logs
+	// so a user's log file still says which flow a request came from. It is not
+	// called Source because the logger already owns that key for backend vs
+	// frontend, and two attributes with one name make a log line ambiguous.
+	Feature string
+	// CLIPath points at a provider that is a local executable rather than an
+	// HTTP endpoint (Claude Code). Empty means "find it on this machine"; tests
+	// set it to a stub binary.
+	CLIPath string
 	// PromptSeparator joins System and User for providers whose API takes a
 	// single prompt string (Ollama). It exists to preserve the two different
 	// joins the call sites used before this package; it disappears when the
@@ -89,9 +99,10 @@ type Config struct {
 // factories is the provider registry: provider ID → client constructor. It is
 // written at package init only; adding runtime registration would need a lock.
 var factories = map[string]func(Config) Client{
-	ProviderOpenAI: newOpenAI,
-	ProviderClaude: newAnthropic,
-	ProviderOllama: newOllama,
+	ProviderOpenAI:     newOpenAI,
+	ProviderClaude:     newAnthropic,
+	ProviderOllama:     newOllama,
+	ProviderClaudeCode: newClaudeCode,
 }
 
 // fallbackTimeout bounds requests when the caller passes no HTTP client.
@@ -130,7 +141,7 @@ func postJSON(ctx context.Context, cfg Config, p provider, url string, headers m
 	if err != nil {
 		return nil, fmt.Errorf("%s marshal error: %w", p.name, err)
 	}
-	logger.Debug("llm: request", "source", cfg.Source, "provider", p.id, "url", url, "payload", logger.Redact(string(body)))
+	logger.Debug("llm: request", "feature", cfg.Feature, "provider", p.id, "url", url, "payload", logger.Redact(string(body)))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -154,7 +165,7 @@ func postJSON(ctx context.Context, cfg Config, p provider, url string, headers m
 	if err != nil {
 		return nil, fmt.Errorf("%s read response failed: %w", p.name, err)
 	}
-	logger.Debug("llm: response", "source", cfg.Source, "provider", p.id, "status", resp.StatusCode, "body", logger.Redact(string(respBody)))
+	logger.Debug("llm: response", "feature", cfg.Feature, "provider", p.id, "status", resp.StatusCode, "body", logger.Redact(string(respBody)))
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s error %d: %s", p.name, resp.StatusCode, respBody)

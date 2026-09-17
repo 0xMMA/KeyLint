@@ -16,7 +16,7 @@ type PyramidizeRequest struct {
 type PyramidizeResult struct {
 	DocumentType       string   `json:"documentType"`
 	Language           string   `json:"language"`
-	FullDocument       string   `json:"fullDocument"`      // first line = subject/title
+	FullDocument       string   `json:"fullDocument"` // first line = subject/title
 	Headers            []string `json:"headers"`
 	QualityScore       float64  `json:"qualityScore"`
 	QualityFlags       []string `json:"qualityFlags"`

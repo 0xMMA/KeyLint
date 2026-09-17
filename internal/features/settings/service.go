@@ -1,10 +1,13 @@
 package settings
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"time"
 
+	"keylint/internal/llm"
 	"keylint/internal/logger"
 
 	keyring "github.com/zalando/go-keyring"
@@ -144,6 +147,20 @@ func (s *Service) SetKey(provider, key string) error {
 // DeleteKey removes an API key for the given provider from the OS keyring.
 func (s *Service) DeleteKey(provider string) error {
 	return keyring.Delete(appName, provider)
+}
+
+// claudeCodeStatusTimeout bounds the whole detection so the settings screen and
+// the welcome wizard cannot be blocked by a wedged binary.
+const claudeCodeStatusTimeout = 25 * time.Second
+
+// GetClaudeCodeStatus reports whether the Claude Code CLI is installed on this
+// machine and signed in, so the UI can offer it as a provider that needs no API
+// key. Signing in happens in the user's own terminal through Anthropic's flow —
+// KeyLint only looks, and never reads or stores credentials.
+func (s *Service) GetClaudeCodeStatus() llm.ClaudeCodeStatus {
+	ctx, cancel := context.WithTimeout(context.Background(), claudeCodeStatusTimeout)
+	defer cancel()
+	return llm.CheckClaudeCode(ctx, "")
 }
 
 // ResetToDefaults resets settings to their default values and saves to disk.

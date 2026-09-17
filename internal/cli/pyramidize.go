@@ -32,7 +32,7 @@ func runPyramidizeWith(args []string, stdout io.Writer, stderr io.Writer, svc py
 	filePath := fs.String("f", "", "Input file path")
 	docType := fs.String("type", "auto", "Document type: auto|email|wiki|memo|powerpoint")
 	jsonOut := fs.Bool("json", false, "Output full result as JSON")
-	provider := fs.String("provider", "", "AI provider override: claude|openai|ollama")
+	provider := fs.String("provider", "", "AI provider override: claude|claude-code|openai|ollama")
 	model := fs.String("model", "", "Model override (e.g. claude-sonnet-4-6)")
 	style := fs.String("style", "professional", "Communication style")
 	relationship := fs.String("relationship", "professional", "Relationship level")

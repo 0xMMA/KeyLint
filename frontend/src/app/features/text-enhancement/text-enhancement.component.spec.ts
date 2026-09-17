@@ -330,3 +330,64 @@ describe('TextEnhancementComponent (Pyramidize)', () => {
     expect((wailsMock.readClipboard as ReturnType<typeof vi.fn>).mock.calls.length).toBe(prevReadCount);
   });
 });
+
+describe('TextEnhancementComponent — Claude Code provider', () => {
+  let fixture: ComponentFixture<TextEnhancementComponent>;
+  let component: TextEnhancementComponent;
+  let el: HTMLElement;
+  let wailsMock: ReturnType<typeof createWailsMock>;
+
+  beforeEach(async () => {
+    TestBed.resetTestingModule();
+    wailsMock = createWailsMock();
+    wailsMock.getKeyStatus.mockResolvedValue({ is_set: false, source: 'none' });
+
+    await TestBed.configureTestingModule({
+      imports: [TextEnhancementComponent],
+      providers: [
+        provideRouter([]),
+        provideAnimationsAsync(),
+        { provide: WailsService, useValue: wailsMock },
+        { provide: TextEnhancementService, useValue: makeEnhancementServiceMock() },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(TextEnhancementComponent);
+    component = fixture.componentInstance;
+    el = fixture.nativeElement;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  });
+
+  afterEach(async () => {
+    // Provider choice lives in module-level state that outlives the fixture.
+    component.providerView = 'claude';
+    await component.onProviderChange();
+  });
+
+  it('offers the CLI as a provider', () => {
+    expect(component.providerOptions.map(p => p.value)).toContain('claude-code');
+  });
+
+  it('uses model aliases the CLI resolves itself', async () => {
+    component.providerView = 'claude-code';
+    await component.onProviderChange();
+    fixture.detectChanges();
+
+    expect(component.modelView).toBe('sonnet');
+    expect(component.currentModelOptions.map(m => m.value)).toEqual(['opus', 'sonnet', 'haiku']);
+  });
+
+  it('shows no missing-key warning for a provider that needs no key', async () => {
+    expect(el.querySelector('[data-testid="api-key-banner"]')).not.toBeNull();
+
+    component.providerView = 'claude-code';
+    await component.onProviderChange();
+    fixture.detectChanges();
+
+    expect(component.apiKeySet).toBe(true);
+    expect(el.querySelector('[data-testid="api-key-banner"]')).toBeNull();
+    expect(wailsMock.getKeyStatus).not.toHaveBeenCalledWith('claude-code');
+  });
+});
