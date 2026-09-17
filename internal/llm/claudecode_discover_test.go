@@ -135,6 +135,37 @@ func TestCheckClaudeCodeSignedOut(t *testing.T) {
 	}
 }
 
+// TestCheckClaudeCodeProbesWithoutInheritedCredentials pins the fix for a bug
+// where detection and execution disagreed: the probe inherited KeyLint's own
+// ANTHROPIC_API_KEY, so `claude auth status` reported an API-key session as
+// signed in, the UI offered the one-click path, and every completion — which
+// runs without that key — then failed as "not signed in".
+func TestCheckClaudeCodeProbesWithoutInheritedCredentials(t *testing.T) {
+	s := newStub(t)
+	t.Setenv("CLAUDESTUB_VERSION", "2.1.274 (Claude Code)")
+	t.Setenv("CLAUDESTUB_AUTH", `{"loggedIn":true,"authMethod":"api_key"}`)
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-should-not-be-inherited")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "token-should-not-be-inherited")
+
+	CheckClaudeCode(context.Background(), stubPath)
+
+	var sawPath bool
+	for _, entry := range s.env() {
+		name, _, _ := strings.Cut(entry, "=")
+		switch {
+		case strings.EqualFold(name, "ANTHROPIC_API_KEY"),
+			strings.EqualFold(name, "CLAUDE_CODE_OAUTH_TOKEN"):
+			t.Errorf("%s reached the probe; the CLI would report a session the completion call cannot use", name)
+		case strings.EqualFold(name, "PATH"):
+			sawPath = true
+		}
+	}
+	// Stripping must be surgical here too: the probe still needs to run.
+	if !sawPath {
+		t.Error("PATH did not reach the probe")
+	}
+}
+
 func TestCheckClaudeCodeNotInstalled(t *testing.T) {
 	isolateCLILookup(t)
 
