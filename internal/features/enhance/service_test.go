@@ -22,10 +22,15 @@ type fakeClient struct {
 	gotRequest llm.Request
 	reply      string
 	err        error
+	// inspectContext lets a test assert on the context Enhance passes down.
+	inspectContext func(ctx context.Context)
 }
 
-func (f *fakeClient) Complete(_ context.Context, req llm.Request) (llm.Response, error) {
+func (f *fakeClient) Complete(ctx context.Context, req llm.Request) (llm.Response, error) {
 	f.gotRequest = req
+	if f.inspectContext != nil {
+		f.inspectContext(ctx)
+	}
 	if f.err != nil {
 		return llm.Response{}, f.err
 	}
@@ -100,8 +105,8 @@ func TestEnhanceOpenAI(t *testing.T) {
 	if rec.cfg.HTTPClient != svc.client {
 		t.Error("the service HTTP client must be handed to the provider client")
 	}
-	if rec.cfg.Source != logSource {
-		t.Errorf("Source = %q, want %q so debug logs name the feature", rec.cfg.Source, logSource)
+	if rec.cfg.Feature != logFeature {
+		t.Errorf("Feature = %q, want %q so the logs name the calling feature", rec.cfg.Feature, logFeature)
 	}
 	if rec.client.gotRequest.Model != openAIModel {
 		t.Errorf("Model = %q, want %q", rec.client.gotRequest.Model, openAIModel)
@@ -272,5 +277,51 @@ func TestEnhanceOllamaPromptJoin(t *testing.T) {
 	}
 	if want := systemPrompt + "\n\nText: " + "my text"; gotPrompt != want {
 		t.Errorf("prompt = %q, want the system prompt joined by %q", gotPrompt, "\n\nText: ")
+	}
+}
+
+func TestEnhanceClaudeCodeNeedsNoKey(t *testing.T) {
+	cfg := settings.Default()
+	cfg.ActiveProvider = "claude-code"
+	svc, rec := newTestService(t, cfg, nil)
+
+	if _, err := svc.Enhance("text"); err != nil {
+		t.Fatalf("Enhance: %v", err)
+	}
+	if rec.provider != llm.ProviderClaudeCode {
+		t.Errorf("provider = %q, want %q", rec.provider, llm.ProviderClaudeCode)
+	}
+	// The user signed in to the CLI themselves — KeyLint must not carry a key.
+	if rec.cfg.APIKey != "" {
+		t.Errorf("APIKey = %q, want empty", rec.cfg.APIKey)
+	}
+	if rec.client.gotRequest.Model != claudeCodeModel {
+		t.Errorf("Model = %q, want %q", rec.client.gotRequest.Model, claudeCodeModel)
+	}
+	if claudeCodeModel != "haiku" {
+		t.Errorf("claudeCodeModel = %q, want the alias haiku so the CLI picks the current generation", claudeCodeModel)
+	}
+}
+
+func TestEnhanceBoundsTheCall(t *testing.T) {
+	// A dead provider must not hang the silent-fix hotkey: the HTTP client has
+	// its own timeout and the whole call carries a deadline, which is the only
+	// bound a local CLI provider gets.
+	cfg := settings.Default()
+	cfg.ActiveProvider = "claude-code"
+	svc, rec := newTestService(t, cfg, nil)
+
+	var deadlineSet bool
+	rec.client.inspectContext = func(ctx context.Context) {
+		_, deadlineSet = ctx.Deadline()
+	}
+	if _, err := svc.Enhance("text"); err != nil {
+		t.Fatalf("Enhance: %v", err)
+	}
+	if !deadlineSet {
+		t.Error("Complete was called with a context that has no deadline")
+	}
+	if svc.client.Timeout == 0 {
+		t.Error("the HTTP client has no timeout")
 	}
 }

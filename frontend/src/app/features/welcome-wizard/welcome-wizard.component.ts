@@ -5,7 +5,7 @@ import { CommonModule } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
-import { WailsService } from '../../core/wails.service';
+import { WailsService, ClaudeCodeStatus } from '../../core/wails.service';
 
 @Component({
   selector: 'app-welcome-wizard',
@@ -43,7 +43,21 @@ import { WailsService } from '../../core/wails.service';
             }
             @case (2) {
               <div data-testid="step-2-content">
-                <p>Choose which AI provider to use for text enhancement:</p>
+                @if (claudeCode) {
+                  <button
+                    type="button"
+                    class="cli-option"
+                    data-testid="wizard-claude-code"
+                    [disabled]="!claudeCodeReady"
+                    (click)="useClaudeCode()"
+                  >
+                    <span class="cli-option-title">Use Claude Code (installed CLI)</span>
+                    <span class="cli-option-hint" data-testid="wizard-claude-code-hint">{{ claudeCodeHint }}</span>
+                  </button>
+                  <p class="or-divider">or use a provider with an API key:</p>
+                } @else {
+                  <p>Choose which AI provider to use for text enhancement:</p>
+                }
                 <p-select
                   [(ngModel)]="selectedProvider"
                   [options]="providers"
@@ -71,7 +85,7 @@ import { WailsService } from '../../core/wails.service';
               <div data-testid="step-4-content">
                 <p>You're all set! Press <kbd>Ctrl+G</kbd> anywhere to enhance selected text.</p>
                 <div class="step-footer">
-                  <p-button data-testid="wizard-back" label="Back" severity="secondary" (onClick)="step = 3" />
+                  <p-button data-testid="wizard-back" label="Back" severity="secondary" (onClick)="step = usesClaudeCode ? 2 : 3" />
                   <p-button data-testid="wizard-finish" label="Start Using KeyLint" icon="pi pi-check" (onClick)="finish()" [loading]="finishing" />
                 </div>
               </div>
@@ -167,6 +181,32 @@ import { WailsService } from '../../core/wails.service';
       margin-top: 1.5rem;
       justify-content: flex-end;
     }
+    .cli-option {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      width: 100%;
+      text-align: left;
+      padding: 0.75rem 1rem;
+      margin-bottom: 1rem;
+      border-radius: 8px;
+      border: 1px solid var(--p-primary-color, #f97316);
+      background: transparent;
+      color: var(--p-surface-100, #f4f4f5);
+      cursor: pointer;
+    }
+    .cli-option:disabled {
+      border-color: var(--p-surface-600, #52525b);
+      color: var(--p-surface-400, #a1a1aa);
+      cursor: not-allowed;
+    }
+    .cli-option-title { font-weight: 600; }
+    .cli-option-hint { font-size: 0.8rem; color: var(--p-surface-400, #a1a1aa); }
+    .or-divider {
+      font-size: 0.8rem;
+      color: var(--p-surface-400, #a1a1aa);
+      margin: 0 0 0.5rem;
+    }
     kbd {
       background: var(--p-surface-800, #27272a);
       padding: 2px 6px;
@@ -180,6 +220,8 @@ export class WelcomeWizardComponent implements OnInit {
   selectedProvider = 'openai';
   apiKey = '';
   finishing = false;
+  /** Null until detection finishes; the CLI option only appears once known. */
+  claudeCode: ClaudeCodeStatus | null = null;
 
   readonly stepDefs = [
     { value: 1, label: 'Welcome' },
@@ -200,7 +242,36 @@ export class WelcomeWizardComponent implements OnInit {
     const isFirst = await this.wails.isFirstRun();
     if (!isFirst) {
       await this.router.navigate(['/']);
+      return;
     }
+    this.claudeCode = await this.wails.getClaudeCodeStatus();
+  }
+
+  /** True when the CLI can be used right now — installed and already signed in. */
+  get claudeCodeReady(): boolean {
+    return !!this.claudeCode?.installed && !!this.claudeCode?.loggedIn;
+  }
+
+  get usesClaudeCode(): boolean {
+    return this.selectedProvider === 'claude-code';
+  }
+
+  get claudeCodeHint(): string {
+    if (!this.claudeCode?.installed) {
+      return 'Not found on this machine.';
+    }
+    if (!this.claudeCode.loggedIn) {
+      return 'Installed but not signed in. Open a terminal, run `claude`, and sign in.';
+    }
+    return 'Signed in — uses your own subscription, no API key needed.';
+  }
+
+  /** One-click path: pick the CLI and skip the API key step entirely. */
+  useClaudeCode(): void {
+    if (!this.claudeCodeReady) return;
+    this.selectedProvider = 'claude-code';
+    this.apiKey = '';
+    this.step = 4;
   }
 
   get providerLabel(): string {
@@ -222,7 +293,7 @@ export class WelcomeWizardComponent implements OnInit {
       settings.active_provider = this.selectedProvider;
       await this.wails.saveSettings(settings);
       // Store API key securely in the OS keyring (not in settings.json)
-      if (this.apiKey && this.selectedProvider !== 'ollama') {
+      if (this.apiKey && this.selectedProvider !== 'ollama' && this.selectedProvider !== 'claude-code') {
         await this.wails.setKey(this.selectedProvider, this.apiKey);
       }
       await this.wails.completeSetup();

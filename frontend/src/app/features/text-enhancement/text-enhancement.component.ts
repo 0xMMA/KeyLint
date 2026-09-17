@@ -27,9 +27,13 @@ interface TraceEntry {
 
 const PROVIDER_OPTIONS = [
   { label: 'Anthropic', value: 'claude' },
+  { label: 'Claude Code (installed CLI)', value: 'claude-code' },
   { label: 'OpenAI', value: 'openai' },
   { label: 'Ollama', value: 'ollama' },
 ];
+
+/** Providers that need no API key — the user authenticates them elsewhere. */
+const KEYLESS_PROVIDERS = new Set(['ollama', 'claude-code']);
 
 const PROVIDER_MODELS: Record<string, Array<{ label: string; value: string }>> = {
   claude: [
@@ -44,6 +48,12 @@ const PROVIDER_MODELS: Record<string, Array<{ label: string; value: string }>> =
     { label: 'GPT-4.1 Mini', value: 'gpt-4.1-mini' },
     { label: 'o3', value: 'o3' },
   ],
+  'claude-code': [
+    // Aliases, not pinned IDs: the CLI resolves them to the current generation.
+    { label: 'Opus', value: 'opus' },
+    { label: 'Sonnet', value: 'sonnet' },
+    { label: 'Haiku', value: 'haiku' },
+  ],
   ollama: [
     { label: 'llama3.2', value: 'llama3.2' },
     { label: 'mistral', value: 'mistral' },
@@ -55,6 +65,7 @@ const PROVIDER_MODELS: Record<string, Array<{ label: string; value: string }>> =
 
 const DEFAULT_MODELS: Record<string, string> = {
   claude: 'claude-sonnet-4-6',
+  'claude-code': 'sonnet',
   openai: 'gpt-5.2',
   ollama: 'llama3.2',
 };
@@ -1086,8 +1097,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
       selectedModel = DEFAULT_MODELS[selectedProvider] ?? 'claude-sonnet-4-6';
     }
 
-    const keyStatus = await this.wails.getKeyStatus(selectedProvider);
-    this.apiKeySet = keyStatus.is_set;
+    this.apiKeySet = await this.hasUsableCredentials(selectedProvider);
 
     qualityThreshold = await this.wails.getQualityThreshold();
 
@@ -1132,9 +1142,23 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     }
   }
 
-  onProviderChange(): void {
+  async onProviderChange(): Promise<void> {
     // Reset model to default for new provider
     selectedModel = DEFAULT_MODELS[selectedProvider] ?? '';
+    // The "no API key" banner belongs to the provider, so re-evaluate it here.
+    this.apiKeySet = await this.hasUsableCredentials(selectedProvider);
+    this.cdr.detectChanges();
+  }
+
+  /**
+   * Reports whether the provider can be used as configured. Ollama and the
+   * Claude Code CLI carry no API key, so asking the keyring about them would
+   * always answer "not set" and show a banner the user cannot act on.
+   */
+  private async hasUsableCredentials(provider: string): Promise<boolean> {
+    if (KEYLESS_PROVIDERS.has(provider)) return true;
+    const keyStatus = await this.wails.getKeyStatus(provider);
+    return keyStatus.is_set;
   }
 
   onTabChange(value: unknown): void {

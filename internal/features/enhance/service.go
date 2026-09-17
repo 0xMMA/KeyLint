@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"keylint/internal/features/settings"
 	"keylint/internal/llm"
@@ -52,11 +53,22 @@ const (
 	openAIModel = "gpt-4o-mini"
 	claudeModel = "claude-haiku-4-5-20251001"
 	ollamaModel = "llama3.2"
-	maxTokens   = 2048
+	// claudeCodeModel is a CLI alias, not a pinned ID — the CLI resolves it to
+	// the current generation, which is what a subscription user expects.
+	claudeCodeModel = "haiku"
+	maxTokens       = 2048
 )
 
-// logSource tags this feature's provider calls in the debug log.
-const logSource = "enhance"
+// httpTimeout bounds a provider HTTP call, and enhanceTimeout bounds the whole
+// enhancement including a local CLI provider, which has no HTTP client to bound
+// it. Without either, a dead provider hangs the silent-fix hotkey forever.
+const (
+	httpTimeout    = 60 * time.Second
+	enhanceTimeout = 90 * time.Second
+)
+
+// logFeature tags this feature's provider calls in the log.
+const logFeature = "enhance"
 
 // ollamaPromptSeparator reproduces the exact system/user join this flow used
 // before internal/llm existed — Ollama's /api/generate takes a single prompt.
@@ -78,7 +90,7 @@ type Service struct {
 func NewService(s *settings.Service) *Service {
 	return &Service{
 		settings:  s,
-		client:    &http.Client{},
+		client:    &http.Client{Timeout: httpTimeout},
 		newClient: llm.New,
 		getKey:    s.GetKey,
 	}
@@ -110,7 +122,10 @@ func (s *Service) Enhance(text string) (result string, err error) {
 		return "", err
 	}
 
-	resp, err := client.Complete(context.Background(), llm.Request{
+	ctx, cancel := context.WithTimeout(context.Background(), enhanceTimeout)
+	defer cancel()
+
+	resp, err := client.Complete(ctx, llm.Request{
 		System:    systemPrompt,
 		User:      text,
 		Model:     model,
@@ -131,20 +146,24 @@ func (s *Service) providerConfig(cfg settings.Settings) (llm.Config, string, err
 		if key == "" {
 			return llm.Config{}, "", fmt.Errorf("OpenAI API key is not configured. Go to Settings → AI Providers to add it")
 		}
-		return llm.Config{APIKey: key, HTTPClient: s.client, Source: logSource}, openAIModel, nil
+		return llm.Config{APIKey: key, HTTPClient: s.client, Feature: logFeature}, openAIModel, nil
 	case llm.ProviderClaude:
 		key := s.resolveKey(llm.ProviderClaude)
 		if key == "" {
 			return llm.Config{}, "", fmt.Errorf("Anthropic API key is not configured. Go to Settings → AI Providers → Anthropic API Key, and make sure 'Anthropic Claude' is selected as the Active Provider")
 		}
-		return llm.Config{APIKey: key, HTTPClient: s.client, Source: logSource}, claudeModel, nil
+		return llm.Config{APIKey: key, HTTPClient: s.client, Feature: logFeature}, claudeModel, nil
 	case llm.ProviderOllama:
 		return llm.Config{
 			BaseURL:         cfg.Providers.OllamaURL,
 			HTTPClient:      s.client,
 			PromptSeparator: ollamaPromptSeparator,
-			Source:          logSource,
+			Feature:         logFeature,
 		}, ollamaModel, nil
+	case llm.ProviderClaudeCode:
+		// The user signed in to the CLI themselves; KeyLint needs no key and
+		// never touches their credentials.
+		return llm.Config{Feature: logFeature}, claudeCodeModel, nil
 	case "bedrock":
 		return llm.Config{}, "", fmt.Errorf("AWS Bedrock is not yet supported. Please select a different provider")
 	default:

@@ -4,8 +4,8 @@ import { ComponentFixture } from '@angular/core/testing';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { ActivatedRoute, convertToParamMap } from '@angular/router';
 import { SettingsComponent } from './settings.component';
-import { WailsService } from '../../core/wails.service';
-import { createWailsMock, defaultSettings, defaultKeyStatus, defaultUpdateInfo } from '../../../testing/wails-mock';
+import { WailsService, ClaudeCodeStatus } from '../../core/wails.service';
+import { createWailsMock, defaultSettings, defaultKeyStatus, defaultUpdateInfo, defaultClaudeCodeStatus } from '../../../testing/wails-mock';
 
 function makeActivatedRoute(tab?: string): Partial<ActivatedRoute> {
   return {
@@ -263,5 +263,103 @@ describe('SettingsComponent', () => {
       expect(component.updateSuccess).toBe(true);
       expect(component.updateRestartRequired).toBe(false);
     });
+  });
+});
+
+describe('SettingsComponent — Claude Code provider card', () => {
+  let fixture: ComponentFixture<SettingsComponent>;
+  let el: HTMLElement;
+  let wailsMock: ReturnType<typeof createWailsMock>;
+
+  // Renders the AI Providers tab with a given detection result.
+  async function render(status: Partial<ClaudeCodeStatus>): Promise<void> {
+    wailsMock = createWailsMock();
+    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings });
+    wailsMock.getKeyStatus.mockResolvedValue({ ...defaultKeyStatus });
+    wailsMock.getClaudeCodeStatus.mockResolvedValue({ ...defaultClaudeCodeStatus, ...status });
+
+    await TestBed.configureTestingModule({
+      imports: [SettingsComponent],
+      providers: [
+        provideAnimationsAsync(),
+        { provide: WailsService, useValue: wailsMock },
+        { provide: ActivatedRoute, useValue: makeActivatedRoute('providers') },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(SettingsComponent);
+    // Pre-set both async results: letting them land mid-render trips NG0100.
+    fixture.componentInstance.settings = { ...defaultSettings };
+    fixture.componentInstance.claudeCodeStatus = { ...defaultClaudeCodeStatus, ...status };
+    el = fixture.nativeElement;
+    fixture.detectChanges();
+    await fixture.whenStable();
+  }
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  function text(testid: string): string {
+    return el.querySelector(`[data-testid="${testid}"]`)?.textContent?.trim() ?? '';
+  }
+
+  it('reports a signed-in CLI with its path and version', async () => {
+    await render({ installed: true, loggedIn: true, path: '/home/dev/.local/bin/claude', version: '2.1.274' });
+
+    expect(text('claude-code-status-tag')).toContain('signed in');
+    expect(text('claude-code-detected')).toContain('/home/dev/.local/bin/claude');
+    expect(text('claude-code-detected')).toContain('2.1.274');
+    expect(el.querySelector('[data-testid="claude-code-signin-hint"]')).toBeNull();
+  });
+
+  it('tells an installed but signed-out user what to do', async () => {
+    await render({ installed: true, loggedIn: false, path: '/usr/local/bin/claude', version: '2.1.274' });
+
+    expect(text('claude-code-status-tag')).toContain('not signed in');
+    expect(text('claude-code-signin-hint')).toContain('run');
+    expect(text('claude-code-signin-hint')).toContain('sign in');
+    // The sign-in happens in the user's own terminal, never inside KeyLint.
+    expect(text('claude-code-signin-hint')).toContain('never reads or stores your credentials');
+  });
+
+  it('reports a machine without the CLI', async () => {
+    await render({ installed: false });
+
+    expect(text('claude-code-status-tag')).toContain('not installed');
+    expect(text('claude-code-missing')).toContain('No Claude Code CLI found');
+    expect(el.querySelector('[data-testid="claude-code-detected"]')).toBeNull();
+  });
+
+  it('never offers a key editor for the CLI', async () => {
+    await render({ installed: true, loggedIn: true, path: '/usr/local/bin/claude' });
+
+    const card = el.querySelector('[data-testid="claude-code-card"]');
+    expect(card).not.toBeNull();
+    expect(card!.querySelector('input')).toBeNull();
+  });
+
+  it('re-checks on demand, so signing in elsewhere is picked up', async () => {
+    await render({ installed: true, loggedIn: false, path: '/usr/local/bin/claude' });
+    expect(text('claude-code-status-tag')).toContain('not signed in');
+
+    wailsMock.getClaudeCodeStatus.mockResolvedValue({
+      ...defaultClaudeCodeStatus, installed: true, loggedIn: true, path: '/usr/local/bin/claude',
+    });
+    const recheck = el.querySelector<HTMLButtonElement>('[data-testid="claude-code-recheck"] button');
+    expect(recheck).not.toBeNull();
+    recheck!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(text('claude-code-status-tag')).toContain('signed in');
+  });
+
+  it('offers the CLI as an active provider', async () => {
+    await render({ installed: true, loggedIn: true });
+
+    const values = fixture.componentInstance.providers.map(p => p.value);
+    expect(values).toContain('claude-code');
   });
 });

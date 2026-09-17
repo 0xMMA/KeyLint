@@ -18,7 +18,7 @@ func TestIsValidDocType(t *testing.T) {
 		{"powerpoint", true},
 		{"", false},
 		{"auto", false},
-		{"EMAIL", false},  // case-sensitive
+		{"EMAIL", false}, // case-sensitive
 		{"pdf", false},
 		{"blog", false},
 	}
@@ -186,7 +186,7 @@ func TestRepairJSONStrings(t *testing.T) {
 			want:  `{"fullDocument": "he said \"hello\" and left"}`,
 		},
 		{
-			name:  "real-world LLM output: German email with unescaped close quote",
+			name: "real-world LLM output: German email with unescaped close quote",
 			// The closing " of a quoted phrase is followed by a space then a word —
 			// not a structural char. The repair should escape it.
 			input: `{"fullDocument": "next Steps Projekt "Qlik Sense" abgeschlossen","qualityScore":0.9,"qualityFlags":[]}`,
@@ -272,10 +272,10 @@ func TestLookupDocType(t *testing.T) {
 		{"Microsoft PowerPoint", "powerpoint"},
 		{"Keynote", "powerpoint"},
 		{"LibreOffice Impress", "powerpoint"},
-		{"Firefox - GitHub", ""},   // unknown
-		{"Terminal", ""},           // unknown
-		{"", ""},                   // empty
-		{"OUTLOOK 365", "email"},   // case-insensitive
+		{"Firefox - GitHub", ""}, // unknown
+		{"Terminal", ""},         // unknown
+		{"", ""},                 // empty
+		{"OUTLOOK 365", "email"}, // case-insensitive
 		{"slack - #general", "email"},
 	}
 	for _, tc := range tests {

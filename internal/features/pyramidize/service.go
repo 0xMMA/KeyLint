@@ -20,11 +20,14 @@ const (
 	openAIModel = "gpt-5.2"
 	claudeModel = "claude-sonnet-4-6"
 	ollamaModel = "llama3.2"
-	maxTokens   = 4096
+	// claudeCodeModel is a CLI alias, not a pinned ID — the CLI resolves it to
+	// the current generation, which is what a subscription user expects.
+	claudeCodeModel = "sonnet"
+	maxTokens       = 4096
 )
 
-// logSource tags this feature's provider calls in the debug log.
-const logSource = "pyramidize"
+// logFeature tags this feature's provider calls in the log.
+const logFeature = "pyramidize"
 
 // ollamaPromptSeparator reproduces the exact system/user join this pipeline used
 // before internal/llm existed — Ollama's /api/generate takes a single prompt.
@@ -470,12 +473,19 @@ func (svc *Service) providerConfig(provider string, cfg settings.Settings, apiKe
 		if model == "" {
 			model = openAIModel
 		}
-		return llm.Config{APIKey: apiKey, HTTPClient: svc.client, Source: logSource}, model, nil
+		return llm.Config{APIKey: apiKey, HTTPClient: svc.client, Feature: logFeature}, model, nil
 	case llm.ProviderClaude:
 		if model == "" {
 			model = claudeModel
 		}
-		return llm.Config{APIKey: apiKey, HTTPClient: svc.client, Source: logSource}, model, nil
+		return llm.Config{APIKey: apiKey, HTTPClient: svc.client, Feature: logFeature}, model, nil
+	case llm.ProviderClaudeCode:
+		// The user signed in to the CLI themselves; KeyLint needs no key and
+		// never touches their credentials.
+		if model == "" {
+			model = claudeCodeModel
+		}
+		return llm.Config{Feature: logFeature}, model, nil
 	case llm.ProviderOllama:
 		if model == "" {
 			model = ollamaModel
@@ -484,7 +494,7 @@ func (svc *Service) providerConfig(provider string, cfg settings.Settings, apiKe
 			BaseURL:         cfg.Providers.OllamaURL,
 			HTTPClient:      svc.client,
 			PromptSeparator: ollamaPromptSeparator,
-			Source:          logSource,
+			Feature:         logFeature,
 		}, model, nil
 	default:
 		return llm.Config{}, "", fmt.Errorf("unsupported provider: %q", provider)

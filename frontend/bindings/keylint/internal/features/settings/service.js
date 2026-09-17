@@ -13,6 +13,10 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as llm$0 from "../../llm/models.js";
+
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
 /**
@@ -35,6 +39,19 @@ export function Get() {
 }
 
 /**
+ * GetClaudeCodeStatus reports whether the Claude Code CLI is installed on this
+ * machine and signed in, so the UI can offer it as a provider that needs no API
+ * key. Signing in happens in the user's own terminal through Anthropic's flow —
+ * KeyLint only looks, and never reads or stores credentials.
+ * @returns {$CancellablePromise<llm$0.ClaudeCodeStatus>}
+ */
+export function GetClaudeCodeStatus() {
+    return $Call.ByID(3561813659).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType1($result);
+    }));
+}
+
+/**
  * GetKey returns the API key for the given provider.
  * Priority: environment variable → OS keyring.
  * Returns empty string if not configured.
@@ -53,7 +70,7 @@ export function GetKey(provider) {
  */
 export function GetKeyStatus(provider) {
     return $Call.ByID(1645967871, provider).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType1($result);
+        return $$createType2($result);
     }));
 }
 
@@ -87,4 +104,5 @@ export function SetKey(provider, key) {
 
 // Private type creation functions
 const $$createType0 = $models.Settings.createFrom;
-const $$createType1 = $models.KeyStatus.createFrom;
+const $$createType1 = llm$0.ClaudeCodeStatus.createFrom;
+const $$createType2 = $models.KeyStatus.createFrom;

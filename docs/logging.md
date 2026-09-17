@@ -20,7 +20,7 @@
 logger.Info("enhance: start", "provider", cfg.ActiveProvider, "input_len", len(text))
 
 // Sensitive data — wrap in Redact()
-logger.Debug("llm: request", "source", "enhance", "provider", "openai", "payload", logger.Redact(string(body)))
+logger.Debug("llm: request", "feature", "enhance", "provider", "openai", "payload", logger.Redact(string(body)))
 ```
 
 When `SensitiveLogging` is off, `Redact()` outputs `[redacted]`. When on, the real value is shown. Uses slog's native `LogValuer` interface.
@@ -34,9 +34,11 @@ All log entries include a `source` attribute:
 - `source=backend` — Go backend (automatic via default logger instance)
 - `source=frontend` — Angular frontend (via the log bridge service)
 
-Provider calls in `internal/llm` add their own `source` attribute naming the
-calling feature (`enhance`, `pyramidize`), because one log stream now carries
-requests from several flows. Set it via `llm.Config.Source`.
+Provider calls in `internal/llm` add a `feature` attribute naming the caller
+(`enhance`, `pyramidize`), because one log stream carries requests from several
+flows. Set it via `llm.Config.Feature`. Do not reuse the `source` key for this —
+the logger already sets it, and two attributes with the same name make a log
+line ambiguous.
 
 ## CLI Usage
 

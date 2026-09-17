@@ -25,7 +25,7 @@ const DefaultQualityThreshold = 0.65
 
 // Settings is the top-level application settings structure persisted to disk.
 type Settings struct {
-	ActiveProvider  string   `json:"active_provider"` // "openai" | "claude" | "ollama" | "bedrock"
+	ActiveProvider  string   `json:"active_provider"` // "openai" | "claude" | "claude-code" | "ollama" | "bedrock"
 	Providers       Provider `json:"providers"`
 	ShortcutKey     string   `json:"shortcut_key"`    // e.g. "ctrl+g"
 	StartOnBoot     bool     `json:"start_on_boot"`

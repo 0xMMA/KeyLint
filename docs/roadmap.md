@@ -89,12 +89,13 @@ echo "<text>" | claude -p --model haiku --output-format json \
 - **Policy risk:** Anthropic announced, then paused (June 15, 2026), moving `claude -p` / Agent SDK / third-party app usage from subscription limits to a separate monthly credit. Today it draws from the subscription as before; Anthropic said it will give advance notice before any change. This is why BYOK stays an equal on-ramp — the CLI path must never be the only way.
 
 **Scope:**
-- [ ] `internal/llm` interface (see E2 step 1) so the CLI provider is one file, not two copies
-- [ ] `internal/llm/claudecli`: discovery, health check, one-shot call, JSON envelope parsing, structured-output mode
-- [ ] Settings: provider `claude-code` (no key UI; shows detected binary path + login state)
-- [ ] Welcome wizard: detect → one-click select; fallback to BYOK
-- [ ] Pyramidize + Fix + `-fix` CLI use it
-- [ ] Model picker for this provider uses aliases (`opus`, `sonnet`, `haiku`) — the CLI resolves the current generation
+- [x] `internal/llm` interface (see E2 step 1) so the CLI provider is one file, not two copies
+- [x] `internal/llm` Claude Code client: discovery, health check, one-shot call, JSON envelope parsing
+  - [ ] structured-output mode via `--json-schema` (deferred: callers parse defensively today)
+- [x] Settings: provider `claude-code` (no key UI; shows detected binary path + login state)
+- [x] Welcome wizard: detect → one-click select; fallback to BYOK
+- [x] Pyramidize + Fix + `-fix` CLI use it
+- [x] Model picker for this provider uses aliases (`opus`, `sonnet`, `haiku`) — the CLI resolves the current generation
 - [ ] Follow-up (separate issue when E1 ships): same interface for Codex CLI (`codex exec`) and Gemini CLI (`gemini -p`) → OpenAI/ChatGPT and Google subscribers
 
 ### P1 — foundation

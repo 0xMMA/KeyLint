@@ -10,10 +10,10 @@ import (
 // JudgeScore holds the LLM-as-judge evaluation of one sample.
 type JudgeScore struct {
 	PyramidStructure float64 `json:"pyramidStructure"` // 0–1
-	Clarity          float64 `json:"clarity"`           // 0–1
-	Completeness     float64 `json:"completeness"`      // 0–1
-	TonePreservation float64 `json:"tonePreservation"`  // 0–1
-	Overall          float64 `json:"overall"`           // 0–1
+	Clarity          float64 `json:"clarity"`          // 0–1
+	Completeness     float64 `json:"completeness"`     // 0–1
+	TonePreservation float64 `json:"tonePreservation"` // 0–1
+	Overall          float64 `json:"overall"`          // 0–1
 	Rationale        string  `json:"rationale"`
 }
 

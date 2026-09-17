@@ -116,8 +116,8 @@ func TestCallAISyncRequestShape(t *testing.T) {
 	if rec.cfg.HTTPClient != svc.client {
 		t.Error("the service HTTP client (90s timeout) must be handed to the provider client")
 	}
-	if rec.cfg.Source != logSource {
-		t.Errorf("Source = %q, want %q so debug logs name the feature", rec.cfg.Source, logSource)
+	if rec.cfg.Feature != logFeature {
+		t.Errorf("Feature = %q, want %q so the logs name the calling feature", rec.cfg.Feature, logFeature)
 	}
 }
 
@@ -275,5 +275,27 @@ func TestRefineGlobalCancelled(t *testing.T) {
 	})
 	if err == nil || err.Error() != "cancelled" {
 		t.Fatalf("RefineGlobal error = %v, want \"cancelled\"", err)
+	}
+}
+
+func TestCallAISyncClaudeCodeNeedsNoKey(t *testing.T) {
+	svc, rec := newTestService()
+	cfg := settings.Default()
+	cfg.ActiveProvider = "claude-code"
+
+	if _, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "", "system", "user"); err != nil {
+		t.Fatalf("callAISync: %v", err)
+	}
+	if rec.provider != llm.ProviderClaudeCode {
+		t.Errorf("provider = %q, want %q", rec.provider, llm.ProviderClaudeCode)
+	}
+	if rec.cfg.APIKey != "" {
+		t.Errorf("APIKey = %q, want empty — the user signed in to the CLI themselves", rec.cfg.APIKey)
+	}
+	if rec.client.gotRequest.Model != claudeCodeModel {
+		t.Errorf("Model = %q, want %q", rec.client.gotRequest.Model, claudeCodeModel)
+	}
+	if claudeCodeModel != "sonnet" {
+		t.Errorf("claudeCodeModel = %q, want the alias sonnet so the CLI picks the current generation", claudeCodeModel)
 	}
 }

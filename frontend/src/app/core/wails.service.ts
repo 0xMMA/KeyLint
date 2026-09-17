@@ -14,8 +14,9 @@ import * as PyramidizeService from '../../../bindings/keylint/internal/features/
 import { Settings, KeyStatus } from '../../../bindings/keylint/internal/features/settings/models.js';
 import { UpdateInfo, InstallResult } from '../../../bindings/keylint/internal/features/updater/models.js';
 import type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset } from '../../../bindings/keylint/internal/features/pyramidize/models.js';
+import type { ClaudeCodeStatus } from '../../../bindings/keylint/internal/llm/models.js';
 
-export type { Settings, KeyStatus, UpdateInfo, InstallResult };
+export type { Settings, KeyStatus, UpdateInfo, InstallResult, ClaudeCodeStatus };
 export type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset };
 
 
@@ -32,6 +33,15 @@ const BROWSER_MODE_DEFAULTS: Settings = {
   update_channel: '',
   app_presets: [],
   pyramidize_quality_threshold: 0.65,
+};
+
+// In browser dev / Playwright mode there is no machine to inspect, so the CLI
+// counts as absent and the UI falls back to the BYOK path.
+const BROWSER_MODE_CLAUDE_CODE: ClaudeCodeStatus = {
+  installed: false,
+  path: '',
+  version: '',
+  loggedIn: false,
 };
 
 @Injectable({ providedIn: 'root' })
@@ -132,6 +142,18 @@ export class WailsService implements OnDestroy {
       return SettingsService.DeleteKey(provider).catch(() => {});
     } catch {
       return Promise.resolve();
+    }
+  }
+
+  /**
+   * Reports whether the Claude Code CLI is installed on this machine and signed
+   * in. The backend only looks — signing in happens in the user's own terminal.
+   */
+  getClaudeCodeStatus(): Promise<ClaudeCodeStatus> {
+    try {
+      return SettingsService.GetClaudeCodeStatus().catch(() => ({ ...BROWSER_MODE_CLAUDE_CODE }));
+    } catch {
+      return Promise.resolve({ ...BROWSER_MODE_CLAUDE_CODE });
     }
   }
 
