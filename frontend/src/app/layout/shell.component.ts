@@ -101,6 +101,7 @@ export class ShellComponent implements OnInit, OnDestroy {
   appVersion = '';
   updateAvailable = false;
   private subs: Subscription[] = [];
+  private silentFixInFlight = false;
 
   get collapsedView(): boolean  { return sidebarCollapsed; }
   get hoverExpanded(): boolean  { return sidebarCollapsed && sidebarHovered; }
@@ -165,6 +166,13 @@ export class ShellComponent implements OnInit, OnDestroy {
   }
 
   private async silentFix(): Promise<void> {
+    // A second shortcut while the read -> enhance -> write -> paste cycle is still
+    // running would paste on top of the first result. Drop it instead.
+    if (this.silentFixInFlight) {
+      this.log.warn('shell: silent fix already running, ignoring shortcut');
+      return;
+    }
+    this.silentFixInFlight = true;
     this.log.info('shell: silent fix started');
     try {
       const text = await this.wails.readClipboard();
@@ -175,6 +183,8 @@ export class ShellComponent implements OnInit, OnDestroy {
       this.log.info('shell: silent fix done');
     } catch (e: unknown) {
       this.log.error('shell: silent fix failed: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      this.silentFixInFlight = false;
     }
   }
 

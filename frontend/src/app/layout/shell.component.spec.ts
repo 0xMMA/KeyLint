@@ -135,4 +135,28 @@ describe('ShellComponent — theme / body class', () => {
     expect(wailsMock.writeClipboard).toHaveBeenCalledWith('bad grammar');
     expect(wailsMock.pasteToForeground).toHaveBeenCalled();
   });
+
+  it('ignores a second shortcutFix$ while a silent fix is still in flight', async () => {
+    wailsMock.readClipboard.mockResolvedValue('bad grammer');
+    let resolveEnhance!: (value: string) => void;
+    wailsMock.enhance.mockImplementation(() => new Promise<string>(resolve => { resolveEnhance = resolve; }));
+    await createAndWait('dark');
+
+    wailsMock._shortcutFix$.next('hotkey');
+    await new Promise(r => setTimeout(r, 0));
+    wailsMock._shortcutFix$.next('hotkey');
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(wailsMock.enhance).toHaveBeenCalledTimes(1);
+    expect(wailsMock.log).toHaveBeenCalledWith('warn', 'shell: silent fix already running, ignoring shortcut');
+
+    // First cycle finishes — the guard must release.
+    resolveEnhance('bad grammar');
+    await new Promise(r => setTimeout(r, 0));
+    expect(wailsMock.pasteToForeground).toHaveBeenCalledTimes(1);
+
+    wailsMock._shortcutFix$.next('hotkey');
+    await new Promise(r => setTimeout(r, 0));
+    expect(wailsMock.enhance).toHaveBeenCalledTimes(2);
+  });
 });
