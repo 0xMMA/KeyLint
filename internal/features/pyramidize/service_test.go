@@ -375,7 +375,7 @@ func TestBuildDocTypePromptDispatch(t *testing.T) {
 	types := []string{"email", "wiki", "memo", "powerpoint", "unknown"}
 	for _, dt := range types {
 		t.Run(dt, func(t *testing.T) {
-			sys, user := buildDocTypePrompt(dt, 0, "professional", "professional", "", "some text")
+			sys, user, _ := buildDocTypePrompt(dt, 0, "professional", "professional", "", "some text")
 			if sys == "" {
 				t.Error("system prompt should not be empty")
 			}

@@ -12,8 +12,8 @@ import (
 )
 
 var (
-	clipUser32             = syscall.NewLazyDLL("user32.dll")
-	clipSendInput          = clipUser32.NewProc("SendInput")
+	clipUser32              = syscall.NewLazyDLL("user32.dll")
+	clipSendInput           = clipUser32.NewProc("SendInput")
 	clipGetForegroundWindow = clipUser32.NewProc("GetForegroundWindow")
 )
 

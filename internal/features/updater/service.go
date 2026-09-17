@@ -30,10 +30,10 @@ type Service struct {
 // The version is typically injected at build time via -ldflags "-X main.AppVersion=x.y.z".
 func NewService(version string, settingsSvc *settings.Service) *Service {
 	return &Service{
-		currentVersion:  version,
-		releasesAPIURL:  defaultReleasesAPIURL,
-		client:          &http.Client{},
-		settingsSvc:     settingsSvc,
+		currentVersion: version,
+		releasesAPIURL: defaultReleasesAPIURL,
+		client:         &http.Client{},
+		settingsSvc:    settingsSvc,
 	}
 }
 

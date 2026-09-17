@@ -74,7 +74,7 @@ func TestCallAISyncModelDefaults(t *testing.T) {
 			cfg := settings.Default()
 			cfg.ActiveProvider = tc.provider
 
-			raw, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "key", "system", "user")
+			raw, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "key", "system", "user", documentSchema)
 			if err != nil {
 				t.Fatalf("callAISync: %v", err)
 			}
@@ -96,7 +96,7 @@ func TestCallAISyncRequestShape(t *testing.T) {
 	cfg := settings.Default()
 	cfg.ActiveProvider = "claude"
 
-	if _, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "sk-ant-test", "system", "user"); err != nil {
+	if _, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "sk-ant-test", "system", "user", documentSchema); err != nil {
 		t.Fatalf("callAISync: %v", err)
 	}
 
@@ -104,8 +104,8 @@ func TestCallAISyncRequestShape(t *testing.T) {
 	if req.System != "system" || req.User != "user" {
 		t.Errorf("System/User = %q/%q, want system/user", req.System, req.User)
 	}
-	if !req.JSONMode {
-		t.Error("JSONMode must be on — the pipeline parses JSON replies")
+	if len(req.JSONSchema) == 0 {
+		t.Error("the pipeline parses JSON replies, so the call must carry a schema")
 	}
 	if req.MaxTokens != maxTokens {
 		t.Errorf("MaxTokens = %d, want %d", req.MaxTokens, maxTokens)
@@ -127,7 +127,7 @@ func TestCallAISyncOverrides(t *testing.T) {
 	cfg.ActiveProvider = "openai"
 
 	opts := aiOpts{provider: "claude", model: "claude-opus-4-1"}
-	if _, err := svc.callAISync(context.Background(), cfg, opts, "key", "system", "user"); err != nil {
+	if _, err := svc.callAISync(context.Background(), cfg, opts, "key", "system", "user", documentSchema); err != nil {
 		t.Fatalf("callAISync: %v", err)
 	}
 	if rec.provider != "claude" {
@@ -144,7 +144,7 @@ func TestCallAISyncOllamaConfig(t *testing.T) {
 	cfg.ActiveProvider = "ollama"
 	cfg.Providers.OllamaURL = "http://ollama.test:11434"
 
-	if _, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "", "system", "user"); err != nil {
+	if _, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "", "system", "user", documentSchema); err != nil {
 		t.Fatalf("callAISync: %v", err)
 	}
 	if rec.cfg.BaseURL != "http://ollama.test:11434" {
@@ -157,7 +157,7 @@ func TestCallAISyncUnsupportedProvider(t *testing.T) {
 	cfg := settings.Default()
 	cfg.ActiveProvider = "bedrock"
 
-	_, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "", "system", "user")
+	_, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "", "system", "user", documentSchema)
 	if err == nil || !strings.Contains(err.Error(), `unsupported provider: "bedrock"`) {
 		t.Fatalf("error = %v, want an unsupported-provider error", err)
 	}
@@ -169,7 +169,7 @@ func TestCallAISyncPropagatesProviderError(t *testing.T) {
 	cfg := settings.Default()
 	cfg.ActiveProvider = "claude"
 
-	_, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "key", "system", "user")
+	_, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "key", "system", "user", documentSchema)
 	if err == nil || !strings.Contains(err.Error(), "Claude error 429") {
 		t.Fatalf("error = %v, want the provider error", err)
 	}
@@ -207,7 +207,7 @@ func TestPyramidizeWireConstantsUnchanged(t *testing.T) {
 // TestCallAISyncOllamaSendsASystemMessage exercises the real provider client
 // against an httptest server. Ollama used to take one glued-together prompt
 // string; through its OpenAI-compatible endpoint the system prompt is a system
-// message, and JSON mode — which the native endpoint ignored — is honoured.
+// message, and the result schema — which the native endpoint ignored — is sent.
 func TestCallAISyncOllamaSendsASystemMessage(t *testing.T) {
 	type message struct {
 		Role    string `json:"role"`
@@ -226,7 +226,7 @@ func TestCallAISyncOllamaSendsASystemMessage(t *testing.T) {
 			t.Errorf("decode request: %v", err)
 		}
 		gotMessages = payload.Messages
-		gotJSONMode = payload.ResponseFormat["type"] == "json_object"
+		gotJSONMode = payload.ResponseFormat["type"] == "json_schema"
 		w.Header().Set("Content-Type", "application/json")
 		io.WriteString(w, `{"choices":[{"message":{"content":"{}"}}]}`)
 	}))
@@ -237,7 +237,7 @@ func TestCallAISyncOllamaSendsASystemMessage(t *testing.T) {
 	cfg.ActiveProvider = "ollama"
 	cfg.Providers.OllamaURL = srv.URL
 
-	if _, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "", "system", "user"); err != nil {
+	if _, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "", "system", "user", documentSchema); err != nil {
 		t.Fatalf("callAISync: %v", err)
 	}
 	if gotPath != "/v1/chat/completions" {
@@ -253,7 +253,7 @@ func TestCallAISyncOllamaSendsASystemMessage(t *testing.T) {
 		t.Errorf("second message = %+v, want the user message", gotMessages[1])
 	}
 	if !gotJSONMode {
-		t.Error("response_format was not sent; the pipeline parses JSON replies")
+		t.Error("response_format was not sent as json_schema; the pipeline parses JSON replies")
 	}
 }
 
@@ -299,7 +299,7 @@ func TestCallAISyncClaudeCodeNeedsNoKey(t *testing.T) {
 	cfg := settings.Default()
 	cfg.ActiveProvider = "claude-code"
 
-	if _, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "", "system", "user"); err != nil {
+	if _, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "", "system", "user", documentSchema); err != nil {
 		t.Fatalf("callAISync: %v", err)
 	}
 	if rec.provider != llm.ProviderClaudeCode {

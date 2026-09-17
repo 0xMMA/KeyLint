@@ -2,15 +2,18 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // stubPath is the compiled stand-in for the Claude Code CLI. It is a real
@@ -409,5 +412,139 @@ func TestClaudeCodeTimeoutKeepsStderr(t *testing.T) {
 	}
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("error = %v, want it to still wrap context.DeadlineExceeded", err)
+	}
+}
+
+// TestClaudeCodeJSONSchema pins the CLI's dialect and its better answer: with a
+// schema the CLI parses the object itself and reports it in structured_output,
+// which cannot carry a fence or a trailing remark the way result can.
+func TestClaudeCodeJSONSchema(t *testing.T) {
+	s := newStub(t)
+	s.replies(`{"result":"{\"answer\":\"in result\"}","structured_output":{"answer":"in structured output"},"is_error":false,"terminal_reason":"completed"}`)
+
+	resp, err := s.client().Complete(context.Background(), Request{
+		Model: "haiku", User: "x", JSONSchema: []byte(testSchema),
+	})
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	value, ok := argValue(s.argv(), "--json-schema")
+	if !ok {
+		t.Fatalf("argv has no --json-schema: %v", s.argv())
+	}
+	// Compared as JSON, not as bytes: the client compacts the schema before it
+	// reaches the command line (see TestClaudeCodeSchemaHasNoNewlines).
+	var sent, want map[string]any
+	if err := json.Unmarshal([]byte(value), &sent); err != nil {
+		t.Fatalf("--json-schema is not valid JSON: %v", err)
+	}
+	if err := json.Unmarshal([]byte(testSchema), &want); err != nil {
+		t.Fatalf("testSchema is not valid JSON: %v", err)
+	}
+	if !reflect.DeepEqual(sent, want) {
+		t.Errorf("--json-schema = %v, want the caller's schema %v", sent, want)
+	}
+	if !strings.Contains(resp.Text, "in structured output") {
+		t.Errorf("Text = %q, want the parsed structured output", resp.Text)
+	}
+}
+
+func TestClaudeCodeWithoutSchema(t *testing.T) {
+	s := newStub(t)
+	s.replies(successEnvelope)
+
+	if _, err := s.client().Complete(context.Background(), Request{Model: "haiku", User: "x"}); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	// enhance sends no schema and must not be constrained.
+	if containsArg(s.argv(), "--json-schema") {
+		t.Error("--json-schema must be absent when the caller set no schema")
+	}
+}
+
+// TestClaudeCodeStoppedEarly covers a run that ended badly: result is filled but
+// the answer is half written, and pasting it over the user's selection would be
+// worse than saying nothing.
+func TestClaudeCodeStoppedEarly(t *testing.T) {
+	s := newStub(t)
+	// api_error is one of the CLI's real terminal_reason values; an
+	// output-token cut-off is stop_reason, not this field.
+	s.replies(`{"result":"They are going to the","is_error":false,"terminal_reason":"api_error"}`)
+
+	_, err := s.client().Complete(context.Background(), Request{Model: "haiku", User: "x"})
+	if err == nil {
+		t.Fatal("expected an error for a run that did not complete")
+	}
+	if !strings.Contains(err.Error(), "api_error") {
+		t.Errorf("error = %v, want it to name the reason", err)
+	}
+	// The partial answer belongs in the message, so the user can see what was lost.
+	if !strings.Contains(err.Error(), "They are going to the") {
+		t.Errorf("error = %v, want it to carry the partial text", err)
+	}
+}
+
+// TestClaudeCodeEnvelopeAfterABrace covers the reason the parser stopped
+// anchoring on the first "{": a preamble line can contain one, and a perfectly
+// good envelope follows it.
+func TestClaudeCodeEnvelopeAfterABrace(t *testing.T) {
+	s := newStub(t)
+	s.replies("warning: config {broken} ignored\n" + successEnvelope)
+
+	resp, err := s.client().Complete(context.Background(), Request{Model: "haiku", User: "x"})
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if resp.Text != "They are going to the meeting." {
+		t.Errorf("Text = %q, want the envelope result", resp.Text)
+	}
+}
+
+// TestClaudeCodeSchemaHasNoNewlines guards the Windows spawn path: the schema
+// goes on the command line, cmd.exe re-parses it for the usual claude.cmd shim,
+// and it ends the command at the first newline. The schemas in pyramidize are
+// written pretty-printed, so compaction is what keeps them intact.
+func TestClaudeCodeSchemaHasNoNewlines(t *testing.T) {
+	s := newStub(t)
+	s.replies(successEnvelope)
+
+	pretty := "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"answer\": {\"type\": \"string\"}\n  },\n  \"required\": [\"answer\"],\n  \"additionalProperties\": false\n}"
+	if _, err := s.client().Complete(context.Background(), Request{
+		Model: "haiku", User: "x", JSONSchema: []byte(pretty),
+	}); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	value, ok := argValue(s.argv(), "--json-schema")
+	if !ok {
+		t.Fatalf("argv has no --json-schema: %v", s.argv())
+	}
+	if strings.ContainsAny(value, "\n\r") {
+		t.Errorf("--json-schema carries a line break, which cmd.exe truncates at: %q", value)
+	}
+	// Compaction must not damage the schema.
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(value), &decoded); err != nil {
+		t.Fatalf("the compacted schema is not valid JSON: %v", err)
+	}
+	if decoded["additionalProperties"] != false {
+		t.Errorf("schema lost a field in compaction: %v", decoded)
+	}
+}
+
+// TestClaudeCodeTruncatedPartialStaysValidUTF8 covers the German prose this
+// corpus is full of: a byte-slice at 120 would split a multi-byte rune.
+func TestClaudeCodeTruncatedPartialStaysValidUTF8(t *testing.T) {
+	s := newStub(t)
+	partial := strings.Repeat("a", 119) + "ü" + strings.Repeat("b", 20)
+	s.replies(`{"result":"` + partial + `","is_error":false,"terminal_reason":"model_error"}`)
+
+	_, err := s.client().Complete(context.Background(), Request{Model: "haiku", User: "x"})
+	if err == nil {
+		t.Fatal("expected an error for a run that did not complete")
+	}
+	if !utf8.ValidString(err.Error()) {
+		t.Errorf("error message is not valid UTF-8: %q", err.Error())
 	}
 }

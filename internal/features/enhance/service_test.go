@@ -120,8 +120,8 @@ func TestEnhanceOpenAI(t *testing.T) {
 	if rec.client.gotRequest.MaxTokens != maxTokens {
 		t.Errorf("MaxTokens = %d, want %d", rec.client.gotRequest.MaxTokens, maxTokens)
 	}
-	if rec.client.gotRequest.JSONMode {
-		t.Error("JSONMode must stay off for enhance")
+	if len(rec.client.gotRequest.JSONSchema) != 0 {
+		t.Error("enhance asks for prose, so it must not constrain the reply to a schema")
 	}
 }
 

@@ -132,18 +132,53 @@ func TestAnthropicCompleteRequiresModelAndMaxTokens(t *testing.T) {
 	}
 }
 
-// TestAnthropicIgnoresUnsupportedFields pins the wire format against #33 step 3:
-// JSONMode has no Anthropic equivalent today and must not silently become one.
-func TestAnthropicIgnoresUnsupportedFields(t *testing.T) {
+// TestAnthropicJSONSchema pins the Anthropic dialect: a schema travels in
+// output_config.format, not in OpenAI's response_format.
+func TestAnthropicJSONSchema(t *testing.T) {
+	var got capture
+	srv := newServer(t, &got, http.StatusOK, `{"content":[{"type":"text","text":"{}"}]}`)
+
+	client := newAnthropic(Config{APIKey: "sk-ant-test", BaseURL: srv.URL})
+	req := Request{Model: "claude-sonnet-4-6", User: "x", MaxTokens: 4096, JSONSchema: []byte(testSchema)}
+	if _, err := client.Complete(context.Background(), req); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	if _, ok := got.body["response_format"]; ok {
+		t.Error("response_format is OpenAI's field and must not reach Anthropic")
+	}
+	config, ok := got.body["output_config"].(map[string]any)
+	if !ok {
+		t.Fatalf("output_config = %v, want an object", got.body["output_config"])
+	}
+	format, ok := config["format"].(map[string]any)
+	if !ok {
+		t.Fatalf("output_config.format = %v, want an object", config["format"])
+	}
+	if format["type"] != "json_schema" {
+		t.Errorf("output_config.format.type = %v, want json_schema", format["type"])
+	}
+	schema, ok := format["schema"].(map[string]any)
+	if !ok {
+		t.Fatalf("output_config.format.schema = %v, want the caller's schema", format["schema"])
+	}
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok || properties["answer"] == nil {
+		t.Errorf("schema did not survive: %v", schema)
+	}
+}
+
+func TestAnthropicWithoutSchema(t *testing.T) {
 	var got capture
 	srv := newServer(t, &got, http.StatusOK, `{"content":[{"type":"text","text":"ok"}]}`)
 
 	client := newAnthropic(Config{APIKey: "sk-ant-test", BaseURL: srv.URL})
-	req := Request{Model: "claude-sonnet-4-6", User: "x", MaxTokens: 4096, JSONMode: true}
+	req := Request{Model: "claude-haiku-4-5-20251001", User: "x", MaxTokens: 2048}
 	if _, err := client.Complete(context.Background(), req); err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
-	if _, ok := got.body["response_format"]; ok {
-		t.Error("response_format must not reach the Anthropic payload")
+	// enhance sends no schema and must not be constrained.
+	if _, ok := got.body["output_config"]; ok {
+		t.Error("output_config must be absent when the caller set no schema")
 	}
 }

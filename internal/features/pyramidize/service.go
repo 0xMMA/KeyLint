@@ -2,6 +2,7 @@ package pyramidize
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -219,7 +220,7 @@ func (svc *Service) RefineGlobal(req RefineGlobalRequest) (RefineGlobalResult, e
 		req.DocumentType, req.CommunicationStyle, req.RelationshipLevel,
 	)
 
-	raw, err := svc.callAIWithContext(ctx, cfg, opts, systemPrompt, userMessage)
+	raw, err := svc.callAIWithContext(ctx, cfg, opts, systemPrompt, userMessage, canvasSchema)
 	if err != nil {
 		if ctx.Err() != nil {
 			return RefineGlobalResult{}, fmt.Errorf("cancelled")
@@ -248,7 +249,7 @@ func (svc *Service) Splice(req SpliceRequest) (SpliceResult, error) {
 		req.FullCanvas, req.OriginalText, req.SelectedText, req.Instruction,
 	)
 
-	raw, err := svc.callAIWithContext(ctx, cfg, opts, systemPrompt, userMessage)
+	raw, err := svc.callAIWithContext(ctx, cfg, opts, systemPrompt, userMessage, spliceSchema)
 	if err != nil {
 		if ctx.Err() != nil {
 			return SpliceResult{}, fmt.Errorf("cancelled")
@@ -342,7 +343,7 @@ type aiOpts struct {
 // --- internal pipeline helpers ---
 
 func (svc *Service) detect(ctx context.Context, cfg settings.Settings, opts aiOpts, text string) (detectResult, error) {
-	raw, err := svc.callAIWithContext(ctx, cfg, opts, detectPromptTemplate, text)
+	raw, err := svc.callAIWithContext(ctx, cfg, opts, detectPromptTemplate, text, detectSchema)
 	if err != nil {
 		return detectResult{}, err
 	}
@@ -354,8 +355,8 @@ func (svc *Service) detect(ctx context.Context, cfg settings.Settings, opts aiOp
 }
 
 func (svc *Service) foundation(ctx context.Context, cfg settings.Settings, opts aiOpts, req PyramidizeRequest, docType string) (foundationResult, error) {
-	systemPrompt, userMessage := buildDocTypePrompt(docType, req.PromptVariant, req.CommunicationStyle, req.RelationshipLevel, req.CustomInstructions, req.Text)
-	raw, err := svc.callAIWithContext(ctx, cfg, opts, systemPrompt, userMessage)
+	systemPrompt, userMessage, schema := buildDocTypePrompt(docType, req.PromptVariant, req.CommunicationStyle, req.RelationshipLevel, req.CustomInstructions, req.Text)
+	raw, err := svc.callAIWithContext(ctx, cfg, opts, systemPrompt, userMessage, schema)
 	if err != nil {
 		return foundationResult{}, err
 	}
@@ -368,7 +369,7 @@ func (svc *Service) foundation(ctx context.Context, cfg settings.Settings, opts 
 
 func (svc *Service) refine(ctx context.Context, cfg settings.Settings, opts aiOpts, originalText, failedOutput string, flags []string) (refineResult, error) {
 	systemPrompt, userMessage := buildRefinePrompt(originalText, failedOutput, flags)
-	raw, err := svc.callAIWithContext(ctx, cfg, opts, systemPrompt, userMessage)
+	raw, err := svc.callAIWithContext(ctx, cfg, opts, systemPrompt, userMessage, documentSchema)
 	if err != nil {
 		return refineResult{}, err
 	}
@@ -381,22 +382,38 @@ func (svc *Service) refine(ctx context.Context, cfg settings.Settings, opts aiOp
 
 // buildDocTypePrompt dispatches to the correct prompt builder based on document type.
 // variant is only used for doc types that have multiple prompt versions (currently email).
-func buildDocTypePrompt(docType string, variant int, style, relationship, customInstructions, text string) (systemPrompt, userMessage string) {
+func buildDocTypePrompt(docType string, variant int, style, relationship, customInstructions, text string) (systemPrompt, userMessage string, schema json.RawMessage) {
 	switch docType {
 	case "wiki":
-		return buildWikiPrompt(style, relationship, customInstructions, text)
+		system, user := buildWikiPrompt(style, relationship, customInstructions, text)
+		return system, user, documentSchema
 	case "memo":
-		return buildMemoPrompt(style, relationship, customInstructions, text)
+		system, user := buildMemoPrompt(style, relationship, customInstructions, text)
+		return system, user, documentSchema
 	case "powerpoint":
-		return buildPPTPrompt(style, relationship, customInstructions, text)
+		system, user := buildPPTPrompt(style, relationship, customInstructions, text)
+		return system, user, documentSchema
 	default: // "email" and any unrecognised type
-		return buildEmailPrompt(variant, style, relationship, customInstructions, text)
+		system, user := buildEmailPrompt(variant, style, relationship, customInstructions, text)
+		return system, user, emailSchema(variant)
 	}
+}
+
+// emailSchema picks the shape the chosen email prompt actually produces: v2
+// returns three fields, v1 five. See documentSchemaV2.
+func emailSchema(variant int) json.RawMessage {
+	if variant <= 0 {
+		variant = LatestEmailVariant
+	}
+	if variant == 2 {
+		return documentSchemaV2
+	}
+	return documentSchema
 }
 
 // callAIWithContext resolves the API key and runs an AI call. The context is
 // passed through to the HTTP request, so cancelling it aborts the call in flight.
-func (svc *Service) callAIWithContext(ctx context.Context, cfg settings.Settings, opts aiOpts, systemPrompt, userMessage string) (string, error) {
+func (svc *Service) callAIWithContext(ctx context.Context, cfg settings.Settings, opts aiOpts, systemPrompt, userMessage string, schema json.RawMessage) (string, error) {
 	provider := opts.provider
 	if provider == "" {
 		provider = cfg.ActiveProvider
@@ -408,7 +425,7 @@ func (svc *Service) callAIWithContext(ctx context.Context, cfg settings.Settings
 
 	callCtx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
-	return svc.callAISync(callCtx, cfg, opts, apiKey, systemPrompt, userMessage)
+	return svc.callAISync(callCtx, cfg, opts, apiKey, systemPrompt, userMessage, schema)
 }
 
 // resolveAPIKey fetches the API key for the given provider from the keyring.
@@ -434,7 +451,7 @@ func (svc *Service) resolveAPIKey(provider string) (string, error) {
 
 // callAISync dispatches to the configured (or overridden) provider.
 // The apiKey is resolved by the caller — this function has no keyring dependency.
-func (svc *Service) callAISync(ctx context.Context, cfg settings.Settings, opts aiOpts, apiKey, systemPrompt, userMessage string) (string, error) {
+func (svc *Service) callAISync(ctx context.Context, cfg settings.Settings, opts aiOpts, apiKey, systemPrompt, userMessage string, schema json.RawMessage) (string, error) {
 	provider := opts.provider
 	if provider == "" {
 		provider = cfg.ActiveProvider
@@ -455,11 +472,11 @@ func (svc *Service) callAISync(ctx context.Context, cfg settings.Settings, opts 
 	}
 
 	resp, err := client.Complete(ctx, llm.Request{
-		System:    systemPrompt,
-		User:      userMessage,
-		Model:     model,
-		MaxTokens: maxTokens,
-		JSONMode:  true,
+		System:     systemPrompt,
+		User:       userMessage,
+		Model:      model,
+		MaxTokens:  maxTokens,
+		JSONSchema: schema,
 	})
 	if err != nil {
 		return "", err

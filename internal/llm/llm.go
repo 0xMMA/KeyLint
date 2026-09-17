@@ -47,11 +47,14 @@ type Request struct {
 	// MaxTokens caps the response length. Only providers whose API requires it
 	// (Anthropic) send it; the others keep the request shape they had before.
 	MaxTokens int
-	// JSONMode asks the provider to constrain output to a JSON object. OpenAI
-	// and the OpenAI-compatible Ollama endpoint enforce it; Anthropic and the
-	// Claude Code CLI have no equivalent today, so their callers parse
-	// defensively. Widening this to a JSON schema is #47.
-	JSONMode bool
+	// JSONSchema constrains the reply to a shape. nil means no constraint.
+	//
+	// Every provider enforces it in its own dialect — OpenAI and the
+	// OpenAI-compatible Ollama endpoint through response_format, Anthropic
+	// through output_config, the Claude Code CLI through --json-schema — but
+	// none of them is a parser: a caller still unmarshals the text it gets back,
+	// and should still do so defensively.
+	JSONSchema json.RawMessage
 }
 
 // Response is the text of a completion.
@@ -266,6 +269,20 @@ var fingerprintHeaders = []string{
 	"X-Stainless-Runtime",
 	"X-Stainless-Runtime-Version",
 	"X-Stainless-Timeout",
+}
+
+// schemaName labels the schema for providers that require a name for it. It is
+// never shown to a user.
+const schemaName = "keylint_result"
+
+// schemaObject decodes a caller's schema for the SDKs that want a map rather
+// than raw bytes.
+func schemaObject(schema json.RawMessage) (map[string]any, error) {
+	var object map[string]any
+	if err := json.Unmarshal(schema, &object); err != nil {
+		return nil, fmt.Errorf("invalid JSON schema: %w", err)
+	}
+	return object, nil
 }
 
 // userAgent identifies the application, deliberately without a version: the

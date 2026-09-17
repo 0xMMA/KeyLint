@@ -55,7 +55,7 @@ func RunJudge(settingsSvc *settings.Service, opts aiOpts, rawInput, baseline, ca
 
 	svc := NewService(settingsSvc, nil)
 
-	raw, err := svc.callAISync(context.Background(), cfg, opts, apiKey, judgeSystemPrompt, userMessage)
+	raw, err := svc.callAISync(context.Background(), cfg, opts, apiKey, judgeSystemPrompt, userMessage, judgeSchema)
 	if err != nil {
 		return JudgeScore{}, fmt.Errorf("judge AI call failed: %w", err)
 	}

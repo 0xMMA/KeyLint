@@ -32,8 +32,8 @@ const PROVIDER_OPTIONS = [
   { label: 'Ollama', value: 'ollama' },
 ];
 
-/** Providers that need no API key — the user authenticates them elsewhere. */
-const KEYLESS_PROVIDERS = new Set(['ollama', 'claude-code']);
+/** Providers that need no credential at all. */
+const KEYLESS_PROVIDERS = new Set(['ollama']);
 
 const PROVIDER_MODELS: Record<string, Array<{ label: string; value: string }>> = {
   claude: [
@@ -1151,11 +1151,17 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Reports whether the provider can be used as configured. Ollama and the
-   * Claude Code CLI carry no API key, so asking the keyring about them would
-   * always answer "not set" and show a banner the user cannot act on.
+   * Reports whether the provider can be used as configured. Ollama carries no
+   * credential, so asking the keyring about it would always answer "not set"
+   * and show a banner the user cannot act on. The Claude Code CLI does have a
+   * usable answer — installed and signed in — and treating it as unconditionally
+   * fine meant a missing or signed-out CLI showed nothing until the call failed.
    */
   private async hasUsableCredentials(provider: string): Promise<boolean> {
+    if (provider === 'claude-code') {
+      const status = await this.wails.getClaudeCodeStatus();
+      return status.installed && status.loggedIn;
+    }
     if (KEYLESS_PROVIDERS.has(provider)) return true;
     const keyStatus = await this.wails.getKeyStatus(provider);
     return keyStatus.is_set;

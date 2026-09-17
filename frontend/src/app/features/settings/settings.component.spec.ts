@@ -331,6 +331,13 @@ describe('SettingsComponent — Claude Code provider card', () => {
     expect(el.querySelector('[data-testid="claude-code-detected"]')).toBeNull();
   });
 
+  it('says that environment API keys are not passed through to the CLI', async () => {
+    await render({ installed: true, loggedIn: true, path: '/usr/local/bin/claude' });
+
+    expect(text('claude-code-env-hint')).toContain('not passed through');
+    expect(text('claude-code-env-hint')).toContain('subscription login');
+  });
+
   it('never offers a key editor for the CLI', async () => {
     await render({ installed: true, loggedIn: true, path: '/usr/local/bin/claude' });
 

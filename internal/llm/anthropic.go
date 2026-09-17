@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -37,6 +38,16 @@ func (c *anthropicClient) Complete(ctx context.Context, req Request) (Response, 
 			anthropic.NewUserMessage(anthropic.NewTextBlock(req.User)),
 		},
 	}
+	if len(req.JSONSchema) > 0 {
+		schema, err := schemaObject(req.JSONSchema)
+		if err != nil {
+			return Response{}, fmt.Errorf("%s: %w", anthropicProvider.name, err)
+		}
+		params.OutputConfig = anthropic.OutputConfigParam{
+			Format: anthropic.JSONOutputFormatParam{Schema: schema},
+		}
+	}
+
 	logRequest(c.cfg, anthropicProvider, req.Model, params)
 
 	attempts := &httpAttempts{cfg: c.cfg, provider: anthropicProvider}
@@ -47,8 +58,17 @@ func (c *anthropicClient) Complete(ctx context.Context, req Request) (Response, 
 		return Response{}, mapAnthropicError(attempts, err)
 	}
 
+	// A truncated answer would be pasted over the user's selection as a
+	// half-written sentence — the same call the Claude Code client makes.
+	if message.StopReason == anthropic.StopReasonMaxTokens {
+		return Response{}, fmt.Errorf("%s ran out of output tokens before finishing", anthropicProvider.name)
+	}
+
 	for _, block := range message.Content {
 		if text, ok := block.AsAny().(anthropic.TextBlock); ok {
+			if strings.TrimSpace(text.Text) == "" {
+				break
+			}
 			logResponse(c.cfg, anthropicProvider, text.Text)
 			return Response{Text: text.Text}, nil
 		}

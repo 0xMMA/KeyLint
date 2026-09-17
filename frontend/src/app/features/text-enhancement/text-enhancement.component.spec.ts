@@ -379,8 +379,37 @@ describe('TextEnhancementComponent — Claude Code provider', () => {
     expect(component.currentModelOptions.map(m => m.value)).toEqual(['opus', 'sonnet', 'haiku']);
   });
 
-  it('shows no missing-key warning for a provider that needs no key', async () => {
+  it('warns when the CLI is installed but signed out, instead of failing at call time', async () => {
+    wailsMock.getClaudeCodeStatus.mockResolvedValue({
+      installed: true, loggedIn: false, path: '/usr/local/bin/claude', version: '2.1.274',
+    });
+
+    component.providerView = 'claude-code';
+    await component.onProviderChange();
+    fixture.detectChanges();
+
+    expect(component.apiKeySet).toBe(false);
     expect(el.querySelector('[data-testid="api-key-banner"]')).not.toBeNull();
+  });
+
+  it('warns when the CLI is not installed at all', async () => {
+    wailsMock.getClaudeCodeStatus.mockResolvedValue({
+      installed: false, loggedIn: false, path: '', version: '',
+    });
+
+    component.providerView = 'claude-code';
+    await component.onProviderChange();
+    fixture.detectChanges();
+
+    // Without this the test also passes when only half the branch is reverted.
+    expect(component.apiKeySet).toBe(false);
+    expect(el.querySelector('[data-testid="api-key-banner"]')).not.toBeNull();
+  });
+
+  it('stays quiet when the CLI is installed and signed in', async () => {
+    wailsMock.getClaudeCodeStatus.mockResolvedValue({
+      installed: true, loggedIn: true, path: '/usr/local/bin/claude', version: '2.1.274',
+    });
 
     component.providerView = 'claude-code';
     await component.onProviderChange();
@@ -388,6 +417,19 @@ describe('TextEnhancementComponent — Claude Code provider', () => {
 
     expect(component.apiKeySet).toBe(true);
     expect(el.querySelector('[data-testid="api-key-banner"]')).toBeNull();
+    // The keyring has no answer for this provider and must not be asked.
     expect(wailsMock.getKeyStatus).not.toHaveBeenCalledWith('claude-code');
+  });
+
+  it('shows no missing-key warning for Ollama, which needs no credential at all', async () => {
+    expect(el.querySelector('[data-testid="api-key-banner"]')).not.toBeNull();
+
+    component.providerView = 'ollama';
+    await component.onProviderChange();
+    fixture.detectChanges();
+
+    expect(component.apiKeySet).toBe(true);
+    expect(el.querySelector('[data-testid="api-key-banner"]')).toBeNull();
+    expect(wailsMock.getKeyStatus).not.toHaveBeenCalledWith('ollama');
   });
 });

@@ -40,7 +40,7 @@ func TestOpenAICompleteRequestShape(t *testing.T) {
 		t.Errorf("model = %v, want gpt-4o-mini", got.body["model"])
 	}
 	if _, ok := got.body["response_format"]; ok {
-		t.Error("response_format must be absent unless JSONMode is set")
+		t.Error("response_format must be absent when the caller set no schema")
 	}
 
 	messages, ok := got.body["messages"].([]any)
@@ -57,12 +57,13 @@ func TestOpenAICompleteRequestShape(t *testing.T) {
 	}
 }
 
-func TestOpenAICompleteJSONMode(t *testing.T) {
+func TestOpenAICompleteJSONSchema(t *testing.T) {
 	var got capture
 	srv := newServer(t, &got, http.StatusOK, `{"choices":[{"message":{"content":"{}"}}]}`)
 
 	client := newOpenAI(Config{APIKey: "sk-test", BaseURL: srv.URL})
-	if _, err := client.Complete(context.Background(), Request{Model: "gpt-5.2", User: "x", JSONMode: true}); err != nil {
+	req := Request{Model: "gpt-5.2", User: "x", JSONSchema: []byte(testSchema)}
+	if _, err := client.Complete(context.Background(), req); err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
 
@@ -70,8 +71,40 @@ func TestOpenAICompleteJSONMode(t *testing.T) {
 	if !ok {
 		t.Fatalf("response_format = %v, want an object", got.body["response_format"])
 	}
-	if format["type"] != "json_object" {
-		t.Errorf("response_format.type = %v, want json_object", format["type"])
+	if format["type"] != "json_schema" {
+		t.Errorf("response_format.type = %v, want json_schema", format["type"])
+	}
+	spec, ok := format["json_schema"].(map[string]any)
+	if !ok {
+		t.Fatalf("json_schema = %v, want an object", format["json_schema"])
+	}
+	if spec["name"] != schemaName {
+		t.Errorf("json_schema.name = %v, want %q", spec["name"], schemaName)
+	}
+	if spec["strict"] != true {
+		t.Errorf("json_schema.strict = %v, want true", spec["strict"])
+	}
+	schema, ok := spec["schema"].(map[string]any)
+	if !ok {
+		t.Fatalf("json_schema.schema = %v, want the caller's schema", spec["schema"])
+	}
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok || properties["answer"] == nil {
+		t.Errorf("schema did not survive: %v", schema)
+	}
+}
+
+func TestOpenAICompleteWithoutSchema(t *testing.T) {
+	var got capture
+	srv := newServer(t, &got, http.StatusOK, `{"choices":[{"message":{"content":"plain"}}]}`)
+
+	client := newOpenAI(Config{APIKey: "sk-test", BaseURL: srv.URL})
+	if _, err := client.Complete(context.Background(), Request{Model: "gpt-4o-mini", User: "x"}); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	// enhance sends no schema and must not be constrained.
+	if _, ok := got.body["response_format"]; ok {
+		t.Error("response_format must be absent when the caller set no schema")
 	}
 }
 

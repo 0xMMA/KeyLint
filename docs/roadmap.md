@@ -56,7 +56,7 @@ The branch went further than the PR body says: `RegisterHotKey` was replaced by 
 Why first: it touches `main.go`, settings model, `wails.service.ts`, and every component that subscribes to shortcuts. Everything below conflicts with it if it sits longer.
 
 #### E1 · Claude Code as a first-class provider (`claude -p`) — **shipped 2026-09-18** (#45, #49)
-Issue: #32 (closed). Structured output via `--json-schema` moved to #47; small follow-ups in #48. Discovery and completion must run in the same stripped environment (#49) — the probe once reported an `ANTHROPIC_API_KEY` session that completions could not use.
+Issue: #32 (closed). Structured output via `--json-schema` shipped with #47; the #48 follow-ups shipped with it. Discovery and completion must run in the same stripped environment (#49) — the probe once reported an `ANTHROPIC_API_KEY` session that completions could not use.
 
 **User story.** Welcome wizard detects an installed `claude` binary → one click "Use Claude Code" → done. No API key, no console account. Fix and Pyramidize run through the user's own subscription. Same for the `-fix` CLI.
 
@@ -118,6 +118,7 @@ Issue: #33.
 1. **Done (#39).** Introduce `internal/llm`: `Client` interface (`Complete(ctx, Request) (Response, error)`, `Request{System, User, Model, JSONSchema, MaxTokens}`), a registry keyed by provider ID, and move the six existing functions behind it **unchanged** (mechanical). Add `httptest`-based tests. `enhance` and `pyramidize` stop knowing about providers.
 2. **Done (#45).** E1 plugs in here.
 3. **Done (#33 step 3).** Replaced hand-rolled Anthropic/OpenAI/Ollama implementations with the two SDKs; also closes #41 (unredacted error bodies). Timeouts, retries and error types come from the SDK. Ollama moved to its OpenAI-compatible `/v1` endpoint, so the system prompt is a real system message and `Config.PromptSeparator` is gone — note that the delimiters went with it (`enhance` no longer sends its `Text: ` label, `pyramidize` no longer its `---` fence), which is a prompt change for a small local model and was **not** eval'd; JSON mode now also reaches Ollama, where the native endpoint ignored it. **Costs 15.3 MB of shipped binary** (12.0 → 27.3 MB with release flags) — the two SDKs weigh roughly 9 MB and 11 MB standalone, and there is no build tag to trim the generated type surface. Accepted: 27 MB is fine for a desktop installer, and the size is the price of not owning provider clients. The SDKs no longer take configuration from the environment: Anthropic through `WithoutEnvironmentDefaults`, OpenAI — which has no such option — by always passing the base URL explicitly and deleting the headers `OPENAI_ORG_ID`, `OPENAI_PROJECT_ID` and `OPENAI_CUSTOM_HEADERS` would set. That covers the variables those SDK versions document; a future one could add another, so the tests assert on the wire rather than on the option list. Machine-fingerprint headers (`X-Stainless-*`, SDK `User-Agent`) are stripped too. Bedrock stayed out: it needs a region field, a model-ID default per call site, and the AWS SDK — that is #23.
+3b. **Done (#47).** `Request.JSONMode bool` widened to `JSONSchema json.RawMessage`. Pyramidize passes a schema per pipeline step (`pyramidize/schemas.go`, mirroring `types.go`), and every provider enforces it in its own dialect — `response_format: json_schema` for OpenAI and the Ollama `/v1` endpoint, `output_config.format` for Anthropic, `--json-schema` for the Claude Code CLI, which also returns the parsed object in `structured_output`. `unmarshalRobust` stays as the fallback for providers that only approximate a schema.
 4. Model IDs become settings data with sane defaults per provider, not constants in six files. Where the provider has a models endpoint, offer a live list.
 
 #### E3 · Prompt and core-logic overhaul: back to one-shot
@@ -175,6 +176,7 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 
 - [x] PR #31 description is stale vs. branch content
 - [x] `frontend/e2e/shell-menu-deep{,2,3,4,5}.spec.ts` are exploratory layout probes from a debugging session — consolidate into one spec or delete (#43: hover-expand, two-tone logo and active-icon colour folded into `shell-menu.spec.ts`, the rest deleted)
+- [ ] `GetClaudeCodeStatus` spawns two processes per call and is called from four uncached places (Pyramidize init and provider change, the settings card, the welcome wizard) — 0.13s on a native binary here, materially slower through a Windows `claude.cmd` shim, and the Pyramidize page's first paint waits on it. Cache it in the Go service with a bypass for the Re-check button.
 - [ ] `awalsh128/cache-apt-pkgs-action@latest` (`build-linux.yml` ×3, `release.yml`) is a third-party action on a mutable tag in a fork-triggered workflow — pin to a commit SHA
 - [ ] `.claude/rules/angular-components.md` exists but is not referenced from `CLAUDE.md`
 - [x] `internal/features/enhance` has no tests — fixed in #39

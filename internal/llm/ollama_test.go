@@ -61,21 +61,23 @@ func TestOllamaCompleteRequestShape(t *testing.T) {
 	}
 }
 
-func TestOllamaCompleteJSONMode(t *testing.T) {
+func TestOllamaCompleteJSONSchema(t *testing.T) {
 	var got capture
 	srv := newServer(t, &got, http.StatusOK, `{"choices":[{"message":{"content":"{}"}}]}`)
 
 	client := newOllama(Config{BaseURL: srv.URL})
-	if _, err := client.Complete(context.Background(), Request{Model: "llama3.2", User: "x", JSONMode: true}); err != nil {
+	req := Request{Model: "llama3.2", User: "x", JSONSchema: []byte(testSchema)}
+	if _, err := client.Complete(context.Background(), req); err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
-	// Ollama's OpenAI-compatible endpoint honours this, which the native one did not.
+	// Ollama's OpenAI-compatible endpoint takes the same shape; the caller's
+	// defensive parse stays as the fallback for models that only approximate it.
 	format, ok := got.body["response_format"].(map[string]any)
 	if !ok {
 		t.Fatalf("response_format = %v, want an object", got.body["response_format"])
 	}
-	if format["type"] != "json_object" {
-		t.Errorf("response_format.type = %v, want json_object", format["type"])
+	if format["type"] != "json_schema" {
+		t.Errorf("response_format.type = %v, want json_schema", format["type"])
 	}
 }
 
