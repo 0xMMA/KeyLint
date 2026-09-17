@@ -44,8 +44,12 @@ test.describe('Dark mode — visual verification', () => {
 
     // Sidebar must be visible
     await expect(page.locator('.layout-sidebar')).toBeVisible();
-    // "KeyLint" logo text
-    await expect(page.locator('.logo-text')).toBeVisible();
+    // Two-tone "KeyLint" logo. The "ey"/"int" spans collapse to max-width: 0
+    // when the sidebar is collapsed, so assert on the always-visible K and L.
+    await expect(page.locator('.layout-logo')).toBeVisible();
+    await expect(page.locator('.layout-logo .logo-key').first()).toBeVisible();
+    await expect(page.locator('.layout-logo .logo-lint').first()).toBeVisible();
+    await expect(page.locator('.layout-logo')).toHaveText('KeyLint');
   });
 
   test('settings page renders full content (tabs + form fields)', async ({ page }) => {
@@ -83,5 +87,32 @@ test.describe('Dark mode — visual verification', () => {
     console.log(`Shortcut input value: ${inputVal}`);
     expect(inputVal).toBe('ctrl+g');
     await screenshot(page, '06-settings-shortcut-value');
+  });
+
+  test('select label stays transparent so the rounded corners render', async ({ page }) => {
+    await page.goto('/settings');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
+
+    const colors = await page.evaluate(() => {
+      const select = document.querySelector('.p-select') as HTMLElement | null;
+      const label = select?.querySelector('.p-select-label') as HTMLElement | null;
+      if (!select || !label) return null;
+      return {
+        select: getComputedStyle(select).backgroundColor,
+        label: getComputedStyle(label).backgroundColor,
+      };
+    });
+    console.log(`p-select bg: ${colors?.select} / p-select-label bg: ${colors?.label}`);
+    expect(colors, 'no .p-select with .p-select-label found on /settings').not.toBeNull();
+
+    // The label is a square span 1px inside the rounded .p-select box. An opaque
+    // background on it paints over the border's corner arcs (#37), so it must stay
+    // transparent while the select itself keeps the dark surface background.
+    expect(colors!.label, `Select label is not transparent: ${colors!.label}`)
+      .toBe('rgba(0, 0, 0, 0)');
+    expect(colors!.select, `Select has no background: ${colors!.select}`)
+      .not.toBe('rgba(0, 0, 0, 0)');
+    await screenshot(page, '07-select-label-transparent');
   });
 });
