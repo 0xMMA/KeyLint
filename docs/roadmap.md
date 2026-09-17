@@ -1,6 +1,6 @@
 # KeyLint Roadmap
 
-> Last updated: 2026-09-17 · Owner: Michael · Source of truth for priorities.
+> Last updated: 2026-09-18 · Owner: Michael · Source of truth for priorities.
 > Tracking: each epic links to a GitHub issue. This file holds the *why* and the order; issues hold the *what*.
 
 ---
@@ -46,17 +46,17 @@
 ### P0 — unblock
 
 #### E0 · Land PR #31 (shortcut single/double press, configurable shortcuts)
-The branch went further than the PR body says: `RegisterHotKey` was replaced by a `WH_KEYBOARD_LL` low-level hook, shortcuts are configurable with a recorder UI (see `.worktrees/shortcut-double-press/docs/superpowers/specs/2026-04-06-keyboard-hook-configurable-shortcuts-design.md`). Last commit was a keyup fix after manual Windows testing; the outcome of that test is not recorded.
+The branch went further than the PR body says: `RegisterHotKey` was replaced by a `WH_KEYBOARD_LL` low-level hook, shortcuts are configurable with a recorder UI (see `.worktrees/shortcut-double-press/docs/superpowers/specs/2026-04-06-keyboard-hook-configurable-shortcuts-design.md`). Windows retest 2026-09-17 found double-tap running the fix twice; root cause was a leaked Win32 timer (`SetTimer(NULL, …)` ignores the passed ID). Fixed on the branch in five commits (timer ID, pump-thread reset, in-flight guard with safety timeout, held-key absorption); follow-ups in #42 and #44. Branch frozen for the final retest.
 
 - [ ] Windows smoke test: single Ctrl+G → silent fix, hold-Ctrl-double-tap → Pyramidize + focus, recorder saves/reloads, no stray "g" typed into the foreground app
-- [ ] Update PR body to match the branch (hook + configurable shortcuts)
+- [x] Update PR body to match the branch (hook + configurable shortcuts)
 - [ ] `review-pr`, merge, close #30, delete worktree + branch
-- [ ] Delete merged remotes `feat/pyramidize`, `fix/updater-platform-aware-install`
+- [ ] Delete merged remotes `feat/pyramidize`, `fix/updater-platform-aware-install` (after #31 lands)
 
 Why first: it touches `main.go`, settings model, `wails.service.ts`, and every component that subscribes to shortcuts. Everything below conflicts with it if it sits longer.
 
-#### E1 · Claude Code as a first-class provider (`claude -p`) — **high prio**
-Issue: #32.
+#### E1 · Claude Code as a first-class provider (`claude -p`) — **shipped 2026-09-18** (#45, #49)
+Issue: #32 (closed). Structured output via `--json-schema` moved to #47; small follow-ups in #48. Discovery and completion must run in the same stripped environment (#49) — the probe once reported an `ANTHROPIC_API_KEY` session that completions could not use.
 
 **User story.** Welcome wizard detects an installed `claude` binary → one click "Use Claude Code" → done. No API key, no console account. Fix and Pyramidize run through the user's own subscription. Same for the `-fix` CLI.
 
@@ -115,9 +115,9 @@ Issue: #33.
 | Claude Code CLI | `internal/llm/claudecli` (E1, #32) | spawn |
 
 **Steps (each shippable):**
-1. Introduce `internal/llm`: `Client` interface (`Complete(ctx, Request) (Response, error)`, `Request{System, User, Model, JSONSchema, MaxTokens}`), a registry keyed by provider ID, and move the six existing functions behind it **unchanged** (mechanical). Add `httptest`-based tests. `enhance` and `pyramidize` stop knowing about providers.
-2. E1 plugs in here.
-3. Replace hand-rolled Anthropic/OpenAI/Ollama implementations with the two SDKs. Timeouts, retries, error types come from the SDK. Delete `api_*.go`.
+1. **Done (#39).** Introduce `internal/llm`: `Client` interface (`Complete(ctx, Request) (Response, error)`, `Request{System, User, Model, JSONSchema, MaxTokens}`), a registry keyed by provider ID, and move the six existing functions behind it **unchanged** (mechanical). Add `httptest`-based tests. `enhance` and `pyramidize` stop knowing about providers.
+2. **Done (#45).** E1 plugs in here.
+3. **In progress.** Replace hand-rolled Anthropic/OpenAI/Ollama implementations with the two SDKs; also closes #41 (unredacted error bodies). Timeouts, retries, error types come from the SDK. Delete `api_*.go`.
 4. Model IDs become settings data with sane defaults per provider, not constants in six files. Where the provider has a models endpoint, offer a live list.
 
 #### E3 · Prompt and core-logic overhaul: back to one-shot
@@ -147,7 +147,8 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 
 #### E5 · UI modernization and fixes
 - **Fix page redesign** (#36) — low-mid prio per Michael. Intent: it should feel like a tool, not two grey boxes. Direction to explore with `frontend-design`: input/result as one surface with a visible diff of what changed, provider/model chip, character count, keyboard hints (Ctrl+Enter), clear empty state, result actions (copy / paste back / undo).
-- **Input border glitch** (#37) — reported on Windows: top-left and bottom-left borders of nearly all inputs look interrupted. **Not reproducible** in Chromium on Linux at device scale 1.0 / 1.25 / 1.5 (browser mode, dark theme). Needs a Windows screenshot, display scaling %, WebView2 version. Suspects: WebView2 rendering of the Aura focus `outline` + `border-radius` at fractional DPI, or the `.app-dark` border override in `styles.scss`.
+- **Input border glitch** (#37) — **fixed (#40)**: the `.app-dark` override gave `.p-select-label` an opaque background that painted over the parent's rounded corners. Underlying cause (Aura dark tokens not propagated to components) goes with #35.
+- **Settings stays rendered after version click** (#38) — new, repro in the issue.
 - Existing April triage: #21 `vv` version prefix, #24 hide unimplemented themes, #26 toggle knob clipping, #28 global-instruction input light background, #29 Apply button focus, #27 side-by-side on wide screens.
 
 #### E6 · Bedrock end-to-end UI (#23) — after E2 step 3, mostly settings UI work.
@@ -172,9 +173,13 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 
 ## 5. Housekeeping (no release needed)
 
-- [ ] PR #31 description is stale vs. branch content
+- [x] PR #31 description is stale vs. branch content
 - [x] `frontend/e2e/shell-menu-deep{,2,3,4,5}.spec.ts` are exploratory layout probes from a debugging session — consolidate into one spec or delete (#43: hover-expand, two-tone logo and active-icon colour folded into `shell-menu.spec.ts`, the rest deleted)
 - [ ] `awalsh128/cache-apt-pkgs-action@latest` (`build-linux.yml` ×3, `release.yml`) is a third-party action on a mutable tag in a fork-triggered workflow — pin to a commit SHA
 - [ ] `.claude/rules/angular-components.md` exists but is not referenced from `CLAUDE.md`
-- [ ] `internal/features/enhance` has no tests — E2 step 1 fixes this via the interface
+- [x] `internal/features/enhance` has no tests — fixed in #39
 - [ ] `docs/pyramidize/ux-roadmap.md` model strategy section is outdated (Sonnet 4.6 / GPT-5.2 era); superseded by E2 step 4
+- [ ] Pin third-party GitHub Actions to commit SHAs, add Dependabot for actions (#51) — highest-severity CI finding
+- [ ] Branch protection on `main` (required checks incl. `e2e`) — Michael, repo settings
+- [ ] Shortcut robustness under rapid input (#42, #44) after #31 lands
+- [ ] CLI `-fix` hangs on a never-closing stdin pipe (#46)
