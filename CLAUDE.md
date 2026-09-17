@@ -83,6 +83,8 @@ KeyLint is a desktop app that fixes/enhances clipboard text via AI (OpenAI, Anth
 
 **Rules (active steering):** `.claude/rules/architecture.md`, `.claude/rules/testing.md`, `.claude/rules/workflows.md`
 
+**Roadmap (priorities, epics, release train):** `docs/roadmap.md` — read before proposing new work.
+
 **Reference docs:** `.claude/docs/architecture.md` (service wiring, RPC bridge, platform differences), `.claude/docs/testing.md` (detailed patterns), `.claude/docs/versioning.md` (release pipeline, CI)
 
 **Logging conventions:** `docs/logging.md` (levels, Redact() usage, source tagging, CLI flags)
