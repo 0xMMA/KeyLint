@@ -71,6 +71,7 @@ const wmApp = 0x8000
 
 const (
 	wmAction = wmApp + 1 // WParam: 0=fix, 1=pyramidize
+	wmReset  = wmApp + 2 // clear double-tap state on the pump thread
 )
 
 // Double-tap state phases.
@@ -95,7 +96,9 @@ type windowsService struct {
 	pyramidizeCombo KeyCombo
 	doubleTapDelay  uint32 // milliseconds
 
-	// State — only accessed on the hook thread, no lock needed.
+	// State — written only on the pump thread (hook callback and message loop
+	// both run there), so no lock is needed. Other threads ask for a change by
+	// posting wmReset instead of touching these fields.
 	tapState       tapPhase // double-tap detection phase
 	timerID        uintptr  // ID returned by SetTimer for the running double-tap timer (0 = none)
 	mods           Modifier // currently held modifier keys
@@ -137,7 +140,9 @@ func (s *windowsService) Register(cfg ShortcutConfig) error {
 }
 
 func (s *windowsService) Unregister() {
-	s.stopTimer()
+	// The timer belongs to the pump thread and can only be killed there. If the
+	// loop is already gone, the timer died with the thread anyway.
+	s.postReset()
 	if s.hookH != 0 {
 		unhookWindowsHookEx.Call(s.hookH)
 		s.hookH = 0
@@ -151,12 +156,8 @@ func (s *windowsService) UpdateConfig(cfg ShortcutConfig) error {
 	if err := s.applyConfig(cfg); err != nil {
 		return err
 	}
-	// Reset any in-progress detection state.
-	if s.threadID != 0 {
-		s.stopTimer()
-	}
-	s.tapState = tapIdle
-	s.indepPending = -1
+	// Reset any in-progress detection state (on the pump thread).
+	s.postReset()
 	logger.Info("shortcut: config updated", "mode", cfg.Mode, "fix", cfg.FixCombo)
 	return nil
 }
@@ -164,12 +165,8 @@ func (s *windowsService) UpdateConfig(cfg ShortcutConfig) error {
 func (s *windowsService) SetPaused(paused bool) {
 	s.paused.Store(paused)
 	if paused {
-		// Reset detection state when pausing.
-		if s.threadID != 0 {
-			s.stopTimer()
-		}
-		s.tapState = tapIdle
-		s.indepPending = -1
+		// Reset detection state when pausing (on the pump thread).
+		s.postReset()
 	}
 	logger.Info("shortcut: paused", "paused", paused)
 }
@@ -354,6 +351,16 @@ func (s *windowsService) postAction(action uintptr) {
 	postThreadMessage.Call(uintptr(s.threadID), wmAction, action, 0)
 }
 
+// postReset asks the pump thread to drop any in-progress detection. A
+// SetTimer(NULL, …) timer belongs to the thread that created it, so KillTimer
+// only works there — callers on other threads must go through the message loop.
+func (s *windowsService) postReset() {
+	if s.threadID == 0 {
+		return
+	}
+	postThreadMessage.Call(uintptr(s.threadID), wmReset, 0, 0)
+}
+
 func (s *windowsService) messageLoop() {
 	logger.Info("shortcut: message loop started")
 	var m msg
@@ -376,6 +383,10 @@ func (s *windowsService) messageLoop() {
 				s.postAction(0) // fix
 			}
 			s.stopTimer()
+		case wmReset:
+			s.stopTimer()
+			s.tapState = tapIdle
+			s.indepPending = -1
 		case wmAction:
 			action := "fix"
 			if m.WParam == 1 {
