@@ -44,8 +44,12 @@ test.describe('Dark mode — visual verification', () => {
 
     // Sidebar must be visible
     await expect(page.locator('.layout-sidebar')).toBeVisible();
-    // "KeyLint" logo text
-    await expect(page.locator('.logo-text')).toBeVisible();
+    // Two-tone "KeyLint" logo. The "ey"/"int" spans collapse to max-width: 0
+    // when the sidebar is collapsed, so assert on the always-visible K and L.
+    await expect(page.locator('.layout-logo')).toBeVisible();
+    await expect(page.locator('.layout-logo .logo-key').first()).toBeVisible();
+    await expect(page.locator('.layout-logo .logo-lint').first()).toBeVisible();
+    await expect(page.locator('.layout-logo')).toHaveText('KeyLint');
   });
 
   test('settings page renders full content (tabs + form fields)', async ({ page }) => {
