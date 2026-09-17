@@ -237,10 +237,13 @@ func (s *windowsService) hookCallback(nCode int, wParam uintptr, lParam uintptr)
 			s.mods &^= mod
 			// If modifier released during double-tap detection, fire fix immediately.
 			if s.tapState != tapIdle {
-				logger.Debug("shortcut: modifier released during double-tap, firing fix")
+				// A live timer is what says the fix for this tap is still pending.
+				if s.timerID != 0 {
+					logger.Debug("shortcut: modifier released during double-tap, firing fix")
+					s.stopTimer()
+					s.postAction(0) // fix
+				}
 				s.tapState = tapIdle
-				s.stopTimer()
-				s.postAction(0) // fix
 			}
 		}
 		ret, _, _ := callNextHookEx.Call(s.hookH, uintptr(nCode), wParam, lParam)
@@ -285,13 +288,14 @@ func (s *windowsService) hookCallback(nCode int, wParam uintptr, lParam uintptr)
 		case tapIdle:
 			if isDown && isTrigger {
 				// First tap → suppress, start timer, wait for keyup before accepting second tap.
-				logger.Debug("shortcut: first tap, starting timer", "delay", delay)
 				if !s.startTimer(delay) {
-					// No timer means nothing would ever end the detection window,
-					// so the tap would be swallowed. Degrade to plain single-tap fix.
-					s.tapState = tapIdle
+					// Without a timer nothing would ever end the detection window,
+					// so fire the plain fix now. Still wait for the keyup with
+					// timerID == 0, otherwise every auto-repeat keydown would look
+					// like a fresh first tap and fire a fix of its own.
 					s.postAction(0) // fix
-					return 1        // suppress
+				} else {
+					logger.Debug("shortcut: first tap, timer started", "delay", delay)
 				}
 				s.tapState = tapWaitRelease
 				return 1 // suppress
@@ -299,9 +303,16 @@ func (s *windowsService) hookCallback(nCode int, wParam uintptr, lParam uintptr)
 
 		case tapWaitRelease:
 			if isUp && vk == fixKC.VK {
-				// Trigger key released after first tap → now accept second tap.
-				logger.Debug("shortcut: trigger released, waiting for second tap")
-				s.tapState = tapWaitSecond
+				if s.timerID == 0 {
+					// SetTimer failed, the fix already fired — the next tap is a
+					// fresh first tap, not the second half of a double-tap.
+					logger.Debug("shortcut: trigger released without a timer, resetting")
+					s.tapState = tapIdle
+				} else {
+					// Trigger key released after first tap → now accept second tap.
+					logger.Debug("shortcut: trigger released, waiting for second tap")
+					s.tapState = tapWaitSecond
+				}
 			}
 			// Suppress all trigger key events (including auto-repeat keydowns) during this phase.
 			if vk == fixKC.VK {
@@ -373,7 +384,7 @@ func (s *windowsService) messageLoop() {
 		case wmTimer:
 			// wParam carries the ID SetTimer returned; anything else is a stray
 			// timer we no longer own and must not act on.
-			if s.timerID == 0 || m.WParam != s.timerID {
+			if m.WParam != s.timerID {
 				break
 			}
 			// Double-tap timer expired → fire fix.

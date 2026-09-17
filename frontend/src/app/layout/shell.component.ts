@@ -102,6 +102,8 @@ export class ShellComponent implements OnInit, OnDestroy {
   updateAvailable = false;
   private subs: Subscription[] = [];
   private silentFixInFlight = false;
+  /** Safety net for a hung enhance call; overridable so tests need not wait. */
+  protected silentFixTimeoutMs = 120_000;
 
   get collapsedView(): boolean  { return sidebarCollapsed; }
   get hoverExpanded(): boolean  { return sidebarCollapsed && sidebarHovered; }
@@ -173,6 +175,12 @@ export class ShellComponent implements OnInit, OnDestroy {
       return;
     }
     this.silentFixInFlight = true;
+    // The backend has no HTTP timeout yet (#32), so enhance can hang forever.
+    // Without this the guard would swallow every later shortcut for good.
+    const safetyTimer = setTimeout(() => {
+      this.silentFixInFlight = false;
+      this.log.warn('shell: silent fix timed out, releasing guard');
+    }, this.silentFixTimeoutMs);
     this.log.info('shell: silent fix started');
     try {
       const text = await this.wails.readClipboard();
@@ -184,6 +192,7 @@ export class ShellComponent implements OnInit, OnDestroy {
     } catch (e: unknown) {
       this.log.error('shell: silent fix failed: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
+      clearTimeout(safetyTimer);
       this.silentFixInFlight = false;
     }
   }
