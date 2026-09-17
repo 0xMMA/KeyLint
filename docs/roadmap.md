@@ -173,7 +173,8 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 ## 5. Housekeeping (no release needed)
 
 - [ ] PR #31 description is stale vs. branch content
-- [ ] `frontend/e2e/shell-menu-deep{,2,3,4,5}.spec.ts` are exploratory layout probes from a debugging session — consolidate into one spec or delete
+- [x] `frontend/e2e/shell-menu-deep{,2,3,4,5}.spec.ts` are exploratory layout probes from a debugging session — consolidate into one spec or delete (#43: hover-expand, two-tone logo and active-icon colour folded into `shell-menu.spec.ts`, the rest deleted)
+- [ ] `awalsh128/cache-apt-pkgs-action@latest` (`build-linux.yml` ×3, `release.yml`) is a third-party action on a mutable tag in a fork-triggered workflow — pin to a commit SHA
 - [ ] `.claude/rules/angular-components.md` exists but is not referenced from `CLAUDE.md`
 - [ ] `internal/features/enhance` has no tests — E2 step 1 fixes this via the interface
 - [ ] `docs/pyramidize/ux-roadmap.md` model strategy section is outdated (Sonnet 4.6 / GPT-5.2 era); superseded by E2 step 4

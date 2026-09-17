@@ -5,6 +5,15 @@ on:
   push:
     branches: [main]
 
+# Nothing here writes to the repository.
+permissions:
+  contents: read
+
+# A newer push supersedes an in-flight PR run; pushes to main always finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -49,6 +58,83 @@ jobs:
 
       - name: Run Go tests
         run: go test ./internal/...
+
+  # Playwright runs against `ng serve` only — no Go, no Wails, no system deps.
+  # It still waits for `test` so a runner is not spent on UI checks while the
+  # unit tests are already red; nothing in this job depends on that one's work.
+  # Kept out of the build jobs' dependency chain on purpose: a UI regression
+  # should fail the PR, but it should not stop the binaries from being produced.
+  e2e:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # The Playwright config reads this to stop reusing a stale dev server and
+      # to allow a cold `ng serve` more startup time. Actions sets it too; being
+      # explicit keeps the behaviour the same under other runners.
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # Only the browser download is cached; --with-deps still installs the apt
+      # libraries each run, which is why the install step always runs.
+      #
+      # restore/save rather than actions/cache: the combined action only saves on
+      # a successful job, so a red e2e run — the one this job exists for — would
+      # re-download Chromium on every push. restore-keys covers the common case
+      # where an unrelated dependency bump changed the lockfile hash but not the
+      # browser; `playwright install` then skips what is already on disk.
+      - name: Restore Playwright browsers
+        id: playwright-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Save Playwright browsers
+        # Not always(): a cancelled job can leave a half-downloaded browser
+        # directory, which would then be cached under a key that looks valid.
+        if: ${{ !cancelled() && steps.playwright-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+
+      # The whole suite, so a new spec cannot be silently left out of CI.
+      # silent-fix.spec.ts needs a real ANTHROPIC_API_KEY, which a fork PR cannot
+      # have; it is `test.describe.skip` in the file itself and reports as
+      # skipped. Everything that does run here runs on a fork unchanged.
+      - name: Run Playwright specs
+        working-directory: frontend
+        run: npx playwright test
+
+      # The HTML report already embeds the screenshots and traces, deduplicated,
+      # so test-results/ would only triple the artifact. `cancelled()` matters
+      # because a hung e2e job is exactly when the report is worth having.
+      - name: Upload Playwright report
+        if: ${{ failure() || cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+          retention-days: 3
+          if-no-files-found: ignore
 
   build-linux:
     needs: test

@@ -94,6 +94,11 @@ test.describe('Dark mode — visual verification', () => {
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(1000);
 
+    // Without this the test is vacuous: in light mode the label would be
+    // transparent over a white page and every assertion below would pass.
+    const isDark = await page.evaluate(() => document.body.classList.contains('app-dark'));
+    expect(isDark, 'body must have .app-dark on /settings').toBe(true);
+
     const colors = await page.evaluate(() => {
       const select = document.querySelector('.p-select') as HTMLElement | null;
       const label = select?.querySelector('.p-select-label') as HTMLElement | null;
@@ -111,8 +116,10 @@ test.describe('Dark mode — visual verification', () => {
     // transparent while the select itself keeps the dark surface background.
     expect(colors!.label, `Select label is not transparent: ${colors!.label}`)
       .toBe('rgba(0, 0, 0, 0)');
-    expect(colors!.select, `Select has no background: ${colors!.select}`)
-      .not.toBe('rgba(0, 0, 0, 0)');
+    // zinc-950 (#09090b) is the dark surface. Asserting the exact colour, not
+    // merely "not transparent", is what makes a light-mode regression fail.
+    expect(colors!.select, `Select background: ${colors!.select}`)
+      .toBe('rgb(9, 9, 11)');
     await screenshot(page, '07-select-label-transparent');
   });
 });
