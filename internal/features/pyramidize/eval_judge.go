@@ -1,9 +1,8 @@
 package pyramidize
 
 import (
+	"context"
 	"fmt"
-	"net/http"
-	"time"
 
 	"keylint/internal/features/settings"
 )
@@ -54,10 +53,9 @@ func RunJudge(settingsSvc *settings.Service, opts aiOpts, rawInput, baseline, ca
 		apiKey = settingsSvc.GetKey("claude")
 	}
 
-	client := &http.Client{Timeout: 90 * time.Second}
-	svc := &Service{client: client}
+	svc := NewService(settingsSvc, nil)
 
-	raw, err := svc.callAISync(cfg, opts, apiKey, judgeSystemPrompt, userMessage)
+	raw, err := svc.callAISync(context.Background(), cfg, opts, apiKey, judgeSystemPrompt, userMessage)
 	if err != nil {
 		return JudgeScore{}, fmt.Errorf("judge AI call failed: %w", err)
 	}

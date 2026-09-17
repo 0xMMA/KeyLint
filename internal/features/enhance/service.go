@@ -1,13 +1,12 @@
 package enhance
 
 import (
-	"bytes"
-	"encoding/json"
+	"context"
 	"fmt"
-	"io"
 	"net/http"
 
 	"keylint/internal/features/settings"
+	"keylint/internal/llm"
 	"keylint/internal/logger"
 )
 
@@ -47,16 +46,42 @@ Output: "The meeting is tomorrow at 9am."
 Input:  "Hallo Hans, das release für morgen steht, einen neuen build brauchen wir nicht, einfach redeploy, hab die Klasse CarService gefixt"
 Output: "Hallo Hans, das Release für morgen steht, einen neuen Build brauchen wir nicht, einfach redeploy, hab die Klasse CarService gefixt."`
 
+// Model IDs and limits for the fix/enhance flow. They stay at the call site
+// until model selection moves into settings (#33 step 4).
+const (
+	openAIModel = "gpt-4o-mini"
+	claudeModel = "claude-haiku-4-5-20251001"
+	ollamaModel = "llama3.2"
+	maxTokens   = 2048
+)
+
+// logSource tags this feature's provider calls in the debug log.
+const logSource = "enhance"
+
+// ollamaPromptSeparator reproduces the exact system/user join this flow used
+// before internal/llm existed — Ollama's /api/generate takes a single prompt.
+const ollamaPromptSeparator = "\n\nText: "
+
 // Service calls AI provider APIs from Go so the Wails WebView does not need
 // external network access (avoids WebKit content-security-policy issues on Linux).
 type Service struct {
 	settings *settings.Service
 	client   *http.Client
+	// newClient builds the provider client. Tests replace it with a fake.
+	newClient func(provider string, cfg llm.Config) (llm.Client, error)
+	// getKey resolves a provider API key. Tests replace it so they never touch
+	// the OS keyring.
+	getKey func(provider string) string
 }
 
 // NewService creates an EnhanceService backed by the given settings.
 func NewService(s *settings.Service) *Service {
-	return &Service{settings: s, client: &http.Client{}}
+	return &Service{
+		settings:  s,
+		client:    &http.Client{},
+		newClient: llm.New,
+		getKey:    s.GetKey,
+	}
 }
 
 // Enhance sends text to the configured AI provider and returns the improved version.
@@ -70,126 +95,68 @@ func (s *Service) Enhance(text string) (result string, err error) {
 			logger.Info("enhance: done", "provider", cfg.ActiveProvider, "output_len", len(result))
 		}
 	}()
+
+	clientCfg, model, err := s.providerConfig(cfg)
+	if err != nil {
+		return "", err
+	}
+
+	newClient := s.newClient
+	if newClient == nil {
+		newClient = llm.New
+	}
+	client, err := newClient(cfg.ActiveProvider, clientCfg)
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := client.Complete(context.Background(), llm.Request{
+		System:    systemPrompt,
+		User:      text,
+		Model:     model,
+		MaxTokens: maxTokens,
+	})
+	if err != nil {
+		return "", err
+	}
+	return resp.Text, nil
+}
+
+// providerConfig resolves credentials, endpoint and model ID for the active
+// provider. It is the only place in this package that knows provider IDs.
+func (s *Service) providerConfig(cfg settings.Settings) (llm.Config, string, error) {
 	switch cfg.ActiveProvider {
-	case "openai":
-		key := s.settings.GetKey("openai")
+	case llm.ProviderOpenAI:
+		key := s.resolveKey(llm.ProviderOpenAI)
 		if key == "" {
-			return "", fmt.Errorf("OpenAI API key is not configured. Go to Settings → AI Providers to add it")
+			return llm.Config{}, "", fmt.Errorf("OpenAI API key is not configured. Go to Settings → AI Providers to add it")
 		}
-		return callOpenAI(s.client, text, key)
-	case "claude":
-		key := s.settings.GetKey("claude")
+		return llm.Config{APIKey: key, HTTPClient: s.client, Source: logSource}, openAIModel, nil
+	case llm.ProviderClaude:
+		key := s.resolveKey(llm.ProviderClaude)
 		if key == "" {
-			return "", fmt.Errorf("Anthropic API key is not configured. Go to Settings → AI Providers → Anthropic API Key, and make sure 'Anthropic Claude' is selected as the Active Provider")
+			return llm.Config{}, "", fmt.Errorf("Anthropic API key is not configured. Go to Settings → AI Providers → Anthropic API Key, and make sure 'Anthropic Claude' is selected as the Active Provider")
 		}
-		return callClaude(s.client, text, key)
-	case "ollama":
-		return callOllama(s.client, text, cfg.Providers.OllamaURL)
+		return llm.Config{APIKey: key, HTTPClient: s.client, Source: logSource}, claudeModel, nil
+	case llm.ProviderOllama:
+		return llm.Config{
+			BaseURL:         cfg.Providers.OllamaURL,
+			HTTPClient:      s.client,
+			PromptSeparator: ollamaPromptSeparator,
+			Source:          logSource,
+		}, ollamaModel, nil
 	case "bedrock":
-		return "", fmt.Errorf("AWS Bedrock is not yet supported. Please select a different provider")
+		return llm.Config{}, "", fmt.Errorf("AWS Bedrock is not yet supported. Please select a different provider")
 	default:
-		return "", fmt.Errorf("unknown provider: %q", cfg.ActiveProvider)
+		return llm.Config{}, "", fmt.Errorf("unknown provider: %q", cfg.ActiveProvider)
 	}
 }
 
-func callOpenAI(client *http.Client, text, apiKey string) (string, error) {
-	type msg struct {
-		Role    string `json:"role"`
-		Content string `json:"content"`
+// resolveKey reads a provider API key, falling back to settings when the test
+// seam is unset — the same nil-safety Enhance applies to newClient.
+func (s *Service) resolveKey(provider string) string {
+	if s.getKey != nil {
+		return s.getKey(provider)
 	}
-	payload, _ := json.Marshal(map[string]any{
-		"model": "gpt-4o-mini",
-		"messages": []msg{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: text},
-		},
-	})
-	logger.Debug("enhance: request", "provider", "openai", "payload", logger.Redact(string(payload)))
-	req, _ := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader(payload))
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("OpenAI request failed: %w", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	logger.Debug("enhance: response", "provider", "openai", "status", resp.StatusCode, "body", logger.Redact(string(body)))
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("OpenAI error %d: %s", resp.StatusCode, body)
-	}
-	var result struct {
-		Choices []struct {
-			Message struct{ Content string } `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil || len(result.Choices) == 0 {
-		return "", fmt.Errorf("OpenAI unexpected response: %s", body)
-	}
-	return result.Choices[0].Message.Content, nil
-}
-
-func callClaude(client *http.Client, text, apiKey string) (string, error) {
-	payload, _ := json.Marshal(map[string]any{
-		"model":      "claude-haiku-4-5-20251001",
-		"max_tokens": 2048,
-		"system":     systemPrompt,
-		"messages":   []map[string]string{{"role": "user", "content": text}},
-	})
-	logger.Debug("enhance: request", "provider", "claude", "payload", logger.Redact(string(payload)))
-	req, _ := http.NewRequest(http.MethodPost, "https://api.anthropic.com/v1/messages", bytes.NewReader(payload))
-	req.Header.Set("x-api-key", apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("Anthropic request failed: %w", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	logger.Debug("enhance: response", "provider", "claude", "status", resp.StatusCode, "body", logger.Redact(string(body)))
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Claude error %d: %s", resp.StatusCode, body)
-	}
-	var result struct {
-		Content []struct{ Text string } `json:"content"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil || len(result.Content) == 0 {
-		return "", fmt.Errorf("Claude unexpected response: %s", body)
-	}
-	return result.Content[0].Text, nil
-}
-
-func callOllama(client *http.Client, text, baseURL string) (string, error) {
-	if baseURL == "" {
-		baseURL = "http://localhost:11434"
-	}
-	payload, _ := json.Marshal(map[string]any{
-		"model":  "llama3.2",
-		"prompt": systemPrompt + "\n\nText: " + text,
-		"stream": false,
-	})
-	logger.Debug("enhance: request", "provider", "ollama", "payload", logger.Redact(string(payload)))
-	req, _ := http.NewRequest(http.MethodPost, baseURL+"/api/generate", bytes.NewReader(payload))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("Ollama request failed: %w", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	logger.Debug("enhance: response", "provider", "ollama", "status", resp.StatusCode, "body", logger.Redact(string(body)))
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Ollama error %d: %s", resp.StatusCode, body)
-	}
-	var result struct {
-		Response string `json:"response"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("Ollama unexpected response: %s", body)
-	}
-	return result.Response, nil
+	return s.settings.GetKey(provider)
 }

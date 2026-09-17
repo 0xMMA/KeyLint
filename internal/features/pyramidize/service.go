@@ -10,8 +10,25 @@ import (
 
 	"keylint/internal/features/clipboard"
 	"keylint/internal/features/settings"
+	"keylint/internal/llm"
 	"keylint/internal/logger"
 )
+
+// Model IDs and limits for the Pyramidize pipeline. They stay at the call site
+// until model selection moves into settings (#33 step 4).
+const (
+	openAIModel = "gpt-5.2"
+	claudeModel = "claude-sonnet-4-6"
+	ollamaModel = "llama3.2"
+	maxTokens   = 4096
+)
+
+// logSource tags this feature's provider calls in the debug log.
+const logSource = "pyramidize"
+
+// ollamaPromptSeparator reproduces the exact system/user join this pipeline used
+// before internal/llm existed — Ollama's /api/generate takes a single prompt.
+const ollamaPromptSeparator = "\n\n---\n\n"
 
 // Service implements the Pyramidize RPC methods exposed to the frontend.
 type Service struct {
@@ -25,6 +42,9 @@ type Service struct {
 	// Captured source app from hotkey trigger (set before clipboard grab)
 	sourceAppName  string
 	sourceWindowID string
+
+	// newClient builds the provider client. Tests replace it with a fake.
+	newClient func(provider string, cfg llm.Config) (llm.Client, error)
 }
 
 // NewService creates a new PyramidizeService.
@@ -33,6 +53,7 @@ func NewService(s *settings.Service, c *clipboard.Service) *Service {
 		settings:  s,
 		clipboard: c,
 		client:    &http.Client{Timeout: 90 * time.Second},
+		newClient: llm.New,
 	}
 }
 
@@ -369,8 +390,8 @@ func buildDocTypePrompt(docType string, variant int, style, relationship, custom
 	}
 }
 
-// callAIWithContext resolves the API key, then runs an AI call in a goroutine
-// and returns when the call completes or the context is cancelled.
+// callAIWithContext resolves the API key and runs an AI call. The context is
+// passed through to the HTTP request, so cancelling it aborts the call in flight.
 func (svc *Service) callAIWithContext(ctx context.Context, cfg settings.Settings, opts aiOpts, systemPrompt, userMessage string) (string, error) {
 	provider := opts.provider
 	if provider == "" {
@@ -380,24 +401,7 @@ func (svc *Service) callAIWithContext(ctx context.Context, cfg settings.Settings
 	if err != nil {
 		return "", err
 	}
-
-	type result struct {
-		out string
-		err error
-	}
-	ch := make(chan result, 1)
-
-	go func() {
-		out, err := svc.callAISync(cfg, opts, apiKey, systemPrompt, userMessage)
-		ch <- result{out, err}
-	}()
-
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	case r := <-ch:
-		return r.out, r.err
-	}
+	return svc.callAISync(ctx, cfg, opts, apiKey, systemPrompt, userMessage)
 }
 
 // resolveAPIKey fetches the API key for the given provider from the keyring.
@@ -421,24 +425,69 @@ func (svc *Service) resolveAPIKey(provider string) (string, error) {
 	}
 }
 
-// callAISync dispatches to the configured (or overridden) provider synchronously.
+// callAISync dispatches to the configured (or overridden) provider.
 // The apiKey is resolved by the caller — this function has no keyring dependency.
-func (svc *Service) callAISync(cfg settings.Settings, opts aiOpts, apiKey, systemPrompt, userMessage string) (string, error) {
+func (svc *Service) callAISync(ctx context.Context, cfg settings.Settings, opts aiOpts, apiKey, systemPrompt, userMessage string) (string, error) {
 	provider := opts.provider
 	if provider == "" {
 		provider = cfg.ActiveProvider
 	}
-	model := opts.model
 
+	clientCfg, model, err := svc.providerConfig(provider, cfg, apiKey, opts.model)
+	if err != nil {
+		return "", err
+	}
+
+	newClient := svc.newClient
+	if newClient == nil {
+		newClient = llm.New
+	}
+	client, err := newClient(provider, clientCfg)
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := client.Complete(ctx, llm.Request{
+		System:    systemPrompt,
+		User:      userMessage,
+		Model:     model,
+		MaxTokens: maxTokens,
+		JSONMode:  true,
+	})
+	if err != nil {
+		return "", err
+	}
+	return resp.Text, nil
+}
+
+// providerConfig resolves endpoint and model ID for a provider. The model
+// override wins over the per-provider default; both stay here until model
+// selection moves into settings (#33 step 4).
+func (svc *Service) providerConfig(provider string, cfg settings.Settings, apiKey, modelOverride string) (llm.Config, string, error) {
+	model := modelOverride
 	switch provider {
-	case "openai":
-		return callOpenAI(svc.client, systemPrompt, userMessage, apiKey, model)
-	case "claude":
-		return callClaude(svc.client, systemPrompt, userMessage, apiKey, model)
-	case "ollama":
-		return callOllama(svc.client, systemPrompt, userMessage, cfg.Providers.OllamaURL, model)
+	case llm.ProviderOpenAI:
+		if model == "" {
+			model = openAIModel
+		}
+		return llm.Config{APIKey: apiKey, HTTPClient: svc.client, Source: logSource}, model, nil
+	case llm.ProviderClaude:
+		if model == "" {
+			model = claudeModel
+		}
+		return llm.Config{APIKey: apiKey, HTTPClient: svc.client, Source: logSource}, model, nil
+	case llm.ProviderOllama:
+		if model == "" {
+			model = ollamaModel
+		}
+		return llm.Config{
+			BaseURL:         cfg.Providers.OllamaURL,
+			HTTPClient:      svc.client,
+			PromptSeparator: ollamaPromptSeparator,
+			Source:          logSource,
+		}, model, nil
 	default:
-		return "", fmt.Errorf("unsupported provider: %q", provider)
+		return llm.Config{}, "", fmt.Errorf("unsupported provider: %q", provider)
 	}
 }
 
