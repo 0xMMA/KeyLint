@@ -76,6 +76,10 @@ func (c *anthropicClient) client(attempts *httpAttempts) anthropic.Client {
 	if timeout := c.cfg.requestTimeout(); timeout > 0 {
 		opts = append(opts, option.WithRequestTimeout(timeout))
 	}
+	for _, header := range fingerprintHeaders {
+		opts = append(opts, option.WithHeaderDel(header))
+	}
+	opts = append(opts, option.WithHeader("User-Agent", userAgent))
 	// Empty leaves the SDK on api.anthropic.com; a value points at a proxy or,
 	// in tests, at an httptest server.
 	if base := resolveBaseURL(c.cfg.BaseURL, ""); base != "" {

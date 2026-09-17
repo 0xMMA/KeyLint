@@ -87,6 +87,10 @@ func openAISDKClient(cfg Config, baseURL string, attempts *httpAttempts) openai.
 	if timeout := cfg.requestTimeout(); timeout > 0 {
 		opts = append(opts, option.WithRequestTimeout(timeout))
 	}
+	for _, header := range fingerprintHeaders {
+		opts = append(opts, option.WithHeaderDel(header))
+	}
+	opts = append(opts, option.WithHeader("User-Agent", userAgent))
 	return openai.NewClient(opts...)
 }
 

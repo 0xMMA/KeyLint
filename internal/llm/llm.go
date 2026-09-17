@@ -229,6 +229,33 @@ func transportError(p provider, err error) error {
 	return fmt.Errorf("%s request failed: %w", p.name, err)
 }
 
+// fingerprintHeaders describe the machine rather than the request. Both SDKs
+// send them by default: the operating system, CPU architecture and Go runtime
+// version of whoever is typing, on every hotkey fix. KeyLint has no use for
+// that reaching a provider, and for a user-configured Ollama or
+// OpenAI-compatible host it would be a fingerprint they never opted into.
+// Deleting them leaves the retry loop untouched — only the attempt number stops
+// being reported to the server.
+//
+// User-Agent is replaced rather than dropped: net/http substitutes its own
+// "Go-http-client/1.1" for a missing one, which some gateways treat as a bot,
+// and userAgent says who is calling without saying anything about the machine.
+var fingerprintHeaders = []string{
+	"User-Agent",
+	"X-Stainless-Arch",
+	"X-Stainless-Lang",
+	"X-Stainless-OS",
+	"X-Stainless-Package-Version",
+	"X-Stainless-Retry-Count",
+	"X-Stainless-Runtime",
+	"X-Stainless-Runtime-Version",
+	"X-Stainless-Timeout",
+}
+
+// userAgent identifies the application, deliberately without a version: the
+// provider has no need to know which build of KeyLint a user is running.
+const userAgent = "KeyLint"
+
 // sdkOptions are the settings both vendor SDKs get.
 //
 // MaxRetries is 1, not the SDK default of 2. The retry loop honours the

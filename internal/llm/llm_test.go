@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -291,6 +292,91 @@ func TestOllamaBaseURLWithVersionSuffix(t *testing.T) {
 			}
 			if got.path != "/v1/chat/completions" {
 				t.Errorf("path = %q, want /v1/chat/completions", got.path)
+			}
+		})
+	}
+}
+
+// TestNoMachineFingerprintOnTheWire pins what the SDKs are not allowed to tell a
+// provider. Left alone both send the user's operating system, CPU architecture
+// and Go runtime version on every call — including to a user-configured Ollama
+// or OpenAI-compatible host, which is a fingerprint nobody opted into.
+func TestNoMachineFingerprintOnTheWire(t *testing.T) {
+	// A key in the environment must not reach a host the user pointed us at.
+	t.Setenv("OPENAI_API_KEY", "sk-ENVIRONMENT-SHOULD-NOT-LEAK")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-ENVIRONMENT-SHOULD-NOT-LEAK")
+
+	tests := []struct {
+		provider string
+		reply    string
+		cfg      Config
+		req      Request
+		wantAuth string
+	}{
+		{
+			provider: ProviderClaude,
+			reply:    `{"content":[{"type":"text","text":"ok"}]}`,
+			cfg:      Config{APIKey: "sk-ant-test"},
+			req:      Request{Model: "claude-sonnet-4-6", User: "x", MaxTokens: 16},
+		},
+		{
+			provider: ProviderOpenAI,
+			reply:    `{"choices":[{"message":{"content":"ok"}}]}`,
+			cfg:      Config{APIKey: "sk-test"},
+			req:      Request{Model: "gpt-4o-mini", User: "x"},
+			wantAuth: "Bearer sk-test",
+		},
+		{
+			provider: ProviderOllama,
+			reply:    `{"choices":[{"message":{"content":"ok"}}]}`,
+			req:      Request{Model: "llama3.2", User: "x"},
+			// Ollama needs no credential; the placeholder must win over the
+			// environment so a local daemon never sees somebody's OpenAI key.
+			wantAuth: "Bearer " + ollamaAPIKey,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.provider, func(t *testing.T) {
+			var got capture
+			srv := newServer(t, &got, http.StatusOK, tc.reply)
+
+			cfg := tc.cfg
+			cfg.BaseURL = srv.URL
+			client, err := New(tc.provider, cfg)
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			if _, err := client.Complete(context.Background(), tc.req); err != nil {
+				t.Fatalf("Complete: %v", err)
+			}
+
+			for _, header := range fingerprintHeaders {
+				if header == "User-Agent" {
+					continue // replaced, not dropped — checked below
+				}
+				if value := got.headers.Get(header); value != "" {
+					t.Errorf("%s = %q reached the provider", header, value)
+				}
+			}
+			if ua := got.headers.Get("User-Agent"); ua != userAgent {
+				t.Errorf("User-Agent = %q, want %q — a missing one becomes Go's default", ua, userAgent)
+			}
+			// Nothing may carry the machine's name for the SDK or its version.
+			for name, values := range got.headers {
+				for _, value := range values {
+					if strings.Contains(value, runtime.GOOS) || strings.Contains(value, runtime.Version()) {
+						t.Errorf("%s = %q leaks the operating system or Go version", name, value)
+					}
+				}
+			}
+			if tc.wantAuth != "" {
+				if auth := got.headers.Get("Authorization"); auth != tc.wantAuth {
+					t.Errorf("Authorization = %q, want %q", auth, tc.wantAuth)
+				}
+			}
+			if key := got.headers.Get("x-api-key"); key != "" && strings.Contains(key, "ENVIRONMENT") {
+				t.Errorf("x-api-key = %q came from the environment", key)
 			}
 		})
 	}
