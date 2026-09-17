@@ -1,19 +1,26 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
+
+	"keylint/internal/logger"
 )
 
 // capture records the request a provider client sends and replies with a canned
 // body, so tests can assert on the exact wire format.
 type capture struct {
+	// hits counts round trips, so a test can tell one request from a silent
+	// retry — the SDKs retry internally and the log line looks the same.
+	hits    int
 	method  string
 	path    string
 	headers http.Header
@@ -29,6 +36,7 @@ func newServer(t *testing.T, got *capture, status int, reply string) *httptest.S
 		if err != nil {
 			t.Errorf("read request body: %v", err)
 		}
+		got.hits++
 		got.method = r.Method
 		got.path = r.URL.Path
 		got.headers = r.Header.Clone()
@@ -37,6 +45,8 @@ func newServer(t *testing.T, got *capture, status int, reply string) *httptest.S
 				t.Errorf("request body is not JSON: %v (%s)", err, raw)
 			}
 		}
+		// Real providers answer as JSON, and the SDKs refuse anything else.
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 		io.WriteString(w, reply)
 	}))
@@ -117,5 +127,462 @@ func TestFallbackHTTPClientHasTimeout(t *testing.T) {
 	}
 	if fallbackClient == http.DefaultClient {
 		t.Error("fallbackClient must not be http.DefaultClient")
+	}
+}
+
+// TestProviderErrorBodyNeverLeaks is the regression test for #41. A provider's
+// error body can echo the request — validation errors quote the offending
+// field, content filters quote the text — so it must not end up in the error
+// string, which gets formatted into Warn and Error log lines regardless of the
+// sensitive-logging setting.
+func TestProviderErrorBodyNeverLeaks(t *testing.T) {
+	const marker = "SENSITIVE-USER-TEXT-cf83e1357eef"
+
+	tests := []struct {
+		provider string
+		name     string
+		cfg      Config
+		req      Request
+		body     string
+	}{
+		{
+			provider: ProviderClaude,
+			name:     "Claude",
+			cfg:      Config{APIKey: "sk-ant-test"},
+			req:      Request{Model: "claude-sonnet-4-6", User: "x", MaxTokens: 4096},
+			body:     `{"type":"error","error":{"type":"invalid_request_error","message":"prompt rejected: ` + marker + `"}}`,
+		},
+		{
+			provider: ProviderOpenAI,
+			name:     "OpenAI",
+			cfg:      Config{APIKey: "sk-test"},
+			req:      Request{Model: "gpt-4o-mini", User: "x"},
+			body:     `{"error":{"type":"invalid_request_error","message":"prompt rejected: ` + marker + `"}}`,
+		},
+		{
+			provider: ProviderOllama,
+			name:     "Ollama",
+			req:      Request{Model: "llama3.2", User: "x"},
+			body:     `{"error":{"message":"prompt rejected: ` + marker + `"}}`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.provider, func(t *testing.T) {
+			// Debug level with sensitive logging off: the most revealing setting
+			// a user can enable without opting into payload logging.
+			var logs bytes.Buffer
+			logger.InitWithWriter(&logs, "debug", false)
+			// Restore the package default explicitly rather than through Init,
+			// which would also reopen the real log file.
+			t.Cleanup(func() { logger.InitWithWriter(io.Discard, "off", false) })
+
+			var got capture
+			srv := newServer(t, &got, http.StatusBadRequest, tc.body)
+
+			cfg := tc.cfg
+			cfg.BaseURL = srv.URL
+			client, err := New(tc.provider, cfg)
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+
+			// The marker rides in on the request too: if logRequest lost its
+			// Redact, the payload line would carry it.
+			req := tc.req
+			req.System = "system prompt containing " + marker
+			req.User = "user text containing " + marker
+
+			_, err = client.Complete(context.Background(), req)
+			if err == nil {
+				t.Fatal("expected an error for status 400")
+			}
+
+			if strings.Contains(err.Error(), marker) {
+				t.Errorf("the provider's error body reached the error string: %v", err)
+			}
+			if strings.Contains(logs.String(), marker) {
+				t.Errorf("the provider's error body reached the log:\n%s", logs.String())
+			}
+
+			// The toast still has to say something actionable.
+			if !strings.Contains(err.Error(), tc.name) || !strings.Contains(err.Error(), "400") {
+				t.Errorf("error = %v, want it to name the provider and the status", err)
+			}
+		})
+	}
+}
+
+// TestSuccessfulResponseNeverLeaks is the other half of #41: the model's reply
+// is user text too, and logResponse is the line that carries it.
+func TestSuccessfulResponseNeverLeaks(t *testing.T) {
+	const marker = "MODEL-OUTPUT-cf83e1357eef"
+
+	var logs bytes.Buffer
+	logger.InitWithWriter(&logs, "debug", false)
+	t.Cleanup(func() { logger.InitWithWriter(io.Discard, "off", false) })
+
+	var got capture
+	srv := newServer(t, &got, http.StatusOK, `{"choices":[{"message":{"content":"`+marker+`"}}]}`)
+
+	client := newOpenAI(Config{APIKey: "sk-test", BaseURL: srv.URL})
+	resp, err := client.Complete(context.Background(), Request{Model: "gpt-4o-mini", User: "x"})
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	// The caller gets the text; the log does not.
+	if resp.Text != marker {
+		t.Errorf("Text = %q, want the model output", resp.Text)
+	}
+	if strings.Contains(logs.String(), marker) {
+		t.Errorf("the model's reply reached the log:\n%s", logs.String())
+	}
+}
+
+// TestErrorStatusSurvivesAStringErrorBody covers the OpenAI-compatible servers
+// that answer {"error":"<string>"} instead of an object — llama.cpp, older
+// Ollama, several proxies. The SDK cannot decode that into its typed error, and
+// without the attempt middleware the user would get a JSON-unmarshal message
+// with no HTTP status in it.
+func TestErrorStatusSurvivesAStringErrorBody(t *testing.T) {
+	var got capture
+	srv := newServer(t, &got, http.StatusNotFound, `{"error":"model 'llama3.2' not found"}`)
+
+	client := newOllama(Config{BaseURL: srv.URL})
+	_, err := client.Complete(context.Background(), Request{Model: "llama3.2", User: "x"})
+	if err == nil {
+		t.Fatal("expected an error for status 404")
+	}
+	if !strings.Contains(err.Error(), "Ollama error 404") {
+		t.Errorf("error = %v, want it to name the status", err)
+	}
+	if strings.Contains(err.Error(), "unmarshal") {
+		t.Errorf("error = %v, want a user-facing message, not a decoder complaint", err)
+	}
+}
+
+// TestRetryBudget pins how many round trips a user actually waits through. The
+// SDK default is two retries; one keeps a transient blip covered without
+// spending the caller's whole deadline on a rate limit that should have been
+// reported straight away.
+func TestRetryBudget(t *testing.T) {
+	var got capture
+	srv := newServer(t, &got, http.StatusInternalServerError, `{"error":{"message":"boom"}}`)
+
+	client := newOpenAI(Config{APIKey: "sk-test", BaseURL: srv.URL})
+	if _, err := client.Complete(context.Background(), Request{Model: "gpt-4o-mini", User: "x"}); err == nil {
+		t.Fatal("expected an error for status 500")
+	}
+	if want := sdkMaxRetries + 1; got.hits != want {
+		t.Errorf("round trips = %d, want %d (one attempt plus %d retries)", got.hits, want, sdkMaxRetries)
+	}
+}
+
+// TestOllamaBaseURLWithVersionSuffix covers what a user pastes: Ollama's own
+// docs give the endpoint as .../v1, and appending another /v1 is a 404.
+func TestOllamaBaseURLWithVersionSuffix(t *testing.T) {
+	for _, suffix := range []string{"", "/", "/v1", "/v1/"} {
+		t.Run("base"+suffix, func(t *testing.T) {
+			var got capture
+			srv := newServer(t, &got, http.StatusOK, `{"choices":[{"message":{"content":"ok"}}]}`)
+
+			client := newOllama(Config{BaseURL: srv.URL + suffix})
+			if _, err := client.Complete(context.Background(), Request{Model: "llama3.2", User: "x"}); err != nil {
+				t.Fatalf("Complete: %v", err)
+			}
+			if got.path != "/v1/chat/completions" {
+				t.Errorf("path = %q, want /v1/chat/completions", got.path)
+			}
+		})
+	}
+}
+
+// TestNoMachineFingerprintOnTheWire pins what the SDKs are not allowed to tell a
+// provider. Left alone both send the user's operating system, CPU architecture
+// and Go runtime version on every call — including to a user-configured Ollama
+// or OpenAI-compatible host, which is a fingerprint nobody opted into.
+func TestNoMachineFingerprintOnTheWire(t *testing.T) {
+	// A key in the environment must not reach a host the user pointed us at.
+	t.Setenv("OPENAI_API_KEY", "sk-ENVIRONMENT-SHOULD-NOT-LEAK")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-ENVIRONMENT-SHOULD-NOT-LEAK")
+
+	tests := []struct {
+		provider string
+		reply    string
+		cfg      Config
+		req      Request
+		wantAuth string
+	}{
+		{
+			provider: ProviderClaude,
+			reply:    `{"content":[{"type":"text","text":"ok"}]}`,
+			cfg:      Config{APIKey: "sk-ant-test"},
+			req:      Request{Model: "claude-sonnet-4-6", User: "x", MaxTokens: 16},
+		},
+		{
+			provider: ProviderOpenAI,
+			reply:    `{"choices":[{"message":{"content":"ok"}}]}`,
+			cfg:      Config{APIKey: "sk-test"},
+			req:      Request{Model: "gpt-4o-mini", User: "x"},
+			wantAuth: "Bearer sk-test",
+		},
+		{
+			provider: ProviderOllama,
+			reply:    `{"choices":[{"message":{"content":"ok"}}]}`,
+			req:      Request{Model: "llama3.2", User: "x"},
+			// Ollama needs no credential; the placeholder must win over the
+			// environment so a local daemon never sees somebody's OpenAI key.
+			wantAuth: "Bearer " + ollamaAPIKey,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.provider, func(t *testing.T) {
+			var got capture
+			srv := newServer(t, &got, http.StatusOK, tc.reply)
+
+			cfg := tc.cfg
+			cfg.BaseURL = srv.URL
+			client, err := New(tc.provider, cfg)
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			if _, err := client.Complete(context.Background(), tc.req); err != nil {
+				t.Fatalf("Complete: %v", err)
+			}
+
+			for _, header := range fingerprintHeaders {
+				if header == "User-Agent" {
+					continue // replaced, not dropped — checked below
+				}
+				if value := got.headers.Get(header); value != "" {
+					t.Errorf("%s = %q reached the provider", header, value)
+				}
+			}
+			if ua := got.headers.Get("User-Agent"); ua != userAgent {
+				t.Errorf("User-Agent = %q, want %q — a missing one becomes Go's default", ua, userAgent)
+			}
+			// Nothing may carry the machine's name for the SDK or its version.
+			for name, values := range got.headers {
+				for _, value := range values {
+					if strings.Contains(value, runtime.GOOS) || strings.Contains(value, runtime.Version()) {
+						t.Errorf("%s = %q leaks the operating system or Go version", name, value)
+					}
+				}
+			}
+			if tc.wantAuth != "" {
+				if auth := got.headers.Get("Authorization"); auth != tc.wantAuth {
+					t.Errorf("Authorization = %q, want %q", auth, tc.wantAuth)
+				}
+			}
+			if key := got.headers.Get("x-api-key"); key != "" && strings.Contains(key, "ENVIRONMENT") {
+				t.Errorf("x-api-key = %q came from the environment", key)
+			}
+		})
+	}
+}
+
+// recordingTransport answers every request itself and remembers where it was
+// addressed, so a test can check the host without dialling it.
+type recordingTransport struct {
+	hosts []string
+	body  string
+}
+
+func (r *recordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	r.hosts = append(r.hosts, req.URL.Host)
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(r.body)),
+		Request:    req,
+	}, nil
+}
+
+// TestEnvironmentCannotRedirectARequest covers the production shape, where no
+// BaseURL is configured — the case every other test bypasses. Both SDKs read a
+// base URL from the environment by default, so a machine set up for a gateway
+// would send the user's text and the key KeyLint holds to a host no setting
+// shows.
+func TestEnvironmentCannotRedirectARequest(t *testing.T) {
+	t.Setenv("ANTHROPIC_BASE_URL", "http://redirected.invalid")
+	t.Setenv("OPENAI_BASE_URL", "http://redirected.invalid")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "sk-ant-ENVIRONMENT-SHOULD-NOT-LEAK")
+
+	tests := []struct {
+		provider string
+		wantHost string
+		body     string
+		cfg      Config
+		req      Request
+	}{
+		{
+			provider: ProviderClaude,
+			wantHost: "api.anthropic.com",
+			body:     `{"content":[{"type":"text","text":"ok"}]}`,
+			cfg:      Config{APIKey: "sk-ant-test"},
+			req:      Request{Model: "claude-sonnet-4-6", User: "x", MaxTokens: 16},
+		},
+		{
+			provider: ProviderOpenAI,
+			wantHost: "api.openai.com",
+			body:     `{"choices":[{"message":{"content":"ok"}}]}`,
+			cfg:      Config{APIKey: "sk-test"},
+			req:      Request{Model: "gpt-4o-mini", User: "x"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.provider, func(t *testing.T) {
+			transport := &recordingTransport{body: tc.body}
+			cfg := tc.cfg // deliberately no BaseURL
+			cfg.HTTPClient = &http.Client{Transport: transport}
+
+			client, err := New(tc.provider, cfg)
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			if _, err := client.Complete(context.Background(), tc.req); err != nil {
+				t.Fatalf("Complete: %v", err)
+			}
+
+			if len(transport.hosts) != 1 {
+				t.Fatalf("hosts = %v, want exactly one request", transport.hosts)
+			}
+			if transport.hosts[0] != tc.wantHost {
+				t.Errorf("request went to %q, want %q — the environment redirected it", transport.hosts[0], tc.wantHost)
+			}
+		})
+	}
+}
+
+// TestEnvironmentCustomHeadersNeverReachAProvider covers OPENAI_CUSTOM_HEADERS,
+// which openai-go applies to every request with no way to opt out. Whatever it
+// names would otherwise travel to OpenAI and to a user's own Ollama.
+func TestEnvironmentCustomHeadersNeverReachAProvider(t *testing.T) {
+	t.Setenv("OPENAI_CUSTOM_HEADERS", "X-Injected-Marker: leaked\nX-Second-Marker: also-leaked")
+
+	for _, provider := range []string{ProviderOpenAI, ProviderOllama} {
+		t.Run(provider, func(t *testing.T) {
+			var got capture
+			srv := newServer(t, &got, http.StatusOK, `{"choices":[{"message":{"content":"ok"}}]}`)
+
+			client, err := New(provider, Config{APIKey: "sk-test", BaseURL: srv.URL})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			if _, err := client.Complete(context.Background(), Request{Model: "m", User: "x"}); err != nil {
+				t.Fatalf("Complete: %v", err)
+			}
+
+			for _, header := range []string{"X-Injected-Marker", "X-Second-Marker"} {
+				if value := got.headers.Get(header); value != "" {
+					t.Errorf("%s = %q reached the provider from the environment", header, value)
+				}
+			}
+		})
+	}
+}
+
+// TestCancellationOutranksAnEarlierStatus pins the ordering the retry loop makes
+// possible: a first attempt can return 500 and the retry be cut off by the
+// caller. Reporting that as "error 500" would be wrong, and callers test the
+// context error with errors.Is.
+func TestCancellationOutranksAnEarlierStatus(t *testing.T) {
+	var got capture
+	srv := newServer(t, &got, http.StatusInternalServerError, `{"error":{"message":"boom"}}`)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	client := newOpenAI(Config{APIKey: "sk-test", BaseURL: srv.URL, HTTPClient: &http.Client{
+		Transport: cancellingTransport{cancel: cancel, next: http.DefaultTransport},
+	}})
+
+	_, err := client.Complete(ctx, Request{Model: "gpt-4o-mini", User: "x"})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want one wrapping context.Canceled", err)
+	}
+	if strings.Contains(err.Error(), "500") {
+		t.Errorf("error = %v, want the cancellation, not the earlier status", err)
+	}
+}
+
+// cancellingTransport cancels the context once the first response is in, so the
+// retry runs into a cancelled caller.
+type cancellingTransport struct {
+	cancel context.CancelFunc
+	next   http.RoundTripper
+}
+
+func (c cancellingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := c.next.RoundTrip(req)
+	c.cancel()
+	return resp, err
+}
+
+// TestTypedErrorWording checks the text a user actually reads on the mapped
+// path: provider, status, a reason KeyLint worded — and nothing from the body.
+func TestTypedErrorWording(t *testing.T) {
+	const marker = "BODY-MARKER-cf83e1357eef"
+
+	tests := []struct {
+		provider string
+		status   int
+		body     string
+		cfg      Config
+		req      Request
+		want     string
+	}{
+		{
+			provider: ProviderClaude,
+			status:   http.StatusTooManyRequests,
+			body:     `{"type":"error","error":{"type":"rate_limit_error","message":"` + marker + `"}}`,
+			cfg:      Config{APIKey: "sk-ant-test"},
+			req:      Request{Model: "claude-sonnet-4-6", User: "x", MaxTokens: 16},
+			want:     "Claude error 429: rate limited — try again shortly",
+		},
+		{
+			provider: ProviderOpenAI,
+			status:   http.StatusInternalServerError,
+			body:     `{"error":{"type":"server_error","message":"` + marker + `"}}`,
+			cfg:      Config{APIKey: "sk-test"},
+			req:      Request{Model: "gpt-4o-mini", User: "x"},
+			want:     "OpenAI error 500: the provider is unavailable",
+		},
+		{
+			provider: ProviderOpenAI,
+			status:   http.StatusPaymentRequired,
+			body:     `{"error":{"type":"billing_error","message":"` + marker + `"}}`,
+			cfg:      Config{APIKey: "sk-test"},
+			req:      Request{Model: "gpt-4o-mini", User: "x"},
+			want:     "OpenAI error 402: the account is out of credit or has a billing problem",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.want, func(t *testing.T) {
+			var got capture
+			srv := newServer(t, &got, tc.status, tc.body)
+
+			cfg := tc.cfg
+			cfg.BaseURL = srv.URL
+			client, err := New(tc.provider, cfg)
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+
+			_, err = client.Complete(context.Background(), tc.req)
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+			if err.Error() != tc.want {
+				t.Errorf("error = %q, want %q", err.Error(), tc.want)
+			}
+			if strings.Contains(err.Error(), marker) {
+				t.Errorf("the provider's message reached the user: %v", err)
+			}
+		})
 	}
 }

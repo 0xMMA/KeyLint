@@ -34,10 +34,6 @@ const logFeature = "pyramidize"
 // button to fall back on.
 const callTimeout = 120 * time.Second
 
-// ollamaPromptSeparator reproduces the exact system/user join this pipeline used
-// before internal/llm existed — Ollama's /api/generate takes a single prompt.
-const ollamaPromptSeparator = "\n\n---\n\n"
-
 // Service implements the Pyramidize RPC methods exposed to the frontend.
 type Service struct {
 	settings  *settings.Service
@@ -499,10 +495,9 @@ func (svc *Service) providerConfig(provider string, cfg settings.Settings, apiKe
 			model = ollamaModel
 		}
 		return llm.Config{
-			BaseURL:         cfg.Providers.OllamaURL,
-			HTTPClient:      svc.client,
-			PromptSeparator: ollamaPromptSeparator,
-			Feature:         logFeature,
+			BaseURL:    cfg.Providers.OllamaURL,
+			HTTPClient: svc.client,
+			Feature:    logFeature,
 		}, model, nil
 	default:
 		return llm.Config{}, "", fmt.Errorf("unsupported provider: %q", provider)

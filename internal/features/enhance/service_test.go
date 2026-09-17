@@ -159,9 +159,6 @@ func TestEnhanceOllamaNeedsNoKey(t *testing.T) {
 	if rec.cfg.BaseURL != "http://ollama.test:11434" {
 		t.Errorf("BaseURL = %q, want the configured Ollama URL", rec.cfg.BaseURL)
 	}
-	if rec.cfg.PromptSeparator != ollamaPromptSeparator {
-		t.Errorf("PromptSeparator = %q, want %q", rec.cfg.PromptSeparator, ollamaPromptSeparator)
-	}
 	if rec.client.gotRequest.Model != ollamaModel {
 		t.Errorf("Model = %q, want %q", rec.client.gotRequest.Model, ollamaModel)
 	}
@@ -243,26 +240,30 @@ func TestEnhanceWireConstantsUnchanged(t *testing.T) {
 	if maxTokens != 2048 {
 		t.Errorf("maxTokens = %d, want 2048", maxTokens)
 	}
-	// The Ollama join differs from pyramidize's on purpose — it is the exact
-	// string the hand-rolled callOllama built before internal/llm.
-	if ollamaPromptSeparator != "\n\nText: " {
-		t.Errorf("ollamaPromptSeparator = %q, want %q", ollamaPromptSeparator, "\n\nText: ")
-	}
 }
 
-// TestEnhanceOllamaPromptJoin checks the separator end to end, through a real
-// provider client against an httptest server, not just as a Config field.
-func TestEnhanceOllamaPromptJoin(t *testing.T) {
-	var gotPrompt string
+// TestEnhanceOllamaSendsASystemMessage exercises the real provider client
+// against an httptest server. Ollama used to take one glued-together prompt
+// string; through its OpenAI-compatible endpoint the system prompt is a system
+// message the model can weigh as such.
+func TestEnhanceOllamaSendsASystemMessage(t *testing.T) {
+	type message struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	var gotMessages []message
+	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
 		var payload struct {
-			Prompt string `json:"prompt"`
+			Messages []message `json:"messages"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Errorf("decode request: %v", err)
 		}
-		gotPrompt = payload.Prompt
-		io.WriteString(w, `{"response":"ok"}`)
+		gotMessages = payload.Messages
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"choices":[{"message":{"content":"ok"}}]}`)
 	}))
 	t.Cleanup(srv.Close)
 
@@ -270,13 +271,22 @@ func TestEnhanceOllamaPromptJoin(t *testing.T) {
 	cfg.ActiveProvider = "ollama"
 	cfg.Providers.OllamaURL = srv.URL
 	svc, _ := newTestService(t, cfg, nil)
-	svc.newClient = llm.New // the real client, so the join is exercised for real
+	svc.newClient = llm.New // the real client, so the wire format is exercised
 
 	if _, err := svc.Enhance("my text"); err != nil {
 		t.Fatalf("Enhance: %v", err)
 	}
-	if want := systemPrompt + "\n\nText: " + "my text"; gotPrompt != want {
-		t.Errorf("prompt = %q, want the system prompt joined by %q", gotPrompt, "\n\nText: ")
+	if gotPath != "/v1/chat/completions" {
+		t.Errorf("path = %q, want the OpenAI-compatible endpoint", gotPath)
+	}
+	if len(gotMessages) != 2 {
+		t.Fatalf("messages = %v, want a system and a user message", gotMessages)
+	}
+	if gotMessages[0].Role != "system" || gotMessages[0].Content != systemPrompt {
+		t.Errorf("first message = %+v, want the enhance system prompt in a system role", gotMessages[0])
+	}
+	if gotMessages[1].Role != "user" || gotMessages[1].Content != "my text" {
+		t.Errorf("second message = %+v, want the user text", gotMessages[1])
 	}
 }
 

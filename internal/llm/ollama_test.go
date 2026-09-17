@@ -7,11 +7,16 @@ import (
 	"testing"
 )
 
+// Ollama now goes through its OpenAI-compatible endpoint rather than the native
+// /api/generate, so these tests pin the OpenAI wire format against an Ollama
+// base URL — including the thing the change bought us: a real system message
+// instead of the system prompt glued onto the front of the user text.
+
 func TestOllamaCompleteRequestShape(t *testing.T) {
 	var got capture
-	srv := newServer(t, &got, http.StatusOK, `{"response":"fixed text"}`)
+	srv := newServer(t, &got, http.StatusOK, `{"choices":[{"message":{"content":"fixed text"}}]}`)
 
-	client := newOllama(Config{BaseURL: srv.URL, PromptSeparator: "\n\n---\n\n"})
+	client := newOllama(Config{BaseURL: srv.URL})
 	resp, err := client.Complete(context.Background(), Request{
 		System: "system prompt",
 		User:   "user message",
@@ -27,60 +32,74 @@ func TestOllamaCompleteRequestShape(t *testing.T) {
 	if got.method != http.MethodPost {
 		t.Errorf("method = %q, want POST", got.method)
 	}
-	if got.path != "/api/generate" {
-		t.Errorf("path = %q, want /api/generate", got.path)
-	}
-	if h := got.headers.Get("Content-Type"); h != "application/json" {
-		t.Errorf("Content-Type = %q, want application/json", h)
+	if got.path != "/v1/chat/completions" {
+		t.Errorf("path = %q, want /v1/chat/completions", got.path)
 	}
 	if got.body["model"] != "llama3.2" {
 		t.Errorf("model = %v, want llama3.2", got.body["model"])
 	}
-	if got.body["stream"] != false {
-		t.Errorf("stream = %v, want false", got.body["stream"])
+
+	messages, ok := got.body["messages"].([]any)
+	if !ok || len(messages) != 2 {
+		t.Fatalf("messages = %v, want two entries", got.body["messages"])
 	}
-	if want := "system prompt\n\n---\n\nuser message"; got.body["prompt"] != want {
-		t.Errorf("prompt = %q, want %q", got.body["prompt"], want)
+	system := messages[0].(map[string]any)
+	if system["role"] != "system" || system["content"] != "system prompt" {
+		t.Errorf("first message = %v, want the system prompt in a system role", system)
 	}
-	if got.headers.Get("Authorization") != "" {
-		t.Error("Ollama must not send an Authorization header")
+	user := messages[1].(map[string]any)
+	if user["role"] != "user" || user["content"] != "user message" {
+		t.Errorf("second message = %v, want the user message", user)
+	}
+
+	// The native endpoint's fields must not reappear.
+	if _, ok := got.body["prompt"]; ok {
+		t.Error("prompt must not be sent to the chat completions endpoint")
+	}
+	if _, ok := got.body["stream"]; ok {
+		t.Error("stream must not be sent: these are one-shot calls")
 	}
 }
 
-func TestOllamaCompleteDefaultSeparator(t *testing.T) {
+func TestOllamaCompleteJSONMode(t *testing.T) {
 	var got capture
-	srv := newServer(t, &got, http.StatusOK, `{"response":"ok"}`)
+	srv := newServer(t, &got, http.StatusOK, `{"choices":[{"message":{"content":"{}"}}]}`)
 
 	client := newOllama(Config{BaseURL: srv.URL})
-	if _, err := client.Complete(context.Background(), Request{System: "a", User: "b", Model: "llama3.2"}); err != nil {
+	if _, err := client.Complete(context.Background(), Request{Model: "llama3.2", User: "x", JSONMode: true}); err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
-	if want := "a\n\nb"; got.body["prompt"] != want {
-		t.Errorf("prompt = %q, want %q", got.body["prompt"], want)
+	// Ollama's OpenAI-compatible endpoint honours this, which the native one did not.
+	format, ok := got.body["response_format"].(map[string]any)
+	if !ok {
+		t.Fatalf("response_format = %v, want an object", got.body["response_format"])
+	}
+	if format["type"] != "json_object" {
+		t.Errorf("response_format.type = %v, want json_object", format["type"])
 	}
 }
 
 func TestOllamaCompleteErrorStatus(t *testing.T) {
 	var got capture
-	srv := newServer(t, &got, http.StatusNotFound, `model not found`)
+	srv := newServer(t, &got, http.StatusNotFound, `{"error":{"message":"model not found"}}`)
 
 	client := newOllama(Config{BaseURL: srv.URL})
 	_, err := client.Complete(context.Background(), Request{Model: "llama3.2", User: "x"})
 	if err == nil {
 		t.Fatal("expected an error for status 404")
 	}
-	if !strings.Contains(err.Error(), "Ollama error 404") || !strings.Contains(err.Error(), "model not found") {
+	if !strings.Contains(err.Error(), "Ollama error 404") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
 
-func TestOllamaCompleteUnexpectedResponse(t *testing.T) {
+func TestOllamaCompleteNoChoices(t *testing.T) {
 	var got capture
-	srv := newServer(t, &got, http.StatusOK, `not json`)
+	srv := newServer(t, &got, http.StatusOK, `{"choices":[]}`)
 
 	client := newOllama(Config{BaseURL: srv.URL})
 	_, err := client.Complete(context.Background(), Request{Model: "llama3.2", User: "x"})
-	if err == nil || !strings.Contains(err.Error(), "Ollama unexpected response") {
+	if err == nil || !strings.Contains(err.Error(), "no choices") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -90,24 +109,5 @@ func TestOllamaCompleteRequiresModel(t *testing.T) {
 	_, err := client.Complete(context.Background(), Request{User: "x"})
 	if err == nil || !strings.Contains(err.Error(), "model is required") {
 		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-// TestOllamaIgnoresUnsupportedFields pins the wire format against #33 step 3:
-// Ollama honours neither field today and must not start to.
-func TestOllamaIgnoresUnsupportedFields(t *testing.T) {
-	var got capture
-	srv := newServer(t, &got, http.StatusOK, `{"response":"ok"}`)
-
-	client := newOllama(Config{BaseURL: srv.URL})
-	req := Request{Model: "llama3.2", User: "x", MaxTokens: 4096, JSONMode: true}
-	if _, err := client.Complete(context.Background(), req); err != nil {
-		t.Fatalf("Complete: %v", err)
-	}
-	if _, ok := got.body["max_tokens"]; ok {
-		t.Error("max_tokens must not reach the Ollama payload")
-	}
-	if _, ok := got.body["response_format"]; ok {
-		t.Error("response_format must not reach the Ollama payload")
 	}
 }

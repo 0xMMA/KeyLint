@@ -27,7 +27,7 @@
 | TypeScript | 5.9 | 7.0 | TS 7 = Go-native compiler; only when Angular CLI supports it |
 | Vitest / Playwright / jsdom | 4.0 / 1.58 / 28 | 5.0 / 1.63 / 30 | |
 
-**Provider code today:** six hand-rolled HTTP functions (`enhance/service.go` ×3, `pyramidize/api_*.go` ×3), model IDs hardcoded in each, no `context.Context`, no timeouts, no retries, no tests for `enhance`. Bedrock is a stub that returns an error.
+**Provider code today:** one `internal/llm` package behind a `Client` interface — the vendor SDKs for Claude, OpenAI and Ollama, plus the spawned Claude Code CLI — with contexts, timeouts, SDK retries and tests on every path (#39, #45, #33 step 3). Model IDs are still constants at the two call sites; that is step 4. Bedrock is still a stub that returns an error (#23).
 
 ---
 
@@ -117,7 +117,7 @@ Issue: #33.
 **Steps (each shippable):**
 1. **Done (#39).** Introduce `internal/llm`: `Client` interface (`Complete(ctx, Request) (Response, error)`, `Request{System, User, Model, JSONSchema, MaxTokens}`), a registry keyed by provider ID, and move the six existing functions behind it **unchanged** (mechanical). Add `httptest`-based tests. `enhance` and `pyramidize` stop knowing about providers.
 2. **Done (#45).** E1 plugs in here.
-3. **In progress.** Replace hand-rolled Anthropic/OpenAI/Ollama implementations with the two SDKs; also closes #41 (unredacted error bodies). Timeouts, retries, error types come from the SDK. Delete `api_*.go`.
+3. **Done (#33 step 3).** Replaced hand-rolled Anthropic/OpenAI/Ollama implementations with the two SDKs; also closes #41 (unredacted error bodies). Timeouts, retries and error types come from the SDK. Ollama moved to its OpenAI-compatible `/v1` endpoint, so the system prompt is a real system message and `Config.PromptSeparator` is gone — note that the delimiters went with it (`enhance` no longer sends its `Text: ` label, `pyramidize` no longer its `---` fence), which is a prompt change for a small local model and was **not** eval'd; JSON mode now also reaches Ollama, where the native endpoint ignored it. **Costs 15.3 MB of shipped binary** (12.0 → 27.3 MB with release flags) — the two SDKs weigh roughly 9 MB and 11 MB standalone, and there is no build tag to trim the generated type surface. Accepted: 27 MB is fine for a desktop installer, and the size is the price of not owning provider clients. The SDKs no longer take configuration from the environment: Anthropic through `WithoutEnvironmentDefaults`, OpenAI — which has no such option — by always passing the base URL explicitly and deleting the headers `OPENAI_ORG_ID`, `OPENAI_PROJECT_ID` and `OPENAI_CUSTOM_HEADERS` would set. That covers the variables those SDK versions document; a future one could add another, so the tests assert on the wire rather than on the option list. Machine-fingerprint headers (`X-Stainless-*`, SDK `User-Agent`) are stripped too. Bedrock stayed out: it needs a region field, a model-ID default per call site, and the AWS SDK — that is #23.
 4. Model IDs become settings data with sane defaults per provider, not constants in six files. Where the provider has a models endpoint, offer a live list.
 
 #### E3 · Prompt and core-logic overhaul: back to one-shot

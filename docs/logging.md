@@ -28,6 +28,14 @@ When `SensitiveLogging` is off, `Redact()` outputs `[redacted]`. When on, the re
 Never wrap: provider names, status codes, byte lengths, error messages, config keys.
 Always wrap: API request/response bodies, user text, clipboard content, API keys.
 
+**These two lines used to contradict each other** (#41): an error message that
+embeds a provider's response body is both. The rule is that the contradiction
+must not arise — keep the body out of the error in the first place. An error
+string is formatted into `Warn` and `Error` lines whatever the sensitive-logging
+setting says, so it may carry only what is safe at every level: the provider, the
+HTTP status, and a reason KeyLint itself worded. The body goes to `Debug` through
+`Redact` and nowhere else. See `statusMessage` in `internal/llm/llm.go`.
+
 ## Source Tagging
 
 All log entries include a `source` attribute:

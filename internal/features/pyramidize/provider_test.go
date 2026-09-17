@@ -150,9 +150,6 @@ func TestCallAISyncOllamaConfig(t *testing.T) {
 	if rec.cfg.BaseURL != "http://ollama.test:11434" {
 		t.Errorf("BaseURL = %q, want the configured Ollama URL", rec.cfg.BaseURL)
 	}
-	if rec.cfg.PromptSeparator != ollamaPromptSeparator {
-		t.Errorf("PromptSeparator = %q, want %q", rec.cfg.PromptSeparator, ollamaPromptSeparator)
-	}
 }
 
 func TestCallAISyncUnsupportedProvider(t *testing.T) {
@@ -205,26 +202,33 @@ func TestPyramidizeWireConstantsUnchanged(t *testing.T) {
 	if maxTokens != 4096 {
 		t.Errorf("maxTokens = %d, want 4096", maxTokens)
 	}
-	// This join differs from enhance's on purpose — it is the exact string the
-	// hand-rolled callOllama built before internal/llm.
-	if ollamaPromptSeparator != "\n\n---\n\n" {
-		t.Errorf("ollamaPromptSeparator = %q, want %q", ollamaPromptSeparator, "\n\n---\n\n")
-	}
 }
 
-// TestCallAISyncOllamaPromptJoin exercises the separator through the real
-// provider client against an httptest server, not just as a Config field.
-func TestCallAISyncOllamaPromptJoin(t *testing.T) {
-	var gotPrompt string
+// TestCallAISyncOllamaSendsASystemMessage exercises the real provider client
+// against an httptest server. Ollama used to take one glued-together prompt
+// string; through its OpenAI-compatible endpoint the system prompt is a system
+// message, and JSON mode — which the native endpoint ignored — is honoured.
+func TestCallAISyncOllamaSendsASystemMessage(t *testing.T) {
+	type message struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	var gotMessages []message
+	var gotPath string
+	var gotJSONMode bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
 		var payload struct {
-			Prompt string `json:"prompt"`
+			Messages       []message      `json:"messages"`
+			ResponseFormat map[string]any `json:"response_format"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Errorf("decode request: %v", err)
 		}
-		gotPrompt = payload.Prompt
-		io.WriteString(w, `{"response":"{}"}`)
+		gotMessages = payload.Messages
+		gotJSONMode = payload.ResponseFormat["type"] == "json_object"
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"choices":[{"message":{"content":"{}"}}]}`)
 	}))
 	t.Cleanup(srv.Close)
 
@@ -236,8 +240,20 @@ func TestCallAISyncOllamaPromptJoin(t *testing.T) {
 	if _, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "", "system", "user"); err != nil {
 		t.Fatalf("callAISync: %v", err)
 	}
-	if want := "system\n\n---\n\nuser"; gotPrompt != want {
-		t.Errorf("prompt = %q, want %q", gotPrompt, want)
+	if gotPath != "/v1/chat/completions" {
+		t.Errorf("path = %q, want the OpenAI-compatible endpoint", gotPath)
+	}
+	if len(gotMessages) != 2 {
+		t.Fatalf("messages = %v, want a system and a user message", gotMessages)
+	}
+	if gotMessages[0].Role != "system" || gotMessages[0].Content != "system" {
+		t.Errorf("first message = %+v, want the system prompt in a system role", gotMessages[0])
+	}
+	if gotMessages[1].Role != "user" || gotMessages[1].Content != "user" {
+		t.Errorf("second message = %+v, want the user message", gotMessages[1])
+	}
+	if !gotJSONMode {
+		t.Error("response_format was not sent; the pipeline parses JSON replies")
 	}
 }
 
