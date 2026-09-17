@@ -92,6 +92,10 @@ func (c *anthropicClient) client(attempts *httpAttempts) anthropic.Client {
 // mapAnthropicError turns an SDK error into the wording the user sees. The raw
 // body stays out of it — see statusMessage.
 func mapAnthropicError(attempts *httpAttempts, err error) error {
+	// The caller giving up is not a provider failure — see mapOpenAIError.
+	if isContextError(err) {
+		return transportError(anthropicProvider, err)
+	}
 	var apiErr *anthropic.Error
 	if errors.As(err, &apiErr) {
 		return apiError(anthropicProvider, apiErr.StatusCode, apiErr.RawJSON())

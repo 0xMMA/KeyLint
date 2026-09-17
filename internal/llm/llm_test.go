@@ -381,3 +381,208 @@ func TestNoMachineFingerprintOnTheWire(t *testing.T) {
 		})
 	}
 }
+
+// recordingTransport answers every request itself and remembers where it was
+// addressed, so a test can check the host without dialling it.
+type recordingTransport struct {
+	hosts []string
+	body  string
+}
+
+func (r *recordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	r.hosts = append(r.hosts, req.URL.Host)
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(r.body)),
+		Request:    req,
+	}, nil
+}
+
+// TestEnvironmentCannotRedirectARequest covers the production shape, where no
+// BaseURL is configured — the case every other test bypasses. Both SDKs read a
+// base URL from the environment by default, so a machine set up for a gateway
+// would send the user's text and the key KeyLint holds to a host no setting
+// shows.
+func TestEnvironmentCannotRedirectARequest(t *testing.T) {
+	t.Setenv("ANTHROPIC_BASE_URL", "http://redirected.invalid")
+	t.Setenv("OPENAI_BASE_URL", "http://redirected.invalid")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "sk-ant-ENVIRONMENT-SHOULD-NOT-LEAK")
+
+	tests := []struct {
+		provider string
+		wantHost string
+		body     string
+		cfg      Config
+		req      Request
+	}{
+		{
+			provider: ProviderClaude,
+			wantHost: "api.anthropic.com",
+			body:     `{"content":[{"type":"text","text":"ok"}]}`,
+			cfg:      Config{APIKey: "sk-ant-test"},
+			req:      Request{Model: "claude-sonnet-4-6", User: "x", MaxTokens: 16},
+		},
+		{
+			provider: ProviderOpenAI,
+			wantHost: "api.openai.com",
+			body:     `{"choices":[{"message":{"content":"ok"}}]}`,
+			cfg:      Config{APIKey: "sk-test"},
+			req:      Request{Model: "gpt-4o-mini", User: "x"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.provider, func(t *testing.T) {
+			transport := &recordingTransport{body: tc.body}
+			cfg := tc.cfg // deliberately no BaseURL
+			cfg.HTTPClient = &http.Client{Transport: transport}
+
+			client, err := New(tc.provider, cfg)
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			if _, err := client.Complete(context.Background(), tc.req); err != nil {
+				t.Fatalf("Complete: %v", err)
+			}
+
+			if len(transport.hosts) != 1 {
+				t.Fatalf("hosts = %v, want exactly one request", transport.hosts)
+			}
+			if transport.hosts[0] != tc.wantHost {
+				t.Errorf("request went to %q, want %q — the environment redirected it", transport.hosts[0], tc.wantHost)
+			}
+		})
+	}
+}
+
+// TestEnvironmentCustomHeadersNeverReachAProvider covers OPENAI_CUSTOM_HEADERS,
+// which openai-go applies to every request with no way to opt out. Whatever it
+// names would otherwise travel to OpenAI and to a user's own Ollama.
+func TestEnvironmentCustomHeadersNeverReachAProvider(t *testing.T) {
+	t.Setenv("OPENAI_CUSTOM_HEADERS", "X-Injected-Marker: leaked\nX-Second-Marker: also-leaked")
+
+	for _, provider := range []string{ProviderOpenAI, ProviderOllama} {
+		t.Run(provider, func(t *testing.T) {
+			var got capture
+			srv := newServer(t, &got, http.StatusOK, `{"choices":[{"message":{"content":"ok"}}]}`)
+
+			client, err := New(provider, Config{APIKey: "sk-test", BaseURL: srv.URL})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			if _, err := client.Complete(context.Background(), Request{Model: "m", User: "x"}); err != nil {
+				t.Fatalf("Complete: %v", err)
+			}
+
+			for _, header := range []string{"X-Injected-Marker", "X-Second-Marker"} {
+				if value := got.headers.Get(header); value != "" {
+					t.Errorf("%s = %q reached the provider from the environment", header, value)
+				}
+			}
+		})
+	}
+}
+
+// TestCancellationOutranksAnEarlierStatus pins the ordering the retry loop makes
+// possible: a first attempt can return 500 and the retry be cut off by the
+// caller. Reporting that as "error 500" would be wrong, and callers test the
+// context error with errors.Is.
+func TestCancellationOutranksAnEarlierStatus(t *testing.T) {
+	var got capture
+	srv := newServer(t, &got, http.StatusInternalServerError, `{"error":{"message":"boom"}}`)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	client := newOpenAI(Config{APIKey: "sk-test", BaseURL: srv.URL, HTTPClient: &http.Client{
+		Transport: cancellingTransport{cancel: cancel, next: http.DefaultTransport},
+	}})
+
+	_, err := client.Complete(ctx, Request{Model: "gpt-4o-mini", User: "x"})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want one wrapping context.Canceled", err)
+	}
+	if strings.Contains(err.Error(), "500") {
+		t.Errorf("error = %v, want the cancellation, not the earlier status", err)
+	}
+}
+
+// cancellingTransport cancels the context once the first response is in, so the
+// retry runs into a cancelled caller.
+type cancellingTransport struct {
+	cancel context.CancelFunc
+	next   http.RoundTripper
+}
+
+func (c cancellingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := c.next.RoundTrip(req)
+	c.cancel()
+	return resp, err
+}
+
+// TestTypedErrorWording checks the text a user actually reads on the mapped
+// path: provider, status, a reason KeyLint worded — and nothing from the body.
+func TestTypedErrorWording(t *testing.T) {
+	const marker = "BODY-MARKER-cf83e1357eef"
+
+	tests := []struct {
+		provider string
+		status   int
+		body     string
+		cfg      Config
+		req      Request
+		want     string
+	}{
+		{
+			provider: ProviderClaude,
+			status:   http.StatusTooManyRequests,
+			body:     `{"type":"error","error":{"type":"rate_limit_error","message":"` + marker + `"}}`,
+			cfg:      Config{APIKey: "sk-ant-test"},
+			req:      Request{Model: "claude-sonnet-4-6", User: "x", MaxTokens: 16},
+			want:     "Claude error 429: rate limited — try again shortly",
+		},
+		{
+			provider: ProviderOpenAI,
+			status:   http.StatusInternalServerError,
+			body:     `{"error":{"type":"server_error","message":"` + marker + `"}}`,
+			cfg:      Config{APIKey: "sk-test"},
+			req:      Request{Model: "gpt-4o-mini", User: "x"},
+			want:     "OpenAI error 500: the provider is unavailable",
+		},
+		{
+			provider: ProviderOpenAI,
+			status:   http.StatusPaymentRequired,
+			body:     `{"error":{"type":"billing_error","message":"` + marker + `"}}`,
+			cfg:      Config{APIKey: "sk-test"},
+			req:      Request{Model: "gpt-4o-mini", User: "x"},
+			want:     "OpenAI error 402: the account is out of credit or has a billing problem",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.want, func(t *testing.T) {
+			var got capture
+			srv := newServer(t, &got, tc.status, tc.body)
+
+			cfg := tc.cfg
+			cfg.BaseURL = srv.URL
+			client, err := New(tc.provider, cfg)
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+
+			_, err = client.Complete(context.Background(), tc.req)
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+			if err.Error() != tc.want {
+				t.Errorf("error = %q, want %q", err.Error(), tc.want)
+			}
+			if strings.Contains(err.Error(), marker) {
+				t.Errorf("the provider's message reached the user: %v", err)
+			}
+		})
+	}
+}

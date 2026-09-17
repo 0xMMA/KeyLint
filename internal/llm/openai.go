@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -84,6 +86,12 @@ func openAISDKClient(cfg Config, baseURL string, attempts *httpAttempts) openai.
 		option.WithHeaderDel("OpenAI-Organization"),
 		option.WithHeaderDel("OpenAI-Project"),
 	}
+	// OPENAI_CUSTOM_HEADERS is arbitrary: whatever it names is added to every
+	// request, to any host. The SDK offers no opt-out, so the same variable is
+	// parsed here and each header it sets is deleted again.
+	for _, header := range environmentCustomHeaders() {
+		opts = append(opts, option.WithHeaderDel(header))
+	}
 	if timeout := cfg.requestTimeout(); timeout > 0 {
 		opts = append(opts, option.WithRequestTimeout(timeout))
 	}
@@ -94,9 +102,35 @@ func openAISDKClient(cfg Config, baseURL string, attempts *httpAttempts) openai.
 	return openai.NewClient(opts...)
 }
 
+// environmentCustomHeaders returns the header names OPENAI_CUSTOM_HEADERS sets,
+// parsed the way openai-go parses them: newline-separated "Name: value" lines.
+func environmentCustomHeaders() []string {
+	raw, ok := os.LookupEnv("OPENAI_CUSTOM_HEADERS")
+	if !ok {
+		return nil
+	}
+	var names []string
+	for _, line := range strings.Split(raw, "\n") {
+		name, _, found := strings.Cut(line, ":")
+		if !found {
+			continue
+		}
+		if name = strings.TrimSpace(name); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
 // mapOpenAIError turns an SDK error into the wording the user sees. The raw body
 // stays out of it — see statusMessage.
 func mapOpenAIError(p provider, attempts *httpAttempts, err error) error {
+	// The caller giving up is not a provider failure, and callers test for it
+	// with errors.Is — so it must not become a status even if an earlier
+	// attempt saw one.
+	if isContextError(err) {
+		return transportError(p, err)
+	}
 	var apiErr *openai.Error
 	if errors.As(err, &apiErr) {
 		return apiError(p, apiErr.StatusCode, apiErr.RawJSON())

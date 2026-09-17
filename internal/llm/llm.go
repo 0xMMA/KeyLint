@@ -7,6 +7,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -145,21 +146,36 @@ type httpAttempts struct {
 func (a *httpAttempts) middleware(req *http.Request, next func(*http.Request) (*http.Response, error)) (*http.Response, error) {
 	a.count++
 	attempt := a.count
+	// Per attempt, not cumulative: a 500 followed by a dropped connection must
+	// not let the retry be reported as "error 500".
+	a.lastStatus = 0
+
+	// Redacted() masks any password in the URL — a self-hosted Ollama behind
+	// basic auth is a realistic way for one to end up here.
+	url := req.URL.Redacted()
 
 	resp, err := next(req)
 	if err != nil {
 		logger.Debug("llm: http", "feature", a.cfg.Feature, "provider", a.provider.id,
-			"method", req.Method, "url", req.URL.String(), "attempt", attempt, "err", err)
+			"method", req.Method, "url", url, "attempt", attempt, "err", err)
 		return resp, err
 	}
 	a.lastStatus = resp.StatusCode
 	logger.Debug("llm: http", "feature", a.cfg.Feature, "provider", a.provider.id,
-		"method", req.Method, "url", req.URL.String(), "attempt", attempt, "status", resp.StatusCode)
+		"method", req.Method, "url", url, "attempt", attempt, "status", resp.StatusCode)
 	return resp, nil
 }
 
-// statusOrZero is the status of the last response, or 0 if none arrived.
+// statusOrZero is the status of the last attempt's response, or 0 if none
+// arrived.
 func (a *httpAttempts) statusOrZero() int { return a.lastStatus }
+
+// isContextError reports whether the caller gave up rather than the provider
+// failing. Callers test for this with errors.Is, so it must never be reported
+// as a provider status.
+func isContextError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
 
 // logRequest records what we are about to send. The payload is user text, so it
 // only ever reaches the log through Redact.
