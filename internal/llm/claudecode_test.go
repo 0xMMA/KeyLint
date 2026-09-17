@@ -239,6 +239,8 @@ func TestClaudeCodeDropsInheritedAnthropicCredentials(t *testing.T) {
 	s.replies(successEnvelope)
 	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-should-not-be-inherited")
 	t.Setenv("ANTHROPIC_BASE_URL", "https://proxy.invalid")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "token-should-not-be-inherited")
+	t.Setenv("ANTHROPIC_MODEL", "some-other-model")
 	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "1")
 
 	if _, err := s.client().Complete(context.Background(), Request{Model: "haiku", User: "x"}); err != nil {
@@ -251,6 +253,8 @@ func TestClaudeCodeDropsInheritedAnthropicCredentials(t *testing.T) {
 		switch {
 		case strings.EqualFold(name, "ANTHROPIC_API_KEY"),
 			strings.EqualFold(name, "ANTHROPIC_BASE_URL"),
+			strings.EqualFold(name, "CLAUDE_CODE_OAUTH_TOKEN"),
+			strings.EqualFold(name, "ANTHROPIC_MODEL"),
 			strings.EqualFold(name, "CLAUDE_CODE_USE_BEDROCK"):
 			t.Errorf("%s reached the CLI; it would override the user's own login", name)
 		case strings.EqualFold(name, "PATH"):

@@ -157,6 +157,12 @@ func runClaudeCode(ctx context.Context, path string, args ...string) ([]byte, er
 	defer cancel()
 
 	cmd := exec.CommandContext(probeCtx, path, args...)
+	// The same stripped environment the completion call uses. Detection has to
+	// run where execution runs: with ANTHROPIC_API_KEY inherited, `claude auth
+	// status` reports a signed-in API-key session that every later completion —
+	// which never sees that key — then fails as "not signed in".
+	env, _ := cliEnv()
+	cmd.Env = env
 	cmd.WaitDelay = cliWaitDelay
 	configureCLIProcess(cmd)
 	return cmd.Output()

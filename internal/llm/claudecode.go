@@ -38,6 +38,10 @@ var blockedCLIEnv = []string{
 	"ANTHROPIC_API_KEY",
 	"ANTHROPIC_AUTH_TOKEN",
 	"ANTHROPIC_BASE_URL",
+	// A pasted OAuth token stands in for the signed-in account just like a key.
+	"CLAUDE_CODE_OAUTH_TOKEN",
+	// Would answer with a different model than the one KeyLint asked for.
+	"ANTHROPIC_MODEL",
 	"CLAUDE_CODE_USE_BEDROCK",
 	"CLAUDE_CODE_USE_VERTEX",
 	"AWS_BEARER_TOKEN_BEDROCK",
@@ -105,18 +109,28 @@ func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response,
 		args = append(args, "--system-prompt-file", promptFile)
 	}
 
+	// The path carries the user's account name on Windows, so it stays out of
+	// the log level people attach to bug reports.
 	logger.Debug("llm: request", "feature", c.cfg.Feature, "provider", claudeCodeProvider.id,
-		"path", path, "model", req.Model,
+		"path", logger.Redact(path), "model", req.Model,
 		"system", logger.Redact(req.System), "user", logger.Redact(req.User))
 
 	cmd := exec.CommandContext(ctx, path, args...)
-	cmd.Env = cliEnv()
+	cliEnviron, removed := cliEnv()
+	cmd.Env = cliEnviron
 	cmd.Stdin = strings.NewReader(req.User)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	cmd.WaitDelay = cliWaitDelay
 	configureCLIProcess(cmd)
+
+	// Names only — the values are credentials. One line per completion, so a bug
+	// report shows why the CLI saw a different environment than KeyLint itself.
+	if len(removed) > 0 {
+		logger.Info("llm: credential variables removed for the claude code cli",
+			"vars", strings.Join(removed, ", "))
+	}
 
 	runErr := cmd.Run()
 	out := stdout.Bytes()
@@ -185,18 +199,21 @@ func writeSystemPromptFile(systemPrompt string) (path string, cleanup func(), er
 }
 
 // cliEnv returns the environment for the CLI: ours, minus anything that would
-// point it at another account. See blockedCLIEnv.
-func cliEnv() []string {
+// point it at another account, plus the names of the variables it dropped. Both
+// the completion call and the discovery probe use it, so what KeyLint detects
+// and what it later runs see the same environment. See blockedCLIEnv.
+func cliEnv() (env []string, removed []string) {
 	parent := os.Environ()
 	filtered := make([]string, 0, len(parent))
 	for _, entry := range parent {
 		name, _, found := strings.Cut(entry, "=")
 		if found && isBlockedCLIEnv(name) {
+			removed = append(removed, name)
 			continue
 		}
 		filtered = append(filtered, entry)
 	}
-	return filtered
+	return filtered, removed
 }
 
 // isBlockedCLIEnv matches case-insensitively, because Windows environment
