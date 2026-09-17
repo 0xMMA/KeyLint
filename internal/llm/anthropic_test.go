@@ -98,3 +98,19 @@ func TestAnthropicCompleteRequiresModelAndMaxTokens(t *testing.T) {
 		t.Errorf("missing max_tokens: unexpected error: %v", err)
 	}
 }
+
+// TestAnthropicIgnoresUnsupportedFields pins the wire format against #33 step 3:
+// JSONMode has no Anthropic equivalent today and must not silently become one.
+func TestAnthropicIgnoresUnsupportedFields(t *testing.T) {
+	var got capture
+	srv := newServer(t, &got, http.StatusOK, `{"content":[{"text":"ok"}]}`)
+
+	client := newAnthropic(Config{BaseURL: srv.URL})
+	req := Request{Model: "claude-sonnet-4-6", User: "x", MaxTokens: 4096, JSONMode: true}
+	if _, err := client.Complete(context.Background(), req); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if _, ok := got.body["response_format"]; ok {
+		t.Error("response_format must not reach the Anthropic payload")
+	}
+}

@@ -37,7 +37,7 @@ Keys are NOT stored in `settings.json`. `GetKey(provider)` / `SetKey` / `DeleteK
 
 **Clipboard:** `clipboard.Write()` on Linux requires `xsel` or `xclip` installed; failure is silently swallowed (best-effort).
 
-**AI API calls:** Must go through Go backend (`internal/features/enhance/service.go`) on Linux. WebKit2GTK blocks external HTTPS fetch from the webview. The browser fallback in `TextEnhancementService` is only for Playwright E2E tests.
+**AI API calls:** Must go through the Go backend on Linux — WebKit2GTK blocks external HTTPS fetch from the webview. Every provider HTTP call lives in `internal/llm`: `Client.Complete(ctx, Request) (Response, error)`, with a registry keyed by provider ID (`openai`, `claude`, `ollama`) and `llm.Config` supplying the API key, base URL and HTTP client. Features (`enhance`, `pyramidize`) build a `Request` and never touch a provider API directly. The browser fallback in `TextEnhancementService` is only for Playwright E2E tests.
 
 ## Dark Mode
 

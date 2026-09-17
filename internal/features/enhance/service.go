@@ -55,6 +55,9 @@ const (
 	maxTokens   = 2048
 )
 
+// logSource tags this feature's provider calls in the debug log.
+const logSource = "enhance"
+
 // ollamaPromptSeparator reproduces the exact system/user join this flow used
 // before internal/llm existed — Ollama's /api/generate takes a single prompt.
 const ollamaPromptSeparator = "\n\nText: "
@@ -124,26 +127,36 @@ func (s *Service) Enhance(text string) (result string, err error) {
 func (s *Service) providerConfig(cfg settings.Settings) (llm.Config, string, error) {
 	switch cfg.ActiveProvider {
 	case llm.ProviderOpenAI:
-		key := s.getKey(llm.ProviderOpenAI)
+		key := s.resolveKey(llm.ProviderOpenAI)
 		if key == "" {
 			return llm.Config{}, "", fmt.Errorf("OpenAI API key is not configured. Go to Settings → AI Providers to add it")
 		}
-		return llm.Config{APIKey: key, HTTPClient: s.client}, openAIModel, nil
+		return llm.Config{APIKey: key, HTTPClient: s.client, Source: logSource}, openAIModel, nil
 	case llm.ProviderClaude:
-		key := s.getKey(llm.ProviderClaude)
+		key := s.resolveKey(llm.ProviderClaude)
 		if key == "" {
 			return llm.Config{}, "", fmt.Errorf("Anthropic API key is not configured. Go to Settings → AI Providers → Anthropic API Key, and make sure 'Anthropic Claude' is selected as the Active Provider")
 		}
-		return llm.Config{APIKey: key, HTTPClient: s.client}, claudeModel, nil
+		return llm.Config{APIKey: key, HTTPClient: s.client, Source: logSource}, claudeModel, nil
 	case llm.ProviderOllama:
 		return llm.Config{
 			BaseURL:         cfg.Providers.OllamaURL,
 			HTTPClient:      s.client,
 			PromptSeparator: ollamaPromptSeparator,
+			Source:          logSource,
 		}, ollamaModel, nil
 	case "bedrock":
 		return llm.Config{}, "", fmt.Errorf("AWS Bedrock is not yet supported. Please select a different provider")
 	default:
 		return llm.Config{}, "", fmt.Errorf("unknown provider: %q", cfg.ActiveProvider)
 	}
+}
+
+// resolveKey reads a provider API key, falling back to settings when the test
+// seam is unset — the same nil-safety Enhance applies to newClient.
+func (s *Service) resolveKey(provider string) string {
+	if s.getKey != nil {
+		return s.getKey(provider)
+	}
+	return s.settings.GetKey(provider)
 }

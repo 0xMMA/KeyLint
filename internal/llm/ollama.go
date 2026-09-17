@@ -13,8 +13,8 @@ const defaultOllamaBaseURL = "http://localhost:11434"
 // specify one.
 const defaultPromptSeparator = "\n\n"
 
-// ollamaName prefixes errors surfaced to the user.
-const ollamaName = "Ollama"
+// ollamaProvider carries the ID used in logs and the name used in errors.
+var ollamaProvider = provider{id: ProviderOllama, name: "Ollama"}
 
 type ollamaClient struct {
 	cfg Config
@@ -24,7 +24,7 @@ func newOllama(cfg Config) Client { return &ollamaClient{cfg: cfg} }
 
 func (c *ollamaClient) Complete(ctx context.Context, req Request) (Response, error) {
 	if req.Model == "" {
-		return Response{}, fmt.Errorf("%s: model is required", ollamaName)
+		return Response{}, fmt.Errorf("%s: model is required", ollamaProvider.name)
 	}
 
 	// /api/generate takes a single "prompt" field, so system and user content
@@ -40,7 +40,7 @@ func (c *ollamaClient) Complete(ctx context.Context, req Request) (Response, err
 	}
 
 	url := resolveBaseURL(c.cfg.BaseURL, defaultOllamaBaseURL) + "/api/generate"
-	body, err := postJSON(ctx, c.cfg, ollamaName, url, map[string]string{
+	body, err := postJSON(ctx, c.cfg, ollamaProvider, url, map[string]string{
 		"Content-Type": "application/json",
 	}, payload)
 	if err != nil {
@@ -51,7 +51,7 @@ func (c *ollamaClient) Complete(ctx context.Context, req Request) (Response, err
 		Response string `json:"response"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
-		return Response{}, fmt.Errorf("%s unexpected response: %s", ollamaName, body)
+		return Response{}, fmt.Errorf("%s unexpected response: %s", ollamaProvider.name, body)
 	}
 	return Response{Text: result.Response}, nil
 }

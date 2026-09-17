@@ -23,6 +23,9 @@ const (
 	maxTokens   = 4096
 )
 
+// logSource tags this feature's provider calls in the debug log.
+const logSource = "pyramidize"
+
 // ollamaPromptSeparator reproduces the exact system/user join this pipeline used
 // before internal/llm existed — Ollama's /api/generate takes a single prompt.
 const ollamaPromptSeparator = "\n\n---\n\n"
@@ -467,12 +470,12 @@ func (svc *Service) providerConfig(provider string, cfg settings.Settings, apiKe
 		if model == "" {
 			model = openAIModel
 		}
-		return llm.Config{APIKey: apiKey, HTTPClient: svc.client}, model, nil
+		return llm.Config{APIKey: apiKey, HTTPClient: svc.client, Source: logSource}, model, nil
 	case llm.ProviderClaude:
 		if model == "" {
 			model = claudeModel
 		}
-		return llm.Config{APIKey: apiKey, HTTPClient: svc.client}, model, nil
+		return llm.Config{APIKey: apiKey, HTTPClient: svc.client, Source: logSource}, model, nil
 	case llm.ProviderOllama:
 		if model == "" {
 			model = ollamaModel
@@ -481,6 +484,7 @@ func (svc *Service) providerConfig(provider string, cfg settings.Settings, apiKe
 			BaseURL:         cfg.Providers.OllamaURL,
 			HTTPClient:      svc.client,
 			PromptSeparator: ollamaPromptSeparator,
+			Source:          logSource,
 		}, model, nil
 	default:
 		return llm.Config{}, "", fmt.Errorf("unsupported provider: %q", provider)

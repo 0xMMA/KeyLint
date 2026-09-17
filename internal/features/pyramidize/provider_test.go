@@ -2,7 +2,13 @@ package pyramidize
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -15,10 +21,18 @@ type fakeClient struct {
 	gotRequest llm.Request
 	reply      string
 	err        error
+	// onComplete runs before the reply is returned, so a test can cancel the
+	// operation from inside an in-flight call.
+	onComplete func()
 }
 
-func (f *fakeClient) Complete(_ context.Context, req llm.Request) (llm.Response, error) {
+func (f *fakeClient) Complete(ctx context.Context, req llm.Request) (llm.Response, error) {
 	f.gotRequest = req
+	if f.onComplete != nil {
+		f.onComplete()
+		<-ctx.Done()
+		return llm.Response{}, ctx.Err()
+	}
 	if f.err != nil {
 		return llm.Response{}, f.err
 	}
@@ -42,7 +56,7 @@ func (r *recorder) new(provider string, cfg llm.Config) (llm.Client, error) {
 // settings service because callAISync takes the settings value as an argument.
 func newTestService() (*Service, *recorder) {
 	rec := &recorder{client: &fakeClient{reply: `{"ok":true}`}}
-	return &Service{newClient: rec.new}, rec
+	return &Service{client: &http.Client{}, newClient: rec.new}, rec
 }
 
 func TestCallAISyncModelDefaults(t *testing.T) {
@@ -98,6 +112,12 @@ func TestCallAISyncRequestShape(t *testing.T) {
 	}
 	if rec.cfg.APIKey != "sk-ant-test" {
 		t.Errorf("APIKey = %q, want the resolved key", rec.cfg.APIKey)
+	}
+	if rec.cfg.HTTPClient != svc.client {
+		t.Error("the service HTTP client (90s timeout) must be handed to the provider client")
+	}
+	if rec.cfg.Source != logSource {
+		t.Errorf("Source = %q, want %q so debug logs name the feature", rec.cfg.Source, logSource)
 	}
 }
 
@@ -166,5 +186,94 @@ func TestResolveAPIKeyNoKeyProvider(t *testing.T) {
 	}
 	if key != "" {
 		t.Errorf("key = %q, want empty for a provider that needs none", key)
+	}
+}
+
+// TestPyramidizeWireConstantsUnchanged pins the literals that #33 step 1
+// promised not to touch. The model assertions above only prove a constant was
+// passed through; this one proves which.
+func TestPyramidizeWireConstantsUnchanged(t *testing.T) {
+	if openAIModel != "gpt-5.2" {
+		t.Errorf("openAIModel = %q, want gpt-5.2", openAIModel)
+	}
+	if claudeModel != "claude-sonnet-4-6" {
+		t.Errorf("claudeModel = %q, want claude-sonnet-4-6", claudeModel)
+	}
+	if ollamaModel != "llama3.2" {
+		t.Errorf("ollamaModel = %q, want llama3.2", ollamaModel)
+	}
+	if maxTokens != 4096 {
+		t.Errorf("maxTokens = %d, want 4096", maxTokens)
+	}
+	// This join differs from enhance's on purpose — it is the exact string the
+	// hand-rolled callOllama built before internal/llm.
+	if ollamaPromptSeparator != "\n\n---\n\n" {
+		t.Errorf("ollamaPromptSeparator = %q, want %q", ollamaPromptSeparator, "\n\n---\n\n")
+	}
+}
+
+// TestCallAISyncOllamaPromptJoin exercises the separator through the real
+// provider client against an httptest server, not just as a Config field.
+func TestCallAISyncOllamaPromptJoin(t *testing.T) {
+	var gotPrompt string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Prompt string `json:"prompt"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		gotPrompt = payload.Prompt
+		io.WriteString(w, `{"response":"{}"}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	svc := &Service{client: &http.Client{}, newClient: llm.New}
+	cfg := settings.Default()
+	cfg.ActiveProvider = "ollama"
+	cfg.Providers.OllamaURL = srv.URL
+
+	if _, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "", "system", "user"); err != nil {
+		t.Fatalf("callAISync: %v", err)
+	}
+	if want := "system\n\n---\n\nuser"; gotPrompt != want {
+		t.Errorf("prompt = %q, want %q", gotPrompt, want)
+	}
+}
+
+// TestRefineGlobalCancelled covers the cancellation path that changed when the
+// goroutine/select wrapper was replaced by a context-aware HTTP request: a
+// cancel during an in-flight call must still surface as "cancelled".
+func TestRefineGlobalCancelled(t *testing.T) {
+	// os.UserConfigDir() reads XDG_CONFIG_HOME on Linux/macOS and APPDATA on Windows.
+	envKey := "XDG_CONFIG_HOME"
+	if runtime.GOOS == "windows" {
+		envKey = "APPDATA"
+	}
+	original := os.Getenv(envKey)
+	t.Cleanup(func() { os.Setenv(envKey, original) })
+	os.Setenv(envKey, t.TempDir())
+
+	settingsSvc, err := settings.NewService()
+	if err != nil {
+		t.Fatalf("settings.NewService: %v", err)
+	}
+	cfg := settings.Default()
+	cfg.ActiveProvider = "ollama" // needs no API key, so the keyring stays out of it
+	if err := settingsSvc.Save(cfg); err != nil {
+		t.Fatalf("settings.Save: %v", err)
+	}
+
+	svc := NewService(settingsSvc, nil)
+	rec := &recorder{client: &fakeClient{}}
+	svc.newClient = rec.new
+	// Cancel from inside the call, the way the UI's Cancel button does.
+	rec.client.onComplete = svc.CancelOperation
+
+	_, err = svc.RefineGlobal(RefineGlobalRequest{
+		FullCanvas: "canvas", OriginalText: "original", Instruction: "shorten it",
+	})
+	if err == nil || err.Error() != "cancelled" {
+		t.Fatalf("RefineGlobal error = %v, want \"cancelled\"", err)
 	}
 }

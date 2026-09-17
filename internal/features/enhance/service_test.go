@@ -2,7 +2,11 @@ package enhance
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"runtime"
 	"strings"
@@ -92,6 +96,12 @@ func TestEnhanceOpenAI(t *testing.T) {
 	}
 	if rec.cfg.APIKey != "sk-test" {
 		t.Errorf("APIKey = %q, want sk-test", rec.cfg.APIKey)
+	}
+	if rec.cfg.HTTPClient != svc.client {
+		t.Error("the service HTTP client must be handed to the provider client")
+	}
+	if rec.cfg.Source != logSource {
+		t.Errorf("Source = %q, want %q so debug logs name the feature", rec.cfg.Source, logSource)
 	}
 	if rec.client.gotRequest.Model != openAIModel {
 		t.Errorf("Model = %q, want %q", rec.client.gotRequest.Model, openAIModel)
@@ -209,5 +219,58 @@ func TestEnhancePropagatesProviderError(t *testing.T) {
 	_, err := svc.Enhance("text")
 	if err == nil || !strings.Contains(err.Error(), "Ollama error 404") {
 		t.Fatalf("Enhance error = %v, want the provider error", err)
+	}
+}
+
+// TestEnhanceWireConstantsUnchanged pins the literals that #33 step 1 promised
+// not to touch. Without this the model assertions elsewhere in this file only
+// prove that a constant was passed through, not which one.
+func TestEnhanceWireConstantsUnchanged(t *testing.T) {
+	if openAIModel != "gpt-4o-mini" {
+		t.Errorf("openAIModel = %q, want gpt-4o-mini", openAIModel)
+	}
+	if claudeModel != "claude-haiku-4-5-20251001" {
+		t.Errorf("claudeModel = %q, want claude-haiku-4-5-20251001", claudeModel)
+	}
+	if ollamaModel != "llama3.2" {
+		t.Errorf("ollamaModel = %q, want llama3.2", ollamaModel)
+	}
+	if maxTokens != 2048 {
+		t.Errorf("maxTokens = %d, want 2048", maxTokens)
+	}
+	// The Ollama join differs from pyramidize's on purpose — it is the exact
+	// string the hand-rolled callOllama built before internal/llm.
+	if ollamaPromptSeparator != "\n\nText: " {
+		t.Errorf("ollamaPromptSeparator = %q, want %q", ollamaPromptSeparator, "\n\nText: ")
+	}
+}
+
+// TestEnhanceOllamaPromptJoin checks the separator end to end, through a real
+// provider client against an httptest server, not just as a Config field.
+func TestEnhanceOllamaPromptJoin(t *testing.T) {
+	var gotPrompt string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Prompt string `json:"prompt"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		gotPrompt = payload.Prompt
+		io.WriteString(w, `{"response":"ok"}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := settings.Default()
+	cfg.ActiveProvider = "ollama"
+	cfg.Providers.OllamaURL = srv.URL
+	svc, _ := newTestService(t, cfg, nil)
+	svc.newClient = llm.New // the real client, so the join is exercised for real
+
+	if _, err := svc.Enhance("my text"); err != nil {
+		t.Fatalf("Enhance: %v", err)
+	}
+	if want := systemPrompt + "\n\nText: " + "my text"; gotPrompt != want {
+		t.Errorf("prompt = %q, want the system prompt joined by %q", gotPrompt, "\n\nText: ")
 	}
 }

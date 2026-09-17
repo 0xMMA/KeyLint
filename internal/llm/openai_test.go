@@ -107,3 +107,19 @@ func TestOpenAICompleteRequiresModel(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+// TestOpenAIIgnoresUnsupportedFields pins the wire format against #33 step 3:
+// when the vendor SDK lands it must not start sending max_tokens for a Request
+// that carries one today, because the hand-rolled client never did.
+func TestOpenAIIgnoresUnsupportedFields(t *testing.T) {
+	var got capture
+	srv := newServer(t, &got, http.StatusOK, `{"choices":[{"message":{"content":"ok"}}]}`)
+
+	client := newOpenAI(Config{BaseURL: srv.URL})
+	if _, err := client.Complete(context.Background(), Request{Model: "gpt-4o-mini", User: "x", MaxTokens: 2048}); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if _, ok := got.body["max_tokens"]; ok {
+		t.Error("max_tokens must not reach the OpenAI payload")
+	}
+}

@@ -92,3 +92,22 @@ func TestOllamaCompleteRequiresModel(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+// TestOllamaIgnoresUnsupportedFields pins the wire format against #33 step 3:
+// Ollama honours neither field today and must not start to.
+func TestOllamaIgnoresUnsupportedFields(t *testing.T) {
+	var got capture
+	srv := newServer(t, &got, http.StatusOK, `{"response":"ok"}`)
+
+	client := newOllama(Config{BaseURL: srv.URL})
+	req := Request{Model: "llama3.2", User: "x", MaxTokens: 4096, JSONMode: true}
+	if _, err := client.Complete(context.Background(), req); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if _, ok := got.body["max_tokens"]; ok {
+		t.Error("max_tokens must not reach the Ollama payload")
+	}
+	if _, ok := got.body["response_format"]; ok {
+		t.Error("response_format must not reach the Ollama payload")
+	}
+}

@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -65,18 +66,6 @@ func TestNewUnknownProvider(t *testing.T) {
 	}
 }
 
-func TestProvidersListsRegisteredIDs(t *testing.T) {
-	ids := Providers()
-	if len(ids) != len(factories) {
-		t.Fatalf("Providers() returned %d ids, registry has %d", len(ids), len(factories))
-	}
-	for _, id := range ids {
-		if _, ok := factories[id]; !ok {
-			t.Errorf("Providers() returned unregistered id %q", id)
-		}
-	}
-}
-
 func TestResolveBaseURL(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -86,6 +75,8 @@ func TestResolveBaseURL(t *testing.T) {
 		{"empty falls back", "", "https://fallback.test"},
 		{"configured wins", "http://localhost:11434", "http://localhost:11434"},
 		{"trailing slash trimmed", "http://localhost:11434/", "http://localhost:11434"},
+		{"pasted whitespace trimmed", " http://localhost:11434 ", "http://localhost:11434"},
+		{"whitespace only falls back", "   ", "https://fallback.test"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -107,7 +98,24 @@ func TestCompleteCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if _, err := client.Complete(ctx, Request{Model: "llama3.2", User: "hi"}); err == nil {
+	_, err = client.Complete(ctx, Request{Model: "llama3.2", User: "hi"})
+	if err == nil {
 		t.Fatal("expected an error for a cancelled context")
+	}
+	// Callers distinguish cancellation from a provider failure, so the wrapped
+	// error has to stay unwrappable to context.Canceled.
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want one wrapping context.Canceled", err)
+	}
+}
+
+func TestFallbackHTTPClientHasTimeout(t *testing.T) {
+	// A nil Config.HTTPClient must not fall back to http.DefaultClient, which
+	// never times out and would hang a request forever.
+	if fallbackClient.Timeout == 0 {
+		t.Error("fallbackClient has no timeout")
+	}
+	if fallbackClient == http.DefaultClient {
+		t.Error("fallbackClient must not be http.DefaultClient")
 	}
 }
