@@ -66,9 +66,6 @@ type msg struct {
 	Pt      [2]int32
 }
 
-// doubleTapTimerID is the SetTimer ID for the double-tap detection window.
-const doubleTapTimerID = 1
-
 // wmApp is the base for custom messages posted to the message loop.
 const wmApp = 0x8000
 
@@ -100,6 +97,7 @@ type windowsService struct {
 
 	// State — only accessed on the hook thread, no lock needed.
 	tapState       tapPhase // double-tap detection phase
+	timerID        uintptr  // ID returned by SetTimer for the running double-tap timer (0 = none)
 	mods           Modifier // currently held modifier keys
 	indepPending   int      // independent mode: -1=none, 0=fix, 1=pyramidize (fire on keyup)
 	indepPendingVK uint16   // trigger VK we're waiting for keyup on
@@ -139,6 +137,7 @@ func (s *windowsService) Register(cfg ShortcutConfig) error {
 }
 
 func (s *windowsService) Unregister() {
+	s.stopTimer()
 	if s.hookH != 0 {
 		unhookWindowsHookEx.Call(s.hookH)
 		s.hookH = 0
@@ -154,7 +153,7 @@ func (s *windowsService) UpdateConfig(cfg ShortcutConfig) error {
 	}
 	// Reset any in-progress detection state.
 	if s.threadID != 0 {
-		killTimer.Call(0, doubleTapTimerID)
+		s.stopTimer()
 	}
 	s.tapState = tapIdle
 	s.indepPending = -1
@@ -167,7 +166,7 @@ func (s *windowsService) SetPaused(paused bool) {
 	if paused {
 		// Reset detection state when pausing.
 		if s.threadID != 0 {
-			killTimer.Call(0, doubleTapTimerID)
+			s.stopTimer()
 		}
 		s.tapState = tapIdle
 		s.indepPending = -1
@@ -243,7 +242,7 @@ func (s *windowsService) hookCallback(nCode int, wParam uintptr, lParam uintptr)
 			if s.tapState != tapIdle {
 				logger.Debug("shortcut: modifier released during double-tap, firing fix")
 				s.tapState = tapIdle
-				killTimer.Call(0, doubleTapTimerID)
+				s.stopTimer()
 				s.postAction(0) // fix
 			}
 		}
@@ -290,8 +289,14 @@ func (s *windowsService) hookCallback(nCode int, wParam uintptr, lParam uintptr)
 			if isDown && isTrigger {
 				// First tap → suppress, start timer, wait for keyup before accepting second tap.
 				logger.Debug("shortcut: first tap, starting timer", "delay", delay)
+				if !s.startTimer(delay) {
+					// No timer means nothing would ever end the detection window,
+					// so the tap would be swallowed. Degrade to plain single-tap fix.
+					s.tapState = tapIdle
+					s.postAction(0) // fix
+					return 1        // suppress
+				}
 				s.tapState = tapWaitRelease
-				setTimer.Call(0, doubleTapTimerID, uintptr(delay), 0)
 				return 1 // suppress
 			}
 
@@ -311,7 +316,7 @@ func (s *windowsService) hookCallback(nCode int, wParam uintptr, lParam uintptr)
 				// Second tap → pyramidize!
 				logger.Debug("shortcut: second tap detected, firing pyramidize")
 				s.tapState = tapIdle
-				killTimer.Call(0, doubleTapTimerID)
+				s.stopTimer()
 				s.postAction(1) // pyramidize
 				return 1         // suppress
 			}
@@ -321,6 +326,28 @@ func (s *windowsService) hookCallback(nCode int, wParam uintptr, lParam uintptr)
 	// Not a match — pass through.
 	ret, _, _ := callNextHookEx.Call(s.hookH, uintptr(nCode), wParam, lParam)
 	return ret
+}
+
+// startTimer arms the double-tap window and records the ID Windows hands back.
+// With a NULL hWnd, SetTimer ignores the nIDEvent argument and generates its own
+// ID — that returned ID is the only handle KillTimer and WM_TIMER wParam speak.
+func (s *windowsService) startTimer(delay uint32) bool {
+	s.stopTimer() // never leave a previous timer running — SetTimer timers repeat
+	id, _, err := setTimer.Call(0, 0, uintptr(delay), 0)
+	if id == 0 {
+		logger.Warn("shortcut: SetTimer failed, double-tap detection disabled for this tap", "err", err)
+		return false
+	}
+	s.timerID = id
+	return true
+}
+
+// stopTimer kills the running double-tap timer, if any.
+func (s *windowsService) stopTimer() {
+	if s.timerID != 0 {
+		killTimer.Call(0, s.timerID)
+		s.timerID = 0
+	}
 }
 
 func (s *windowsService) postAction(action uintptr) {
@@ -337,13 +364,18 @@ func (s *windowsService) messageLoop() {
 		}
 		switch m.Message {
 		case wmTimer:
+			// wParam carries the ID SetTimer returned; anything else is a stray
+			// timer we no longer own and must not act on.
+			if s.timerID == 0 || m.WParam != s.timerID {
+				break
+			}
 			// Double-tap timer expired → fire fix.
 			if s.tapState != tapIdle {
 				logger.Debug("shortcut: timer expired, firing fix")
 				s.tapState = tapIdle
-				killTimer.Call(0, doubleTapTimerID)
 				s.postAction(0) // fix
 			}
+			s.stopTimer()
 		case wmAction:
 			action := "fix"
 			if m.WParam == 1 {
