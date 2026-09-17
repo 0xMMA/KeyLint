@@ -77,14 +77,14 @@ func TestOpenAICompleteJSONMode(t *testing.T) {
 
 func TestOpenAICompleteErrorStatus(t *testing.T) {
 	var got capture
-	srv := newServer(t, &got, http.StatusUnauthorized, `{"error":"invalid key"}`)
+	srv := newServer(t, &got, http.StatusUnauthorized, `{"error":{"message":"invalid key","type":"invalid_request_error"}}`)
 
 	client := newOpenAI(Config{APIKey: "bad", BaseURL: srv.URL})
 	_, err := client.Complete(context.Background(), Request{Model: "gpt-4o-mini", User: "x"})
 	if err == nil {
 		t.Fatal("expected an error for status 401")
 	}
-	if !strings.Contains(err.Error(), "OpenAI error 401") || !strings.Contains(err.Error(), "invalid key") {
+	if !strings.Contains(err.Error(), "OpenAI error 401") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -93,9 +93,9 @@ func TestOpenAICompleteUnexpectedResponse(t *testing.T) {
 	var got capture
 	srv := newServer(t, &got, http.StatusOK, `{"choices":[]}`)
 
-	client := newOpenAI(Config{BaseURL: srv.URL})
+	client := newOpenAI(Config{APIKey: "sk-test", BaseURL: srv.URL})
 	_, err := client.Complete(context.Background(), Request{Model: "gpt-4o-mini", User: "x"})
-	if err == nil || !strings.Contains(err.Error(), "OpenAI unexpected response") {
+	if err == nil || !strings.Contains(err.Error(), "no choices") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -115,7 +115,7 @@ func TestOpenAIIgnoresUnsupportedFields(t *testing.T) {
 	var got capture
 	srv := newServer(t, &got, http.StatusOK, `{"choices":[{"message":{"content":"ok"}}]}`)
 
-	client := newOpenAI(Config{BaseURL: srv.URL})
+	client := newOpenAI(Config{APIKey: "sk-test", BaseURL: srv.URL})
 	if _, err := client.Complete(context.Background(), Request{Model: "gpt-4o-mini", User: "x", MaxTokens: 2048}); err != nil {
 		t.Fatalf("Complete: %v", err)
 	}

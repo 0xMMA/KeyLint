@@ -73,10 +73,6 @@ const (
 // logFeature tags this feature's provider calls in the log.
 const logFeature = "enhance"
 
-// ollamaPromptSeparator reproduces the exact system/user join this flow used
-// before internal/llm existed — Ollama's /api/generate takes a single prompt.
-const ollamaPromptSeparator = "\n\nText: "
-
 // Service calls AI provider APIs from Go so the Wails WebView does not need
 // external network access (avoids WebKit content-security-policy issues on Linux).
 type Service struct {
@@ -158,10 +154,9 @@ func (s *Service) providerConfig(cfg settings.Settings) (llm.Config, string, err
 		return llm.Config{APIKey: key, HTTPClient: s.client, Feature: logFeature}, claudeModel, nil
 	case llm.ProviderOllama:
 		return llm.Config{
-			BaseURL:         cfg.Providers.OllamaURL,
-			HTTPClient:      s.client,
-			PromptSeparator: ollamaPromptSeparator,
-			Feature:         logFeature,
+			BaseURL:    cfg.Providers.OllamaURL,
+			HTTPClient: s.client,
+			Feature:    logFeature,
 		}, ollamaModel, nil
 	case llm.ProviderClaudeCode:
 		// The user signed in to the CLI themselves; KeyLint needs no key and

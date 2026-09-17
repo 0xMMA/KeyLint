@@ -5,11 +5,9 @@
 package llm
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -37,8 +35,8 @@ type provider struct {
 
 // Request is a single-turn completion request.
 type Request struct {
-	// System is the system prompt. Providers without a dedicated system field
-	// (Ollama) prepend it to User, joined by Config.PromptSeparator.
+	// System is the system prompt. Every provider now has a real system role,
+	// including Ollama through its OpenAI-compatible endpoint.
 	System string
 	// User is the user message.
 	User string
@@ -48,14 +46,10 @@ type Request struct {
 	// MaxTokens caps the response length. Only providers whose API requires it
 	// (Anthropic) send it; the others keep the request shape they had before.
 	MaxTokens int
-	// JSONMode asks the provider to constrain output to a JSON object. Only
-	// OpenAI enforces it; for the others — including the Claude Code CLI, which
-	// could honour it through --json-schema — the caller parses defensively.
-	//
-	// The roadmap sketches this field as JSONSchema (docs/roadmap.md, E2 step 1).
-	// It is a bool here because a schema would change what the callers send —
-	// step 1 is an extraction with no behaviour change. Widening it belongs with
-	// the SDK swap in step 3.
+	// JSONMode asks the provider to constrain output to a JSON object. OpenAI
+	// and the OpenAI-compatible Ollama endpoint enforce it; Anthropic and the
+	// Claude Code CLI have no equivalent today, so their callers parse
+	// defensively. Widening this to a JSON schema is #47.
 	JSONMode bool
 }
 
@@ -89,11 +83,6 @@ type Config struct {
 	// HTTP endpoint (Claude Code). Empty means "find it on this machine"; tests
 	// set it to a stub binary.
 	CLIPath string
-	// PromptSeparator joins System and User for providers whose API takes a
-	// single prompt string (Ollama). It exists to preserve the two different
-	// joins the call sites used before this package; it disappears when the
-	// vendor SDKs land (#33 step 3). Empty means "\n\n".
-	PromptSeparator string
 }
 
 // factories is the provider registry: provider ID → client constructor. It is
@@ -132,43 +121,125 @@ func resolveBaseURL(configured, fallback string) string {
 	return strings.TrimRight(configured, "/")
 }
 
-// postJSON marshals payload, POSTs it to url and returns the raw response body.
-// Request and response bodies are logged at debug level through logger.Redact
-// because they carry user text and credentials. Errors are prefixed with the
-// provider's display name so callers can tell providers apart.
-func postJSON(ctx context.Context, cfg Config, p provider, url string, headers map[string]string, payload any) ([]byte, error) {
+// httpClient returns the client to hand the vendor SDKs. Ours carries the
+// timeout; the SDKs add their own retries on top of it.
+func (c Config) httpClient() *http.Client {
+	if c.HTTPClient != nil {
+		return c.HTTPClient
+	}
+	return fallbackClient
+}
+
+// httpAttempts records the round trips the SDK makes. The SDKs retry
+// internally, so without this a log shows one request and one response even
+// when three round trips happened — and a failure the SDK cannot decode into
+// its typed error loses the HTTP status it came with.
+type httpAttempts struct {
+	cfg        Config
+	provider   provider
+	count      int
+	lastStatus int
+}
+
+// middleware fits both SDKs: their Middleware types are identical aliases.
+func (a *httpAttempts) middleware(req *http.Request, next func(*http.Request) (*http.Response, error)) (*http.Response, error) {
+	a.count++
+	attempt := a.count
+
+	resp, err := next(req)
+	if err != nil {
+		logger.Debug("llm: http", "feature", a.cfg.Feature, "provider", a.provider.id,
+			"method", req.Method, "url", req.URL.String(), "attempt", attempt, "err", err)
+		return resp, err
+	}
+	a.lastStatus = resp.StatusCode
+	logger.Debug("llm: http", "feature", a.cfg.Feature, "provider", a.provider.id,
+		"method", req.Method, "url", req.URL.String(), "attempt", attempt, "status", resp.StatusCode)
+	return resp, nil
+}
+
+// statusOrZero is the status of the last response, or 0 if none arrived.
+func (a *httpAttempts) statusOrZero() int { return a.lastStatus }
+
+// logRequest records what we are about to send. The payload is user text, so it
+// only ever reaches the log through Redact.
+func logRequest(cfg Config, p provider, model string, payload any) {
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, fmt.Errorf("%s marshal error: %w", p.name, err)
+		body = []byte(fmt.Sprintf("<unserialisable: %v>", err))
 	}
-	logger.Debug("llm: request", "feature", cfg.Feature, "provider", p.id, "url", url, "payload", logger.Redact(string(body)))
+	logger.Debug("llm: request", "feature", cfg.Feature, "provider", p.id,
+		"model", model, "payload", logger.Redact(string(body)))
+}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("%s build request: %w", p.name, err)
-	}
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
+// logResponse records what came back, again only through Redact.
+func logResponse(cfg Config, p provider, text string) {
+	logger.Debug("llm: response", "feature", cfg.Feature, "provider", p.id,
+		"text", logger.Redact(text))
+}
 
-	httpClient := cfg.HTTPClient
-	if httpClient == nil {
-		httpClient = fallbackClient
+// statusMessage is the one-line reason a user sees, keyed by HTTP status.
+//
+// The provider's own error message is deliberately not used (#41): validation
+// and content-filter messages echo parts of the request, so putting one in an
+// error string leaks user text into every log line that formats that error,
+// whatever the sensitive-logging setting says. The raw body goes to Debug
+// through Redact and nowhere else.
+func statusMessage(status int) string {
+	switch status {
+	case http.StatusBadRequest:
+		return "the request was rejected as invalid"
+	case http.StatusPaymentRequired:
+		// The one status whose cause is unambiguous and not sensitive.
+		return "the account is out of credit or has a billing problem"
+	case http.StatusUnauthorized:
+		return "the API key was not accepted"
+	case http.StatusForbidden:
+		return "this key is not allowed to use that model"
+	case http.StatusNotFound:
+		return "the model or endpoint was not found"
+	case http.StatusRequestTimeout:
+		return "the provider timed out"
+	case http.StatusRequestEntityTooLarge:
+		return "the request was too large"
+	case http.StatusTooManyRequests:
+		return "rate limited — try again shortly"
 	}
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("%s request failed: %w", p.name, err)
+	if status >= 500 {
+		return "the provider is unavailable"
 	}
-	defer resp.Body.Close()
+	return "the provider rejected the request"
+}
 
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("%s read response failed: %w", p.name, err)
+// apiError is the user-facing wording for a provider that answered with a
+// status: "<Provider> error <status>: <reason>".
+func apiError(p provider, status int, rawBody string) error {
+	if rawBody != "" {
+		logger.Debug("llm: error body", "provider", p.id, "status", status, "body", logger.Redact(rawBody))
 	}
-	logger.Debug("llm: response", "feature", cfg.Feature, "provider", p.id, "status", resp.StatusCode, "body", logger.Redact(string(respBody)))
+	return fmt.Errorf("%s error %d: %s", p.name, status, statusMessage(status))
+}
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s error %d: %s", p.name, resp.StatusCode, respBody)
-	}
-	return respBody, nil
+// transportError is the wording for a provider we could not reach at all.
+//
+// Never pass an SDK *apierror.Error here: its Error() concatenates the raw
+// response body, which is exactly what #41 keeps out of error strings. Map it
+// through apiError instead.
+func transportError(p provider, err error) error {
+	return fmt.Errorf("%s request failed: %w", p.name, err)
+}
+
+// sdkOptions are the settings both vendor SDKs get.
+//
+// MaxRetries is 1, not the SDK default of 2. The retry loop honours the
+// context, so a retried 429 with a long Retry-After spends the caller's whole
+// budget and then surfaces as "context deadline exceeded" — the user waits
+// silently and never learns they were rate limited. One retry keeps the
+// benefit for a transient blip without hiding a real one for two minutes.
+const sdkMaxRetries = 1
+
+// requestTimeout is the per-attempt budget handed to the SDK, so the timeout it
+// advertises to the server matches the one our HTTP client enforces.
+func (c Config) requestTimeout() time.Duration {
+	return c.httpClient().Timeout
 }
