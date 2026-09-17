@@ -356,6 +356,15 @@ describe('SettingsComponent — Claude Code provider card', () => {
     expect(text('claude-code-status-tag')).toContain('signed in');
   });
 
+  it('runs detection itself rather than waiting to be asked', async () => {
+    await render({ installed: true, loggedIn: true });
+    // ngOnInit awaits five backend calls before it kicks off detection.
+    await fixture.whenStable();
+    await fixture.whenStable();
+
+    expect(wailsMock.getClaudeCodeStatus).toHaveBeenCalled();
+  });
+
   it('offers the CLI as an active provider', async () => {
     await render({ installed: true, loggedIn: true });
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -26,6 +27,22 @@ const notSignedInMessage = "Claude Code is installed but not signed in. Open a t
 // process itself has been killed, so a stuck child cannot hang the caller.
 const cliWaitDelay = 5 * time.Second
 
+// blockedCLIEnv lists environment variables that would redirect the CLI away
+// from the account the user signed in with. KeyLint itself reads
+// ANTHROPIC_API_KEY for its BYOK providers, and the CLI treats that key as
+// taking precedence over the claude.ai login — so inheriting it would silently
+// bill a different account than the UI promises, and an expired key makes the
+// CLI hang instead of failing. Stripping them keeps this provider what it says
+// it is: the user's own subscription, and no credential passed along by us.
+var blockedCLIEnv = []string{
+	"ANTHROPIC_API_KEY",
+	"ANTHROPIC_AUTH_TOKEN",
+	"ANTHROPIC_BASE_URL",
+	"CLAUDE_CODE_USE_BEDROCK",
+	"CLAUDE_CODE_USE_VERTEX",
+	"AWS_BEARER_TOKEN_BEDROCK",
+}
+
 // claudeCodeEnvelope is what `claude -p --output-format json` prints. Only the
 // fields KeyLint acts on are listed.
 type claudeCodeEnvelope struct {
@@ -44,7 +61,8 @@ type claudeCodeClient struct {
 func newClaudeCode(cfg Config) Client { return &claudeCodeClient{cfg: cfg} }
 
 // Complete runs one print-mode call against the locally installed binary.
-// The prompt goes in on stdin so it never appears in the process table.
+// The prompt goes in on stdin and the system prompt via a file, so neither ever
+// reaches the command line.
 func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response, error) {
 	name := claudeCodeProvider.name
 	if req.Model == "" {
@@ -60,6 +78,17 @@ func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response,
 		path = located
 	}
 
+	// System prompts run to several kilobytes and are full of quotes and
+	// newlines. On Windows the binary is usually claude.cmd, and cmd.exe re-parses
+	// the command line with quoting rules Go does not escape for and a hard 8191
+	// character limit — so passing the prompt as an argument would corrupt it.
+	// A file sidesteps the command line entirely, on every platform.
+	promptFile, cleanup, err := writeSystemPromptFile(req.System)
+	if err != nil {
+		return Response{}, fmt.Errorf("%s: %w", name, err)
+	}
+	defer cleanup()
+
 	// --bare looks right here but skips credential reads, which makes a
 	// signed-in user look signed out. Never add it.
 	args := []string{
@@ -71,7 +100,9 @@ func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response,
 		"--strict-mcp-config",
 		"--setting-sources", "",
 		"--disable-slash-commands",
-		"--system-prompt", req.System,
+	}
+	if promptFile != "" {
+		args = append(args, "--system-prompt-file", promptFile)
 	}
 
 	logger.Debug("llm: request", "feature", c.cfg.Feature, "provider", claudeCodeProvider.id,
@@ -79,6 +110,7 @@ func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response,
 		"system", logger.Redact(req.System), "user", logger.Redact(req.User))
 
 	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.Env = cliEnv()
 	cmd.Stdin = strings.NewReader(req.User)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -93,13 +125,16 @@ func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response,
 		"exit_err", runErr, "stdout", logger.Redact(string(out)), "stderr", logger.Redact(stderr.String()))
 
 	// A cancelled or timed-out context is the caller's own doing, so report it
-	// as such rather than as a CLI failure, and keep it unwrappable.
+	// as such and keep it unwrappable. stderr rides along because it is often
+	// the only place the CLI says why it went quiet.
 	if ctxErr := ctx.Err(); ctxErr != nil {
+		if detail := lastNonEmptyLine(stderr.String()); detail != "" {
+			return Response{}, fmt.Errorf("%s request failed (%s): %w", name, detail, ctxErr)
+		}
 		return Response{}, fmt.Errorf("%s request failed: %w", name, ctxErr)
 	}
 
-	var env claudeCodeEnvelope
-	parsed := json.Unmarshal(out, &env) == nil
+	env, parsed := parseClaudeCodeEnvelope(out)
 
 	if parsed && env.IsError {
 		return Response{}, fmt.Errorf("%s: %s", name, claudeCodeFailure(env))
@@ -113,11 +148,80 @@ func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response,
 	if !parsed {
 		return Response{}, fmt.Errorf("%s unexpected response: %s", name, out)
 	}
+	// An empty result would be pasted over the user's selection as nothing at
+	// all, so treat it the way the HTTP providers treat an empty content block.
+	if strings.TrimSpace(env.Result) == "" {
+		return Response{}, fmt.Errorf("%s returned an empty result", name)
+	}
 
 	logger.Info("llm: claude code call finished", "feature", c.cfg.Feature,
 		"model", req.Model, "duration_ms", env.DurationMS, "total_cost_usd", env.TotalCostUSD)
 
 	return Response{Text: env.Result}, nil
+}
+
+// writeSystemPromptFile stores the system prompt where the CLI can read it.
+// It returns an empty path when there is no system prompt to pass.
+func writeSystemPromptFile(systemPrompt string) (path string, cleanup func(), err error) {
+	if systemPrompt == "" {
+		return "", func() {}, nil
+	}
+	// 0600: the prompt is the user's own text and nobody else's business.
+	file, err := os.CreateTemp("", "keylint-system-prompt-*.txt")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("could not stage the system prompt: %w", err)
+	}
+	remove := func() { _ = os.Remove(file.Name()) }
+	if _, err := file.WriteString(systemPrompt); err != nil {
+		_ = file.Close()
+		remove()
+		return "", func() {}, fmt.Errorf("could not write the system prompt: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		remove()
+		return "", func() {}, fmt.Errorf("could not write the system prompt: %w", err)
+	}
+	return file.Name(), remove, nil
+}
+
+// cliEnv returns the environment for the CLI: ours, minus anything that would
+// point it at another account. See blockedCLIEnv.
+func cliEnv() []string {
+	parent := os.Environ()
+	filtered := make([]string, 0, len(parent))
+	for _, entry := range parent {
+		name, _, found := strings.Cut(entry, "=")
+		if found && isBlockedCLIEnv(name) {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	return filtered
+}
+
+// isBlockedCLIEnv matches case-insensitively, because Windows environment
+// variable names are.
+func isBlockedCLIEnv(name string) bool {
+	for _, blocked := range blockedCLIEnv {
+		if strings.EqualFold(name, blocked) {
+			return true
+		}
+	}
+	return false
+}
+
+// parseClaudeCodeEnvelope decodes the JSON envelope, tolerating anything the
+// CLI or an npm shim printed before it (update notices, deprecation warnings).
+func parseClaudeCodeEnvelope(out []byte) (claudeCodeEnvelope, bool) {
+	start := bytes.IndexByte(out, '{')
+	if start < 0 {
+		return claudeCodeEnvelope{}, false
+	}
+	var env claudeCodeEnvelope
+	if err := json.NewDecoder(bytes.NewReader(out[start:])).Decode(&env); err != nil {
+		return claudeCodeEnvelope{}, false
+	}
+	return env, true
 }
 
 // claudeCodeFailure turns an error envelope into something the user can act on.
@@ -142,17 +246,27 @@ func isNotSignedIn(s string) bool {
 		strings.Contains(lowered, "not authenticated")
 }
 
-// cliFailureDetail prefers the first line of stderr, which is where the CLI
-// puts its own diagnosis, and falls back to the exec error.
+// cliFailureDetail prefers the last line of stderr, which is where a failing
+// CLI puts its diagnosis — the first line is often an unrelated update notice
+// from the npm shim — and falls back to the exec error.
 func cliFailureDetail(runErr error, stderr string) string {
-	for _, line := range strings.Split(stderr, "\n") {
-		if trimmed := strings.TrimSpace(line); trimmed != "" {
-			return trimmed
-		}
+	if line := lastNonEmptyLine(stderr); line != "" {
+		return line
 	}
 	var exitErr *exec.ExitError
 	if errors.As(runErr, &exitErr) {
 		return fmt.Sprintf("exited with status %d and no output", exitErr.ExitCode())
 	}
 	return runErr.Error()
+}
+
+// lastNonEmptyLine returns the final line with content, or "".
+func lastNonEmptyLine(s string) string {
+	lines := strings.Split(s, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if trimmed := strings.TrimSpace(lines[i]); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }

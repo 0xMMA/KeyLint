@@ -62,9 +62,12 @@ const (
 // httpTimeout bounds a provider HTTP call, and enhanceTimeout bounds the whole
 // enhancement including a local CLI provider, which has no HTTP client to bound
 // it. Without either, a dead provider hangs the silent-fix hotkey forever.
+//
+// 90s matches the bound Pyramidize has always used, so a slow local Ollama
+// generation that works there is not cut short here.
 const (
-	httpTimeout    = 60 * time.Second
-	enhanceTimeout = 90 * time.Second
+	httpTimeout    = 90 * time.Second
+	enhanceTimeout = 120 * time.Second
 )
 
 // logFeature tags this feature's provider calls in the log.

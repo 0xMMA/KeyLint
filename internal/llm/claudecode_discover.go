@@ -43,6 +43,11 @@ func LocateClaudeCode() (string, error) {
 	return "", fmt.Errorf("%s: not found. Install Claude Code, or pick a provider with an API key in Settings", claudeCodeProvider.name)
 }
 
+// systemCandidates are the machine-wide install locations on Unix. It is a
+// variable so a test can narrow it: a real installation on the developer's
+// machine must not be able to decide a discovery test's outcome.
+var systemCandidates = []string{"/usr/local/bin/claude", "/opt/homebrew/bin/claude"}
+
 // claudeCodeCandidates lists the per-platform install locations to probe.
 func claudeCodeCandidates() []string {
 	if runtime.GOOS == "windows" {
@@ -54,22 +59,31 @@ func claudeCodeCandidates() []string {
 			paths = append(paths, filepath.Join(localAppData, "Programs", "claude", "claude.exe"))
 		}
 		if userProfile := os.Getenv("USERPROFILE"); userProfile != "" {
-			paths = append(paths, filepath.Join(userProfile, ".local", "bin", "claude.exe"))
+			paths = append(paths,
+				filepath.Join(userProfile, ".local", "bin", "claude.exe"),
+				// Left behind by the older `claude migrate-installer` layout.
+				filepath.Join(userProfile, ".claude", "local", "claude.exe"),
+			)
 		}
 		return paths
 	}
 
-	paths := []string{"/usr/local/bin/claude", "/opt/homebrew/bin/claude"}
+	paths := append([]string(nil), systemCandidates...)
 	if home, err := os.UserHomeDir(); err == nil {
 		paths = append(paths,
 			filepath.Join(home, ".local", "bin", "claude"),
 			filepath.Join(home, ".npm-global", "bin", "claude"),
+			// Left behind by the older `claude migrate-installer` layout.
+			filepath.Join(home, ".claude", "local", "claude"),
 		)
 	}
 	return paths
 }
 
-// isExecutable reports whether path is a regular file KeyLint could run.
+// isExecutable reports whether path is a regular file KeyLint could run. It is
+// only ever asked about the hardcoded candidates above, whose extensions decide
+// the matter on Windows; it is not a safe test for an arbitrary user-supplied
+// path.
 func isExecutable(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil || info.IsDir() {
@@ -100,7 +114,10 @@ func CheckClaudeCode(ctx context.Context, cliPath string) ClaudeCodeStatus {
 	status.Version = claudeCodeVersion(ctx, path)
 	status.LoggedIn = claudeCodeLoggedIn(ctx, path)
 
-	logger.Info("llm: claude code status", "path", status.Path, "version", status.Version, "logged_in", status.LoggedIn)
+	// The path carries the user's account name on Windows, so it stays out of
+	// the log level people attach to bug reports.
+	logger.Debug("llm: claude code path", "path", logger.Redact(status.Path))
+	logger.Info("llm: claude code status", "version", status.Version, "logged_in", status.LoggedIn)
 	return status
 }
 

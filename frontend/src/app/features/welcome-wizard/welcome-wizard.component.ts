@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
@@ -67,7 +67,7 @@ import { WailsService, ClaudeCodeStatus } from '../../core/wails.service';
                 />
                 <div class="step-footer">
                   <p-button data-testid="wizard-back" label="Back" severity="secondary" (onClick)="step = 1" />
-                  <p-button data-testid="wizard-next" label="Next" icon="pi pi-arrow-right" iconPos="right" (onClick)="step = 3" [disabled]="!selectedProvider" />
+                  <p-button data-testid="wizard-next" label="Next" icon="pi pi-arrow-right" iconPos="right" (onClick)="step = usesClaudeCode ? 4 : 3" [disabled]="!selectedProvider" />
                 </div>
               </div>
             }
@@ -236,7 +236,11 @@ export class WelcomeWizardComponent implements OnInit {
     { label: 'Ollama (local, free)', value: 'ollama' },
   ];
 
-  constructor(private readonly wails: WailsService, private readonly router: Router) {}
+  constructor(
+    private readonly wails: WailsService,
+    private readonly router: Router,
+    private readonly cdr: ChangeDetectorRef,
+  ) {}
 
   async ngOnInit(): Promise<void> {
     const isFirst = await this.wails.isFirstRun();
@@ -245,6 +249,9 @@ export class WelcomeWizardComponent implements OnInit {
       return;
     }
     this.claudeCode = await this.wails.getClaudeCodeStatus();
+    // The app is zoneless: without this the option never appears, because
+    // nothing else triggers change detection after detection finishes.
+    this.cdr.detectChanges();
   }
 
   /** True when the CLI can be used right now — installed and already signed in. */
@@ -275,6 +282,7 @@ export class WelcomeWizardComponent implements OnInit {
   }
 
   get providerLabel(): string {
+    if (this.usesClaudeCode) return 'Claude Code (installed CLI)';
     return this.providers.find(p => p.value === this.selectedProvider)?.label ?? '';
   }
 
@@ -282,6 +290,7 @@ export class WelcomeWizardComponent implements OnInit {
     switch (this.selectedProvider) {
       case 'openai': return 'sk-…';
       case 'claude': return 'sk-ant-…';
+      case 'claude-code': return 'No key required — you are signed in to the CLI';
       default: return 'No key required for Ollama';
     }
   }

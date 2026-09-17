@@ -1,4 +1,4 @@
-import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
@@ -419,7 +419,7 @@ interface ProviderKey {
     }
   `],
 })
-export class SettingsComponent implements OnInit {
+export class SettingsComponent implements OnInit, OnDestroy {
   settings: AppSettings | null = null;
   saved = false;
   keyError = '';
@@ -475,6 +475,8 @@ export class SettingsComponent implements OnInit {
   /** Null until the first detection run finishes. */
   claudeCodeStatus: ClaudeCodeStatus | null = null;
   claudeCodeChecking = false;
+  /** Detection can take seconds; the user may navigate away meanwhile. */
+  private destroyed = false;
 
   providerKeys: ProviderKey[] = [
     { id: 'openai',  label: 'OpenAI API Key',      status: null, editing: false, draftKey: '', saving: false },
@@ -503,6 +505,10 @@ export class SettingsComponent implements OnInit {
     void this.recheckClaudeCode();
   }
 
+  ngOnDestroy(): void {
+    this.destroyed = true;
+  }
+
   /** Re-runs Claude Code detection, e.g. after the user signed in elsewhere. */
   async recheckClaudeCode(): Promise<void> {
     this.claudeCodeChecking = true;
@@ -511,7 +517,10 @@ export class SettingsComponent implements OnInit {
       this.claudeCodeStatus = await this.wails.getClaudeCodeStatus();
     } finally {
       this.claudeCodeChecking = false;
-      this.cdr.detectChanges();
+      // Detection can outlive the screen; refreshing a destroyed view throws.
+      if (!this.destroyed) {
+        this.cdr.detectChanges();
+      }
     }
   }
 

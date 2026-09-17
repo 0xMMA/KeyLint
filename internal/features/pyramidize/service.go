@@ -29,6 +29,11 @@ const (
 // logFeature tags this feature's provider calls in the log.
 const logFeature = "pyramidize"
 
+// callTimeout bounds a single AI call. The HTTP client carries its own timeout,
+// but a local CLI provider has none — and the -pyramidize CLI has no cancel
+// button to fall back on.
+const callTimeout = 120 * time.Second
+
 // ollamaPromptSeparator reproduces the exact system/user join this pipeline used
 // before internal/llm existed — Ollama's /api/generate takes a single prompt.
 const ollamaPromptSeparator = "\n\n---\n\n"
@@ -404,7 +409,10 @@ func (svc *Service) callAIWithContext(ctx context.Context, cfg settings.Settings
 	if err != nil {
 		return "", err
 	}
-	return svc.callAISync(ctx, cfg, opts, apiKey, systemPrompt, userMessage)
+
+	callCtx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	return svc.callAISync(callCtx, cfg, opts, apiKey, systemPrompt, userMessage)
 }
 
 // resolveAPIKey fetches the API key for the given provider from the keyring.

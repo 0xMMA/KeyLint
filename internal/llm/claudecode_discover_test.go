@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -9,30 +10,43 @@ import (
 	"testing"
 )
 
-// isolateCLILookup points discovery at empty directories so a real Claude Code
-// installation on the developer's machine cannot decide the outcome.
+// isolateCLILookup points discovery at empty directories and clears the
+// machine-wide candidates, so a real Claude Code installation on the
+// developer's machine cannot decide a test's outcome — and so no test is
+// silently skipped on a machine that happens to have one.
 func isolateCLILookup(t *testing.T) string {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("the stub CLI is a shell script; the Windows lookup path is covered by review, not by this test")
-	}
-	for _, systemPath := range []string{"/usr/local/bin/claude", "/opt/homebrew/bin/claude"} {
-		if isExecutable(systemPath) {
-			t.Skipf("%s exists on this machine, so discovery cannot be isolated", systemPath)
-		}
-	}
+	original := systemCandidates
+	systemCandidates = nil
+	t.Cleanup(func() { systemCandidates = original })
+
 	dir := t.TempDir()
 	t.Setenv("PATH", dir)
+	// os.UserHomeDir reads HOME on Unix and USERPROFILE on Windows.
 	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
 	return dir
+}
+
+// installStubAt puts a runnable stand-in CLI at path.
+func installStubAt(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	binary, err := os.ReadFile(stubPath)
+	if err != nil {
+		t.Fatalf("read stub CLI: %v", err)
+	}
+	if err := os.WriteFile(path, binary, 0o755); err != nil {
+		t.Fatalf("write stub CLI: %v", err)
+	}
 }
 
 func TestLocateClaudeCodeOnPath(t *testing.T) {
 	dir := isolateCLILookup(t)
-	binary := filepath.Join(dir, "claude")
-	if err := os.WriteFile(binary, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatalf("write stub CLI: %v", err)
-	}
+	binary := filepath.Join(dir, claudeBinaryName())
+	installStubAt(t, binary)
 
 	got, err := LocateClaudeCode()
 	if err != nil {
@@ -48,14 +62,8 @@ func TestLocateClaudeCodeOnPath(t *testing.T) {
 // the known install directories have to be probed too.
 func TestLocateClaudeCodeOffPath(t *testing.T) {
 	home := isolateCLILookup(t)
-	binDir := filepath.Join(home, ".local", "bin")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	binary := filepath.Join(binDir, "claude")
-	if err := os.WriteFile(binary, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatalf("write stub CLI: %v", err)
-	}
+	binary := filepath.Join(home, ".local", "bin", claudeBinaryName())
+	installStubAt(t, binary)
 
 	got, err := LocateClaudeCode()
 	if err != nil {
@@ -75,8 +83,12 @@ func TestLocateClaudeCodeNotInstalled(t *testing.T) {
 }
 
 // TestLocateClaudeCodeIgnoresNonExecutable guards against reporting a stray file
-// named "claude" as an installation.
+// named "claude" as an installation. Windows decides by extension instead, so
+// there is nothing to check there.
 func TestLocateClaudeCodeIgnoresNonExecutable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows treats any file with the right extension as runnable")
+	}
 	home := isolateCLILookup(t)
 	binDir := filepath.Join(home, ".local", "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
@@ -92,14 +104,15 @@ func TestLocateClaudeCodeIgnoresNonExecutable(t *testing.T) {
 }
 
 func TestCheckClaudeCodeSignedIn(t *testing.T) {
-	cli := newStatusCLI(t, "2.1.274 (Claude Code)", `{"loggedIn":true,"authMethod":"claude.ai","email":"someone@example.com"}`)
+	t.Setenv("CLAUDESTUB_VERSION", "2.1.274 (Claude Code)")
+	t.Setenv("CLAUDESTUB_AUTH", `{"loggedIn":true,"authMethod":"claude.ai","email":"someone@example.com"}`)
 
-	status := CheckClaudeCode(context.Background(), cli)
+	status := CheckClaudeCode(context.Background(), stubPath)
 	if !status.Installed {
 		t.Error("Installed = false, want true")
 	}
-	if status.Path != cli {
-		t.Errorf("Path = %q, want %q", status.Path, cli)
+	if status.Path != stubPath {
+		t.Errorf("Path = %q, want %q", status.Path, stubPath)
 	}
 	if status.Version != "2.1.274" {
 		t.Errorf("Version = %q, want 2.1.274", status.Version)
@@ -110,9 +123,10 @@ func TestCheckClaudeCodeSignedIn(t *testing.T) {
 }
 
 func TestCheckClaudeCodeSignedOut(t *testing.T) {
-	cli := newStatusCLI(t, "2.1.274 (Claude Code)", `{"loggedIn":false}`)
+	t.Setenv("CLAUDESTUB_VERSION", "2.1.274 (Claude Code)")
+	t.Setenv("CLAUDESTUB_AUTH", `{"loggedIn":false}`)
 
-	status := CheckClaudeCode(context.Background(), cli)
+	status := CheckClaudeCode(context.Background(), stubPath)
 	if !status.Installed {
 		t.Error("Installed = false, want true — the binary is there, only the session is not")
 	}
@@ -131,31 +145,22 @@ func TestCheckClaudeCodeNotInstalled(t *testing.T) {
 }
 
 // TestClaudeCodeStatusCarriesNoAccountDetails pins a privacy promise: `claude
-// auth status` also prints the account's email and organisation, and none of
-// that may travel to the frontend.
+// auth status` also prints the account's email, organisation and subscription,
+// and none of that may travel to the frontend. Marshalling the whole struct
+// means the test also fails if somebody adds such a field later.
 func TestClaudeCodeStatusCarriesNoAccountDetails(t *testing.T) {
-	cli := newStatusCLI(t, "2.1.274 (Claude Code)", `{"loggedIn":true,"email":"someone@example.com","orgName":"Someone's Org"}`)
+	t.Setenv("CLAUDESTUB_VERSION", "2.1.274 (Claude Code)")
+	t.Setenv("CLAUDESTUB_AUTH", `{"loggedIn":true,"authMethod":"claude.ai","email":"someone@example.com",`+
+		`"orgId":"f55e112d","orgName":"Someone's Org","subscriptionType":"max"}`)
 
-	status := CheckClaudeCode(context.Background(), cli)
-	rendered := status.Path + status.Version
-	if strings.Contains(rendered, "someone@example.com") || strings.Contains(rendered, "Someone's Org") {
-		t.Errorf("status leaked account details: %+v", status)
+	status := CheckClaudeCode(context.Background(), stubPath)
+	rendered, err := json.Marshal(status)
+	if err != nil {
+		t.Fatalf("marshal status: %v", err)
 	}
-}
-
-// newStatusCLI writes a stub that answers `--version` and `auth status`.
-func newStatusCLI(t *testing.T, version, authJSON string) string {
-	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("the stub CLI is a shell script; the Windows probe path is covered by review, not by this test")
+	for _, secret := range []string{"someone@example.com", "f55e112d", "Someone's Org", "max", "authMethod"} {
+		if strings.Contains(string(rendered), secret) {
+			t.Errorf("status leaked %q: %s", secret, rendered)
+		}
 	}
-	path := filepath.Join(t.TempDir(), "claude")
-	script := "#!/bin/sh\ncase \"$1\" in\n" +
-		"  --version) echo '" + version + "' ;;\n" +
-		"  auth) echo '" + authJSON + "' ;;\n" +
-		"  *) exit 1 ;;\nesac\n"
-	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
-		t.Fatalf("write stub CLI: %v", err)
-	}
-	return path
 }

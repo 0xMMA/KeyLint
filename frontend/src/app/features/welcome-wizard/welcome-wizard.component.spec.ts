@@ -293,3 +293,114 @@ describe('WelcomeWizardComponent — Claude Code fast path', () => {
     expect(el.querySelector('[data-testid="step-2-content"]')).not.toBeNull();
   });
 });
+
+describe('WelcomeWizardComponent — Claude Code detection reaches the screen', () => {
+  let fixture: ComponentFixture<WelcomeWizardComponent>;
+  let el: HTMLElement;
+  let wailsMock: ReturnType<typeof createWailsMock>;
+
+  // Renders from step 1 and lets ngOnInit do the detection itself — no
+  // pre-setting, because the point is whether the option ever becomes visible.
+  // The app is zoneless, so a component that assigns after an await without
+  // asking for change detection renders nothing.
+  async function renderFromStart(status: Partial<ClaudeCodeStatus>): Promise<void> {
+    wailsMock = createWailsMock();
+    wailsMock.isFirstRun.mockResolvedValue(true);
+    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings });
+    wailsMock.getClaudeCodeStatus.mockResolvedValue({ ...defaultClaudeCodeStatus, ...status });
+
+    await TestBed.configureTestingModule({
+      imports: [WelcomeWizardComponent],
+      providers: [
+        provideRouter([{ path: 'enhance', component: WelcomeWizardComponent }]),
+        provideAnimationsAsync(),
+        { provide: WailsService, useValue: wailsMock },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(WelcomeWizardComponent);
+    el = fixture.nativeElement;
+    fixture.detectChanges();
+    await fixture.whenStable();
+  }
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('asks the backend whether the CLI is available', async () => {
+    await renderFromStart({ installed: true, loggedIn: true });
+
+    expect(wailsMock.getClaudeCodeStatus).toHaveBeenCalled();
+  });
+
+  it('shows the option when detection finishes after the user moved on', async () => {
+    // The realistic Windows case: detection goes through the claude.cmd shim
+    // and takes seconds, so it lands after the user clicked past step 1.
+    //
+    // This pins the behaviour, not the mechanism: TestBed's whenStable() runs a
+    // change-detection pass that production does not, so the test still passes
+    // if the component drops its own detectChanges(). The app is zoneless, so
+    // in the real app that assignment would render nothing until the user
+    // happened to click something else.
+    let resolveStatus: (s: ClaudeCodeStatus) => void = () => {};
+    wailsMock = createWailsMock();
+    wailsMock.isFirstRun.mockResolvedValue(true);
+    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings });
+    wailsMock.getClaudeCodeStatus.mockReturnValue(
+      new Promise<ClaudeCodeStatus>(resolve => { resolveStatus = resolve; }),
+    );
+
+    await TestBed.configureTestingModule({
+      imports: [WelcomeWizardComponent],
+      providers: [
+        provideRouter([{ path: 'enhance', component: WelcomeWizardComponent }]),
+        provideAnimationsAsync(),
+        { provide: WailsService, useValue: wailsMock },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(WelcomeWizardComponent);
+    el = fixture.nativeElement;
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    el.querySelector<HTMLButtonElement>('[data-testid="wizard-next"] button')!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid="wizard-claude-code"]')).toBeNull();
+
+    resolveStatus({ ...defaultClaudeCodeStatus, installed: true, loggedIn: true, path: '/usr/local/bin/claude' });
+    await fixture.whenStable();
+
+    const option = el.querySelector<HTMLButtonElement>('[data-testid="wizard-claude-code"]');
+    expect(option).not.toBeNull();
+    expect(option!.disabled).toBe(false);
+  });
+
+  it('leaves no dead end: Next after choosing the CLI skips the key step', async () => {
+    await renderFromStart({ installed: true, loggedIn: true, path: '/usr/local/bin/claude' });
+
+    // Step 1 → 2, pick the CLI, then Back to 2 and forward again with Next.
+    el.querySelector<HTMLButtonElement>('[data-testid="wizard-next"] button')!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    el.querySelector<HTMLButtonElement>('[data-testid="wizard-claude-code"]')!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    el.querySelector<HTMLButtonElement>('[data-testid="wizard-back"] button')!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid="step-2-content"]')).not.toBeNull();
+
+    el.querySelector<HTMLButtonElement>('[data-testid="wizard-next"] button')!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // Step 3 would ask for an API key the CLI does not need, with Next disabled.
+    expect(el.querySelector('[data-testid="step-3-content"]')).toBeNull();
+    expect(el.querySelector('[data-testid="step-4-content"]')).not.toBeNull();
+  });
+});
