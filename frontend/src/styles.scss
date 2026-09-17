@@ -27,11 +27,17 @@
   // Form fields: input, textarea, select
   .p-textarea,
   .p-inputtext,
-  .p-select,
-  .p-select-label {
+  .p-select {
     background: var(--p-surface-950);
     color: var(--p-text-color);
     border-color: var(--p-surface-700);
+  }
+  // .p-select-label is a square span 1px inside the rounded .p-select box.
+  // An opaque background here paints over the border's corner arcs at
+  // top-left / bottom-left (#37). Keep Aura's transparent background;
+  // only the text color needs the dark-mode fix.
+  .p-select-label {
+    color: var(--p-text-color);
   }
 }
 
