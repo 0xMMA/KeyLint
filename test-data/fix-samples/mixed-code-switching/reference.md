@@ -1,1 +1,1 @@
-Okay, ich habe den Branch gemerged, aber die Pipeline ist rot. Es liegt wohl an den Flaky Tests, I will look into it tomorrow morning.
+Ok, so ich hab den Branch gemerged, aber die Pipeline ist rot. Läuft wohl an den flaky Tests, I will look into it tomorrow morning.

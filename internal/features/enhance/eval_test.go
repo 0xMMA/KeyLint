@@ -177,7 +177,7 @@ func TestEvalFix(t *testing.T) {
 				output = strings.TrimSpace(output)
 				_ = os.WriteFile(filepath.Join(outputsDir, sample.Name+".md"), []byte(output), 0o644)
 
-				sr.Deterministic = RunDeterministicChecks(sample.Input, output, sample.Notes)
+				sr.Deterministic = RunDeterministicChecks(sample.Input, sample.Reference, output, sample.Notes)
 				totalDet += sr.Deterministic.OverallScore
 
 				t.Logf("deterministic: %.2f (pass=%v)", sr.Deterministic.OverallScore, sr.Deterministic.AllPassed)

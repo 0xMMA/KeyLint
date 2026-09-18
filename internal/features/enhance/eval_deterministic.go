@@ -10,10 +10,16 @@ import (
 // properties that can be decided by looking at the text, so that the judge is
 // only asked about the things that genuinely need judgement.
 //
-// The design constraint worth stating: none of this may be satisfiable by
-// returning the input unchanged. That is the cheapest possible wrong answer and
-// an eval that rewards it measures nothing. RequiredFixes is what forbids it —
-// every sample but one lists corrections the output must actually contain.
+// The design constraint: a wrong answer must not be able to score well. The
+// first version of this file only defended against echoing the input, which is
+// one cheap wrong answer out of many — a review showed that an output made of
+// nothing but the expected strings, padded to the right length, scored 1.000 on
+// 13 of the 15 samples. Presence tests and a rune count cannot tell prose from
+// word salad.
+//
+// So two checks bind the output to the actual text: contentRetained holds it to
+// the input's own words, and resemblesReference holds it to a human correction
+// of that input. Salad fails both; a truncation fails the first.
 
 // CheckResult is one named check with a 0–1 score.
 type CheckResult struct {
@@ -50,9 +56,11 @@ type fixPair struct {
 }
 
 // RunDeterministicChecks scores one output against what its notes demand.
-func RunDeterministicChecks(input, output string, n SampleNotes) Scorecard {
+func RunDeterministicChecks(input, reference, output string, n SampleNotes) Scorecard {
 	checks := []CheckResult{
 		checkRequiredFixes(output, n),
+		checkContentRetained(input, output, n),
+		checkResemblesReference(reference, output),
 		checkLanguagePreserved(output, n),
 		checkNoCommentary(output),
 		checkToneAnchors(output, n),
@@ -125,6 +133,106 @@ func fixApplied(output string, f fixPair) bool {
 	return !strings.Contains(lower, from)
 }
 
+// wordRe splits text into words, keeping letters and digits across scripts so
+// German umlauts and ß are not chopped into pieces.
+var wordRe = regexp.MustCompile(`[\p{L}\p{N}]+`)
+
+func words(s string) []string {
+	var out []string
+	for _, w := range wordRe.FindAllString(strings.ToLower(s), -1) {
+		out = append(out, w)
+	}
+	return out
+}
+
+// checkContentRetained: the words the author wrote have to still be there.
+//
+// A correction changes spelling and punctuation; it does not remove content.
+// This is what stops an output that drops half the paragraph — and, with the
+// reference check below, what stops one that is a bag of expected keywords.
+//
+// Words that a required fix is supposed to remove are excluded, or the check
+// would demand the error be kept. Short words are ignored: they are the ones
+// corrections legitimately add and drop.
+func checkContentRetained(input, output string, n SampleNotes) CheckResult {
+	corrected := map[string]bool{}
+	for _, f := range n.RequiredFixes {
+		for _, w := range words(f.From) {
+			corrected[w] = true
+		}
+	}
+
+	have := map[string]bool{}
+	for _, w := range words(output) {
+		have[w] = true
+	}
+
+	var missing []string
+	total := 0
+	for _, w := range words(input) {
+		if len([]rune(w)) < 4 || corrected[w] {
+			continue
+		}
+		total++
+		if !have[w] {
+			missing = append(missing, w)
+		}
+	}
+	if total == 0 {
+		return CheckResult{Name: "content_retained", Score: 1, Pass: true, Detail: "nothing to hold on to"}
+	}
+
+	kept := float64(total-len(missing)) / float64(total)
+	detail := fmt.Sprintf("%.0f%% of the author's words kept", kept*100)
+	if len(missing) > 0 {
+		shown := missing
+		if len(shown) > 6 {
+			shown = shown[:6]
+		}
+		detail += fmt.Sprintf(" (lost %v)", shown)
+	}
+	// 0.8 rather than 1.0: a genuine correction may replace a word, and rule 8
+	// replacements are the point of two samples.
+	return CheckResult{Name: "content_retained", Score: kept, Pass: kept >= 0.8, Detail: detail}
+}
+
+// checkResemblesReference scores the output against a human correction of the
+// same input, as token F1.
+//
+// Not to demand the reference verbatim — the judge is told explicitly that the
+// reference is one acceptable answer among several. This is a floor: a real
+// correction of this input lands near the reference, and a bag of keywords does
+// not. It is the check that makes the suite resistant to gaming rather than
+// merely resistant to echoing.
+func checkResemblesReference(reference, output string) CheckResult {
+	ref, out := words(reference), words(output)
+	if len(ref) == 0 || len(out) == 0 {
+		return CheckResult{Name: "resembles_reference", Score: 0, Pass: false, Detail: "empty"}
+	}
+
+	refCount := map[string]int{}
+	for _, w := range ref {
+		refCount[w]++
+	}
+	overlap := 0
+	for _, w := range out {
+		if refCount[w] > 0 {
+			refCount[w]--
+			overlap++
+		}
+	}
+	precision := float64(overlap) / float64(len(out))
+	recall := float64(overlap) / float64(len(ref))
+	f1 := 0.0
+	if precision+recall > 0 {
+		f1 = 2 * precision * recall / (precision + recall)
+	}
+	return CheckResult{
+		Name: "resembles_reference", Score: f1, Pass: f1 >= 0.7,
+		Detail: fmt.Sprintf("F1 %.2f against the reference", f1),
+	}
+}
+
 // checkLanguagePreserved covers rule 4 from both sides: the words that mark the
 // original language must survive, and the translations that would mean the text
 // was turned into another language must not appear.
@@ -137,7 +245,10 @@ func checkLanguagePreserved(output string, n SampleNotes) CheckResult {
 		}
 	}
 	for _, w := range n.Forbidden {
-		if strings.Contains(lower, strings.ToLower(w)) {
+		// Whole words. A substring test reported "Der Service läuft seit
+		// Dienstag wieder" as a translation, because "Dienst" is inside
+		// "Dienstag".
+		if containsWord(lower, strings.ToLower(w)) {
 			appeared = append(appeared, w)
 		}
 	}
@@ -158,6 +269,32 @@ func checkLanguagePreserved(output string, n SampleNotes) CheckResult {
 	}
 }
 
+// containsWord reports whether needle occurs in haystack on word boundaries.
+// needle may be several words; the boundary test applies at both ends.
+func containsWord(haystack, needle string) bool {
+	for i := 0; i <= len(haystack)-len(needle); {
+		j := strings.Index(haystack[i:], needle)
+		if j < 0 {
+			return false
+		}
+		start := i + j
+		end := start + len(needle)
+		beforeOK := start == 0 || !isWordByte(haystack[start-1])
+		afterOK := end == len(haystack) || !isWordByte(haystack[end])
+		if beforeOK && afterOK {
+			return true
+		}
+		i = start + 1
+	}
+	return false
+}
+
+// isWordByte treats every non-ASCII byte as part of a word, so that a German
+// umlaut does not look like a boundary.
+func isWordByte(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b >= 0x80
+}
+
 // commentaryPrefix matches the ways a model announces what it did instead of
 // just doing it — rule 6. Anchored to the start of a line, because "Note" can
 // legitimately appear mid-sentence.
@@ -167,14 +304,19 @@ var commentaryPrefix = regexp.MustCompile(`(?im)^\s*(here('s| is| are)?\b|note:|
 // shape the shipped prompt actually produces: it returns the sentence correctly
 // and then adds "(No corrections needed—this text is grammatically correct.)".
 //
-// The prefix pattern above missed every occurrence of that, because the remark
-// is at the end and in parentheses. A commentary check that does not catch the
-// commentary it was written for is not a check, so it is matched here too — but
-// narrowly: only a bracketed aside that talks about correcting, changing or
-// grammar, so ordinary parentheses in real text stay untouched. German terms
-// too — most of these samples are German, and a check that only speaks English
-// would miss the same failure in the language it happens in most.
-var commentaryTrailer = regexp.MustCompile(`(?is)[(\[][^)\]]*\b(correct|correction|corrections|change[sd]?|edit(s|ed)?|error[s]?|grammar|grammatical|korrektur(en)?|korrigiert|änderung(en)?|fehler|grammatik)\b[^)\]]*[)\]]\s*$`)
+// The first version required the remark to be bracketed and to END with the
+// bracket. The baseline it was written for contains a run that wrote the same
+// sentence as "*(No corrections needed—…)*" — two asterisks, and the check
+// passed. The run that committed the violation in italics scored HIGHER than
+// the two that committed it in plain text.
+//
+// So it matches the phrase rather than the punctuation: on its own line or after
+// any opening bracket or dash, in German or English, with or without emphasis.
+// Anchored to a phrase that only makes sense as meta-commentary — "no
+// corrections needed", "nothing to change", "already correct" — so a sentence
+// like "We discussed the changes needed for the launch" is left alone. The
+// negation is what makes a phrase meta-commentary rather than content.
+var commentaryTrailer = regexp.MustCompile(`(?is)(\n|[(\[*_—–-]|^)[^\n]*\b(no corrections?|nothing (to (do|change|correct)|was changed)|already correct|keine korrekturen?|nichts (zu (tun|ändern|korrigieren)|geändert)|bereits korrekt|(no|keine)\b[^\n]{0,20}\b(corrections?|changes?|edits?|fehler|korrekturen)\b[^\n]{0,40}\b(needed|required|made|applied|nötig|erforderlich|vorgenommen))\b[^\n]*$`)
 
 func checkNoCommentary(output string) CheckResult {
 	if m := commentaryPrefix.FindString(output); m != "" {

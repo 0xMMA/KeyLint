@@ -110,6 +110,8 @@ AGGREGATE=$(jq -s --argjson perSample "$PER_SAMPLE" --argjson runs "$RUNS_JSON" 
         runCount: length,
         runs: $runs,
         config: {
+            suite: (.[0].suite // "pyramidize"),
+            promptHash: (.[0].promptHash // null),
             gitSHA: .[0].gitSHA,
             provider: .[0].provider,
             model: .[0].model,
@@ -122,12 +124,21 @@ AGGREGATE=$(jq -s --argjson perSample "$PER_SAMPLE" --argjson runs "$RUNS_JSON" 
         # The fingerprint two runs must share to be averaged together. Model and
         # judge are not enough: a v1 run and a v2 run, or 13 samples against 40,
         # are different measurements however similar the numbers look.
-        configKey: (.[0] | [.provider, .model, (.judge.provider // "none"), (.judge.model // "none"),
+        # suite and promptHash are in the key on purpose. Without suite, two
+        # different eval suites are kept apart only by their values happening to
+        # differ; without promptHash, a comparison cannot tell "the prompt
+        # changed" from "the model did", which is the whole reason the hash is
+        # recorded.
+        configKey: (.[0] | [(.suite // "pyramidize"), .provider, .model,
+                            (.judge.provider // "none"), (.judge.model // "none"),
                             (.promptVariant|tostring), (.schemaEnforcement|tostring),
-                            (.qualityThreshold|tostring), (.sampleCount|tostring)] | join("|")),
-        configConsistent: (map([.provider, .model, (.judge.provider // "none"), (.judge.model // "none"),
+                            (.qualityThreshold|tostring), (.sampleCount|tostring),
+                            (.promptHash // "none")] | join("|")),
+        configConsistent: (map([(.suite // "pyramidize"), .provider, .model,
+                                (.judge.provider // "none"), (.judge.model // "none"),
                                 (.promptVariant|tostring), (.schemaEnforcement|tostring),
-                                (.qualityThreshold|tostring), (.sampleCount|tostring)] | join("|")) | unique | length == 1),
+                                (.qualityThreshold|tostring), (.sampleCount|tostring),
+                                (.promptHash // "none")] | join("|")) | unique | length == 1),
         # A judge that failed on some samples leaves a mean over a smaller set.
         judgeCoverage: {min: (map(.judgeCount // 0) | min), max: (map(.judgeCount // 0) | max), of: (.[0].sampleCount)},
         deterministic: (map(.avgDeterministic) | {mean: ((add / length) | r4), min: (min | r4), max: (max | r4), spread: ((max - min) | r4)}),
