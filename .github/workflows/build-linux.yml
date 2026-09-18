@@ -112,7 +112,7 @@ jobs:
       # browser; `playwright install` then skips what is already on disk.
       - name: Restore Playwright browsers
         id: playwright-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
@@ -126,7 +126,7 @@ jobs:
         # Not always(): a cancelled job can leave a half-downloaded browser
         # directory, which would then be cached under a key that looks valid.
         if: ${{ !cancelled() && steps.playwright-cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
