@@ -265,10 +265,17 @@ jobs:
           packages: nsis
           version: 1.0
 
-      - name: Download WebView2 bootstrapper
-        run: |
-          curl -sSL "https://go.microsoft.com/fwlink/p/?LinkId=2124703" \
-            -o build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+      # The bootstrapper is bundled into the installer end users run, so it is
+      # fetched through a script that refuses anything not signed by Microsoft.
+      # See .claude/docs/versioning.md.
+      - name: Install signature tooling
+        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
+        with:
+          packages: osslsigncode
+          version: 1.0
+
+      - name: Download and verify the WebView2 bootstrapper
+        run: ./scripts/fetch-webview2.sh
 
       - name: Build NSIS installer
         run: |
