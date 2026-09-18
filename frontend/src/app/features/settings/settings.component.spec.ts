@@ -387,9 +387,12 @@ describe('SettingsComponent — model selection', () => {
   let el: HTMLElement;
   let wailsMock: ReturnType<typeof createWailsMock>;
 
-  async function render(source: 'live' | 'static' = 'live'): Promise<void> {
+  async function render(
+    source: 'live' | 'static' = 'live',
+    models: Record<string, { fix: string; pyramidize: string }> = {},
+  ): Promise<void> {
     wailsMock = createWailsMock();
-    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings });
+    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, models });
     wailsMock.getKeyStatus.mockResolvedValue({ ...defaultKeyStatus });
     wailsMock.listModels.mockResolvedValue({ ...defaultModelList, source });
 
@@ -404,7 +407,7 @@ describe('SettingsComponent — model selection', () => {
 
     fixture = TestBed.createComponent(SettingsComponent);
     component = fixture.componentInstance;
-    component.settings = { ...defaultSettings };
+    component.settings = { ...defaultSettings, models };
     el = fixture.nativeElement;
     fixture.detectChanges();
     await fixture.whenStable();
@@ -461,7 +464,33 @@ describe('SettingsComponent — model selection', () => {
   it('offers KeyLint\'s default as a selectable entry rather than a placeholder', async () => {
     await render();
 
-    expect(component.optionsFor('openai')[0]).toEqual({ id: '', label: "KeyLint's default" });
+    expect(component.optionsFor('openai')[0]).toEqual({ id: '', label: '', display: "KeyLint's default" });
+  });
+
+  it('shows the model ID in the editable field, not the display name', async () => {
+    // Anthropic is the provider whose display names differ from its IDs.
+    await render('live', { claude: { fix: 'claude-sonnet-4-6', pyramidize: '' } });
+
+    // PrimeNG writes optionLabel into this field and submits whatever stands
+    // there as the value — so "Sonnet 4.6" here would persist as a model ID no
+    // provider knows.
+    const input = el.querySelector<HTMLInputElement>('[data-testid="model-fix-claude"] input');
+    expect(input?.value).toBe('claude-sonnet-4-6');
+  });
+
+  it('labels every listed entry with its ID, so typing and picking share one value space', async () => {
+    await render();
+
+    for (const option of component.optionsFor('claude').slice(1)) {
+      expect(option.label, option.display).toBe(option.id);
+    }
+  });
+
+  it('still shows the readable name in the dropdown', async () => {
+    await render();
+
+    expect(component.optionsFor('claude').map(o => o.display))
+      .toContain('Sonnet 4.6');
   });
 
   it('never calls a provider list "built-in" when there is no endpoint to ask', async () => {
@@ -514,6 +543,29 @@ describe('SettingsComponent — model selection', () => {
     component.setModel('claude', 'pyramidize', '   ');
 
     expect(component.modelFor('claude', 'pyramidize')).toBe('');
+  });
+
+  it('re-asks after the Ollama URL is saved, the way saving a key does', async () => {
+    await render();
+    const before = wailsMock.listModels.mock.calls.length;
+
+    component.settings!.providers = { ...component.settings!.providers, ollama_url: 'http://elsewhere:11434' };
+    await component.save();
+    await fixture.whenStable();
+
+    // The daemon at the new address has other models pulled, so the old list is
+    // not stale — it is the wrong machine's.
+    expect(wailsMock.listModels.mock.calls.length).toBeGreaterThan(before);
+  });
+
+  it('does not re-ask when a save left the Ollama URL alone', async () => {
+    await render();
+    const before = wailsMock.listModels.mock.calls.length;
+
+    await component.save();
+    await fixture.whenStable();
+
+    expect(wailsMock.listModels.mock.calls.length).toBe(before);
   });
 
   it('keeps the two features apart', async () => {

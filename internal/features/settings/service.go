@@ -150,15 +150,22 @@ func (s *Service) GetKey(provider string) string {
 // SetKey stores an API key for the given provider in the OS keyring.
 // Returns an error if the keyring is unavailable on this platform.
 func (s *Service) SetKey(provider, key string) error {
-	// The model list depends on this key, so it must be asked again.
+	if err := keyring.Set(appName, provider, key); err != nil {
+		return err
+	}
+	// Only now: a write that failed leaves the old key in place, and dropping
+	// the list for it would cost a listing round trip that changes nothing.
 	s.forgetModelList(provider)
-	return keyring.Set(appName, provider, key)
+	return nil
 }
 
 // DeleteKey removes an API key for the given provider from the OS keyring.
 func (s *Service) DeleteKey(provider string) error {
+	if err := keyring.Delete(appName, provider); err != nil {
+		return err
+	}
 	s.forgetModelList(provider)
-	return keyring.Delete(appName, provider)
+	return nil
 }
 
 // modelListFailureTTL is how long a failed listing is remembered. Short,

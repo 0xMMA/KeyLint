@@ -26,9 +26,10 @@ func TestDefaultModelPerFeature(t *testing.T) {
 }
 
 func TestListModelsOllamaReadsTheDaemonsTags(t *testing.T) {
-	var path string
+	var path, ua string
 	srv := newRawServer(t, func(w http.ResponseWriter, r *http.Request) {
 		path = r.URL.Path
+		ua = r.Header.Get("User-Agent")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"models":[
 			{"name":"llama3.2:latest","model":"llama3.2:latest"},
@@ -50,6 +51,31 @@ func TestListModelsOllamaReadsTheDaemonsTags(t *testing.T) {
 	}
 	if len(list.Models) != 2 || list.Models[0].ID != "llama3.2:latest" {
 		t.Errorf("models = %v, want the daemon's tags", list.Models)
+	}
+	// This request is hand-rolled rather than made through an SDK, so it has to
+	// set the header itself — otherwise net/http sends "Go-http-client/1.1".
+	if ua != userAgent {
+		t.Errorf("User-Agent = %q, want %q", ua, userAgent)
+	}
+}
+
+// TestTransportErrorsDropCredentialsFromTheURL: a self-hosted Ollama or an
+// OpenAI-compatible gateway is reached through a URL the user typed, and Go
+// puts that whole URL into the error. These errors are logged and shown, so a
+// password in the URL must not travel with them.
+func TestTransportErrorsDropCredentialsFromTheURL(t *testing.T) {
+	// Nothing listens on port 1, so the request fails inside net/http and the
+	// error carries the URL it was given.
+	_, err := ListModels(context.Background(), ProviderOllama,
+		Config{BaseURL: "http://user:hunter2@127.0.0.1:1"})
+	if err == nil {
+		t.Fatal("want an error from an unreachable host")
+	}
+	if strings.Contains(err.Error(), "hunter2") {
+		t.Errorf("the error repeats the credential back: %v", err)
+	}
+	if !strings.Contains(err.Error(), "127.0.0.1:1") {
+		t.Errorf("the host is gone too, which leaves nothing to debug: %v", err)
 	}
 }
 

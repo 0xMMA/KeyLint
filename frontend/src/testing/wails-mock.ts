@@ -22,7 +22,6 @@ export const defaultSettings: Settings = {
 
 export const defaultKeyStatus: KeyStatus = { is_set: false, source: 'none' };
 
-/** Default: no Claude Code CLI on the machine, so tests exercise the BYOK path. */
 /** Default: the built-in list, which is what a picker shows offline. */
 export const defaultModelList: ModelList = {
   models: [
@@ -32,6 +31,7 @@ export const defaultModelList: ModelList = {
   source: 'static',
 };
 
+/** Default: no Claude Code CLI on the machine, so tests exercise the BYOK path. */
 export const defaultClaudeCodeStatus: ClaudeCodeStatus = {
   installed: false,
   path: '',

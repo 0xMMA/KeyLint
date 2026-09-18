@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -265,7 +266,28 @@ func apiErrorForModel(p provider, status int, model, rawBody string) error {
 // response body, which is exactly what #41 keeps out of error strings. Map it
 // through apiError instead.
 func transportError(p provider, err error) error {
-	return fmt.Errorf("%s request failed: %w", p.name, err)
+	return fmt.Errorf("%s request failed: %w", p.name, redactURLError(err))
+}
+
+// redactURLError strips userinfo from the URL a *url.Error carries.
+//
+// Go puts the whole request URL in the message, and a self-hosted Ollama or an
+// OpenAI-compatible gateway is reached through a URL the user typed — which may
+// carry credentials. Those errors are logged at Info and shown in the UI, so
+// they must not repeat the secret back.
+func redactURLError(err error) error {
+	var urlErr *url.Error
+	if !errors.As(err, &urlErr) {
+		return err
+	}
+	parsed, perr := url.Parse(urlErr.URL)
+	if perr != nil || parsed.User == nil {
+		return err
+	}
+	parsed.User = nil
+	cleaned := *urlErr
+	cleaned.URL = parsed.String()
+	return &cleaned
 }
 
 // fingerprintHeaders describe the machine rather than the request. Both SDKs

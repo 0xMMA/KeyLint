@@ -124,9 +124,11 @@ func CuratedModels(provider string) ModelList {
 	return ModelList{Models: curatedModels[provider], Source: ModelSourceStatic}
 }
 
-// IsClaudeCodeAlias reports whether m is one of the values the CLI accepts.
-// A pinned API model ID would be rejected by the CLI, or worse, silently
-// resolved to something else.
+// IsClaudeCodeAlias reports whether m is one of the three aliases the picker
+// offers. It is not a validity check: the CLI takes a full model ID too, and
+// claudecode.go only notes the difference rather than refusing it. What the
+// aliases buy is that they follow the generation, where a pinned ID freezes it
+// — which is why the picker offers nothing else.
 func IsClaudeCodeAlias(m string) bool {
 	for _, alias := range claudeCodeAliases {
 		if alias.ID == m {
@@ -240,6 +242,10 @@ func listOllamaModels(ctx context.Context, cfg Config) ([]ModelInfo, error) {
 	if err != nil {
 		return nil, transportError(ollamaProvider, err)
 	}
+	// Same reason as every completion call: net/http would otherwise send
+	// "Go-http-client/1.1", which some gateways in front of an Ollama host treat
+	// as a bot. See fingerprintHeaders in llm.go.
+	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := cfg.httpClient().Do(req)
 	if err != nil {

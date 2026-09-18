@@ -19,8 +19,28 @@ import { LogService } from '../../core/log.service';
  * PrimeNG only renders a placeholder while the value is null or undefined and
  * this component writes "", so an explicit option is what makes it visible.
  */
-const DEFAULT_MODEL_OPTION: ModelInfo = { id: '', label: "KeyLint's default" };
-const DEFAULT_MODEL_ONLY: ModelInfo[] = [DEFAULT_MODEL_OPTION];
+/**
+ * One entry in a model picker.
+ *
+ * `label` is deliberately the model ID, not the display name: PrimeNG writes
+ * optionLabel into the editable input and submits whatever stands there as the
+ * value, so a display name there would be saved as a model ID that no provider
+ * knows. The readable name lives in `display` and is rendered by the option
+ * template instead.
+ */
+interface ModelOption {
+  id: string;
+  label: string;
+  display: string;
+}
+
+const DEFAULT_MODEL_OPTION: ModelOption = { id: '', label: '', display: "KeyLint's default" };
+const DEFAULT_MODEL_ONLY: ModelOption[] = [DEFAULT_MODEL_OPTION];
+
+/** Picker entry for one model the provider reported. */
+function toModelOption(model: ModelInfo): ModelOption {
+  return { id: model.id, label: model.id, display: model.label || model.id };
+}
 
 interface ProviderKey {
   id: string;
@@ -258,7 +278,17 @@ interface ProviderKey {
                         optionValue="id"
                         [ngModel]="modelFor(mp.id, 'fix')"
                         (ngModelChange)="setModel(mp.id, 'fix', $event)"
-                      />
+                      >
+                        <ng-template #item let-option>
+                          <span class="model-option-name">{{ option.display }}</span>
+                          @if (option.id && option.id !== option.display) {
+                            <small class="model-option-id">{{ option.id }}</small>
+                          }
+                        </ng-template>
+                        <ng-template #selectedItem let-option>
+                          {{ option?.display || option?.id }}
+                        </ng-template>
+                      </p-select>
                     </div>
                     <div class="form-group">
                       <label>Pyramidize model</label>
@@ -270,7 +300,17 @@ interface ProviderKey {
                         optionValue="id"
                         [ngModel]="modelFor(mp.id, 'pyramidize')"
                         (ngModelChange)="setModel(mp.id, 'pyramidize', $event)"
-                      />
+                      >
+                        <ng-template #item let-option>
+                          <span class="model-option-name">{{ option.display }}</span>
+                          @if (option.id && option.id !== option.display) {
+                            <small class="model-option-id">{{ option.id }}</small>
+                          }
+                        </ng-template>
+                        <ng-template #selectedItem let-option>
+                          {{ option?.display || option?.id }}
+                        </ng-template>
+                      </p-select>
                     </div>
                   </div>
                 }
@@ -459,6 +499,11 @@ interface ProviderKey {
       color: var(--p-text-muted-color);
       margin-bottom: 1rem;
     }
+    .model-option-id {
+      display: block;
+      font-size: 0.75rem;
+      color: var(--p-text-muted-color);
+    }
     code {
       background: var(--p-content-hover-background);
       padding: 1px 4px;
@@ -547,11 +592,14 @@ export class SettingsComponent implements OnInit, OnDestroy {
     .map(p => ({ id: p.value, label: p.label }));
 
   /** Picker contents including the leading default entry; see optionsFor. */
-  modelSelectOptions: Record<string, ModelInfo[]> = {};
+  modelSelectOptions: Record<string, ModelOption[]> = {};
 
   /** Picker contents per provider, and whether they are live or built-in. */
   modelOptions: Record<string, ModelInfo[]> = {};
   modelSource: Record<string, string> = {};
+
+  /** The Ollama URL as last persisted; see save(). */
+  private savedOllamaURL = '';
 
   /** Null until the first detection run finishes. */
   claudeCodeStatus: ClaudeCodeStatus | null = null;
@@ -575,6 +623,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   async ngOnInit(): Promise<void> {
     this.activeTab = this.route.snapshot.queryParamMap.get('tab') ?? 'general';
     this.settings = await this.wails.loadSettings();
+    this.savedOllamaURL = this.settings?.providers?.ollama_url ?? '';
     this.log.info('settings: loaded');
     await this.refreshKeyStatuses();
     this.appVersion = await this.wails.getVersion();
@@ -613,14 +662,16 @@ export class SettingsComponent implements OnInit, OnDestroy {
    * and this component writes "" — so an explicit option is what makes the
    * default visible and selectable.
    */
-  optionsFor(provider: string): ModelInfo[] {
+  optionsFor(provider: string): ModelOption[] {
     return this.modelSelectOptions[provider] ?? DEFAULT_MODEL_ONLY;
   }
 
   /**
    * Whether a model outside the list can be typed. The Claude Code CLI's three
-   * aliases are the whole list by design — a pinned API model ID there freezes
-   * the generation the alias would follow.
+   * aliases are the whole list the picker offers, because an alias follows the
+   * generation where a pinned API model ID freezes it. The backend still
+   * accepts a pinned ID from a hand-edited settings.json and only logs it —
+   * this is the picker steering the choice, not a rejection.
    */
   allowsFreeText(provider: string): boolean {
     return provider !== 'claude-code';
@@ -642,7 +693,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
     await Promise.all(this.modelProviders.map(async mp => {
       const list = await this.wails.listModels(mp.id).catch(() => null);
       this.modelOptions[mp.id] = list?.models ?? [];
-      this.modelSelectOptions[mp.id] = [DEFAULT_MODEL_OPTION, ...(list?.models ?? [])];
+      this.modelSelectOptions[mp.id] = [DEFAULT_MODEL_OPTION, ...(list?.models ?? []).map(toModelOption)];
       this.modelSource[mp.id] = list?.source ?? 'static';
       if (!this.destroyed) {
         this.cdr.detectChanges();
@@ -764,8 +815,15 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   async save(): Promise<void> {
     if (!this.settings) return;
+    const ollamaURLChanged = this.settings.providers?.ollama_url !== this.savedOllamaURL;
     await this.wails.saveSettings(this.settings);
+    this.savedOllamaURL = this.settings.providers?.ollama_url ?? '';
     this.log.info('settings: saved');
+    if (ollamaURLChanged) {
+      // A daemon at another address has other models pulled, so the picker
+      // would otherwise keep showing the old machine's list.
+      void this.loadModelOptions();
+    }
     this.saved = true;
     this.cdr.detectChanges();
     setTimeout(() => { this.saved = false; this.cdr.detectChanges(); }, 3000);
@@ -774,6 +832,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   async resetToDefaults(): Promise<void> {
     await this.wails.resetSettings();
     this.settings = await this.wails.loadSettings();
+    this.savedOllamaURL = this.settings?.providers?.ollama_url ?? '';
     this.saved = true;
     this.cdr.detectChanges();
     setTimeout(() => { this.saved = false; this.cdr.detectChanges(); }, 3000);
