@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -26,6 +27,55 @@ import (
 	"keylint/internal/features/settings"
 	"keylint/internal/llm"
 )
+
+// loadEvalEnv brings .env into the environment, letting it win for credentials
+// and lose for everything else.
+//
+// A blanket Overload looked right — a stale ANTHROPIC_API_KEY in the shell
+// should not beat the project's own — but it also overwrote the EVAL_* and
+// KEYLINT_* variables that scripts/eval.sh exports from its command line, so
+// `--model X` silently lost to a line in a file. A run is configured by what the
+// caller asked for; .env is a place to keep secrets, not a second opinion on
+// what to measure.
+func loadEvalEnv(t *testing.T) {
+	t.Helper()
+	values, err := godotenv.Read(filepath.Join("..", "..", "..", ".env"))
+	if err != nil {
+		t.Logf("no .env loaded: %v", err)
+		return
+	}
+	for key, value := range values {
+		if strings.HasSuffix(key, "_API_KEY") {
+			t.Setenv(key, value)
+			continue
+		}
+		if os.Getenv(key) == "" {
+			t.Setenv(key, value)
+		}
+	}
+}
+
+// defaultEvalProvider is what a run measures when nothing says otherwise. A
+// constant rather than the machine's active provider: a baseline that changes
+// with whoever runs it is not a baseline.
+const defaultEvalProvider = llm.ProviderClaude
+
+// gitSHA records which commit produced a run, so a number in quality-status.md
+// can be traced back to code. Empty when this is not a checkout.
+func gitSHA() string {
+	out, err := exec.Command("git", "rev-parse", "--short", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	sha := strings.TrimSpace(string(out))
+	// Tracked changes only. A run writes into test-data/eval-runs/ and
+	// test-data/eval-baselines/, so counting untracked files would mark every
+	// run after the first as dirty and make the marker meaningless.
+	if dirty, err := exec.Command("git", "status", "--porcelain", "--untracked-files=no").Output(); err == nil && len(strings.TrimSpace(string(dirty))) > 0 {
+		sha += "-dirty"
+	}
+	return sha
+}
 
 // testSample holds one parsed test-data file.
 type testSample struct {
@@ -104,18 +154,16 @@ func parseTestData(content string) (rawInput, baseline string) {
 }
 
 func TestEvalPyramidize(t *testing.T) {
-	// Load .env from project root (contains API keys for eval).
-	rootEnv := filepath.Join("..", "..", "..", ".env")
-	_ = godotenv.Overload(rootEnv) // Overload so .env wins over inherited session vars
+	loadEvalEnv(t)
 
-	settingsSvc, err := settings.NewService()
-	if err != nil {
-		t.Fatalf("settings init: %v", err)
-	}
-
+	// A measurement must not depend on the machine it runs on. The settings
+	// service is built from an explicit configuration and an environment-only
+	// key lookup, so neither ~/.config/KeyLint/settings.json nor the OS keyring
+	// can change what this run produces — a developer whose GUI has Ollama as
+	// the active provider gets the same numbers as anyone else.
 	provider := os.Getenv("EVAL_PROVIDER")
 	if provider == "" {
-		provider = settingsSvc.Get().ActiveProvider
+		provider = defaultEvalProvider
 	}
 	// Resolved here and passed as an explicit override, so a run does not depend
 	// on whichever model the developer happens to have picked in the GUI — and
@@ -127,6 +175,15 @@ func TestEvalPyramidize(t *testing.T) {
 	variant := 0 // latest
 	if v := os.Getenv("EVAL_VARIANT"); v != "" {
 		fmt.Sscanf(v, "%d", &variant)
+	}
+	judge := JudgeConfigFromEnv()
+
+	evalSettings := settings.Default()
+	evalSettings.ActiveProvider = provider
+	settingsSvc := settings.NewServiceFrom(evalSettings, settings.EnvOnlyKeys)
+
+	if settingsSvc.GetKey(provider) == "" && provider != llm.ProviderOllama && provider != llm.ProviderClaudeCode {
+		t.Fatalf("no API key for %q in the environment or .env — the eval reads no keyring", provider)
 	}
 
 	svc := NewService(settingsSvc, nil)
@@ -191,17 +248,17 @@ func TestEvalPyramidize(t *testing.T) {
 
 				// LLM-as-judge (if baseline available).
 				if sample.Baseline != "" {
-					judge, err := RunJudge(settingsSvc, aiOpts{provider: provider, model: model},
+					score, err := svc.runJudge(settingsSvc, judge,
 						sample.RawInput, sample.Baseline, result.FullDocument)
 					if err != nil {
 						t.Logf("judge failed: %v", err)
 					} else {
-						sr.Judge = &judge
-						totalJudge += judge.Overall
+						sr.Judge = &score
+						totalJudge += score.Overall
 						judgeCount++
 						t.Logf("judge: overall=%.2f pyramid=%.2f clarity=%.2f completeness=%.2f tone=%.2f",
-							judge.Overall, judge.PyramidStructure, judge.Clarity, judge.Completeness, judge.TonePreservation)
-						t.Logf("judge rationale: %s", judge.Rationale)
+							score.Overall, score.PyramidStructure, score.Clarity, score.Completeness, score.TonePreservation)
+						t.Logf("judge rationale: %s", score.Rationale)
 					}
 				}
 			}
@@ -212,23 +269,22 @@ func TestEvalPyramidize(t *testing.T) {
 		})
 	}
 
-	// provider and model were resolved above and passed to every call, so these
-	// are what ran rather than a guess at what the service would have chosen.
-	effectiveProvider := provider
-	effectiveModel := model
-
-	// Write summary.
+	// Write summary. Everything a reader needs to reproduce this run goes in
+	// here: a number without its configuration is not a measurement, and the
+	// March table in quality-status.md became unreadable for exactly that
+	// reason — nobody could tell which model had produced it.
 	effectiveVariant := variant
 	if effectiveVariant == 0 {
 		effectiveVariant = LatestEmailVariant
 	}
 	summary := map[string]any{
 		"timestamp":        timestamp,
-		"provider":         effectiveProvider,
-		"model":            effectiveModel,
-		"providerOverride": provider,
-		"modelOverride":    model,
+		"gitSHA":           gitSHA(),
+		"provider":         provider,
+		"model":            model,
 		"promptVariant":    effectiveVariant,
+		"judge":            judge,
+		"qualityThreshold": settings.DefaultQualityThreshold,
 		// Which configuration produced these numbers; see schemas.go.
 		"schemaEnforcement": schemaEnforcement,
 		"sampleCount":       len(samples),
@@ -242,7 +298,9 @@ func TestEvalPyramidize(t *testing.T) {
 	os.WriteFile(filepath.Join(runDir, "summary.json"), summaryData, 0644)
 
 	t.Logf("\n=== EVAL SUMMARY ===")
-	t.Logf("Provider: %s | Model: %s | Prompt Variant: v%d", effectiveProvider, effectiveModel, effectiveVariant)
+	t.Logf("Provider: %s | Model: %s | Prompt Variant: v%d", provider, model, effectiveVariant)
+	t.Logf("Judge: %s / %s @ temp %.1f", judge.Provider, judge.Model, judge.Temperature)
+	t.Logf("Schema enforcement: %v | Quality threshold: %.2f", schemaEnforcement, settings.DefaultQualityThreshold)
 	t.Logf("Samples: %d", len(samples))
 	t.Logf("Avg deterministic: %.2f", totalDet/float64(len(samples)))
 	if judgeCount > 0 {

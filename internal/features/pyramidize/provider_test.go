@@ -319,15 +319,11 @@ func TestRefineGlobalCancelled(t *testing.T) {
 	t.Cleanup(func() { os.Setenv(envKey, original) })
 	os.Setenv(envKey, t.TempDir())
 
-	settingsSvc, err := settings.NewService()
-	if err != nil {
-		t.Fatalf("settings.NewService: %v", err)
-	}
 	cfg := settings.Default()
 	cfg.ActiveProvider = "ollama" // needs no API key, so the keyring stays out of it
-	if err := settingsSvc.Save(cfg); err != nil {
-		t.Fatalf("settings.Save: %v", err)
-	}
+	// Built from an explicit config: no settings file to read, no keyring to
+	// reach, so this test measures the code and not the machine.
+	settingsSvc := settings.NewServiceFrom(cfg, settings.EnvOnlyKeys)
 
 	svc := NewService(settingsSvc, nil)
 	rec := &recorder{client: &fakeClient{}}
@@ -335,7 +331,7 @@ func TestRefineGlobalCancelled(t *testing.T) {
 	// Cancel from inside the call, the way the UI's Cancel button does.
 	rec.client.onComplete = svc.CancelOperation
 
-	_, err = svc.RefineGlobal(RefineGlobalRequest{
+	_, err := svc.RefineGlobal(RefineGlobalRequest{
 		FullCanvas: "canvas", OriginalText: "original", Instruction: "shorten it",
 	})
 	if err == nil || err.Error() != "cancelled" {

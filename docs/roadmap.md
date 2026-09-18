@@ -126,7 +126,8 @@ Issue: #34.
 
 Hypothesis: with Opus 5 / Sonnet 5 a single well-structured call matches the detect → foundation → self-QA → refine pipeline on the existing eval. If true, the refine stage and the quality-threshold setting go away, latency halves, and the code shrinks.
 
-- [ ] Re-baseline (in progress: #53/#59 first — n≥3 runs with spread, judge pinned, runs isolated from user settings), then Sonnet 5 and Opus 5 (`scripts/eval.sh --provider claude --model …`) — numbers into `docs/pyramidize/quality-status.md`
+- [x] **Prerequisite done (#53, #59):** the eval is trustworthy enough to compare against. Runs are isolated from the developer's settings and keyring, the judge is pinned to a dated snapshot at temperature 0, `summary.json` records the full effective config, and `--runs n` produces a baseline with a spread. The current default (`claude-sonnet-4-6`, schema off) is re-baselined in `quality-status.md` with its noise floor.
+- [ ] Re-baseline the current pipeline on **Sonnet 5 and Opus 5** (`scripts/eval.sh --runs 3 --model claude-sonnet-5`) — still open, and now comparable: `--runs 3 --compare <baseline.json>` says whether a difference clears the noise floor
 - [ ] Prompt variant `v3`: single call, structured output via `--json-schema` / `output_config.format`, no self-QA JSON
 - [ ] Compare via eval; keep whichever wins, delete the loser. Rules from `feedback_no_overfitting`: general principles only
 - [ ] Fix prompt: same exercise with a small sample set (currently no eval for Fix — add one, 10–15 samples)

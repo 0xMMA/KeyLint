@@ -63,6 +63,17 @@ jobs:
       - name: Run Go tests
         run: go test -race ./internal/...
 
+      # Every exported method of a registered service becomes callable from the
+      # webview. The generated bindings are committed, so a new exported method
+      # widens that surface while the committed file still shows the old one.
+      - name: Check generated bindings are current
+        run: |
+          wails3 generate bindings
+          git diff --exit-code frontend/bindings || {
+            echo "::error::frontend/bindings is stale. Run 'wails3 generate bindings' and commit, or unexport the new method."
+            exit 1
+          }
+
   # Playwright runs against `ng serve` only — no Go, no Wails, no system deps.
   # It still waits for `test` so a runner is not spent on UI checks while the
   # unit tests are already red; nothing in this job depends on that one's work.

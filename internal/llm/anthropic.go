@@ -38,6 +38,9 @@ func (c *anthropicClient) Complete(ctx context.Context, req Request) (Response, 
 			anthropic.NewUserMessage(anthropic.NewTextBlock(req.User)),
 		},
 	}
+	if req.Temperature != nil {
+		params.Temperature = anthropic.Float(*req.Temperature)
+	}
 	if len(req.JSONSchema) > 0 {
 		schema, err := schemaObject(req.JSONSchema)
 		if err != nil {
