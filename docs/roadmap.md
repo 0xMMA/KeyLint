@@ -1,6 +1,6 @@
 # KeyLint Roadmap
 
-> Last updated: 2026-09-18 · Owner: Michael · Source of truth for priorities.
+> Last updated: 2026-09-18 (evening) · Owner: Michael · Source of truth for priorities.
 > Tracking: each epic links to a GitHub issue. This file holds the *why* and the order; issues hold the *what*.
 
 ---
@@ -100,8 +100,8 @@ echo "<text>" | claude -p --model haiku --output-format json \
 
 ### P1 — foundation
 
-#### E2 · Provider layer on vendor SDKs (stop maintaining API clients)
-Issue: #33.
+#### E2 · Provider layer on vendor SDKs — **complete 2026-09-18** (#39, #45, #52, #57, #60)
+Issue: #33 (closed). Follow-ups: #47 schema enforcement (parked, default off), #55 status caching, #61 list refresh UX.
 
 **Decision:** two vendor SDKs plus a 30-line interface. Evaluated and rejected: `langchaingo` (dead), `cloudwego/eino` (agent framework, overkill), unified wrappers (`omnillm`, `go-llm`, `any-llm-go`, `goai`, `pgedge-go-llm-lib`) — all small, young, and a third party between us and the vendors, i.e. the same maintenance risk we are trying to leave.
 
@@ -126,7 +126,7 @@ Issue: #34.
 
 Hypothesis: with Opus 5 / Sonnet 5 a single well-structured call matches the detect → foundation → self-QA → refine pipeline on the existing eval. If true, the refine stage and the quality-threshold setting go away, latency halves, and the code shrinks.
 
-- [ ] Re-baseline the current pipeline on Sonnet 5 and Opus 5 (`scripts/eval.sh --provider claude --model …`) — numbers into `docs/pyramidize/quality-status.md`
+- [ ] Re-baseline (in progress: #53/#59 first — n≥3 runs with spread, judge pinned, runs isolated from user settings), then Sonnet 5 and Opus 5 (`scripts/eval.sh --provider claude --model …`) — numbers into `docs/pyramidize/quality-status.md`
 - [ ] Prompt variant `v3`: single call, structured output via `--json-schema` / `output_config.format`, no self-QA JSON
 - [ ] Compare via eval; keep whichever wins, delete the loser. Rules from `feedback_no_overfitting`: general principles only
 - [ ] Fix prompt: same exercise with a small sample set (currently no eval for Fix — add one, 10–15 samples)
