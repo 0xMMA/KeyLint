@@ -31,6 +31,9 @@ const cliWaitDelay = 5 * time.Second
 // terminalReasonCompleted is what the CLI reports for a run that finished.
 const terminalReasonCompleted = "completed"
 
+// stopReasonMaxTokens is the one stop reason that means the answer was cut off.
+const stopReasonMaxTokens = "max_tokens"
+
 // blockedCLIEnv lists environment variables that would redirect the CLI away
 // from the account the user signed in with. KeyLint itself reads
 // ANTHROPIC_API_KEY for its BYOK providers, and the CLI treats that key as
@@ -60,9 +63,14 @@ type claudeCodeEnvelope struct {
 	StructuredOutput json.RawMessage `json:"structured_output"`
 	IsError          bool            `json:"is_error"`
 	TerminalReason   string          `json:"terminal_reason"`
-	DurationMS       int64           `json:"duration_ms"`
-	TotalCostUSD     float64         `json:"total_cost_usd"`
-	ModelUsage       map[string]any  `json:"modelUsage"`
+	// StopReason is why the model stopped, as opposed to why the run ended.
+	// Only "max_tokens" means a cut-off answer: the CLI sets this to values like
+	// "tool_use" and "end_turn" on perfectly good runs, so it cannot be gated on
+	// wholesale the way terminal_reason can.
+	StopReason   string         `json:"stop_reason"`
+	DurationMS   int64          `json:"duration_ms"`
+	TotalCostUSD float64        `json:"total_cost_usd"`
+	ModelUsage   map[string]any `json:"modelUsage"`
 }
 
 type claudeCodeClient struct {
@@ -190,6 +198,12 @@ func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response,
 	// CLI also sets to non-"end_turn" values on perfectly good runs, so gating
 	// on it would reject answers that are fine. An older CLI leaves the field
 	// empty and is unaffected.
+	// The HTTP providers refuse a truncated answer; this path does the same
+	// rather than silently differing.
+	if env.StopReason == stopReasonMaxTokens {
+		return Response{}, fmt.Errorf("%s: %s", name, outputLimitMessage)
+	}
+
 	if env.TerminalReason != "" && env.TerminalReason != terminalReasonCompleted {
 		return Response{}, fmt.Errorf("%s stopped before finishing (%s): %s",
 			name, env.TerminalReason, partialText(env))

@@ -489,3 +489,16 @@ func TestUnmarshalRobustRepairsArrayElements(t *testing.T) {
 		})
 	}
 }
+
+// TestUnmarshalRobustKeepsTopLevelArrays guards the leading-content trim: it
+// looks for the first '{', which on a top-level array would cut off the opening
+// bracket and every element before the first object.
+func TestUnmarshalRobustKeepsTopLevelArrays(t *testing.T) {
+	var got []map[string]string
+	if err := unmarshalRobust(`[{"a":"1"},{"b":"2"}]`, &got); err != nil {
+		t.Fatalf("unmarshalRobust: %v", err)
+	}
+	if len(got) != 2 || got[0]["a"] != "1" || got[1]["b"] != "2" {
+		t.Errorf("got %v, want both elements intact", got)
+	}
+}

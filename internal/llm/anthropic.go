@@ -60,20 +60,27 @@ func (c *anthropicClient) Complete(ctx context.Context, req Request) (Response, 
 
 	// A truncated answer would be pasted over the user's selection as a
 	// half-written sentence — the same call the Claude Code client makes.
-	if message.StopReason == anthropic.StopReasonMaxTokens {
-		return Response{}, fmt.Errorf("%s ran out of output tokens before finishing", anthropicProvider.name)
+	switch message.StopReason {
+	case anthropic.StopReasonMaxTokens, anthropic.StopReasonModelContextWindowExceeded:
+		return Response{}, fmt.Errorf("%s: %s", anthropicProvider.name, outputLimitMessage)
+	case anthropic.StopReasonRefusal:
+		return Response{}, fmt.Errorf("%s declined the request", anthropicProvider.name)
 	}
 
+	// A reply can arrive as several text blocks; taking only the first would
+	// silently truncate it.
+	var builder strings.Builder
 	for _, block := range message.Content {
 		if text, ok := block.AsAny().(anthropic.TextBlock); ok {
-			if strings.TrimSpace(text.Text) == "" {
-				break
-			}
-			logResponse(c.cfg, anthropicProvider, text.Text)
-			return Response{Text: text.Text}, nil
+			builder.WriteString(text.Text)
 		}
 	}
-	return Response{}, fmt.Errorf("%s returned no text content", anthropicProvider.name)
+	text := builder.String()
+	if strings.TrimSpace(text) == "" {
+		return Response{}, fmt.Errorf("%s returned no text content", anthropicProvider.name)
+	}
+	logResponse(c.cfg, anthropicProvider, text)
+	return Response{Text: text}, nil
 }
 
 // client builds the SDK client per call. Construction is cheap, and it keeps the

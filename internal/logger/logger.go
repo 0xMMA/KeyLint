@@ -18,9 +18,9 @@ const LevelTrace = slog.Level(-8)
 
 // Package-level state.
 var (
-	l                      = slog.New(slog.NewTextHandler(io.Discard, nil))
-	baseH     slog.Handler = slog.NewTextHandler(io.Discard, nil)
-	logFile   *os.File
+	l       = slog.New(slog.NewTextHandler(io.Discard, nil))
+	baseH   slog.Handler = slog.NewTextHandler(io.Discard, nil)
+	logFile *os.File
 	sensitive atomic.Bool
 )
 
@@ -157,3 +157,4 @@ func (r redacted) LogValue() slog.Value {
 func Redact(v any) slog.LogValuer {
 	return redacted{v: v}
 }
+

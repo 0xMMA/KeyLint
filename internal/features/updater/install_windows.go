@@ -10,8 +10,8 @@ import (
 )
 
 var (
-	shell32           = syscall.NewLazyDLL("shell32.dll")
-	procShellExecuteW = shell32.NewProc("ShellExecuteW")
+	shell32             = syscall.NewLazyDLL("shell32.dll")
+	procShellExecuteW   = shell32.NewProc("ShellExecuteW")
 )
 
 // applyPlatformUpdate launches the downloaded NSIS installer with UAC elevation

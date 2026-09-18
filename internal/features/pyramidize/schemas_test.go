@@ -173,3 +173,20 @@ func TestSchemasSurviveTheCommandLine(t *testing.T) {
 		})
 	}
 }
+
+// TestEnforcedSchemaRespectsTheSwitch pins the gate itself: off means no schema
+// travels, on means the caller's schema does.
+func TestEnforcedSchemaRespectsTheSwitch(t *testing.T) {
+	original := schemaEnforcement
+	t.Cleanup(func() { schemaEnforcement = original })
+
+	schemaEnforcement = false
+	if got := enforcedSchema(documentSchema); got != nil {
+		t.Errorf("enforcedSchema = %s, want nil while enforcement is off", got)
+	}
+
+	schemaEnforcement = true
+	if got := enforcedSchema(documentSchema); !bytes.Equal(got, documentSchema) {
+		t.Errorf("enforcedSchema = %s, want the caller's schema while enforcement is on", got)
+	}
+}

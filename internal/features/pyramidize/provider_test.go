@@ -104,8 +104,8 @@ func TestCallAISyncRequestShape(t *testing.T) {
 	if req.System != "system" || req.User != "user" {
 		t.Errorf("System/User = %q/%q, want system/user", req.System, req.User)
 	}
-	if len(req.JSONSchema) == 0 {
-		t.Error("the pipeline parses JSON replies, so the call must carry a schema")
+	if !req.JSONMode {
+		t.Error("the pipeline parses JSON replies, so the call must ask for an object")
 	}
 	if req.MaxTokens != maxTokens {
 		t.Errorf("MaxTokens = %d, want %d", req.MaxTokens, maxTokens)
@@ -314,4 +314,43 @@ func TestCallAISyncClaudeCodeNeedsNoKey(t *testing.T) {
 	if claudeCodeModel != "sonnet" {
 		t.Errorf("claudeCodeModel = %q, want the alias sonnet so the CLI picks the current generation", claudeCodeModel)
 	}
+}
+
+// TestCallAISyncAsksForJSONEvenWithoutASchema covers the regression that came
+// with the schema switch: every step here parses JSON, so OpenAI and Ollama must
+// still be told to return an object when enforcement is off.
+func TestCallAISyncAsksForJSONEvenWithoutASchema(t *testing.T) {
+	original := schemaEnforcement
+	t.Cleanup(func() { schemaEnforcement = original })
+	schemaEnforcement = false
+
+	svc, rec := newTestService()
+	cfg := settings.Default()
+	cfg.ActiveProvider = "openai"
+
+	if _, err := svc.callAIWithContextForTest(t, cfg, "system", "user"); err != nil {
+		t.Fatalf("call: %v", err)
+	}
+	req := rec.client.gotRequest
+	if !req.JSONMode {
+		t.Error("JSONMode must stay on: the pipeline parses every reply as JSON")
+	}
+	if len(req.JSONSchema) != 0 {
+		t.Error("no schema may travel while enforcement is off")
+	}
+
+	schemaEnforcement = true
+	svc2, rec2 := newTestService()
+	if _, err := svc2.callAIWithContextForTest(t, cfg, "system", "user"); err != nil {
+		t.Fatalf("call: %v", err)
+	}
+	if len(rec2.client.gotRequest.JSONSchema) == 0 {
+		t.Error("the schema must travel while enforcement is on")
+	}
+}
+
+// callAIWithContextForTest drives the same gate the pipeline uses.
+func (svc *Service) callAIWithContextForTest(t *testing.T, cfg settings.Settings, system, user string) (string, error) {
+	t.Helper()
+	return svc.callAISync(context.Background(), cfg, aiOpts{}, "key", system, user, enforcedSchema(documentSchema))
 }

@@ -262,15 +262,15 @@ func TestIsNewer(t *testing.T) {
 		{"3.7.0", "v3.6.0", true},
 
 		// Pre-release comparisons.
-		{"4.1.8-alpha", "4.1.7-alpha", true},   // patch bump
-		{"4.1.8-beta", "4.1.8-alpha", true},    // suffix ordering
-		{"4.1.8-rc", "4.1.8-beta", true},       // rc > beta
-		{"4.1.8", "4.1.8-rc", true},            // stable > any pre-release
+		{"4.1.8-alpha", "4.1.7-alpha", true},  // patch bump
+		{"4.1.8-beta", "4.1.8-alpha", true},   // suffix ordering
+		{"4.1.8-rc", "4.1.8-beta", true},      // rc > beta
+		{"4.1.8", "4.1.8-rc", true},           // stable > any pre-release
 		{"4.1.8-alpha", "4.1.8", false},        // pre-release < stable at same version
-		{"4.1.8-rc2", "4.1.8-rc1", true},       // numeric suffix
+		{"4.1.8-rc2", "4.1.8-rc1", true},      // numeric suffix
 		{"4.1.8-alpha", "4.1.7", true},         // higher patch even with suffix
 		{"v4.1.8-alpha", "v4.1.7-alpha", true}, // v-prefix preserved
-		{"4.1.8-rc1", "4.1.8-rc2", false},      // lower numeric suffix
+		{"4.1.8-rc1", "4.1.8-rc2", false},     // lower numeric suffix
 		{"4.1.8-alpha", "4.1.8-alpha", false},  // same pre-release
 	}
 	for _, tc := range cases {

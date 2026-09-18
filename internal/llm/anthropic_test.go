@@ -182,3 +182,67 @@ func TestAnthropicWithoutSchema(t *testing.T) {
 		t.Error("output_config must be absent when the caller set no schema")
 	}
 }
+
+// TestAnthropicRefusesUnusableAnswers mirrors the OpenAI cases: a cut-off or
+// declined answer must not reach the caller as text.
+func TestAnthropicRefusesUnusableAnswers(t *testing.T) {
+	tests := []struct {
+		name  string
+		reply string
+		want  string
+	}{
+		{
+			name:  "cut off at the output limit",
+			reply: `{"stop_reason":"max_tokens","content":[{"type":"text","text":"They are going to the"}]}`,
+			want:  "exceeded the output limit",
+		},
+		{
+			name:  "context window exceeded",
+			reply: `{"stop_reason":"model_context_window_exceeded","content":[{"type":"text","text":"partial"}]}`,
+			want:  "exceeded the output limit",
+		},
+		{
+			name:  "model declined",
+			reply: `{"stop_reason":"refusal","content":[{"type":"text","text":""}]}`,
+			want:  "declined the request",
+		},
+		{
+			name:  "empty content",
+			reply: `{"stop_reason":"end_turn","content":[{"type":"text","text":"   "}]}`,
+			want:  "no text content",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var got capture
+			srv := newServer(t, &got, http.StatusOK, tc.reply)
+
+			client := newAnthropic(Config{APIKey: "sk-ant-test", BaseURL: srv.URL})
+			req := Request{Model: "claude-sonnet-4-6", User: "x", MaxTokens: 2048}
+			_, err := client.Complete(context.Background(), req)
+			if err == nil {
+				t.Fatal("expected an error rather than an unusable answer")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %v, want it to mention %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestAnthropicJoinsTextBlocks: a reply can arrive in several blocks, and taking
+// only the first would truncate it silently.
+func TestAnthropicJoinsTextBlocks(t *testing.T) {
+	var got capture
+	srv := newServer(t, &got, http.StatusOK,
+		`{"stop_reason":"end_turn","content":[{"type":"text","text":"first "},{"type":"text","text":"second"}]}`)
+
+	client := newAnthropic(Config{APIKey: "sk-ant-test", BaseURL: srv.URL})
+	resp, err := client.Complete(context.Background(), Request{Model: "claude-sonnet-4-6", User: "x", MaxTokens: 2048})
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if resp.Text != "first second" {
+		t.Errorf("Text = %q, want every text block joined", resp.Text)
+	}
+}

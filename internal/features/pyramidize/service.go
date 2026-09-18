@@ -474,10 +474,14 @@ func (svc *Service) callAISync(ctx context.Context, cfg settings.Settings, opts 
 	}
 
 	resp, err := client.Complete(ctx, llm.Request{
-		System:     systemPrompt,
-		User:       userMessage,
-		Model:      model,
-		MaxTokens:  maxTokens,
+		System:    systemPrompt,
+		User:      userMessage,
+		Model:     model,
+		MaxTokens: maxTokens,
+		// Every step here parses JSON, so ask for an object even when schema
+		// enforcement is off — that is what this pipeline did before schemas
+		// existed, and losing it would leave OpenAI and Ollama unconstrained.
+		JSONMode:   true,
 		JSONSchema: schema,
 	})
 	if err != nil {

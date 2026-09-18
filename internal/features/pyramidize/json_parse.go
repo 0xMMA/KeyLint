@@ -169,8 +169,10 @@ func repairJSONStrings(s string) string {
 func unmarshalRobust(data string, v any) error {
 	clean := stripFences(data)
 
-	// Trim any leading non-JSON content before the first '{'.
-	if idx := strings.Index(clean, "{"); idx > 0 {
+	// Trim any leading non-JSON content before the first '{' — unless the
+	// payload is a top-level array, where that would cut off its opening
+	// bracket and everything before the first object inside it.
+	if idx := strings.Index(clean, "{"); idx > 0 && !strings.HasPrefix(clean, "[") {
 		clean = clean[idx:]
 	}
 

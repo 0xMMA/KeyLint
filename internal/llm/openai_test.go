@@ -156,3 +156,84 @@ func TestOpenAIIgnoresUnsupportedFields(t *testing.T) {
 		t.Error("max_tokens must not reach the OpenAI payload")
 	}
 }
+
+// TestOpenAIJSONModeWithoutSchema covers the weaker constraint: Pyramidize
+// parses JSON on every step, so with schema enforcement off it still has to ask
+// for an object — which is what it did before schemas existed.
+func TestOpenAIJSONModeWithoutSchema(t *testing.T) {
+	var got capture
+	srv := newServer(t, &got, http.StatusOK, `{"choices":[{"message":{"content":"{}"}}]}`)
+
+	client := newOpenAI(Config{APIKey: "sk-test", BaseURL: srv.URL})
+	if _, err := client.Complete(context.Background(), Request{Model: "gpt-5.2", User: "x", JSONMode: true}); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	format, ok := got.body["response_format"].(map[string]any)
+	if !ok {
+		t.Fatalf("response_format = %v, want an object", got.body["response_format"])
+	}
+	if format["type"] != "json_object" {
+		t.Errorf("response_format.type = %v, want json_object", format["type"])
+	}
+}
+
+// TestOpenAISchemaWinsOverJSONMode: both set is what Pyramidize sends while
+// enforcement is on, and the shape has to win.
+func TestOpenAISchemaWinsOverJSONMode(t *testing.T) {
+	var got capture
+	srv := newServer(t, &got, http.StatusOK, `{"choices":[{"message":{"content":"{}"}}]}`)
+
+	client := newOpenAI(Config{APIKey: "sk-test", BaseURL: srv.URL})
+	req := Request{Model: "gpt-5.2", User: "x", JSONMode: true, JSONSchema: []byte(testSchema)}
+	if _, err := client.Complete(context.Background(), req); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	format := got.body["response_format"].(map[string]any)
+	if format["type"] != "json_schema" {
+		t.Errorf("response_format.type = %v, want json_schema to win", format["type"])
+	}
+}
+
+// TestOpenAIRefusesUnusableAnswers covers the three outcomes strict schemas made
+// reachable. Each would otherwise be handed to the caller as text — and for the
+// fix flow, written straight over the user's selection.
+func TestOpenAIRefusesUnusableAnswers(t *testing.T) {
+	tests := []struct {
+		name  string
+		reply string
+		want  string
+	}{
+		{
+			name:  "cut off at the output limit",
+			reply: `{"choices":[{"finish_reason":"length","message":{"content":"They are going to the"}}]}`,
+			want:  "exceeded the output limit",
+		},
+		{
+			name:  "model declined",
+			reply: `{"choices":[{"finish_reason":"stop","message":{"content":"","refusal":"I cannot help with that"}}]}`,
+			want:  "declined the request",
+		},
+		{
+			name:  "empty content",
+			reply: `{"choices":[{"finish_reason":"stop","message":{"content":""}}]}`,
+			want:  "empty result",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var got capture
+			srv := newServer(t, &got, http.StatusOK, tc.reply)
+
+			client := newOpenAI(Config{APIKey: "sk-test", BaseURL: srv.URL})
+			_, err := client.Complete(context.Background(), Request{Model: "gpt-4o-mini", User: "x"})
+			if err == nil {
+				t.Fatal("expected an error rather than an unusable answer")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %v, want it to mention %q", err, tc.want)
+			}
+		})
+	}
+}

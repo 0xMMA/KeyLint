@@ -1159,8 +1159,11 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
    */
   private async hasUsableCredentials(provider: string): Promise<boolean> {
     if (provider === 'claude-code') {
-      const status = await this.wails.getClaudeCodeStatus();
-      return status.installed && status.loggedIn;
+      // ngOnInit awaits this before subscribing to the shortcut, so a failed
+      // RPC must not abort it. An unanswerable probe means "cannot tell",
+      // which is better shown as the banner than as a dead page.
+      const status = await this.wails.getClaudeCodeStatus().catch(() => null);
+      return !!status?.installed && !!status?.loggedIn;
     }
     if (KEYLESS_PROVIDERS.has(provider)) return true;
     const keyStatus = await this.wails.getKeyStatus(provider);

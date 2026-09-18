@@ -548,3 +548,34 @@ func TestClaudeCodeTruncatedPartialStaysValidUTF8(t *testing.T) {
 		t.Errorf("error message is not valid UTF-8: %q", err.Error())
 	}
 }
+
+// TestClaudeCodeCutOffAtTheOutputLimit keeps this path consistent with the HTTP
+// providers: stop_reason max_tokens means the answer is half written.
+func TestClaudeCodeCutOffAtTheOutputLimit(t *testing.T) {
+	s := newStub(t)
+	s.replies(`{"result":"They are going to the","is_error":false,"terminal_reason":"completed","stop_reason":"max_tokens"}`)
+
+	_, err := s.client().Complete(context.Background(), Request{Model: "haiku", User: "x"})
+	if err == nil || !strings.Contains(err.Error(), "exceeded the output limit") {
+		t.Fatalf("error = %v, want the output-limit message", err)
+	}
+}
+
+// TestClaudeCodeOrdinaryStopReasonsPass guards the other half: the CLI sets
+// stop_reason to values like tool_use on runs that are perfectly fine.
+func TestClaudeCodeOrdinaryStopReasonsPass(t *testing.T) {
+	for _, reason := range []string{"end_turn", "tool_use", ""} {
+		t.Run("stop_reason="+reason, func(t *testing.T) {
+			s := newStub(t)
+			s.replies(`{"result":"fine","is_error":false,"terminal_reason":"completed","stop_reason":"` + reason + `"}`)
+
+			resp, err := s.client().Complete(context.Background(), Request{Model: "haiku", User: "x"})
+			if err != nil {
+				t.Fatalf("Complete: %v", err)
+			}
+			if resp.Text != "fine" {
+				t.Errorf("Text = %q, want the result", resp.Text)
+			}
+		})
+	}
+}

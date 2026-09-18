@@ -47,6 +47,11 @@ type Request struct {
 	// MaxTokens caps the response length. Only providers whose API requires it
 	// (Anthropic) send it; the others keep the request shape they had before.
 	MaxTokens int
+	// JSONMode asks for a JSON object without saying what shape. It is the
+	// weaker constraint, used when a caller parses JSON but schema enforcement
+	// is off; JSONSchema wins where both are set. OpenAI and the
+	// OpenAI-compatible Ollama endpoint support it, the others ignore it.
+	JSONMode bool
 	// JSONSchema constrains the reply to a shape. nil means no constraint.
 	//
 	// Every provider enforces it in its own dialect — OpenAI and the
@@ -270,6 +275,11 @@ var fingerprintHeaders = []string{
 	"X-Stainless-Runtime-Version",
 	"X-Stainless-Timeout",
 }
+
+// outputLimitMessage is what a user reads when a reply was cut off. The Fix
+// page caps at 2048 tokens, so this is reachable on ordinary long selections
+// and has to say what to do about it rather than name a limit.
+const outputLimitMessage = "the result exceeded the output limit — try a shorter selection"
 
 // schemaName labels the schema for providers that require a name for it. It is
 // never shown to a user.
