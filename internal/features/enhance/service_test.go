@@ -72,24 +72,33 @@ func newTestService(t *testing.T, cfg settings.Settings, keys map[string]string)
 	// reach, so this test measures the code and not the machine.
 	settingsSvc := settings.NewServiceFrom(cfg, settings.EnvOnlyKeys)
 
-	rec := &recorder{client: &fakeClient{reply: "improved text"}}
+	// A plausible correction of the input the tests send, not an unrelated
+	// string: Enhance now runs its output guard, and a reply that shares
+	// nothing with the input is refused on purpose.
+	rec := &recorder{client: &fakeClient{reply: fakeCorrection}}
 	svc := NewService(settingsSvc)
 	svc.newClient = rec.new
 	svc.getKey = func(provider string) string { return keys[provider] }
 	return svc, rec
 }
 
+// fakeInput and fakeCorrection are what the plumbing tests send and expect back.
+const (
+	fakeInput      = "their going to the meeting later and i think its about the new project"
+	fakeCorrection = "They're going to the meeting later, and I think it's about the new project."
+)
+
 func TestEnhanceOpenAI(t *testing.T) {
 	cfg := settings.Default()
 	cfg.ActiveProvider = "openai"
 	svc, rec := newTestService(t, cfg, map[string]string{"openai": "sk-test"})
 
-	got, err := svc.Enhance("their going to the meeting")
+	got, err := svc.Enhance(fakeInput)
 	if err != nil {
 		t.Fatalf("Enhance: %v", err)
 	}
-	if got != "improved text" {
-		t.Errorf("Enhance = %q, want %q", got, "improved text")
+	if got != fakeCorrection {
+		t.Errorf("Enhance = %q, want %q", got, fakeCorrection)
 	}
 
 	if rec.provider != llm.ProviderOpenAI {
@@ -107,7 +116,7 @@ func TestEnhanceOpenAI(t *testing.T) {
 	if rec.client.gotRequest.Model != llm.DefaultModel(llm.ProviderOpenAI, llm.FeatureFix) {
 		t.Errorf("Model = %q, want %q", rec.client.gotRequest.Model, llm.DefaultModel(llm.ProviderOpenAI, llm.FeatureFix))
 	}
-	if rec.client.gotRequest.User != buildUserMessage("their going to the meeting") {
+	if rec.client.gotRequest.User != buildUserMessage(fakeInput) {
 		t.Errorf("User = %q, want the input text between the markers", rec.client.gotRequest.User)
 	}
 	if rec.client.gotRequest.System != systemPrompt {

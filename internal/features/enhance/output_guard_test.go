@@ -3,6 +3,9 @@ package enhance
 import (
 	"strings"
 	"testing"
+
+	"keylint/internal/features/settings"
+	"keylint/internal/llm"
 )
 
 // The strings below are the outputs the eval actually recorded, not invented
@@ -23,8 +26,16 @@ func TestTheAddedNoteIsDropped(t *testing.T) {
 		"in brackets": correctInput + " [no changes required]",
 		"leading":     "(No corrections needed.)\n\n" + correctInput,
 		"same line":   correctInput + " (Everything looks good.)",
+		// The four shapes a review found going straight through the first
+		// version, which recognised a bracket rather than an addition. The
+		// observed failure happened to be parenthesised; nothing says the next
+		// one will be.
+		"no brackets at all": correctInput + "\n\nI reviewed the text and found nothing to change.",
+		"a preamble":         "Here is the corrected text:\n\n" + correctInput,
+		"a code fence":       "```\n" + correctInput + "\n```",
+		"quoted":             "\"" + correctInput + "\"",
 	} {
-		if got := guardOutput(correctInput, output); got != correctInput {
+		if got, _ := guardOutput(correctInput, output); got != correctInput {
 			t.Errorf("%s: got %q", name, got)
 		}
 	}
@@ -51,7 +62,7 @@ func TestTheAuthorsOwnParenthesesSurvive(t *testing.T) {
 			out: "They're going to the meeting. (Fixed one contraction.)",
 		},
 	} {
-		if got := guardOutput(tc.in, tc.out); got != tc.out {
+		if got, _ := guardOutput(tc.in, tc.out); got != tc.out {
 			t.Errorf("%s: the guard changed a correction it should not touch: %q", name, got)
 		}
 	}
@@ -66,7 +77,7 @@ func TestAReplyIsRefused(t *testing.T) {
 		"offers to help": "Hey, klar schau ich mir das an! Allerdings sehe ich hier keinen Text oder Code, den ich überprüfen könnte. Kannst du mir das zeigen, das du gebastelt hast? :)",
 		"asks for input": "Kein Problem! Ich bin bereit – schreib einfach hin, was du checken möchtest. :)",
 	} {
-		if got := guardOutput(chatInput, reply); got != chatInput {
+		if got, _ := guardOutput(chatInput, reply); got != chatInput {
 			t.Errorf("%s: a reply was passed through as a correction: %q", name, got)
 		}
 	}
@@ -81,7 +92,7 @@ func TestABadCorrectionIsStillACorrection(t *testing.T) {
 	const mixedInput = "ok so ich hab den branch gemerged, aber die pipeline ist red. läuft wohl an den flaky tests, i will look into it tomorrow morning."
 	mistranslated := "Ok, so ich hab den Branch gemerged, aber die Pipeline ist rot. Läuft wohl an den flaky Tests, ich schaue mir das morgen früh an."
 
-	if got := guardOutput(mixedInput, mistranslated); got != mistranslated {
+	if got, _ := guardOutput(mixedInput, mistranslated); got != mistranslated {
 		t.Errorf("a mistranslation was refused as a reply: %q", got)
 	}
 }
@@ -105,7 +116,7 @@ func TestOrdinaryCorrectionsPassUntouched(t *testing.T) {
 		},
 		"already correct": {in: correctInput, out: correctInput},
 	} {
-		if got := guardOutput(tc.in, tc.out); got != tc.out {
+		if got, _ := guardOutput(tc.in, tc.out); got != tc.out {
 			t.Errorf("%s: the guard changed a correct answer to %q", name, got)
 		}
 	}
@@ -118,7 +129,7 @@ func TestShortTextIsNotJudged(t *testing.T) {
 		"two words":  {in: "thanks alot", out: "Thanks a lot."},
 		"a greeting": {in: "hey :)", out: "Hey :)"},
 	} {
-		if got := guardOutput(tc.in, tc.out); got != tc.out {
+		if got, _ := guardOutput(tc.in, tc.out); got != tc.out {
 			t.Errorf("%s: a short correction was refused: %q", name, got)
 		}
 	}
@@ -128,12 +139,12 @@ func TestShortTextIsNotJudged(t *testing.T) {
 // its answer the same way would otherwise paste the markers into the document.
 func TestEchoedMarkersAreRemoved(t *testing.T) {
 	wrapped := inputOpen + "\n" + correctInput + "\n" + inputClose
-	if got := guardOutput(correctInput, wrapped); got != correctInput {
+	if got, _ := guardOutput(correctInput, wrapped); got != correctInput {
 		t.Errorf("markers survived: %q", got)
 	}
 	// And text that merely mentions a tag is left alone.
 	const htmlish = "Use the <b>bold</b> tag for the heading, not <i>italics</i>."
-	if got := guardOutput(htmlish, htmlish); got != htmlish {
+	if got, _ := guardOutput(htmlish, htmlish); got != htmlish {
 		t.Errorf("the guard ate markup that was part of the text: %q", got)
 	}
 }
@@ -151,5 +162,79 @@ func TestTheUserMessageCarriesTheMarkers(t *testing.T) {
 	}
 	if !strings.Contains(systemPrompt, inputOpen) || !strings.Contains(systemPrompt, inputClose) {
 		t.Error("the system prompt must name the markers the user message uses")
+	}
+}
+
+// TestHeavilyCorrectedTextSurvives is the false-positive case the first guard
+// failed. It measured retention as word identity, and a correction changes the
+// middle of a word: typing umlauts as ue/oe/ae is ordinary German input, and on
+// those texts the guard threw the correction away and silently returned the
+// user's typos. The suite's own de-umlaute-ascii sample scored 0.462 against a
+// floor of 0.4 — the guard was sitting next to the normal case, not above it.
+func TestHeavilyCorrectedTextSurvives(t *testing.T) {
+	for name, tc := range map[string]struct{ in, out string }{
+		"ascii umlauts": {
+			in:  "hallo, koennten wir den termin fuer die pruefung verschieben? ich muesste vorher noch die groesse der raeume klaeren",
+			out: "Hallo, könnten wir den Termin für die Prüfung verschieben? Ich müsste vorher noch die Größe der Räume klären.",
+		},
+		"the suite's own umlaut sample": {
+			in:  "fuer die naechste woche brauche ich noch die groesse der dateien, ausserdem waere es gut wenn wir die pruefung vorziehen koennten.",
+			out: "Für die nächste Woche brauche ich noch die Größe der Dateien. Außerdem wäre es gut, wenn wir die Prüfung vorziehen könnten.",
+		},
+		"dense typos": {
+			in:  "the enviroment configuraton was seperate from the develepment pipline, wich ment the deploment recieved diferent paramaters",
+			out: "The environment configuration was separate from the development pipeline, which meant the deployment received different parameters.",
+		},
+		"german compound spacing": {
+			in:  "bitte schick mir die projekt daten und die kunden liste bis freitag, die termin planung machen wir dann in der team sitzung",
+			out: "Bitte schick mir die Projektdaten und die Kundenliste bis Freitag, die Terminplanung machen wir dann in der Teamsitzung.",
+		},
+		"identifiers and numbers": {
+			in:  "invoice 4711 for customer ACME-2024 is overdue, pls chase it up before the 15th, ref PO-98231",
+			out: "Invoice 4711 for customer ACME-2024 is overdue. Please chase it up before the 15th, ref PO-98231.",
+		},
+	} {
+		if got, action := guardOutput(tc.in, tc.out); got != tc.out {
+			t.Errorf("%s: a correction was refused (%s): %q", name, action, got)
+		}
+	}
+}
+
+// TestTextMentioningTheMarkersIsNotCut: the first version searched for the
+// markers anywhere in the output and cut there, so a sentence that merely
+// mentions one — which anyone working on KeyLint might write — came back with
+// everything before it deleted, and the truncation was pasted over the user's
+// selection.
+func TestTextMentioningTheMarkersIsNotCut(t *testing.T) {
+	const (
+		in  = "in <text-to-correct> we wrap the users clipboard text before we send it to the model, thats the whole trick"
+		out = "In <text-to-correct> we wrap the user's clipboard text before we send it to the model; that's the whole trick."
+	)
+	if got, action := guardOutput(in, out); got != out {
+		t.Errorf("the guard cut the author's text (%s): %q", action, got)
+	}
+}
+
+// TestTheGuardIsWiredIntoEnhance: every guard test above calls guardOutput
+// directly, so all of them passed with the guard removed from the one path the
+// GUI and the CLI share. This is the test that fails when that happens.
+func TestTheGuardIsWiredIntoEnhance(t *testing.T) {
+	cfg := settings.Default()
+	cfg.ActiveProvider = "claude"
+	const reply = "Kein Problem! Ich bin bereit – schreib einfach hin, was du checken möchtest. :)"
+	svc, _ := newTestService(t, cfg, map[string]string{"claude": "sk-test"})
+	svc.newClient = func(string, llm.Config) (llm.Client, error) {
+		return &fakeClient{reply: reply}, nil
+	}
+
+	got, err := svc.Enhance(chatInput)
+	if err != nil {
+		t.Fatalf("Enhance: %v", err)
+	}
+	if got != chatInput {
+		t.Errorf("Enhance returned the model's reply instead of the author's text: %q", got)
+	}
+	if svc.lastGuardAction != guardRefused {
+		t.Errorf("guard action = %q, want %q", svc.lastGuardAction, guardRefused)
 	}
 }

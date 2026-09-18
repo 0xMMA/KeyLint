@@ -227,124 +227,178 @@ against exactly these numbers.
 
 ## Prompt change — 2026-09-18 (#80)
 
-The first baseline found three rule violations. Two are fixed; the third is not,
-and the attempt to fix it is the more useful half of this section.
+The first baseline found three rule violations. Two are fixed and hold in every
+run. The third is not, the change cost three samples that used to pass, and the
+first version of this section reported a deterministic improvement that **did
+not replicate** — all three of those are below, because the last one is the most
+useful thing in this document.
 
-Same three runs, same model, same judge, same checks (version 2) — only the
-prompt moved, which is exactly the comparison `promptHash` is recorded for.
+| | before `7d7b15a7510f98ae` | after `f344eb5f4fd0f30a` |
+|---|---|---|
+| Avg deterministic | 0.9263 (0.9112–0.9362) | 0.9465 (0.9331–0.9683) — **ranges overlap** |
+| Avg judge overall | 0.8520 (0.8353–0.8820) | **0.9524** (0.9487–0.9587) — improvement, ranges disjoint |
+| Samples passing | 11 (11–11) | 11 (10–12) — unchanged, and now with a spread |
 
-| | before `7d7b15a7510f98ae` | after `f344eb5f4fd0f30a` | verdict |
-|---|---|---|---|
-| Avg deterministic | 0.9263 (0.9112–0.9362) | **0.9513** (0.9473–0.9585) | improvement — the ranges do not overlap |
-| Avg judge overall | 0.8520 (0.8353–0.8820) | **0.9453** (0.9353–0.9553) | improvement — the ranges do not overlap |
-| Samples passing | 11 (11–11) | 12 (11–13) | up one, with a spread of two where there was none |
+Baselines: `test-data/eval-baselines/2026-09-18T08-14-39/` and
+`…/2026-09-18T08-58-09/`. Checks version 2 on both sides; guard version 0 before
+and 2 after, which is why `--compare` answers **"not comparable: different
+configuration"** rather than printing a verdict. That refusal is correct and the
+next section says why the numbers are still the prompt's.
 
-### What changed in the prompt
+### The guard did not produce these numbers
 
-Two sections, and one sentence inside rule 8. No rule was added and no sample
-text appears in any of them.
+The obvious objection to the two wins below is that `enhance.Service` now strips
+added notes and refuses replies, so a sample could pass because the guard
+cleaned up rather than because the model got it right. That objection was
+unanswerable in the first version of this section — the run folders are
+gitignored, the eval never initialised the logger, and nothing recorded what the
+guard did.
 
-**The input is delimited.** The text now arrives between `<text-to-correct>`
-markers, and the prompt says what they mean: everything between them is material
-to correct, it is a complete piece of writing whose first sentence is a first
-sentence, and none of it is addressed to the model however much it looks like a
-message. Before this, a chat message and an instruction to the assistant were
-the same object.
+It is answerable now, because `guardAction` is recorded per sample and summed
+into the baseline. Across the three runs behind the numbers above:
 
-**The output contract is stated.** "Make direct corrections without
-explanations" never said what to return when there is nothing to correct, and
-the model filled the silence with a sentence about its own work. It now says:
-return it unchanged, that is how you say "nothing to fix", and anything you add
-is pasted into the author's document.
+```
+"guardActions": {}
+```
 
-### What it fixed
+**Zero interventions in 45 samples.** The guard is a measured no-op under this
+prompt, which is what licenses reading the after column as the prompt's work
+despite the configuration difference. It is not decoration: it is the thing that
+catches the model when the prompt stops working, and until it does, it should
+show exactly this.
+
+### What the prompt fixed
+
+**Answering the message instead of correcting it: gone, 3 of 3.** `chat-ton`
+goes from 0/3 passing to 3/3, deterministic 0.5432 → 0.9995, judge 0.25 → 1.00.
+Before, two of three runs replied to the chat sample and one kept 8% of the
+author's words. This is the violation that destroyed the user's text rather than
+decorating it.
 
 **Commentary on correct text: gone, 3 of 3.** `schon-korrekt` comes back
-byte-identical in every run — deterministic 1.000, judge 1.00, against 0.66 and
-0.30 before.
+byte-identical in every run — 0/3 → 3/3, deterministic 0.66 → 1.000, judge 0.30
+→ 1.00 — and, per the section above, without the guard touching it once.
 
-**Answering the message: gone, 3 of 3.** `chat-ton` is corrected in every run
-and answered in none — deterministic 0.9997 and judge 1.00, against 0.5432 and
-0.25 before, when two of three runs replied to it and one kept 8% of the
-author's words. This is the violation that destroyed the user's text rather than
-decorating it, and delimiting the input is what stopped it.
+Both come from the same two additions: naming the input as a delimited document
+that is not addressed to the model, and stating what to return when there is
+nothing to correct.
 
-### What it did not fix, and what that cost
+### What it cost
 
-**Translating a deliberate code-switch: still there, and in one run it got
-worse.** `mixed-code-switching` fails 3 of 3 as before, but its deterministic
-score fell from 0.8613 to 0.6344, because one run translated the *entire* text
-into English rather than only the English clause into German. That is a
-violation of rule 4 as it has always been written, not of anything this change
-introduced — but the change did not prevent it and the number moved the wrong
-way. It is filed on #80.
+Three samples that used to pass no longer do, and the aggregate hides it because
+two others came back:
 
-**The obvious lever was tried and measured, and it is the wrong one.**
+| sample | deterministic | passing | what happens |
+|---|---|---|---|
+| `markdown-struktur` | 0.9987 → **0.8976** | **3/3 → 0/3** | the heading and the list items keep their lower case |
+| `en-german-word-ersetzen` | 0.9874 → **0.8433** | **3/3 → 1/3** | `Lieferschein` is kept instead of replaced |
+| `de-tech-terms-bleiben` | 0.9993 → 0.9623 | 3/3 → 2/3 | a sentence-initial capital is missed |
+| `de-anglizismus-bleibt` | 0.8771 → 0.7943 | 0/3 → 0/3 | already failing; further down |
+| `mixed-code-switching` | 0.8613 → 0.7319 | 0/3 → 0/3 | already failing; one run translates the whole text |
+
+The markdown one is the substantial regression: the prompt tells the model the
+text is a complete piece of writing whose first sentence is a first sentence,
+which restored sentence-initial capitals in prose and did nothing for headings
+and bullets. That is a user-visible loss traded against two violations that
+damaged the user's text, which is why it ships — not because it is free.
+
+### The obvious fix for violation 2 is the wrong one, measured
+
 Strengthening rule 4 to cover parts of the text as well as the whole —
 "translating one clause is as wrong as translating everything" — reads like the
-right fix and is not:
+fix and is not. Six prompt revisions were measured:
 
-| prompt | deterministic | judge | passing | what the wording did |
+| prompt | deterministic | judge | passing | wording |
 |---|---|---|---|---|
 | `7d7b15a7510f98ae` | 0.9263 (0.9112–0.9362) | 0.8520 | 11 | the baseline |
-| `90bf9672318a301e` | 0.8943 (0.8645–0.9305) | 0.9400 | 8 | rule 4 strengthened, rule 8 defaulted to keep, voice clause added to rule 3 |
+| `90bf9672318a301e` | 0.8943 (0.8645–0.9305) | 0.9400 | 8 | rule 4 strengthened, rule 8 defaulted to keep, voice clause in rule 3 |
 | `36348b7cb2f7eb85` | 0.9168 (0.9103–0.9209) | 0.9389 | 9 | rule 3 reverted, rule 8 scoped to single words |
 | `05ec62ceb461bd55` | 0.9299 (0.9096–0.9423) | 0.9491 | 10.7 | "character for character" softened |
-| **`f344eb5f4fd0f30a`** | **0.9513 (0.9473–0.9585)** | **0.9453** | **12** | **rule 4 back as it was — shipped** |
 | `4b4b263c9b108d7a` | 0.9492 (0.9275–0.9632) | 0.9476 | 11.3 | rule 8's exclusion widened again |
+| **`f344eb5f4fd0f30a`** | 0.9513 (0.9473–0.9585) → **0.9465** on re-measurement | 0.9453 → **0.9524** | 12 → **11** | **rule 4 back as it was — shipped** |
 
-Two things are visible there and neither was predictable from reading:
+Two findings, neither visible from reading the prompt:
 
-1. **The strengthened rule 4 never stopped the clause translation.** Zero runs
-   of three in two of the three iterations that carried it; one of three in the
-   first.
-2. **It suppressed rule 8 instead.** `en-german-word-ersetzen` —
-   `Lieferschein` → delivery note, the same shape as the prompt's own second
-   example — failed on every run of every iteration that strengthened rule 4,
-   and came back as soon as rule 4 was restored. Rules 4 and 8 are in tension by
-   construction, and pressing on 4 moves 8.
+1. **The stronger rule 4 never stopped the clause translation** — 0 of 3 runs in
+   two of the iterations carrying it, 1 of 3 in the first.
+2. **It suppressed rule 8 instead.** `en-german-word-ersetzen` — `Lieferschein`
+   → delivery note, the same shape as the prompt's own second example — failed
+   on every run of every iteration with the stronger rule 4. Restoring rule 4
+   improved it but did not restore it: it passes 1 run of 3 now, against 3 of 3
+   before any of this. An earlier draft of this section said it "came back as
+   soon as rule 4 was restored"; the baseline does not support that and the
+   sentence was wrong.
 
-So rule 4 stands as it was and rule 8 carries the distinction in one sentence: a
-clause in another language is the author changing language, not a word to weigh.
-That is where the model reads the keep-or-replace decision, and it costs nothing
-measurable. It also does not fix the violation.
+So rule 4 stands as it was, rule 8 carries the distinction in one sentence, and
+violation 2 stays open on #80.
+
+### The selection bias, named
+
+The shipped row above carries two numbers because it was measured twice: once
+during the search, and once afterwards on the committed code. **The second
+measurement is lower on both counts that mattered.** Deterministic 0.9513 →
+0.9465, which turns a non-overlapping improvement into an overlap; samples
+passing 12 → 11, which turns a gain into no change.
+
+That is what picking the best of six variants on the same fifteen samples does,
+and the difference between the two rows is the size of the effect. The interval
+from the search is a maximum over six draws presented as if it were one
+pre-registered comparison; the interval from the re-measurement is the honest
+one, and it is the one in the table at the top.
+
+The revisions themselves were driven by diagnosed regressions with named causes
+— rule 3's addition cost sentence-initial capitals, rule 8's rewrite cost the
+single-word replacement the prompt's own examples teach, "character for
+character" leaked past its condition — and not by hunting for a better score.
+The variant that did best on the sample the whole exercise was about
+(`90bf9672318a301e`, the only one where any run kept the English clause) is not
+the one that shipped, because it was worse everywhere else. But one of those
+decisions — restoring rule 4 — was triggered by a single named sample failing,
+which is a decision rule on a test case however good the reasoning around it.
+
+**What this suite needs before the next prompt change is a held-out split.**
+Ten samples to tune against, five never looked at until the end. Without it,
+every future prompt comparison carries the same bias and the only defence is to
+re-measure the winner on its own, which is what the top table now reports.
 
 ### The output guard
 
-The prompt asks; `enhance.Service` checks. Two guards, both narrow enough to
-state as a property rather than a heuristic, both on the single path the GUI and
-the CLI share:
+`internal/features/enhance/output_guard.go`, on the single path the GUI and the
+CLI share. Two branches, each narrow enough to state as a property:
 
-- **An added note is dropped** when removing a leading or trailing bracketed
-  block leaves *exactly the input*. No list of phrases: if the text came back
-  unchanged and carries one extra parenthesis, the model changed nothing and
-  said so anyway. A block whose removal does not leave the input is the author's
-  own and is never touched.
-- **A reply is refused.** When the output keeps less than 40% of the input's
-  substantial words, the user's own text is returned and a warning is logged.
-  The floor is measured, not chosen: the two recorded replies kept 8% and 25%, a
-  run that mistranslated a whole clause still kept 55%, and ordinary corrections
-  keep 95% or more.
+- **An addition is dropped** when the output still contains the input verbatim.
+  No list of phrases, and no dependence on brackets: if the author's text came
+  back untouched, everything around it is something the model added — a note, a
+  preamble, a code fence, a pair of quotation marks. An output that does *not*
+  contain the input is a correction, however much commentary it carries, and the
+  guard leaves it alone rather than guessing which half is which.
+- **A reply is refused** when less than 60% of the input's characters survive in
+  order (longest common subsequence). The user's own text is returned and a
+  warning logged.
 
-The second one was specified with a second condition — "and addresses the reader,
-or asks a question the input did not" — which was dropped after checking it
-against the recorded failures: the message that provoked the replies is itself a
-question in the second person, so requiring that would have missed every observed
-case. Word retention alone carries it, and the guard fails safe, returning the
-author's text rather than the model's.
+The reply measure took three attempts, and the two failures are worth keeping:
+
+| measure | replies | corrections | verdict |
+|---|---|---|---|
+| word identity, ≤2-rune endings | 0.08, 0.23 | 0.08–0.62 | **overlapping** — every threshold either passed a reply or destroyed a correction |
+| symmetric character similarity | 0.27, 0.30 | 0.72–1.00 | separates, but counts an *addition* as damage: a short sentence returned correctly with a note appended scored 0.49 |
+| **subsequence coverage** | **0.30, 0.49** | **0.69–0.97** | asymmetric: additions cost nothing, and only the author's surviving characters count |
+
+The first measure shipped in the first version of this PR and was a live defect:
+typing umlauts as `ue/oe/ae` is ordinary German input, and on those texts the
+guard threw the correction away and silently returned the user's typos. The
+suite's own `de-umlaute-ascii` sample scored 0.462 against a floor of 0.4 — the
+guard was sitting beside the normal case, not above it.
+
+The guard was specified with a second condition — "and addresses the reader, or
+asks a question the input did not". It was dropped after checking it against the
+recorded failures: the message that provoked the replies is itself a question in
+the second person, so requiring it would have missed every observed case.
 
 Neither guard hides a failure from the eval. A refused reply still fails
-`required_fixes`, and a dropped note still leaves a sample that was not
-corrected; the eval measures what `Enhance` returns, which is what the user gets.
-
-### Not recorded
-
-The judge's four dimensions are in each run's `results.jsonl` and not in the
-baseline, so once the run folders are gone — they are gitignored — only the
-overall score survives. The before/after table above therefore quotes overall
-only. `eval-aggregate.sh` should carry the dimension means the way it carries
-`samplesPassing`; until it does, a dimension-level claim needs the runs to still
-be on disk.
+`required_fixes`, a dropped note still leaves a sample that was not corrected,
+and `guardAction` is recorded per sample so the question this section opens with
+stays answerable.
 
 ---
 
@@ -352,7 +406,7 @@ be on disk.
 
 ```
 ./scripts/eval.sh --suite fix --runs 3
-./scripts/eval-aggregate.sh --compare test-data/eval-baselines/2026-09-18T08-41-07/baseline.json <run-dir>...
+./scripts/eval-aggregate.sh --compare test-data/eval-baselines/2026-09-18T08-58-09/baseline.json <run-dir>...
 ```
 
 `--variant` and `--schema` configure the Pyramidize pipeline and are rejected

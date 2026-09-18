@@ -1,16 +1,17 @@
 {
-  "createdAt": "2026-09-18T08-36-44",
+  "createdAt": "2026-09-18T08-55-07",
   "runCount": 3,
   "runs": [
-    "test-data/eval-runs/2026-09-18T08-36-44/",
-    "test-data/eval-runs/2026-09-18T08-38-16/",
-    "test-data/eval-runs/2026-09-18T08-39-30/"
+    "test-data/eval-runs/2026-09-18T08-55-07/",
+    "test-data/eval-runs/2026-09-18T08-56-08/",
+    "test-data/eval-runs/2026-09-18T08-57-09/"
   ],
   "config": {
     "suite": "fix",
     "promptHash": "f344eb5f4fd0f30a",
     "checksVersion": 2,
-    "gitSHA": "a30a4b4-dirty",
+    "guardVersion": 2,
+    "gitSHA": "a4ccb03-dirty",
     "provider": "claude",
     "model": "claude-haiku-4-5-20251001",
     "promptVariant": 0,
@@ -23,7 +24,7 @@
     "qualityThreshold": 0,
     "sampleCount": 15
   },
-  "configKey": "fix|claude|claude-haiku-4-5-20251001|claude|claude-sonnet-4-5-20250929|0|false|0|15|2",
+  "configKey": "fix|claude|claude-haiku-4-5-20251001|claude|claude-sonnet-4-5-20250929|0|false|0|15|2|2",
   "configConsistent": true,
   "judgeCoverage": {
     "min": 15,
@@ -36,21 +37,22 @@
     "of": 15
   },
   "deterministic": {
-    "mean": 0.9513,
-    "min": 0.9473,
-    "max": 0.9585,
-    "spread": 0.0111
+    "mean": 0.9465,
+    "min": 0.9331,
+    "max": 0.9683,
+    "spread": 0.0352
   },
   "judge": {
-    "mean": 0.9453,
-    "min": 0.9353,
-    "max": 0.9553,
-    "spread": 0.02
+    "mean": 0.9524,
+    "min": 0.9487,
+    "max": 0.9587,
+    "spread": 0.01
   },
+  "guardActions": {},
   "samplesPassing": {
-    "mean": 12,
-    "min": 11,
-    "max": 13,
+    "mean": 11,
+    "min": 10,
+    "max": 12,
     "spread": 2
   },
   "refineCalls": null,
@@ -60,7 +62,7 @@
       "runs": 3,
       "errors": 0,
       "deterministic": {
-        "mean": 0.9997,
+        "mean": 0.9995,
         "min": 0.9992,
         "max": 1,
         "spread": 0.0008
@@ -79,16 +81,16 @@
       "runs": 3,
       "errors": 0,
       "deterministic": {
-        "mean": 0.8299,
-        "min": 0.7761,
-        "max": 0.8569,
-        "spread": 0.0808
+        "mean": 0.7943,
+        "min": 0.6389,
+        "max": 0.8872,
+        "spread": 0.2483
       },
       "judge": {
-        "mean": 0.9333,
-        "min": 0.9,
+        "mean": 0.9,
+        "min": 0.8,
         "max": 0.95,
-        "spread": 0.05
+        "spread": 0.15
       },
       "passed": 0,
       "refined": 0
@@ -98,16 +100,16 @@
       "runs": 3,
       "errors": 0,
       "deterministic": {
-        "mean": 0.9995,
+        "mean": 0.9986,
         "min": 0.9986,
-        "max": 1,
-        "spread": 0.0014
+        "max": 0.9986,
+        "spread": 0
       },
       "judge": {
-        "mean": 0.9833,
+        "mean": 0.95,
         "min": 0.95,
-        "max": 1,
-        "spread": 0.05
+        "max": 0.95,
+        "spread": 0
       },
       "passed": 3,
       "refined": 0
@@ -117,18 +119,18 @@
       "runs": 3,
       "errors": 0,
       "deterministic": {
-        "mean": 0.9998,
-        "min": 0.9993,
-        "max": 1,
-        "spread": 0.0007
+        "mean": 0.9623,
+        "min": 0.8882,
+        "max": 0.9993,
+        "spread": 0.1111
       },
       "judge": {
-        "mean": 0.9833,
+        "mean": 0.95,
         "min": 0.95,
-        "max": 1,
-        "spread": 0.05
+        "max": 0.95,
+        "spread": 0
       },
-      "passed": 3,
+      "passed": 2,
       "refined": 0
     },
     {
@@ -136,16 +138,16 @@
       "runs": 3,
       "errors": 0,
       "deterministic": {
-        "mean": 0.9982,
+        "mean": 0.9988,
         "min": 0.9982,
-        "max": 0.9982,
-        "spread": 0
+        "max": 1,
+        "spread": 0.0018
       },
       "judge": {
-        "mean": 0.98,
+        "mean": 0.9867,
         "min": 0.98,
-        "max": 0.98,
-        "spread": 0
+        "max": 1,
+        "spread": 0.02
       },
       "passed": 3,
       "refined": 0
@@ -155,13 +157,13 @@
       "runs": 3,
       "errors": 0,
       "deterministic": {
-        "mean": 0.9996,
-        "min": 0.9989,
+        "mean": 1,
+        "min": 1,
         "max": 1,
-        "spread": 0.0011
+        "spread": 0
       },
       "judge": {
-        "mean": 0.9667,
+        "mean": 0.9833,
         "min": 0.95,
         "max": 1,
         "spread": 0.05
@@ -174,10 +176,10 @@
       "runs": 3,
       "errors": 0,
       "deterministic": {
-        "mean": 0.9093,
+        "mean": 0.8433,
         "min": 0.7963,
-        "max": 0.994,
-        "spread": 0.1978
+        "max": 0.9374,
+        "spread": 0.1411
       },
       "judge": {
         "mean": 1,
@@ -185,7 +187,7 @@
         "max": 1,
         "spread": 0
       },
-      "passed": 2,
+      "passed": 1,
       "refined": 0
     },
     {
@@ -193,10 +195,10 @@
       "runs": 3,
       "errors": 0,
       "deterministic": {
-        "mean": 0.9627,
-        "min": 0.888,
+        "mean": 1,
+        "min": 1,
         "max": 1,
-        "spread": 0.112
+        "spread": 0
       },
       "judge": {
         "mean": 1,
@@ -204,7 +206,7 @@
         "max": 1,
         "spread": 0
       },
-      "passed": 2,
+      "passed": 3,
       "refined": 0
     },
     {
@@ -269,18 +271,18 @@
       "runs": 3,
       "errors": 0,
       "deterministic": {
-        "mean": 0.9652,
+        "mean": 0.8976,
         "min": 0.8976,
-        "max": 0.999,
-        "spread": 0.1015
+        "max": 0.8976,
+        "spread": 0
       },
       "judge": {
-        "mean": 0.9667,
-        "min": 0.95,
+        "mean": 1,
+        "min": 1,
         "max": 1,
-        "spread": 0.05
+        "spread": 0
       },
-      "passed": 2,
+      "passed": 0,
       "refined": 0
     },
     {
@@ -288,16 +290,16 @@
       "runs": 3,
       "errors": 0,
       "deterministic": {
-        "mean": 0.6344,
-        "min": 0.5606,
-        "max": 0.6717,
-        "spread": 0.1111
+        "mean": 0.7319,
+        "min": 0.4495,
+        "max": 0.8803,
+        "spread": 0.4308
       },
       "judge": {
-        "mean": 0.4333,
-        "min": 0.3,
-        "max": 0.5,
-        "spread": 0.2
+        "mean": 0.5667,
+        "min": 0.5,
+        "max": 0.6,
+        "spread": 0.1
       },
       "passed": 0,
       "refined": 0
@@ -307,16 +309,16 @@
       "runs": 3,
       "errors": 0,
       "deterministic": {
-        "mean": 0.9983,
+        "mean": 0.9985,
         "min": 0.998,
-        "max": 0.9987,
-        "spread": 0.0007
+        "max": 0.9993,
+        "spread": 0.0013
       },
       "judge": {
-        "mean": 0.9333,
-        "min": 0.9,
+        "mean": 0.95,
+        "min": 0.95,
         "max": 0.95,
-        "spread": 0.05
+        "spread": 0
       },
       "passed": 3,
       "refined": 0

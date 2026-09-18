@@ -160,6 +160,11 @@ func TestEvalFix(t *testing.T) {
 		Judge         *JudgeScore `json:"judge,omitempty"`
 		Error         string      `json:"error,omitempty"`
 		JudgeError    string      `json:"judgeError,omitempty"`
+		// What the output guard did. Without it a sample that passes because
+		// the guard cleaned up after the model is indistinguishable from one
+		// the model got right — and the first prompt change was reported as
+		// fixing a violation the guard may simply have removed.
+		GuardAction string `json:"guardAction,omitempty"`
 	}
 
 	resultsFile, err := os.Create(filepath.Join(runDir, "results.jsonl"))
@@ -169,12 +174,18 @@ func TestEvalFix(t *testing.T) {
 	defer resultsFile.Close()
 
 	totalDet, totalJudge, judgeCount, scored := 0.0, 0.0, 0, 0
+	guarded := map[string]int{}
 
 	for _, sample := range samples {
 		t.Run(sample.Name, func(t *testing.T) {
 			sr := sampleResult{Name: sample.Name}
 
 			output, err := svc.Enhance(sample.Input)
+			if action := svc.lastGuardAction; action != guardNone {
+				sr.GuardAction = string(action)
+				guarded[string(action)]++
+				t.Logf("output guard: %s", action)
+			}
 			if err != nil {
 				sr.Error = err.Error()
 				t.Errorf("fix failed: %v", err)
@@ -215,11 +226,15 @@ func TestEvalFix(t *testing.T) {
 	}
 
 	summary := map[string]any{
-		"suite":            "fix",
-		"timestamp":        timestamp,
-		"gitSHA":           gitSHA(),
-		"promptHash":       promptHash(),
-		"checksVersion":    ChecksVersion,
+		"suite":         "fix",
+		"timestamp":     timestamp,
+		"gitSHA":        gitSHA(),
+		"promptHash":    promptHash(),
+		"checksVersion": ChecksVersion,
+		"guardVersion":  GuardVersion,
+		// How often the guard had to step in. A run where it never fired and a
+		// run where it fired on every sample can produce the same scores.
+		"guardActions":     guarded,
 		"provider":         provider,
 		"model":            model,
 		"judge":            judge,
