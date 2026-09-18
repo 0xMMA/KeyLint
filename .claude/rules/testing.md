@@ -76,5 +76,9 @@ Settings tests use `XDG_CONFIG_HOME` env override to redirect file I/O to a temp
 - CI runs the whole suite (`build-linux.yml`, job `e2e`): add a spec and it runs, no allowlist to update
 - Generated output — `e2e/screenshots/`, `playwright-report/`, `test-results/` — is gitignored; `git status` must stay clean after a run
 - Config auto-starts `ng serve` on port 4200
-- Anthropic API is CORS-blocked in browsers — use `page.route()` proxy pattern
-- API key injection: `localStorage.setItem('_e2e_apikey_claude', key)`
+- No E2E test reaches a provider. The app calls Go through Wails, and `ng serve`
+  has no Wails bridge, so anything needing a real completion cannot run under
+  Playwright as the suite stands. `silent-fix.spec.ts` is skipped for that
+  reason and its header explains what reviving it would take — the
+  `page.route()` proxy and the `_e2e_apikey_claude` localStorage key in it
+  belong to a browser-mode fallback that no longer exists.

@@ -12,7 +12,9 @@ All frontend→Go calls go through `WailsService` (`frontend/src/app/core/wails.
 
 ## AI API Calls
 
-AI requests must go through the Go backend. Every provider HTTP call lives in `internal/llm` — features build an `llm.Request`, call `Client.Complete`, and never talk to a provider API directly. No `net/http` calls to provider APIs outside that package. The browser-mode fallback in `TextEnhancementService` is only for Playwright E2E tests.
+AI requests must go through the Go backend. Every provider HTTP call lives in `internal/llm` — features build an `llm.Request`, call `Client.Complete`, and never talk to a provider API directly. No `net/http` calls to provider APIs outside that package.
+
+The frontend has no exception to this and no longer has a browser-mode fallback: `TextEnhancementService` passes straight through to `WailsService`, and nothing under `frontend/src` calls a provider. A skipped E2E spec still carries the remains of the old fallback — see `testing.md`.
 
 ## Dark Mode
 

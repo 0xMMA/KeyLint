@@ -156,8 +156,12 @@ test.describe('Shell — collapsed sidebar', () => {
     await gotoFix(page);
     await collapse(page);
     for (const href of ['/fix', '/enhance', '/settings']) {
-      const count = await page.locator(`.nav-item a[href="${href}"] span`).count();
-      expect(count, `${href} label should be absent when collapsed`).toBe(0);
+      // Retries: the labels are removed by the collapse transition, so a count
+      // taken the instant after collapse() can still see them.
+      await expect(
+        page.locator(`.nav-item a[href="${href}"] span`),
+        `${href} label should be absent when collapsed`,
+      ).toHaveCount(0);
     }
   });
 
