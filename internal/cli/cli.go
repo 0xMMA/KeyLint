@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"keylint/internal/features/enhance"
 	"keylint/internal/features/settings"
@@ -54,11 +56,38 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) error {
 	}
 }
 
-// readInput returns text from the first available source:
-// 1. File path (if filePath is non-empty)
-// 2. Stdin (if stdinReader is non-nil)
-// 3. Inline string (if inlineText is non-empty)
-// Returns an error if no input is provided.
+// stdinIdleTimeout is how long stdin may stay quiet before the command gives up.
+//
+// It is an IDLE timeout, reset by every chunk that arrives — not a deadline on
+// the first byte and not one on the whole read. Both of those get it wrong in
+// opposite directions: `pdftotext big.pdf - | keylint -fix` can take seconds to
+// say anything and must not be cut off, while a pipe that emits one header line
+// and then holds the descriptor open would hang forever under a first-byte rule.
+//
+// Fifteen seconds because this path is only reached when neither -f nor inline
+// text was given, so it costs nothing in the common case and leaves room for a
+// slow producer.
+// A var rather than a const so tests can shorten it: asserting the real value
+// twice would add half a minute to every CI run.
+var stdinIdleTimeout = 15 * time.Second
+
+// stdinMaxBytes caps what will be read from a pipe. `yes | KeyLint -fix` is a
+// typo away, and the text is going to an AI provider with a token limit long
+// before ten megabytes matter — so the cap is generous enough never to be hit
+// by real input and small enough not to exhaust memory.
+const stdinMaxBytes = 10 << 20
+
+// readInput returns text from the first source the caller actually asked for:
+//
+//  1. -f <file>
+//  2. inline text, unless it is a lone "-" — the usual spelling of "use stdin"
+//  3. stdin, and only when neither of the above was given
+//
+// Stdin comes last on purpose. It used to come second, so `KeyLint -fix "some
+// text"` run with anything attached to stdin — a shell wrapper, an editor's
+// run pane, a CI step — read that instead of the text on the command line, and
+// blocked when nothing ever arrived. An argument the user typed is not
+// ambiguous; it wins.
 func readInput(filePath, inlineText string, stdinReader io.Reader) (string, error) {
 	if filePath != "" {
 		data, err := os.ReadFile(filePath)
@@ -67,20 +96,96 @@ func readInput(filePath, inlineText string, stdinReader io.Reader) (string, erro
 		}
 		return strings.TrimSpace(string(data)), nil
 	}
+	// A lone "-" is the usual way to say "the thing on stdin", and treating it
+	// as literal text sent a single hyphen to the model.
+	if inlineText != "" && inlineText != "-" {
+		return inlineText, nil
+	}
 	if stdinReader != nil {
-		data, err := io.ReadAll(stdinReader)
+		text, err := readStdin(stdinReader)
 		if err != nil {
-			return "", fmt.Errorf("reading stdin: %w", err)
+			return "", err
 		}
-		text := strings.TrimSpace(string(data))
 		if text != "" {
 			return text, nil
 		}
 	}
-	if inlineText != "" {
-		return inlineText, nil
-	}
 	return "", fmt.Errorf("no input provided — use -f <file>, pipe to stdin, or pass text as argument")
+}
+
+// readStdin reads everything on stdin, giving up if it falls silent.
+//
+// The read runs on its own goroutine because there is no way to interrupt a
+// blocked Read on an arbitrary reader. On timeout that goroutine is left behind
+// holding whatever it has read; the CLI exits immediately afterwards, so it is
+// leaked for the length of a process teardown. See the callers — this function
+// is reached only from `-fix` and `-pyramidize`, both of which run before Wails
+// boots and exit when they are done.
+func readStdin(r io.Reader) (string, error) {
+	type chunk struct {
+		data []byte
+		err  error
+	}
+	// Buffered by one so the reader can always deposit its last chunk and exit,
+	// even when nobody is listening any more.
+	chunks := make(chan chunk, 1)
+	go func() {
+		defer close(chunks)
+		buf := make([]byte, 32*1024)
+		for {
+			n, err := r.Read(buf[:])
+			if n > 0 {
+				out := make([]byte, n)
+				copy(out, buf[:n])
+				chunks <- chunk{data: out}
+			}
+			if err != nil {
+				if !errors.Is(err, io.EOF) {
+					chunks <- chunk{err: err}
+				}
+				return
+			}
+		}
+	}()
+
+	idle := time.NewTimer(stdinIdleTimeout)
+	defer idle.Stop()
+
+	var collected []byte
+	for {
+		select {
+		case c, open := <-chunks:
+			if !open {
+				return strings.TrimSpace(string(collected)), nil
+			}
+			if c.err != nil {
+				return "", fmt.Errorf("reading stdin: %w", c.err)
+			}
+			collected = append(collected, c.data...)
+			if len(collected) > stdinMaxBytes {
+				return "", fmt.Errorf(
+					"stdin is larger than %d MB — pass a file with -f instead", stdinMaxBytes>>20)
+			}
+			// Progress resets the clock: a slow producer is still a producer.
+			if !idle.Stop() {
+				select {
+				case <-idle.C:
+				default:
+				}
+			}
+			idle.Reset(stdinIdleTimeout)
+
+		case <-idle.C:
+			if len(collected) > 0 {
+				return "", fmt.Errorf(
+					"stdin went quiet for %s without closing — the producer is still holding it open",
+					stdinIdleTimeout)
+			}
+			return "", fmt.Errorf(
+				"nothing arrived on stdin within %s — pass the text as an argument or use -f <file>",
+				stdinIdleTimeout)
+		}
+	}
 }
 
 // stdinIfPiped returns os.Stdin if it is connected to a pipe, nil otherwise.

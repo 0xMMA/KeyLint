@@ -363,6 +363,42 @@ describe('SettingsComponent — Claude Code provider card', () => {
     expect(card!.querySelector('input')).toBeNull();
   });
 
+  it('does not force a probe just because the screen opened', async () => {
+    // The probe spawns processes and is cached on the Go side. Forcing on load
+    // would defeat that for the caller most likely to be hit repeatedly:
+    // Settings → Pyramidize → Settings is two navigations.
+    await render({ installed: true, loggedIn: true });
+
+    // ngOnInit reaches the probe behind five awaits, so asserting straight
+    // after render() finds an empty call list and proves nothing — which is
+    // what an earlier version of this test did.
+    for (let i = 0; i < 10; i++) {
+      await fixture.whenStable();
+    }
+    fixture.detectChanges();
+
+    expect(wailsMock.getClaudeCodeStatus, 'the probe never ran, so this asserts nothing')
+      .toHaveBeenCalled();
+    for (const call of wailsMock.getClaudeCodeStatus.mock.calls) {
+      expect(call[0] ?? false, 'opening Settings must take the cached answer').toBe(false);
+    }
+  });
+
+  it('forces a fresh probe when the button is pressed', async () => {
+    await render({ installed: true, loggedIn: true });
+    wailsMock.getClaudeCodeStatus.mockClear();
+
+    // Through the DOM, so the template binding is covered too: passing force
+    // from the component but not from the button would be invisible otherwise.
+    // The inner <button>: PrimeNG's (onClick) fires from there, not from the
+    // host element carrying the test id.
+    const host = el.querySelector('[data-testid="claude-code-recheck"]')!;
+    (host.querySelector('button') ?? (host as HTMLElement)).click();
+    await fixture.whenStable();
+
+    expect(wailsMock.getClaudeCodeStatus).toHaveBeenCalledWith(true);
+  });
+
   it('re-checks on demand, so signing in elsewhere is picked up', async () => {
     await render({ installed: true, loggedIn: false, path: '/usr/local/bin/claude' });
     expect(text('claude-code-status-tag')).toContain('not signed in');
