@@ -89,19 +89,40 @@ move a sample between halves, and the current split has a holdout spread of
 **0.0233** against a tune half of 0.0474 — the variance now sits where the
 iteration happens.
 
-**What this holdout can and cannot do.** It can catch a regression: four of its
-five samples score 0.96 or better with almost no run-to-run movement, so a drop
-is real. It **cannot resolve a small improvement**. Its mean moves by about
-0.023 between runs of identical code, and the effect this split was built to
-protect against is 0.005 — an order of magnitude smaller. No five-sample holdout
-drawn from these fifteen does better while keeping a German and an English
-sample: ten of the fifteen sit at a ceiling with zero spread, so a holdout is
-either all-ceiling (blind to improvement) or carries one of the four volatile
-samples (and inherits its noise).
+**What this holdout can and cannot do — measured, not predicted.** Three runs on
+the shipped prompt, recorded in `test-data/eval-baselines/2026-09-18T10-19-42/`:
 
-That is a statement about the suite, not about the split: **the Fix suite is
-saturated.** Two thirds of it cannot move upward. Before a holdout number can
-mean "this prompt is better", the suite needs samples with headroom.
+| | mean | range | spread |
+|---|---|---|---|
+| deterministic | **0.9986** | 0.9978–0.9992 | 0.0013 |
+| judge overall | **0.9987** | 0.9960–1.0000 | 0.0040 |
+| samples passing | 5 | 5–5 of 5 | 0 |
+
+So it is an **excellent regression detector and useless for showing
+improvement**. The noise floor is 0.0013, so a drop of a few thousandths is
+already real — better resolution than the full suite gives. But there is
+**0.0014 of headroom**: no prompt change can gain more than that here, whatever
+it does.
+
+An earlier draft of this section predicted a noise floor of ~0.023 by adding up
+the per-sample spreads from the all-samples baseline. That was wrong by a factor
+of twenty — averaging five samples cancels most of it. The number above replaces
+a calculation with a measurement, which is the whole discipline this document is
+supposed to be about.
+
+**A caveat on the ordering the split is derived from.** Per-sample spread over
+three runs is itself a noisy statistic. `de-umlaute-ascii` recorded 0.1102 in
+the all-samples baseline and 0.0018 here, on the same prompt — so the ranking
+that decided the halves rests on estimates that move. The split is still far
+better than an alphabetical one, but a second all-samples baseline would firm up
+the ordering, and the manifest records which baseline it came from precisely so
+that this is checkable rather than assumed.
+
+**And the real finding underneath all of it: the Fix suite is saturated.** Ten
+of the fifteen samples sit at a ceiling with zero spread, and the five now held
+out average 0.9986. A holdout number cannot mean "this prompt is better" until
+the suite has samples with headroom — which is a bigger and more useful piece of
+work than any further tuning of the split.
 
 **Two constraints were dropped**, and both deserve naming because they were
 asked for:
@@ -131,8 +152,11 @@ fails until it is.
   winner. A holdout number without that says less than it appears to.
 - **Baselines measure `all`** (the default): a baseline describes what ships
   rather than a step in a search.
-- Read a holdout result as a **regression check**, not as proof of improvement.
-  See the resolution limit above.
+- Read a holdout result as a **regression check**, not as proof of improvement:
+  it sits at 0.9986 with 0.0014 of headroom. Compare against
+  `test-data/eval-baselines/2026-09-18T10-19-42/baseline.json`, recorded on the
+  shipped prompt before any #80 work — measuring the old prompt leaks nothing
+  and does not spend the one look the protocol allows.
 
 `split` is part of the `configKey`, so `--compare` refuses a tune-half run
 against an all-samples baseline. The key records how many samples a run
