@@ -57,6 +57,9 @@ type Service struct {
 	claudeCodeMu sync.Mutex
 	claudeCode   llm.ClaudeCodeStatus
 	claudeCodeAt time.Time
+	// claudeCodeProbe is non-nil while a probe is running; callers that arrive
+	// meanwhile wait on it instead of starting their own.
+	claudeCodeProbe chan struct{}
 	// probeClaudeCode is the probe itself, swappable so a test can count calls
 	// without spawning anything. nil means the real one.
 	probeClaudeCode func(context.Context) llm.ClaudeCodeStatus
@@ -422,10 +425,6 @@ func (s *Service) modelListConfig(provider string) (llm.Config, bool) {
 // the welcome wizard cannot be blocked by a wedged binary.
 const claudeCodeStatusTimeout = 25 * time.Second
 
-// GetClaudeCodeStatus reports whether the Claude Code CLI is installed on this
-// machine and signed in, so the UI can offer it as a provider that needs no API
-// key. Signing in happens in the user's own terminal through Anthropic's flow —
-// KeyLint only looks, and never reads or stores credentials.
 // claudeCodeStatusTTL is how long a probe result is reused.
 //
 // The probe spawns processes, and four screens ask for it — the Pyramidize page
@@ -444,27 +443,52 @@ const claudeCodeStatusTTL = 60 * time.Second
 // it has just done something they expect to be noticed; everything else takes
 // the cached answer.
 func (s *Service) GetClaudeCodeStatus(force bool) llm.ClaudeCodeStatus {
-	if !force {
+	for {
 		s.claudeCodeMu.Lock()
-		cached, ok := s.claudeCode, s.claudeCodeAt
-		s.claudeCodeMu.Unlock()
-		if !ok.IsZero() && time.Since(ok) < claudeCodeStatusTTL {
-			return cached
-		}
-	}
 
+		if !force {
+			cached, fetchedAt := s.claudeCode, s.claudeCodeAt
+			if !fetchedAt.IsZero() && time.Since(fetchedAt) < claudeCodeStatusTTL {
+				s.claudeCodeMu.Unlock()
+				return cached
+			}
+		}
+
+		// Somebody is already probing. Wait for them rather than starting a
+		// second one: four screens opening at once on a cold cache would
+		// otherwise spawn four probes, which is the cost #55 is about. The
+		// waiters loop round and take the fresh cache entry.
+		if inFlight := s.claudeCodeProbe; inFlight != nil {
+			s.claudeCodeMu.Unlock()
+			<-inFlight
+			force = false
+			continue
+		}
+
+		done := make(chan struct{})
+		s.claudeCodeProbe = done
+		s.claudeCodeMu.Unlock()
+
+		status := s.runClaudeCodeProbe()
+
+		s.claudeCodeMu.Lock()
+		s.claudeCode, s.claudeCodeAt = status, time.Now()
+		s.claudeCodeProbe = nil
+		s.claudeCodeMu.Unlock()
+		close(done)
+		return status
+	}
+}
+
+// runClaudeCodeProbe is the probe itself, bounded so a wedged binary cannot hold
+// a screen open indefinitely.
+func (s *Service) runClaudeCodeProbe() llm.ClaudeCodeStatus {
 	ctx, cancel := context.WithTimeout(context.Background(), claudeCodeStatusTimeout)
 	defer cancel()
-	probe := s.probeClaudeCode
-	if probe == nil {
-		probe = func(ctx context.Context) llm.ClaudeCodeStatus { return llm.CheckClaudeCode(ctx, "") }
+	if s.probeClaudeCode != nil {
+		return s.probeClaudeCode(ctx)
 	}
-	status := probe(ctx)
-
-	s.claudeCodeMu.Lock()
-	s.claudeCode, s.claudeCodeAt = status, time.Now()
-	s.claudeCodeMu.Unlock()
-	return status
+	return llm.CheckClaudeCode(ctx, "")
 }
 
 // ResetToDefaults resets settings to their default values and saves to disk.

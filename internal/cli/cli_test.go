@@ -171,6 +171,7 @@ func TestAFileBeatsBoth(t *testing.T) {
 // one — nothing is ever written to the write end, and it is deliberately not
 // closed, so the read genuinely blocks.
 func TestASilentPipeFailsInsteadOfHanging(t *testing.T) {
+	shortenStdinIdleTimeout(t)
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -192,17 +193,18 @@ func TestASilentPipeFailsInsteadOfHanging(t *testing.T) {
 		if !strings.Contains(err.Error(), "stdin") {
 			t.Errorf("error = %q, want it to name stdin so the user knows what to change", err)
 		}
-		if elapsed := time.Since(start); elapsed > 5*time.Second {
-			t.Errorf("took %s — the deadline is meant to be about %s", elapsed, stdinFirstByteTimeout)
+		if elapsed := time.Since(start); elapsed > stdinIdleTimeout+5*time.Second {
+			t.Errorf("took %s — the deadline is meant to be about %s", elapsed, stdinIdleTimeout)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(stdinIdleTimeout + 10*time.Second):
 		t.Fatal("readInput is still blocked on a silent pipe")
 	}
 }
 
-// TestASlowPipeIsStillRead: the deadline is on the first byte, not on the whole
-// read. A producer that takes its time must not be cut off.
-func TestASlowPipeIsStillRead(t *testing.T) {
+// TestASlowProducerIsStillRead: the clock is reset by every chunk, so a
+// producer that dawdles between writes must not be cut off. `pdftotext big.pdf
+// - | keylint -fix` is the shape this protects.
+func TestASlowProducerIsStillRead(t *testing.T) {
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -210,9 +212,10 @@ func TestASlowPipeIsStillRead(t *testing.T) {
 	t.Cleanup(func() { _ = r.Close() })
 
 	go func() {
-		_, _ = w.Write([]byte("first"))
-		time.Sleep(stdinFirstByteTimeout + 500*time.Millisecond)
-		_, _ = w.Write([]byte(" and the rest"))
+		for _, part := range []string{"first", " and", " the rest"} {
+			time.Sleep(150 * time.Millisecond)
+			_, _ = w.Write([]byte(part))
+		}
 		_ = w.Close()
 	}()
 
@@ -223,4 +226,49 @@ func TestASlowPipeIsStillRead(t *testing.T) {
 	if got != "first and the rest" {
 		t.Errorf("got %q, want the whole slow message", got)
 	}
+}
+
+// TestAPipeThatSpeaksOnceAndStaysOpenGivesUp is the other half of #46, and the
+// half a first-byte deadline misses entirely: a producer that emits a header
+// line and then holds the descriptor open. `{ echo; sleep 3600; } | keylint
+// -fix` used to hang forever.
+func TestAPipeThatSpeaksOnceAndStaysOpenGivesUp(t *testing.T) {
+	shortenStdinIdleTimeout(t)
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.Close(); _ = w.Close() })
+
+	if _, err := w.Write([]byte("a header line\n")); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := readInput("", "", r)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a pipe that never closes produced a complete input")
+		}
+		if !strings.Contains(err.Error(), "quiet") {
+			t.Errorf("error = %q, want it to say the producer went quiet", err)
+		}
+	case <-time.After(stdinIdleTimeout + 10*time.Second):
+		t.Fatal("readInput is still blocked on a pipe that stopped writing")
+	}
+}
+
+// shortenStdinIdleTimeout makes the deadline tests cheap. They are about the
+// shape — that a quiet pipe ends in an error rather than a hang — and waiting
+// out the real fifteen seconds twice would add half a minute to every CI run.
+func shortenStdinIdleTimeout(t *testing.T) {
+	t.Helper()
+	original := stdinIdleTimeout
+	stdinIdleTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { stdinIdleTimeout = original })
 }

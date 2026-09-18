@@ -177,7 +177,7 @@ interface ProviderKey {
                       icon="pi pi-refresh"
                       severity="secondary"
                       size="small"
-                      (onClick)="recheckClaudeCode()"
+                      (onClick)="recheckClaudeCode(true)"
                       [loading]="claudeCodeChecking"
                     />
                   </div>
@@ -715,14 +715,19 @@ export class SettingsComponent implements OnInit, OnDestroy {
     }));
   }
 
-  /** Re-runs Claude Code detection, e.g. after the user signed in elsewhere. */
-  async recheckClaudeCode(): Promise<void> {
+  /**
+   * Loads the Claude Code status, or re-probes it.
+   *
+   * force belongs to the button, not to the screen opening: a settings visit
+   * that always forced a probe would defeat the cache for the caller most
+   * likely to be hit repeatedly — Settings → Pyramidize → Settings inside a
+   * minute is two navigations and four process spawns.
+   */
+  async recheckClaudeCode(force = false): Promise<void> {
     this.claudeCodeChecking = true;
     this.cdr.detectChanges();
     try {
-      // force: this method is the Re-check button, and a cached answer is
-      // exactly what the user pressed it to get past.
-      this.claudeCodeStatus = await this.wails.getClaudeCodeStatus(true);
+      this.claudeCodeStatus = await this.wails.getClaudeCodeStatus(force);
     } finally {
       this.claudeCodeChecking = false;
       // Detection can outlive the screen. Refreshing a destroyed view does NOT

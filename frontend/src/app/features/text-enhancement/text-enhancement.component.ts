@@ -1202,6 +1202,12 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     if (provider !== selectedProvider) return;
     this.apiKeySet = ok;
     this.credentialsMessage = message;
+    // The app is zoneless, and ngOnInit no longer awaits this — so without an
+    // explicit refresh the banner's state changes and nothing repaints. Same
+    // reason loadModelOptions ends this way.
+    if (!this.destroyed) {
+      this.cdr.detectChanges();
+    }
   }
 
   onTabChange(value: unknown): void {

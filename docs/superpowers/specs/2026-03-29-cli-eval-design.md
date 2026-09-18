@@ -25,10 +25,16 @@ The Pyramidize feature's output quality has regressed compared to the archived R
 
 ### Input Priority
 
+Superseded — stdin moved last (#46). As implemented:
+
 1. If `-f path` is given → read file
-2. Else if stdin is a pipe → read stdin
-3. Else use trailing positional string argument
+2. Else if a trailing positional string argument is given → use it
+3. Else if stdin is a pipe → read stdin, giving up after 15 s of silence
 4. Error if none provided
+
+The original order put stdin second, so `KeyLint -fix "some text"` run with
+anything attached to stdin read that instead of the argument, and hung when
+nothing ever arrived.
 
 ### Output
 

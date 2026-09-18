@@ -6,7 +6,7 @@ import { provideRouter } from '@angular/router';
 import { TextEnhancementComponent } from './text-enhancement.component';
 import { TextEnhancementService } from './text-enhancement.service';
 import { WailsService } from '../../core/wails.service';
-import { createWailsMock, defaultSettings } from '../../../testing/wails-mock';
+import { createWailsMock } from '../../../testing/wails-mock';
 
 // PrimeNG TabList uses ResizeObserver which is not available in jsdom
 (globalThis as Record<string, unknown>)['ResizeObserver'] = class {

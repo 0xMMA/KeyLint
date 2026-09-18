@@ -22,6 +22,9 @@
 ./bin/KeyLint -fix "text to fix"                       # silent grammar fix
 ./bin/KeyLint -fix -f input.txt                        # fix from file
 cat input.txt | ./bin/KeyLint -fix                     # fix from stdin
+# Input precedence: -f wins, then the inline argument, then stdin. Stdin is only
+# read when neither of the others is given, and gives up after 15 s of silence
+# rather than hanging on a pipe that never speaks.
 ./bin/KeyLint -pyramidize -type email -f input.md      # pyramidize from file
 ./bin/KeyLint -pyramidize --json -f input.md           # JSON output with quality score
 ./bin/KeyLint -pyramidize --provider claude --model claude-sonnet-4-6 -f input.md

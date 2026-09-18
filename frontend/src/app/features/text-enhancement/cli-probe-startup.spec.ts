@@ -90,6 +90,42 @@ describe('TextEnhancementComponent — startup does not wait on the CLI probe', 
     await fixture.whenStable();
   });
 
+  it('paints the banner when the probe answers late', async () => {
+    // The app is zoneless. Once ngOnInit stopped awaiting the probe, the
+    // banner's state was set by a promise nothing follows with change
+    // detection — so it updated and never appeared.
+    let release: (v: unknown) => void = () => {};
+    wailsMock.getClaudeCodeStatus.mockReturnValue(new Promise(resolve => { release = resolve; }));
+
+    await TestBed.configureTestingModule({
+      imports: [TextEnhancementComponent],
+      providers: [
+        provideAnimationsAsync(),
+        provideRouter([]),
+        { provide: WailsService, useValue: wailsMock },
+        { provide: TextEnhancementService, useValue: makeEnhancementServiceMock() },
+      ],
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(TextEnhancementComponent);
+    const el: HTMLElement = fixture.nativeElement;
+    fixture.componentInstance.providerView = 'claude-code';
+    fixture.detectChanges();
+    for (let i = 0; i < 10; i++) {
+      await fixture.whenStable();
+    }
+
+    // Installed but signed out: the banner has something to say.
+    release({ installed: true, path: '/usr/bin/claude', version: '1.0', loggedIn: false });
+    for (let i = 0; i < 10; i++) {
+      await fixture.whenStable();
+    }
+    // Deliberately no detectChanges() here — the component has to do it.
+
+    expect(el.querySelector('[data-testid="api-key-banner"]'),
+      'the banner never repainted after the probe answered').not.toBeNull();
+  });
+
   it('asks the backend for a cached answer, not a fresh probe', async () => {
     wailsMock.getClaudeCodeStatus.mockResolvedValue({
       installed: true, path: '/usr/bin/claude', version: '1.0', loggedIn: true,

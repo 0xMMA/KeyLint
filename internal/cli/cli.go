@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -55,13 +56,20 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) error {
 	}
 }
 
-// stdinFirstByteTimeout bounds the wait for the FIRST byte on stdin.
+// stdinIdleTimeout is how long stdin may stay quiet before the command gives up.
 //
-// Once something arrives the rest is read without a deadline: a slow producer is
-// still a producer. What this guards against is the opposite — a pipe that is
-// open and silent, which makes the command hang with no output and no
-// explanation, looking like the AI call is slow.
-const stdinFirstByteTimeout = 2 * time.Second
+// It is an IDLE timeout, reset by every chunk that arrives — not a deadline on
+// the first byte and not one on the whole read. Both of those get it wrong in
+// opposite directions: `pdftotext big.pdf - | keylint -fix` can take seconds to
+// say anything and must not be cut off, while a pipe that emits one header line
+// and then holds the descriptor open would hang forever under a first-byte rule.
+//
+// Fifteen seconds because this path is only reached when neither -f nor inline
+// text was given, so it costs nothing in the common case and leaves room for a
+// slow producer.
+// A var rather than a const so tests can shorten it: asserting the real value
+// twice would add half a minute to every CI run.
+var stdinIdleTimeout = 15 * time.Second
 
 // readInput returns text from the first source the caller actually asked for:
 //
@@ -97,44 +105,75 @@ func readInput(filePath, inlineText string, stdinReader io.Reader) (string, erro
 	return "", fmt.Errorf("no input provided — use -f <file>, pipe to stdin, or pass text as argument")
 }
 
-// readStdin reads everything on stdin, refusing to wait forever for a pipe that
-// never speaks.
+// readStdin reads everything on stdin, giving up if it falls silent.
+//
+// The read runs on its own goroutine because there is no way to interrupt a
+// blocked Read on an arbitrary reader. On timeout that goroutine is left behind
+// holding whatever it has read; the CLI exits immediately afterwards, so it is
+// leaked for the length of a process teardown. See the callers — this function
+// is reached only from `-fix` and `-pyramidize`, both of which run before Wails
+// boots and exit when they are done.
 func readStdin(r io.Reader) (string, error) {
-	type result struct {
+	type chunk struct {
 		data []byte
 		err  error
 	}
-	// Buffered, so the goroutine can finish and be collected even when this
-	// function has already returned on the timeout.
-	first := make(chan result, 1)
+	// Buffered by one so the reader can always deposit its last chunk and exit,
+	// even when nobody is listening any more.
+	chunks := make(chan chunk, 1)
 	go func() {
-		buf := make([]byte, 1)
-		n, err := r.Read(buf)
-		first <- result{data: buf[:n], err: err}
+		defer close(chunks)
+		buf := make([]byte, 32*1024)
+		for {
+			n, err := r.Read(buf[:])
+			if n > 0 {
+				out := make([]byte, n)
+				copy(out, buf[:n])
+				chunks <- chunk{data: out}
+			}
+			if err != nil {
+				if !errors.Is(err, io.EOF) {
+					chunks <- chunk{err: err}
+				}
+				return
+			}
+		}
 	}()
 
-	var head result
-	select {
-	case head = <-first:
-	case <-time.After(stdinFirstByteTimeout):
-		return "", fmt.Errorf(
-			"nothing arrived on stdin within %s — pass the text as an argument or use -f <file>",
-			stdinFirstByteTimeout)
-	}
+	idle := time.NewTimer(stdinIdleTimeout)
+	defer idle.Stop()
 
-	if head.err != nil && head.err != io.EOF {
-		return "", fmt.Errorf("reading stdin: %w", head.err)
-	}
-	if head.err == io.EOF && len(head.data) == 0 {
-		return "", nil
-	}
+	var collected []byte
+	for {
+		select {
+		case c, open := <-chunks:
+			if !open {
+				return strings.TrimSpace(string(collected)), nil
+			}
+			if c.err != nil {
+				return "", fmt.Errorf("reading stdin: %w", c.err)
+			}
+			collected = append(collected, c.data...)
+			// Progress resets the clock: a slow producer is still a producer.
+			if !idle.Stop() {
+				select {
+				case <-idle.C:
+				default:
+				}
+			}
+			idle.Reset(stdinIdleTimeout)
 
-	// Something is flowing; read the rest at whatever pace it comes.
-	rest, err := io.ReadAll(r)
-	if err != nil {
-		return "", fmt.Errorf("reading stdin: %w", err)
+		case <-idle.C:
+			if len(collected) > 0 {
+				return "", fmt.Errorf(
+					"stdin went quiet for %s without closing — the producer is still holding it open",
+					stdinIdleTimeout)
+			}
+			return "", fmt.Errorf(
+				"nothing arrived on stdin within %s — pass the text as an argument or use -f <file>",
+				stdinIdleTimeout)
+		}
 	}
-	return strings.TrimSpace(string(head.data) + string(rest)), nil
 }
 
 // stdinIfPiped returns os.Stdin if it is connected to a pipe, nil otherwise.
