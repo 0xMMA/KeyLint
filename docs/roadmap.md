@@ -184,9 +184,10 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 - [ ] `.claude/rules/angular-components.md` exists but is not referenced from `CLAUDE.md`
 - [x] `internal/features/enhance` has no tests — fixed in #39
 - [ ] `docs/pyramidize/ux-roadmap.md` model strategy section is outdated (Sonnet 4.6 / GPT-5.2 era); superseded by E2 step 4
-- [x] Pin third-party GitHub Actions to commit SHAs, add Dependabot for actions (#51). `actions/*` stay on floating major tags by design — GitHub's own org, and Dependabot now moves them — so the workflows are hardened, not fully SHA-pinned
+- [x] Pin third-party GitHub Actions to commit SHAs, add Dependabot for actions (#51, #65, #73, #81). `actions/*` stay on floating major tags by design — GitHub's own org, and Dependabot is configured to ignore majors since #81 — so the workflows are hardened, not fully SHA-pinned
+- [ ] Quarterly CI hygiene: Dependabot blocks majors, so check `gh api repos/actions/<name>/releases/latest` for every `actions/*` in `.github/workflows/` and bump paired actions together (artifact upload/download, pages upload/deploy). Next due: 2026-12.
 - [ ] Add `gomod` and `npm` to Dependabot: the dependency drift recorded at the top of this file (Wails alpha.72 vs beta.23, `@wailsio/runtime` mismatched, Angular 21.2 vs 22.1) is exactly what those ecosystems would surface
 - [ ] `MicrosoftEdgeWebview2Setup.exe` is curled from a redirector with no checksum or signature check (`release.yml`, `build-linux.yml`) and bundled into the installer users run — the one remaining unverified external binary, and the only one that reaches end users
-- [ ] Branch protection on `main` (required checks incl. `e2e`) — Michael, repo settings
+- [ ] Branch protection on `main` (required checks incl. `e2e`, `test` with race detector, bindings drift) — Michael, repo settings
 - [ ] Shortcut robustness under rapid input (#42, #44) after #31 lands
 - [x] CLI `-fix` hangs on a never-closing stdin pipe (#46) — stdin moved after the inline argument, plus a 15 s idle timeout that also catches a pipe which speaks once and stays open
