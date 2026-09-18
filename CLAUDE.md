@@ -43,6 +43,9 @@ EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 go test -tags eval ...
 ./scripts/eval.sh                                      # one run of the pyramidize suite
 ./scripts/eval.sh --suite fix --runs 3                 # the silent grammar fix instead (15 samples)
                                                        # --variant and --schema are pyramidize-only and are rejected here
+./scripts/eval.sh --suite fix --split tune --runs 3    # the 10 tuning samples; --split holdout is the other 5
+                                                       # default is all 15. Tune on tune, measure holdout ONCE at the end.
+                                                       # split is in the configKey, so --compare refuses to mix halves.
 ./scripts/eval.sh --provider claude --model claude-sonnet-4-6
 ./scripts/eval.sh --variant 1                          # compare v1 vs v2 prompts
 ./scripts/eval.sh --schema                             # enforce the JSON schemas (default off, see pyramidize/schemas.go)
@@ -51,6 +54,8 @@ EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 go test -tags eval ...
 ./scripts/eval-aggregate.sh <run-dir>...               # same maths on recorded runs, no API calls
 ./scripts/eval-aggregate.sh --compare base.json <run-dir>...
 EVAL_VARIANT=2 go test -tags eval ...                  # variant via env var
+EVAL_SPLIT=holdout go test -tags eval ./internal/features/enhance/  # split via env var
+                                                       # eval.sh ignores EVAL_SPLIT from .env unless --split is given
 EVAL_JUDGE_MODEL=... ./scripts/eval.sh                 # override the pinned judge (recorded in summary.json)
 ./scripts/eval-human.sh                                # interactive human review mode
 

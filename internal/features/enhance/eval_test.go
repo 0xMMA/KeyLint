@@ -86,41 +86,40 @@ type fixSample struct {
 	Notes     SampleNotes
 }
 
-func loadFixSamples(t *testing.T) []fixSample {
+func loadFixSamples(t *testing.T, split Split) []fixSample {
 	t.Helper()
-	dir := filepath.Join("..", "..", "..", "test-data", "fix-samples")
-	entries, err := os.ReadDir(dir)
+	root := filepath.Join("..", "..", "..", "test-data", "fix-samples")
+	refs, err := FixSampleDirs(root)
 	if err != nil {
-		t.Fatalf("cannot read %s: %v", dir, err)
+		t.Fatalf("reading samples: %v", err)
 	}
 
 	var samples []fixSample
-	for _, e := range entries {
-		if !e.IsDir() {
+	for _, ref := range refs {
+		if !split.Selects(ref.Split) {
 			continue
 		}
-		base := filepath.Join(dir, e.Name())
-		input, err := os.ReadFile(filepath.Join(base, "input.md"))
+		input, err := os.ReadFile(filepath.Join(ref.Dir, "input.md"))
 		if err != nil {
-			t.Fatalf("%s: %v", e.Name(), err)
+			t.Fatalf("%s: %v", ref.Name, err)
 		}
-		reference, err := os.ReadFile(filepath.Join(base, "reference.md"))
+		reference, err := os.ReadFile(filepath.Join(ref.Dir, "reference.md"))
 		if err != nil {
-			t.Fatalf("%s: %v", e.Name(), err)
+			t.Fatalf("%s: %v", ref.Name, err)
 		}
-		notes, err := parseNotes(filepath.Join(base, "notes.md"))
+		notes, err := parseNotes(filepath.Join(ref.Dir, "notes.md"))
 		if err != nil {
-			t.Fatalf("%s: %v", e.Name(), err)
+			t.Fatalf("%s: %v", ref.Name, err)
 		}
 		samples = append(samples, fixSample{
-			Name:      e.Name(),
+			Name:      ref.Name,
 			Input:     strings.TrimSpace(string(input)),
 			Reference: strings.TrimSpace(string(reference)),
 			Notes:     notes,
 		})
 	}
 	if len(samples) == 0 {
-		t.Fatal("no fix samples found")
+		t.Fatalf("no fix samples found for split %q", split)
 	}
 	return samples
 }
@@ -150,7 +149,11 @@ func TestEvalFix(t *testing.T) {
 	}
 
 	svc := NewService(settingsSvc)
-	samples := loadFixSamples(t)
+	split, err := SplitFromEnv(os.Getenv("EVAL_SPLIT"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	samples := loadFixSamples(t, split)
 
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
 	runDir := filepath.Join("..", "..", "..", "test-data", "eval-runs", timestamp)
@@ -220,11 +223,20 @@ func TestEvalFix(t *testing.T) {
 	}
 
 	summary := map[string]any{
-		"suite":            "fix",
-		"timestamp":        timestamp,
-		"gitSHA":           gitSHA(),
-		"promptHash":       promptHash(),
-		"checksVersion":    ChecksVersion,
+		"suite":         "fix",
+		"timestamp":     timestamp,
+		"gitSHA":        gitSHA(),
+		"promptHash":    promptHash(),
+		"checksVersion": ChecksVersion,
+		// Which half was measured. A tune-half number and an all-samples number
+		// are different measurements, and the configKey keeps --compare from
+		// mixing them.
+		"split": string(split),
+		// Which samples, not just how many. The configKey records the count, so
+		// two five-sample holdouts with one swapped would compare cleanly; this
+		// is the record that says they were not the same five. Enforcement is a
+		// test against SPLIT.json, which fails before anything is measured.
+		"splitHash":        SplitHash(sampleNames(samples)),
 		"provider":         provider,
 		"model":            model,
 		"judge":            judge,
@@ -251,10 +263,19 @@ func TestEvalFix(t *testing.T) {
 	t.Logf("\n=== FIX EVAL SUMMARY ===")
 	t.Logf("Provider: %s | Model: %s | Prompt: %s", provider, model, promptHash())
 	t.Logf("Judge: %s / %s @ temp %.1f", judge.Provider, judge.Model, judge.Temperature)
-	t.Logf("Samples: %d", len(samples))
+	t.Logf("Samples: %d (split %s, membership %s)", len(samples), split, SplitHash(sampleNames(samples)))
 	t.Logf("Avg deterministic: %.2f (%d of %d samples scored)", totalDet/float64(max(scored, 1)), scored, len(samples))
 	if judgeCount > 0 {
 		t.Logf("Avg judge overall: %.2f (%d samples)", totalJudge/float64(judgeCount), judgeCount)
 	}
 	t.Logf("Results: %s", runDir)
+}
+
+// sampleNames is what SplitHash fingerprints.
+func sampleNames(samples []fixSample) []string {
+	names := make([]string, len(samples))
+	for i, s := range samples {
+		names[i] = s.Name
+	}
+	return names
 }

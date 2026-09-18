@@ -127,26 +127,19 @@ func TestMarkdownFlatteningIsCaught(t *testing.T) {
 // would make a sample worthless: nothing to enforce, and a reference that does
 // not itself satisfy the checks.
 func TestEverySampleIsUsable(t *testing.T) {
-	dir := filepath.Join("..", "..", "..", "test-data", "fix-samples")
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("cannot read %s: %v", dir, err)
-	}
+	// Both halves. The checks have to hold for every sample regardless of which
+	// side of the split it is on — the split governs what a RUN measures, not
+	// what a sample has to satisfy.
+	refs := allSampleRefs(t)
 
-	count := 0
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		count++
-		t.Run(e.Name(), func(t *testing.T) {
-			base := filepath.Join(dir, e.Name())
-			notes, err := parseNotes(filepath.Join(base, "notes.md"))
+	for _, ref := range refs {
+		t.Run(ref.Name, func(t *testing.T) {
+			notes, err := parseNotes(filepath.Join(ref.Dir, "notes.md"))
 			if err != nil {
 				t.Fatalf("notes: %v", err)
 			}
-			input := readTrimmed(t, filepath.Join(base, "input.md"))
-			reference := readTrimmed(t, filepath.Join(base, "reference.md"))
+			input := readTrimmed(t, filepath.Join(ref.Dir, "input.md"))
+			reference := readTrimmed(t, filepath.Join(ref.Dir, "reference.md"))
 
 			// The human reference has to pass the checks it is the answer to.
 			// If it does not, the checks are wrong, not the model.
@@ -170,9 +163,20 @@ func TestEverySampleIsUsable(t *testing.T) {
 			}
 		})
 	}
-	if count != 15 {
-		t.Errorf("found %d samples, expected 15", count)
+	if len(refs) != 15 {
+		t.Errorf("found %d samples, expected 15", len(refs))
 	}
+}
+
+// allSampleRefs lists every sample in both halves, and fails if the directory
+// layout has drifted from the two-split shape.
+func allSampleRefs(t *testing.T) []SampleRef {
+	t.Helper()
+	refs, err := FixSampleDirs(filepath.Join("..", "..", "..", "test-data", "fix-samples"))
+	if err != nil {
+		t.Fatalf("reading samples: %v", err)
+	}
+	return refs
 }
 
 func readTrimmed(t *testing.T, path string) string {
@@ -287,23 +291,14 @@ func TestDeletingContentFails(t *testing.T) {
 // forEachSample runs f over the committed samples.
 func forEachSample(t *testing.T, f func(t *testing.T, name, input, reference string, n SampleNotes)) {
 	t.Helper()
-	dir := filepath.Join("..", "..", "..", "test-data", "fix-samples")
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("cannot read %s: %v", dir, err)
-	}
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		base := filepath.Join(dir, e.Name())
-		notes, err := parseNotes(filepath.Join(base, "notes.md"))
+	for _, ref := range allSampleRefs(t) {
+		notes, err := parseNotes(filepath.Join(ref.Dir, "notes.md"))
 		if err != nil {
-			t.Fatalf("%s: %v", e.Name(), err)
+			t.Fatalf("%s: %v", ref.Name, err)
 		}
-		t.Run(e.Name(), func(t *testing.T) {
-			f(t, e.Name(), readTrimmed(t, filepath.Join(base, "input.md")),
-				readTrimmed(t, filepath.Join(base, "reference.md")), notes)
+		t.Run(ref.Name, func(t *testing.T) {
+			f(t, ref.Name, readTrimmed(t, filepath.Join(ref.Dir, "input.md")),
+				readTrimmed(t, filepath.Join(ref.Dir, "reference.md")), notes)
 		})
 	}
 }

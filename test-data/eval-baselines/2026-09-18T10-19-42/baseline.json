@@ -1,0 +1,156 @@
+{
+  "createdAt": "2026-09-18T10-18-43",
+  "runCount": 3,
+  "runs": [
+    "test-data/eval-runs/2026-09-18T10-18-43/",
+    "test-data/eval-runs/2026-09-18T10-19-03/",
+    "test-data/eval-runs/2026-09-18T10-19-24/"
+  ],
+  "config": {
+    "suite": "fix",
+    "promptHash": "p2-f344eb5f4fd0f30a",
+    "checksVersion": 2,
+    "split": "holdout",
+    "splitHash": "f7ff772b8de2f593",
+    "gitSHA": "d00645e",
+    "provider": "claude",
+    "model": "claude-haiku-4-5-20251001",
+    "promptVariant": 0,
+    "judge": {
+      "provider": "claude",
+      "model": "claude-sonnet-4-5-20250929",
+      "temperature": 0
+    },
+    "schemaEnforcement": false,
+    "qualityThreshold": 0,
+    "sampleCount": 5
+  },
+  "configKey": "fix|claude|claude-haiku-4-5-20251001|claude|claude-sonnet-4-5-20250929|0|false|0|5|2|holdout",
+  "configConsistent": true,
+  "judgeCoverage": {
+    "min": 5,
+    "max": 5,
+    "of": 5
+  },
+  "scoredCoverage": {
+    "min": 5,
+    "max": 5,
+    "of": 5
+  },
+  "deterministic": {
+    "mean": 0.9986,
+    "min": 0.9978,
+    "max": 0.9992,
+    "spread": 0.0013
+  },
+  "judge": {
+    "mean": 0.9987,
+    "min": 0.996,
+    "max": 1,
+    "spread": 0.004
+  },
+  "samplesPassing": {
+    "mean": 5,
+    "min": 5,
+    "max": 5,
+    "spread": 0
+  },
+  "refineCalls": null,
+  "perSample": [
+    {
+      "name": "chat-ton",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9978,
+        "min": 0.9934,
+        "max": 1,
+        "spread": 0.0066
+      },
+      "judge": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "spread": 0
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "de-umlaute-ascii",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9994,
+        "min": 0.9982,
+        "max": 1,
+        "spread": 0.0018
+      },
+      "judge": {
+        "mean": 0.9933,
+        "min": 0.98,
+        "max": 1,
+        "spread": 0.02
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "en-grammar-basics",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "spread": 0
+      },
+      "judge": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "spread": 0
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "en-run-on",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9956,
+        "min": 0.9952,
+        "max": 0.9958,
+        "spread": 0.0006
+      },
+      "judge": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "spread": 0
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "schon-korrekt",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "spread": 0
+      },
+      "judge": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "spread": 0
+      },
+      "passed": 3,
+      "refined": 0
+    }
+  ]
+}

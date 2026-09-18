@@ -36,7 +36,15 @@ func fakeRunWithChecks(t *testing.T, dir, model string, det, judge float64, chec
 	return fakeRunFull(t, dir, model, det, judge, "", checksVersion)
 }
 
-func fakeRunFull(t *testing.T, dir, model string, det, judge float64, promptHash string, checksVersion int) string {
+// fakeRunWithSplit is a run that measured one half of a split suite.
+func fakeRunWithSplit(t *testing.T, dir, model string, det, judge float64, split string) string {
+	t.Helper()
+	return fakeRunFull(t, dir, model, det, judge, "", 0, split)
+}
+
+// split is variadic so the three wrappers above stay as they are; an omitted
+// split is a run that did not record one, which reads as "all".
+func fakeRunFull(t *testing.T, dir, model string, det, judge float64, promptHash string, checksVersion int, split ...string) string {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -58,8 +66,12 @@ func fakeRunFull(t *testing.T, dir, model string, det, judge float64, promptHash
 	if promptHash != "" {
 		summary["promptHash"] = promptHash
 	}
+
 	if checksVersion > 0 {
 		summary["checksVersion"] = checksVersion
+	}
+	if len(split) > 0 && split[0] != "" {
+		summary["split"] = split[0]
 	}
 	data, _ := json.MarshalIndent(summary, "", "  ")
 	if err := os.WriteFile(filepath.Join(dir, "summary.json"), data, 0o644); err != nil {
@@ -342,10 +354,10 @@ func writeBaseline(t *testing.T, root, out string) {
 }
 
 // TestARunRecordedBeforeTheSuiteFieldStillKeys: summary.json gained `suite` when
-// the Fix suite arrived, and `checksVersion` a round later. Runs
-// recorded before those have neither, and the key has to name them anyway — as
-// `pyramidize`, which is what they were, and checks version 1, which is what
-// scored them.
+// the Fix suite arrived, then `checksVersion`, then `split`. Runs recorded
+// before those have none of them, and the key has to name them anyway — as
+// `pyramidize`, which is what they were, checks version 1, which is what scored
+// them, and `all`, because nothing was held back from them.
 func TestARunRecordedBeforeTheSuiteFieldStillKeys(t *testing.T) {
 	root := t.TempDir()
 	runs := []string{
@@ -356,7 +368,7 @@ func TestARunRecordedBeforeTheSuiteFieldStillKeys(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}
-	const want = "pyramidize|claude|claude-sonnet-4-6|claude|claude-sonnet-4-5-20250929|2|false|0.65|2|1"
+	const want = "pyramidize|claude|claude-sonnet-4-6|claude|claude-sonnet-4-5-20250929|2|false|0.65|2|1|all"
 	if got["configKey"] != want {
 		t.Errorf("configKey = %v\nwant       %v", got["configKey"], want)
 	}
@@ -408,14 +420,15 @@ func downgradeKey(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 	parts := strings.Split(doc["configKey"].(string), "|")
-	if len(parts) != 10 {
-		t.Fatalf("configKey has %d fields, expected the current 10: %v", len(parts), doc["configKey"])
+	if len(parts) != 11 {
+		t.Fatalf("configKey has %d fields, expected the current 11: %v", len(parts), doc["configKey"])
 	}
-	doc["configKey"] = strings.Join(parts[1:len(parts)-1], "|")
+	doc["configKey"] = strings.Join(parts[1:len(parts)-2], "|")
 	cfg := doc["config"].(map[string]any)
 	delete(cfg, "suite")
 	delete(cfg, "promptHash")
 	delete(cfg, "checksVersion")
+	delete(cfg, "split")
 
 	out, _ := json.Marshal(doc)
 	if err := os.WriteFile(path, out, 0o644); err != nil {
@@ -487,6 +500,30 @@ func TestAChangedInstrumentIsNotComparable(t *testing.T) {
 
 	if code != 2 {
 		t.Errorf("exit = %d, want 2 — these runs were scored by different checks", code)
+	}
+	if got["verdict"] != "not comparable: different configuration" {
+		t.Errorf("verdict = %v", got["verdict"])
+	}
+}
+
+// TestTheTwoHalvesAreNotComparable: the Fix samples are split into a tuning half
+// and a held-out half, and the whole point is that a number from one is not a
+// number from the other. Ten samples against fifteen is a different measurement
+// however similar the score looks, and comparing them is the mistake the split
+// exists to prevent.
+func TestTheTwoHalvesAreNotComparable(t *testing.T) {
+	root := t.TempDir()
+	base := filepath.Join(root, "baseline.json")
+	writeBaseline(t, root, base) // no split recorded, so it keys as "all"
+
+	now := []string{
+		fakeRunWithSplit(t, filepath.Join(root, "n1"), "claude-sonnet-4-6", 0.79, 0.88, "tune"),
+		fakeRunWithSplit(t, filepath.Join(root, "n2"), "claude-sonnet-4-6", 0.77, 0.89, "tune"),
+	}
+	got, code := aggregate(t, append([]string{"--compare", base}, now...)...)
+
+	if code != 2 {
+		t.Errorf("exit = %d, want 2 — a tune-half run is not comparable with an all-samples baseline", code)
 	}
 	if got["verdict"] != "not comparable: different configuration" {
 		t.Errorf("verdict = %v", got["verdict"])

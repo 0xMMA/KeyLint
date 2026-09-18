@@ -1,0 +1,85 @@
+{
+  "derivedFrom": "test-data/eval-baselines/2026-09-18T09-07-42/baseline.json",
+  "rule": "Order all samples by the per-sample deterministic spread recorded in derivedFrom, descending, ties broken alphabetically. Every third sample joins the holdout.",
+  "orderedBySpread": [
+    {
+      "name": "mixed-code-switching",
+      "spread": 0.1992
+    },
+    {
+      "name": "en-german-word-ersetzen",
+      "spread": 0.1411
+    },
+    {
+      "name": "de-umlaute-ascii",
+      "spread": 0.1102
+    },
+    {
+      "name": "markdown-struktur",
+      "spread": 0.101
+    },
+    {
+      "name": "de-anglizismus-bleibt",
+      "spread": 0.0312
+    },
+    {
+      "name": "chat-ton",
+      "spread": 0.0058
+    },
+    {
+      "name": "produktnamen",
+      "spread": 0.0013
+    },
+    {
+      "name": "de-tech-terms-bleiben",
+      "spread": 0.0007
+    },
+    {
+      "name": "en-run-on",
+      "spread": 0.0006
+    },
+    {
+      "name": "de-nomen-gross",
+      "spread": 0
+    },
+    {
+      "name": "en-french-word",
+      "spread": 0
+    },
+    {
+      "name": "en-grammar-basics",
+      "spread": 0
+    },
+    {
+      "name": "interpunktion",
+      "spread": 0
+    },
+    {
+      "name": "langer-absatz",
+      "spread": 0
+    },
+    {
+      "name": "schon-korrekt",
+      "spread": 0
+    }
+  ],
+  "tune": [
+    "de-anglizismus-bleibt",
+    "de-nomen-gross",
+    "de-tech-terms-bleiben",
+    "en-french-word",
+    "en-german-word-ersetzen",
+    "interpunktion",
+    "langer-absatz",
+    "markdown-struktur",
+    "mixed-code-switching",
+    "produktnamen"
+  ],
+  "holdout": [
+    "chat-ton",
+    "de-umlaute-ascii",
+    "en-grammar-basics",
+    "en-run-on",
+    "schon-korrekt"
+  ]
+}

@@ -76,6 +76,10 @@ done
 # A run recorded before the suite field existed WAS a pyramidize run — there was
 # no other suite — so defaulting it is a fact about those files, not a guess.
 #
+# split IS in the key: the Fix samples are divided into a tuning half and a
+# held-out half, and a number from ten samples is not a number from fifteen. Runs
+# that predate the split, and every pyramidize run, key as "all".
+#
 # checksVersion IS in the key, for the opposite reason: the checks are what the
 # suite measures WITH, and a run scored by a different instrument is a different
 # measurement however similar the prompt was. Anything else that sits between
@@ -93,14 +97,15 @@ def keyFrom(c): [(c.suite // "pyramidize"), c.provider, c.model,
                  (c.judge.provider // "none"), (c.judge.model // "none"),
                  (c.promptVariant|tostring), (c.schemaEnforcement|tostring),
                  (c.qualityThreshold|tostring), (c.sampleCount|tostring),
-                 ((c.checksVersion // 1)|tostring)] | join("|");
+                 ((c.checksVersion // 1)|tostring), (c.split // "all")] | join("|");
 # A baseline written before the suite name joined the key stored eight fields.
 # Upgrading it on READ is what keeps the baselines recorded so far usable;
 # refusing them would have made a key format change quietly discard every
 # measurement the project has.
 def upgradeKey(k): (k | split("|")) as $p
-                 | if ($p|length) == 8 then ((["pyramidize"] + $p + ["1"]) | join("|"))
-                   elif ($p|length) == 9 then (($p + ["1"]) | join("|"))
+                 | if ($p|length) == 8 then ((["pyramidize"] + $p + ["1", "all"]) | join("|"))
+                   elif ($p|length) == 9 then (($p + ["1", "all"]) | join("|"))
+                   elif ($p|length) == 10 then (($p + ["all"]) | join("|"))
                    else k end;
 def baselineKey(b): if (b.config|type) == "object" then keyFrom(b.config) else upgradeKey(b.configKey // "unknown") end;'
 
@@ -145,6 +150,8 @@ AGGREGATE=$(jq -s --argjson perSample "$PER_SAMPLE" --argjson runs "$RUNS_JSON" 
             suite: (.[0].suite // "pyramidize"),
             promptHash: (.[0].promptHash // null),
             checksVersion: (.[0].checksVersion // 1),
+            split: (.[0].split // "all"),
+            splitHash: (.[0].splitHash // null),
             gitSHA: .[0].gitSHA,
             provider: .[0].provider,
             model: .[0].model,
@@ -157,11 +164,9 @@ AGGREGATE=$(jq -s --argjson perSample "$PER_SAMPLE" --argjson runs "$RUNS_JSON" 
         # The fingerprint two runs must share to be averaged together. Model and
         # judge are not enough: a v1 run and a v2 run, or 13 samples against 40,
         # are different measurements however similar the numbers look.
-        # suite and promptHash are in the key on purpose. Without suite, two
-        # different eval suites are kept apart only by their values happening to
-        # differ; without promptHash, a comparison cannot tell "the prompt
-        # changed" from "the model did", which is the whole reason the hash is
-        # recorded.
+        # suite is in the key on purpose: without it, two different eval suites
+        # would be kept apart only by their values happening to differ.
+        # promptHash is NOT — see the prelude above for why.
         configKey: keyFrom(.[0]),
         configConsistent: (map(keyFrom(.)) | unique | length == 1),
         # A judge that failed on some samples leaves a mean over a smaller set.
@@ -222,6 +227,8 @@ VERDICT=$(printf '%s\n' "$AGGREGATE" | jq --slurpfile base "$COMPARE" "$JQ_ROUND
     | ("deterministic " + $detVerdict) as $detLabel
     | ("judge " + $judgeVerdict) as $judgeLabel
     | {
+        splitMembership: {baseline: ($was.config.splitHash // null), now: ($now.config.splitHash // null),
+                          changed: (($was.config.splitHash // null) != ($now.config.splitHash // null))},
         promptHash: {baseline: ($was.config.promptHash // null), now: ($now.config.promptHash // null),
                      changed: (($was.config.promptHash // null) != ($now.config.promptHash // null))},
         baseline: {config: $wasKey, runs: $was.runCount, gitSHA: $was.config.gitSHA,
@@ -263,6 +270,11 @@ printf '%s\n' "$VERDICT"
 
 # The hash is not in the key, so it cannot silence a comparison — but a reader
 # who does not know the prompt moved will attribute the move to the model.
+# The key records how many samples a run measured, never which. Two five-sample
+# holdouts with one swapped in and one out key identically.
+if [[ "$(printf '%s' "$VERDICT" | jq -r '.splitMembership.changed')" == "true" ]]; then
+    echo "These two sides measured a different set of samples, not just a different number of them." >&2
+fi
 if [[ "$(printf '%s' "$VERDICT" | jq -r '.promptHash.changed')" == "true" ]]; then
     printf 'The prompt changed between these two sides (%s -> %s). Whatever moved, the prompt is a candidate.\n' \
         "$(printf '%s' "$VERDICT" | jq -r '.promptHash.baseline // "unrecorded"')" \
