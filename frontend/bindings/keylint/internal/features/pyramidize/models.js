@@ -186,6 +186,9 @@ export class PyramidizeResult {
         }
         if (!("appliedRefinement" in $$source)) {
             /**
+             * AppliedRefinement reports that a second model call was made, not that it
+             * succeeded — a refine that failed still cost a call, and an eval counting
+             * calls has to see it. On failure the document below is the foundation's.
              * @member
              * @type {boolean}
              */
