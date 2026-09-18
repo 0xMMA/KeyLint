@@ -7,6 +7,8 @@
 
 ## 1. Where we are (September 2026)
 
+> **Progress log 2026-09-17/18:** E1 shipped (Claude Code provider, #45/#49/#54/#72), E2 complete (#39/#52/#57/#60), E3 measured (ADR-002 #63; Fix eval #79/#82/#88 — suite saturated, harder samples needed before more prompt work), eval instrument hardened (#62), CI: e2e + race detector + bindings drift + pinned actions + WebView2 signature check (#50/#65/#73/#74/#81/#84/#87). Waiting on Michael: #31 Windows retest, ADR-002 decisions (Sonnet 5 default, AUTO cost, dead threshold slider, `--json` score), #38 DevTools check, #61 refresh feel.
+
 | Item | State |
 |---|---|
 | Latest release | `v4.4.3-beta` (2026-04-05) |
