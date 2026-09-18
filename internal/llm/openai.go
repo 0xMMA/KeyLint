@@ -47,7 +47,27 @@ func completeViaOpenAI(ctx context.Context, cfg Config, p provider, baseURL stri
 			openai.UserMessage(req.User),
 		},
 	}
-	if req.JSONMode {
+	switch {
+	case len(req.JSONSchema) > 0:
+		schema, err := schemaObject(req.JSONSchema)
+		if err != nil {
+			return Response{}, fmt.Errorf("%s: %w", p.name, err)
+		}
+		params.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
+				JSONSchema: shared.ResponseFormatJSONSchemaJSONSchemaParam{
+					Name: schemaName,
+					// Strict makes the model follow the schema exactly rather
+					// than approximately; the caller's defensive parse stays as
+					// a fallback for endpoints that only approximate it.
+					Strict: openai.Bool(true),
+					Schema: schema,
+				},
+			},
+		}
+	case req.JSONMode:
+		// No shape, just "must be a JSON object" — what the caller asks for when
+		// schema enforcement is off but it still parses the reply as JSON.
 		params.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
 			OfJSONObject: &shared.ResponseFormatJSONObjectParam{},
 		}
@@ -65,7 +85,22 @@ func completeViaOpenAI(ctx context.Context, cfg Config, p provider, baseURL stri
 		return Response{}, fmt.Errorf("%s returned no choices", p.name)
 	}
 
-	text := completion.Choices[0].Message.Content
+	choice := completion.Choices[0]
+	// With a strict schema a refusal is a first-class outcome: the content is
+	// empty and the reason is in its own field.
+	if refusal := strings.TrimSpace(choice.Message.Refusal); refusal != "" {
+		return Response{}, fmt.Errorf("%s declined the request: %s", p.name, refusal)
+	}
+	// A truncated answer would be pasted over the user's selection as a
+	// half-written sentence — the same call the Claude Code client makes.
+	if choice.FinishReason == "length" {
+		return Response{}, fmt.Errorf("%s: %s", p.name, outputLimitMessage)
+	}
+
+	text := choice.Message.Content
+	if strings.TrimSpace(text) == "" {
+		return Response{}, fmt.Errorf("%s returned an empty result", p.name)
+	}
 	logResponse(cfg, p, text)
 	return Response{Text: text}, nil
 }

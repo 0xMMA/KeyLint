@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"keylint/internal/logger"
 )
@@ -26,6 +27,12 @@ const notSignedInMessage = "Claude Code is installed but not signed in. Open a t
 // cliWaitDelay bounds how long we wait for output pipes to drain after the
 // process itself has been killed, so a stuck child cannot hang the caller.
 const cliWaitDelay = 5 * time.Second
+
+// terminalReasonCompleted is what the CLI reports for a run that finished.
+const terminalReasonCompleted = "completed"
+
+// stopReasonMaxTokens is the one stop reason that means the answer was cut off.
+const stopReasonMaxTokens = "max_tokens"
 
 // blockedCLIEnv lists environment variables that would redirect the CLI away
 // from the account the user signed in with. KeyLint itself reads
@@ -50,12 +57,20 @@ var blockedCLIEnv = []string{
 // claudeCodeEnvelope is what `claude -p --output-format json` prints. Only the
 // fields KeyLint acts on are listed.
 type claudeCodeEnvelope struct {
-	Result         string         `json:"result"`
-	IsError        bool           `json:"is_error"`
-	TerminalReason string         `json:"terminal_reason"`
-	DurationMS     int64          `json:"duration_ms"`
-	TotalCostUSD   float64        `json:"total_cost_usd"`
-	ModelUsage     map[string]any `json:"modelUsage"`
+	Result string `json:"result"`
+	// StructuredOutput is the parsed object when --json-schema was passed. The
+	// CLI fills both: result carries the same JSON as a string.
+	StructuredOutput json.RawMessage `json:"structured_output"`
+	IsError          bool            `json:"is_error"`
+	TerminalReason   string          `json:"terminal_reason"`
+	// StopReason is why the model stopped, as opposed to why the run ended.
+	// Only "max_tokens" means a cut-off answer: the CLI sets this to values like
+	// "tool_use" and "end_turn" on perfectly good runs, so it cannot be gated on
+	// wholesale the way terminal_reason can.
+	StopReason   string         `json:"stop_reason"`
+	DurationMS   int64          `json:"duration_ms"`
+	TotalCostUSD float64        `json:"total_cost_usd"`
+	ModelUsage   map[string]any `json:"modelUsage"`
 }
 
 type claudeCodeClient struct {
@@ -104,6 +119,19 @@ func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response,
 		"--strict-mcp-config",
 		"--setting-sources", "",
 		"--disable-slash-commands",
+	}
+	if len(req.JSONSchema) > 0 {
+		// Compacted, because this goes on the command line and the CLI has no
+		// --json-schema-file. A pretty-printed schema carries newlines, and
+		// cmd.exe — which re-parses the line for the usual claude.cmd shim —
+		// ends the command at the first one, truncating the schema mid-object.
+		// Go's argument escaping handles quotes and backslashes but not
+		// newlines; this is the same trap --system-prompt was moved off.
+		var compact bytes.Buffer
+		if err := json.Compact(&compact, req.JSONSchema); err != nil {
+			return Response{}, fmt.Errorf("%s: invalid JSON schema: %w", name, err)
+		}
+		args = append(args, "--json-schema", compact.String())
 	}
 	if promptFile != "" {
 		args = append(args, "--system-prompt-file", promptFile)
@@ -162,16 +190,67 @@ func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response,
 	if !parsed {
 		return Response{}, fmt.Errorf("%s unexpected response: %s", name, out)
 	}
+	// A run that ended badly still fills result, and pasting a half-written
+	// answer over the user's selection is worse than saying nothing. "completed"
+	// is what a finished run reports; the failure values are api_error,
+	// model_error, prompt_too_long, aborted_streaming and the like. An
+	// output-token cut-off is *not* among them — that is stop_reason, which the
+	// CLI also sets to non-"end_turn" values on perfectly good runs, so gating
+	// on it would reject answers that are fine. An older CLI leaves the field
+	// empty and is unaffected.
+	// The HTTP providers refuse a truncated answer; this path does the same
+	// rather than silently differing.
+	if env.StopReason == stopReasonMaxTokens {
+		return Response{}, fmt.Errorf("%s: %s", name, outputLimitMessage)
+	}
+
+	if env.TerminalReason != "" && env.TerminalReason != terminalReasonCompleted {
+		// The partial answer is the user's own text. It goes to Debug through
+		// Redact, not into the error — an error string is formatted into Error
+		// lines whatever the sensitive-logging setting says (#41).
+		logger.Debug("llm: claude code stopped early", "feature", c.cfg.Feature,
+			"terminal_reason", env.TerminalReason, "partial", logger.Redact(partialText(env)))
+		return Response{}, fmt.Errorf("%s stopped before finishing (%s)", name, env.TerminalReason)
+	}
+
+	text := env.Result
+	// With --json-schema the CLI parses the object itself; preferring it means a
+	// stray fence or trailing note in result cannot reach the caller's parser.
+	// A JSON null is four bytes, so a length check alone would hand the literal
+	// string "null" to the caller's parser.
+	if len(env.StructuredOutput) > 0 && !bytes.Equal(bytes.TrimSpace(env.StructuredOutput), []byte("null")) {
+		text = string(env.StructuredOutput)
+	}
+
 	// An empty result would be pasted over the user's selection as nothing at
 	// all, so treat it the way the HTTP providers treat an empty content block.
-	if strings.TrimSpace(env.Result) == "" {
+	if strings.TrimSpace(text) == "" {
 		return Response{}, fmt.Errorf("%s returned an empty result", name)
 	}
 
 	logger.Info("llm: claude code call finished", "feature", c.cfg.Feature,
 		"model", req.Model, "duration_ms", env.DurationMS, "total_cost_usd", env.TotalCostUSD)
 
-	return Response{Text: env.Result}, nil
+	return Response{Text: text}, nil
+}
+
+// partialText summarises what a cut-off run produced, for the debug log only.
+func partialText(env claudeCodeEnvelope) string {
+	partial := strings.TrimSpace(env.Result)
+	if partial == "" {
+		return "no output"
+	}
+	const limit = 120
+	if len(partial) <= limit {
+		return partial
+	}
+	// Byte-slicing would split a multi-byte rune; the corpus this truncates is
+	// largely German prose.
+	cut := limit
+	for cut > 0 && !utf8.ValidString(partial[:cut]) {
+		cut--
+	}
+	return partial[:cut] + "…"
 }
 
 // writeSystemPromptFile stores the system prompt where the CLI can read it.
@@ -230,12 +309,57 @@ func isBlockedCLIEnv(name string) bool {
 // parseClaudeCodeEnvelope decodes the JSON envelope, tolerating anything the
 // CLI or an npm shim printed before it (update notices, deprecation warnings).
 func parseClaudeCodeEnvelope(out []byte) (claudeCodeEnvelope, bool) {
-	start := bytes.IndexByte(out, '{')
-	if start < 0 {
+	// The envelope is the last thing the CLI prints. Anything before it — an
+	// update notice, a shim's warning — may itself contain a brace, so anchoring
+	// on the first one loses a perfectly good envelope.
+	if env, ok := decodeEnvelope(out); ok {
+		return env, true
+	}
+	lines := bytes.Split(out, []byte("\n"))
+	for i := len(lines) - 1; i >= 0; i-- {
+		if env, ok := decodeEnvelope(lines[i]); ok {
+			return env, true
+		}
+	}
+	// A pretty-printed envelope spans lines; take everything from the last
+	// opening brace that starts a line.
+	if start := bytes.LastIndex(out, []byte("\n{")); start >= 0 {
+		if env, ok := decodeEnvelope(out[start+1:]); ok {
+			return env, true
+		}
+	}
+	// Last resort, and the one the previous parser relied on: decode the first
+	// object in the stream and ignore whatever follows it. This catches a
+	// pretty-printed envelope with a notice printed after it, which none of the
+	// strategies above can see.
+	if start := bytes.IndexByte(out, '{'); start >= 0 {
+		var env claudeCodeEnvelope
+		if err := json.NewDecoder(bytes.NewReader(out[start:])).Decode(&env); err == nil {
+			return env, true
+		}
+	}
+	return claudeCodeEnvelope{}, false
+}
+
+// decodeEnvelope accepts a chunk only if it is a JSON object carrying at least
+// one field the CLI always sets, so a stray object in a preamble is not
+// mistaken for the envelope.
+func decodeEnvelope(chunk []byte) (claudeCodeEnvelope, bool) {
+	chunk = bytes.TrimSpace(chunk)
+	if len(chunk) == 0 || chunk[0] != '{' {
 		return claudeCodeEnvelope{}, false
 	}
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(chunk, &probe); err != nil {
+		return claudeCodeEnvelope{}, false
+	}
+	if _, ok := probe["result"]; !ok {
+		if _, ok := probe["is_error"]; !ok {
+			return claudeCodeEnvelope{}, false
+		}
+	}
 	var env claudeCodeEnvelope
-	if err := json.NewDecoder(bytes.NewReader(out[start:])).Decode(&env); err != nil {
+	if err := json.Unmarshal(chunk, &env); err != nil {
 		return claudeCodeEnvelope{}, false
 	}
 	return env, true

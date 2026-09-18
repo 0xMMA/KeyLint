@@ -379,8 +379,74 @@ describe('TextEnhancementComponent — Claude Code provider', () => {
     expect(component.currentModelOptions.map(m => m.value)).toEqual(['opus', 'sonnet', 'haiku']);
   });
 
-  it('shows no missing-key warning for a provider that needs no key', async () => {
+  it('warns when the CLI is installed but signed out, instead of failing at call time', async () => {
+    wailsMock.getClaudeCodeStatus.mockResolvedValue({
+      installed: true, loggedIn: false, path: '/usr/local/bin/claude', version: '2.1.274',
+    });
+
+    component.providerView = 'claude-code';
+    await component.onProviderChange();
+    fixture.detectChanges();
+
+    expect(component.apiKeySet).toBe(false);
     expect(el.querySelector('[data-testid="api-key-banner"]')).not.toBeNull();
+    // "No AI API key configured" is the one thing that is never wrong here.
+    const message = el.querySelector('[data-testid="api-key-banner-message"]')!.textContent!;
+    expect(message).toContain('not signed in');
+    expect(message).toContain('sign in');
+    expect(message).not.toContain('API key');
+  });
+
+  it('warns when the CLI is not installed at all', async () => {
+    wailsMock.getClaudeCodeStatus.mockResolvedValue({
+      installed: false, loggedIn: false, path: '', version: '',
+    });
+
+    component.providerView = 'claude-code';
+    await component.onProviderChange();
+    fixture.detectChanges();
+
+    // Without this the test also passes when only half the branch is reverted.
+    expect(component.apiKeySet).toBe(false);
+    expect(el.querySelector('[data-testid="api-key-banner"]')).not.toBeNull();
+    const message = el.querySelector('[data-testid="api-key-banner-message"]')!.textContent!;
+    expect(message).toContain('not found on this machine');
+    expect(message).not.toContain('API key');
+  });
+
+  it('keeps saying "API key" for the providers that actually need one', async () => {
+    component.providerView = 'openai';
+    await component.onProviderChange();
+    fixture.detectChanges();
+
+    expect(el.querySelector('[data-testid="api-key-banner-message"]')!.textContent)
+      .toContain('No AI API key configured');
+  });
+
+  it('ignores a stale probe when the user switches provider again', async () => {
+    // claude-code costs two process spawns, so a quick second switch can
+    // finish first; the slower answer must not overwrite it.
+    let resolveSlow: (v: unknown) => void = () => {};
+    wailsMock.getClaudeCodeStatus.mockReturnValueOnce(new Promise(resolve => { resolveSlow = resolve; }));
+
+    component.providerView = 'claude-code';
+    const slowSwitch = component.onProviderChange();
+
+    component.providerView = 'openai';
+    await component.onProviderChange();
+
+    resolveSlow({ installed: false, loggedIn: false, path: '', version: '' });
+    await slowSwitch;
+    fixture.detectChanges();
+
+    expect(el.querySelector('[data-testid="api-key-banner-message"]')!.textContent)
+      .toContain('No AI API key configured');
+  });
+
+  it('stays quiet when the CLI is installed and signed in', async () => {
+    wailsMock.getClaudeCodeStatus.mockResolvedValue({
+      installed: true, loggedIn: true, path: '/usr/local/bin/claude', version: '2.1.274',
+    });
 
     component.providerView = 'claude-code';
     await component.onProviderChange();
@@ -388,6 +454,19 @@ describe('TextEnhancementComponent — Claude Code provider', () => {
 
     expect(component.apiKeySet).toBe(true);
     expect(el.querySelector('[data-testid="api-key-banner"]')).toBeNull();
+    // The keyring has no answer for this provider and must not be asked.
     expect(wailsMock.getKeyStatus).not.toHaveBeenCalledWith('claude-code');
+  });
+
+  it('shows no missing-key warning for Ollama, which needs no credential at all', async () => {
+    expect(el.querySelector('[data-testid="api-key-banner"]')).not.toBeNull();
+
+    component.providerView = 'ollama';
+    await component.onProviderChange();
+    fixture.detectChanges();
+
+    expect(component.apiKeySet).toBe(true);
+    expect(el.querySelector('[data-testid="api-key-banner"]')).toBeNull();
+    expect(wailsMock.getKeyStatus).not.toHaveBeenCalledWith('ollama');
   });
 });

@@ -124,6 +124,12 @@ interface ProviderKey {
                         <span> · version {{ claudeCodeStatus!.version }}</span>
                       }
                     </p>
+                    <p class="hint-text" data-testid="claude-code-env-hint">
+                      KeyLint runs the CLI with your subscription login. API-key variables in your
+                      environment (<code>ANTHROPIC_API_KEY</code> and friends) are not passed through,
+                      so the CLI uses the account you signed in with.
+                    </p>
+
                     @if (!claudeCodeStatus!.loggedIn) {
                       <p class="hint-text" data-testid="claude-code-signin-hint">
                         Open a terminal, run <code>claude</code>, and sign in. KeyLint never reads or stores your credentials.

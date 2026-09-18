@@ -375,7 +375,7 @@ func TestBuildDocTypePromptDispatch(t *testing.T) {
 	types := []string{"email", "wiki", "memo", "powerpoint", "unknown"}
 	for _, dt := range types {
 		t.Run(dt, func(t *testing.T) {
-			sys, user := buildDocTypePrompt(dt, 0, "professional", "professional", "", "some text")
+			sys, user, _ := buildDocTypePrompt(dt, 0, "professional", "professional", "", "some text")
 			if sys == "" {
 				t.Error("system prompt should not be empty")
 			}
@@ -435,5 +435,70 @@ func TestIsValidDocTypeEdgeCases(t *testing.T) {
 	// Boundary: powerpoint is valid, ppt is not
 	if isValidDocType("ppt") {
 		t.Error("ppt should not be valid — only powerpoint")
+	}
+}
+
+// TestUnmarshalRobustRepairsArrayElements covers the failure that showed up
+// reproducibly in the eval: a header whose own text contains quotes —
+// `"newformat" jetzt funktional` — lands in the headers array unescaped, and the
+// decoder reports `invalid character '(' after array element`. Only strings
+// following a ':' used to be repaired, so array elements fell through.
+func TestUnmarshalRobustRepairsArrayElements(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want []string
+	}{
+		{
+			// This is the shape that produced the reported error verbatim: the
+			// element opens, a quoted phrase closes the string early, and the
+			// decoder meets '(' where it wanted ',' or ']'.
+			name: "quoted phrase followed by a parenthetical",
+			raw:  `{"fullDocument":"ok","headers":["Views & Reichweite","Views" (Aufrufe)"],"language":"de"}`,
+			want: []string{"Views & Reichweite", `Views" (Aufrufe)`},
+		},
+		{
+			name: "quoted phrase mid-element",
+			raw:  `{"fullDocument":"ok","headers":[""newformat" jetzt funktional","zweiter Header"],"language":"de"}`,
+			want: []string{`"newformat" jetzt funktional`, "zweiter Header"},
+		},
+		{
+			name: "already valid input is untouched",
+			raw:  `{"fullDocument":"ok","headers":["a","b"],"language":"de"}`,
+			want: []string{"a", "b"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var result foundationResult
+			if err := unmarshalRobust(tc.raw, &result); err != nil {
+				t.Fatalf("unmarshalRobust: %v", err)
+			}
+			if len(result.Headers) != len(tc.want) {
+				t.Fatalf("headers = %q, want %q", result.Headers, tc.want)
+			}
+			for i := range tc.want {
+				if result.Headers[i] != tc.want[i] {
+					t.Errorf("header %d = %q, want %q", i, result.Headers[i], tc.want[i])
+				}
+			}
+			if result.FullDocument != "ok" || result.Language != "de" {
+				t.Errorf("other fields were damaged: %+v", result)
+			}
+		})
+	}
+}
+
+// TestUnmarshalRobustKeepsTopLevelArrays guards the leading-content trim: it
+// looks for the first '{', which on a top-level array would cut off the opening
+// bracket and every element before the first object.
+func TestUnmarshalRobustKeepsTopLevelArrays(t *testing.T) {
+	var got []map[string]string
+	if err := unmarshalRobust(`[{"a":"1"},{"b":"2"}]`, &got); err != nil {
+		t.Fatalf("unmarshalRobust: %v", err)
+	}
+	if len(got) != 2 || got[0]["a"] != "1" || got[1]["b"] != "2" {
+		t.Errorf("got %v, want both elements intact", got)
 	}
 }

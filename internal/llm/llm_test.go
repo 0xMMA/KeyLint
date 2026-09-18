@@ -15,6 +15,10 @@ import (
 	"keylint/internal/logger"
 )
 
+// testSchema is a minimal strict-mode-valid schema: every property required,
+// no additional properties.
+const testSchema = `{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"],"additionalProperties":false}`
+
 // capture records the request a provider client sends and replies with a canned
 // body, so tests can assert on the exact wire format.
 type capture struct {

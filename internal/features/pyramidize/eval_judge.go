@@ -35,6 +35,9 @@ Respond with ONLY a JSON object:
 {"pyramidStructure":0.0,"clarity":0.0,"completeness":0.0,"tonePreservation":0.0,"overall":0.0,"rationale":"Brief explanation"}`
 
 // RunJudge calls the LLM to evaluate a candidate output against the baseline.
+// Its schema goes through the same gate as the pipeline's, so an eval run
+// measures one configuration rather than a constrained judge scoring an
+// unconstrained pipeline.
 func RunJudge(settingsSvc *settings.Service, opts aiOpts, rawInput, baseline, candidate string) (JudgeScore, error) {
 	cfg := settingsSvc.Get()
 	userMessage := fmt.Sprintf("<raw_input>\n%s\n</raw_input>\n\n<baseline>\n%s\n</baseline>\n\n<candidate>\n%s\n</candidate>",
@@ -55,7 +58,7 @@ func RunJudge(settingsSvc *settings.Service, opts aiOpts, rawInput, baseline, ca
 
 	svc := NewService(settingsSvc, nil)
 
-	raw, err := svc.callAISync(context.Background(), cfg, opts, apiKey, judgeSystemPrompt, userMessage)
+	raw, err := svc.callAISync(context.Background(), cfg, opts, apiKey, judgeSystemPrompt, userMessage, enforcedSchema(judgeSchema))
 	if err != nil {
 		return JudgeScore{}, fmt.Errorf("judge AI call failed: %w", err)
 	}
