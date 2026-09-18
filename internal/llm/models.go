@@ -287,7 +287,12 @@ func isChatModel(id string) bool {
 		return false
 	}
 	for _, marker := range []string{
-		"-audio", "-realtime", "-transcribe", "-tts", "-image", "-search", "-instruct", "-moderation",
+		"-audio", "-realtime", "-transcribe", "-tts", "-image", "-instruct", "-moderation",
+		// "-search" may be too broad: gpt-4o-search-preview does answer
+		// /chat/completions, it just always searches. Pinned as an exclusion
+		// because a model that silently web-searches is not what a grammar fix
+		// or a restructure asks for — unverified against a live account.
+		"-search",
 		// Responses-API only: reachable, but not at /chat/completions. "-codex"
 		// is a marker rather than a prefix because the family moved into the
 		// gpt-* namespace (gpt-5.1-codex-max), where a prefix test cannot see it.

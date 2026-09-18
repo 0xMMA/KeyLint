@@ -1,10 +1,12 @@
 package settings
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -180,17 +182,79 @@ func TestAnEmptyListIsNotRefilledFromTheCuratedOne(t *testing.T) {
 // forgetModelList landing while it is in flight used to be overwritten by the
 // answer that was already on its way — pinning the retired URL's models for a
 // full ten minutes, which is the opposite of what the invalidation asked for.
+//
+// The retired answer must also not reach the caller, so the listing is retried
+// and what comes back describes the settings the user actually has now.
 func TestAnInFlightListingCannotUndoAnInvalidation(t *testing.T) {
-	// started fires once the listing is under way — after ListModels has read
-	// the generation it will later compare against. Without that ordering the
-	// invalidation could land first and the test would prove nothing.
+	// started fires once the first listing is under way — after ListModels has
+	// read the generation it will later compare against. Without that ordering
+	// the invalidation could land first and the test would prove nothing.
+	var once sync.Once
 	started := make(chan struct{})
 	release := make(chan struct{})
+	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		close(started)
-		<-release
+		first := atomic.AddInt32(&calls, 1) == 1
+		if first {
+			once.Do(func() { close(started) })
+			<-release
+		}
+		name := "new-host-model"
+		if first {
+			name = "old-host-model"
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"models":[{"name":"old-host-model","model":"old-host-model"}]}`))
+		fmt.Fprintf(w, `{"models":[{"name":%q,"model":%q}]}`, name, name)
+	}))
+	defer srv.Close()
+
+	svc := &Service{current: Default()}
+	svc.current.Providers.OllamaURL = srv.URL
+
+	var got llm.ModelList
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		got = svc.ListModels(llm.ProviderOllama)
+	}()
+
+	// The user changes the URL while that listing is still waiting.
+	<-started
+	svc.forgetModelList(llm.ProviderOllama)
+	close(release)
+	<-done
+
+	for _, model := range got.Models {
+		if model.ID == "old-host-model" {
+			t.Error("the caller got the answer the invalidation retired")
+		}
+	}
+	svc.modelsMu.Lock()
+	cached := svc.models[llm.ProviderOllama]
+	svc.modelsMu.Unlock()
+	for _, model := range cached.list.Models {
+		if model.ID == "old-host-model" {
+			t.Errorf("the retired host's answer was cached anyway: %v", cached.list.Models)
+		}
+	}
+	if atomic.LoadInt32(&calls) < 2 {
+		t.Error("the listing was not retried, so nothing describes the new settings")
+	}
+}
+
+// TestAnInvalidationForAnotherProviderIsLeftAlone: pasting an OpenAI key must
+// not throw away an Anthropic listing that is already on its way back.
+func TestAnInvalidationForAnotherProviderIsLeftAlone(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&calls, 1) == 1 {
+			close(started)
+			<-release
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":[{"name":"llama3.2","model":"llama3.2"}]}`))
 	}))
 	defer srv.Close()
 
@@ -203,17 +267,19 @@ func TestAnInFlightListingCannotUndoAnInvalidation(t *testing.T) {
 		svc.ListModels(llm.ProviderOllama)
 	}()
 
-	// The user changes the URL while that listing is still waiting.
 	<-started
-	svc.forgetModelList(llm.ProviderOllama)
+	svc.forgetModelList(llm.ProviderOpenAI)
 	close(release)
 	<-done
 
 	svc.modelsMu.Lock()
-	cached, ok := svc.models[llm.ProviderOllama]
+	_, cached := svc.models[llm.ProviderOllama]
 	svc.modelsMu.Unlock()
-	if ok {
-		t.Errorf("the retired host's answer was cached anyway: %v", cached.list.Models)
+	if !cached {
+		t.Error("an unrelated provider's invalidation discarded this listing")
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Errorf("listing calls = %d, want 1 — nothing should have been retried", got)
 	}
 }
 
@@ -228,6 +294,7 @@ func TestSavingSettingsWhileAListingRunsIsNotARace(t *testing.T) {
 
 	svc := &Service{filePath: filepath.Join(t.TempDir(), "settings.json"), current: Default()}
 	svc.current.Providers.OllamaURL = srv.URL
+	svc.current.AppPresets = []AppPreset{{SourceApp: "editor", DocumentType: "email"}}
 
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
@@ -237,13 +304,66 @@ func TestSavingSettingsWhileAListingRunsIsNotARace(t *testing.T) {
 			if i%2 == 0 {
 				updated := Default()
 				updated.Providers.OllamaURL = srv.URL
+				updated.AppPresets = []AppPreset{{SourceApp: "editor", DocumentType: "email"}}
 				_ = svc.Save(updated)
 				return
+			}
+			// Get hands out the presets; SetAppPreset writes into that slice,
+			// which is the real caller and the other half of this race.
+			cfg := svc.Get()
+			for j := range cfg.AppPresets {
+				cfg.AppPresets[j].DocumentType = "memo"
 			}
 			svc.ListModels(llm.ProviderOllama)
 		}(i)
 	}
 	wg.Wait()
+
+	// An assertion, so removing the lock fails this test even without -race:
+	// a torn or lost write would leave settings that never existed.
+	final := svc.Get()
+	if final.Providers.OllamaURL != srv.URL {
+		t.Errorf("OllamaURL = %q, want %q", final.Providers.OllamaURL, srv.URL)
+	}
+	if len(final.AppPresets) != 1 {
+		t.Errorf("presets = %v, want the saved one", final.AppPresets)
+	}
+}
+
+// TestGetHandsOutACopyACallerCannotWriteThrough: SetAppPreset assigns into
+// AppPresets[i] of the value Get returned, and the Pyramidize service does the
+// same for its own edits. With a struct copy that slice is the service's own,
+// so the edit lands in live settings without a Save — and races with any
+// concurrent reader.
+func TestGetHandsOutACopyACallerCannotWriteThrough(t *testing.T) {
+	svc := &Service{filePath: filepath.Join(t.TempDir(), "settings.json"), current: Default()}
+	saved := Default()
+	saved.AppPresets = []AppPreset{{SourceApp: "editor", DocumentType: "email"}}
+	saved.Models = map[string]FeatureModels{llm.ProviderClaude: {Fix: "claude-haiku-4-5-20251001"}}
+	if err := svc.Save(saved); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// What SetAppPreset does before deciding whether to Save.
+	got := svc.Get()
+	got.AppPresets[0].DocumentType = "memo"
+	got.Models[llm.ProviderClaude] = FeatureModels{Fix: "something-else"}
+
+	again := svc.Get()
+	if again.AppPresets[0].DocumentType != "email" {
+		t.Errorf("preset = %q, want %q — the caller wrote through into live settings",
+			again.AppPresets[0].DocumentType, "email")
+	}
+	if again.Models[llm.ProviderClaude].Fix != "claude-haiku-4-5-20251001" {
+		t.Errorf("model = %q, want the saved one", again.Models[llm.ProviderClaude].Fix)
+	}
+
+	// The same in the other direction: the caller still holds what it passed to
+	// Save and may keep editing it.
+	saved.AppPresets[0].DocumentType = "report"
+	if svc.Get().AppPresets[0].DocumentType != "email" {
+		t.Error("editing the value handed to Save changed live settings")
+	}
 }
 
 // TestOllamaIsAskedWithoutACredential: Ollama needs no key, so the "no

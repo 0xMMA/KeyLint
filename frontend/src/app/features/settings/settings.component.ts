@@ -847,6 +847,9 @@ export class SettingsComponent implements OnInit, OnDestroy {
     await this.wails.resetSettings();
     this.settings = await this.wails.loadSettings();
     this.savedOllamaURL = this.settings?.providers?.ollama_url ?? '';
+    // A reset puts the Ollama URL back to its default, so the pickers are now
+    // showing whatever the previous address had pulled.
+    void this.loadModelOptions();
     this.saved = true;
     this.cdr.detectChanges();
     setTimeout(() => { this.saved = false; this.cdr.detectChanges(); }, 3000);

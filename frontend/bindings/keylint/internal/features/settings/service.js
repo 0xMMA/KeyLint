@@ -30,6 +30,13 @@ export function DeleteKey(provider) {
 
 /**
  * Get returns a copy of the current settings.
+ * 
+ * The copy reaches into the reference fields: a struct copy would share the
+ * AppPresets array and the Models map with every other caller and with the
+ * service's own state, and callers do edit what they are given — SetAppPreset
+ * assigns into AppPresets[i] before handing the result back to Save. Sharing
+ * them means that edit lands in this service's settings without a Save, and
+ * races with any concurrent read.
  * @returns {$CancellablePromise<$models.Settings>}
  */
 export function Get() {

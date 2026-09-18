@@ -659,6 +659,16 @@ describe('SettingsComponent — model selection', () => {
     expect(wailsMock.listModels.mock.calls.length).toBe(before);
   });
 
+  it('re-asks after a reset, which puts the Ollama URL back to its default', async () => {
+    await render();
+    const before = wailsMock.listModels.mock.calls.length;
+
+    await component.resetToDefaults();
+    await fixture.whenStable();
+
+    expect(wailsMock.listModels.mock.calls.length).toBeGreaterThan(before);
+  });
+
   it('keeps the two features apart', async () => {
     await render();
 

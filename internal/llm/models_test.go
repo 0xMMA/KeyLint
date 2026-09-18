@@ -323,9 +323,6 @@ func TestIsChatModelKeepsOnlyWhatCanAnswerACompletion(t *testing.T) {
 	}
 }
 
-// TestListModelsOpenAIFiltersAndKeepsProviderOrder pins both halves: the
-// account's non-chat models do not reach the picker, and the order the provider
-// returned is preserved rather than re-sorted.
 // TestCuratedOpenAIModelsSurviveTheFilter: the curated list is what a user sees
 // when the account cannot be reached, so shipping an ID there that the filter
 // would drop as uncallable would be offering a model that 400s.
@@ -337,6 +334,9 @@ func TestCuratedOpenAIModelsSurviveTheFilter(t *testing.T) {
 	}
 }
 
+// TestListModelsOpenAIFiltersAndKeepsProviderOrder pins both halves: the
+// account's non-chat models do not reach the picker, and the order the provider
+// returned is preserved rather than re-sorted.
 func TestListModelsOpenAIFiltersAndKeepsProviderOrder(t *testing.T) {
 	srv := newRawServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
