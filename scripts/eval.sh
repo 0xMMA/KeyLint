@@ -10,6 +10,7 @@ set -euo pipefail
 #   ./scripts/eval.sh --provider openai --model gpt-4o
 #   ./scripts/eval.sh --variant 1              # run with prompt variant v1
 #   ./scripts/eval.sh --variant 2              # run with prompt variant v2
+#   ./scripts/eval.sh --schema                 # enforce the JSON schemas (off by default, see schemas.go)
 
 cd "$(git rev-parse --show-toplevel)"
 
@@ -23,6 +24,7 @@ while [[ $# -gt 0 ]]; do
         --provider) export EVAL_PROVIDER="$2"; shift 2 ;;
         --model)    export EVAL_MODEL="$2"; shift 2 ;;
         --variant)  export EVAL_VARIANT="$2"; shift 2 ;;
+        --schema)   export KEYLINT_PYRAMIDIZE_SCHEMA=1; shift ;;
         *)          echo "Unknown flag: $1" >&2; exit 1 ;;
     esac
 done

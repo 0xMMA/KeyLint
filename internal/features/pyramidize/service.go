@@ -425,7 +425,9 @@ func (svc *Service) callAIWithContext(ctx context.Context, cfg settings.Settings
 
 	callCtx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
-	return svc.callAISync(callCtx, cfg, opts, apiKey, systemPrompt, userMessage, schema)
+	// One gate for every step: the callers still choose the right schema, so the
+	// mapping stays tested even while enforcement is off.
+	return svc.callAISync(callCtx, cfg, opts, apiKey, systemPrompt, userMessage, enforcedSchema(schema))
 }
 
 // resolveAPIKey fetches the API key for the given provider from the keyring.

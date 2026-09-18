@@ -437,3 +437,55 @@ func TestIsValidDocTypeEdgeCases(t *testing.T) {
 		t.Error("ppt should not be valid — only powerpoint")
 	}
 }
+
+// TestUnmarshalRobustRepairsArrayElements covers the failure that showed up
+// reproducibly in the eval: a header whose own text contains quotes —
+// `"newformat" jetzt funktional` — lands in the headers array unescaped, and the
+// decoder reports `invalid character '(' after array element`. Only strings
+// following a ':' used to be repaired, so array elements fell through.
+func TestUnmarshalRobustRepairsArrayElements(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want []string
+	}{
+		{
+			// This is the shape that produced the reported error verbatim: the
+			// element opens, a quoted phrase closes the string early, and the
+			// decoder meets '(' where it wanted ',' or ']'.
+			name: "quoted phrase followed by a parenthetical",
+			raw:  `{"fullDocument":"ok","headers":["Views & Reichweite","Views" (Aufrufe)"],"language":"de"}`,
+			want: []string{"Views & Reichweite", `Views" (Aufrufe)`},
+		},
+		{
+			name: "quoted phrase mid-element",
+			raw:  `{"fullDocument":"ok","headers":[""newformat" jetzt funktional","zweiter Header"],"language":"de"}`,
+			want: []string{`"newformat" jetzt funktional`, "zweiter Header"},
+		},
+		{
+			name: "already valid input is untouched",
+			raw:  `{"fullDocument":"ok","headers":["a","b"],"language":"de"}`,
+			want: []string{"a", "b"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var result foundationResult
+			if err := unmarshalRobust(tc.raw, &result); err != nil {
+				t.Fatalf("unmarshalRobust: %v", err)
+			}
+			if len(result.Headers) != len(tc.want) {
+				t.Fatalf("headers = %q, want %q", result.Headers, tc.want)
+			}
+			for i := range tc.want {
+				if result.Headers[i] != tc.want[i] {
+					t.Errorf("header %d = %q, want %q", i, result.Headers[i], tc.want[i])
+				}
+			}
+			if result.FullDocument != "ok" || result.Language != "de" {
+				t.Errorf("other fields were damaged: %+v", result)
+			}
+		})
+	}
+}

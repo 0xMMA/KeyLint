@@ -1,6 +1,42 @@
 package pyramidize
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"os"
+)
+
+// schemaEnforcement decides whether the schemas below are actually sent. It is
+// off by default and read once, at package init.
+//
+// Enforcing them measurably helps and measurably hurts. Two eval runs on
+// Sonnet 4.6 (test-data/eval-runs/2026-09-18T01-50-00 and …T02-00-33, against
+// the 0.7680 / 0.8833 baseline from #52):
+//
+//	deterministic  0.7680 → 0.8025 / 0.8445
+//	judge          0.8833 → 0.8223 / 0.8215
+//
+// The gain is real — email-dataquality-reply-to-feedback, which failed
+// reproducibly with a parse error, succeeds. So is the loss, and it is the kind
+// a user sees: email-answer-info-update scored 0.1 in both runs, producing 242
+// bytes from a 2237-byte input, cut off mid-sentence. That is not an
+// output-token limit (truncation is detected separately and raises an error) but
+// the model closing the JSON string early under grammar-constrained decoding.
+// A half-written document pasted over the user's selection is worse than the
+// parse failure the schema fixes, and that failure is fixable in the parser.
+//
+// The switch stays so E3 (#34) can measure enforcement again on a reworked
+// prompt: KEYLINT_PYRAMIDIZE_SCHEMA=1, or ./scripts/eval.sh --schema. See #53
+// for why the documented quality baseline is not the one to compare against.
+var schemaEnforcement = os.Getenv("KEYLINT_PYRAMIDIZE_SCHEMA") == "1"
+
+// enforcedSchema returns the schema a step should send, or nil while
+// enforcement is off.
+func enforcedSchema(schema json.RawMessage) json.RawMessage {
+	if !schemaEnforcement {
+		return nil
+	}
+	return schema
+}
 
 // The shapes every pipeline step asks the model for, as JSON schemas that
 // providers can enforce (#47). They mirror the structs in types.go — keep the
