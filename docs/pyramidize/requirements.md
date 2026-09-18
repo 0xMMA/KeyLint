@@ -35,7 +35,9 @@
 
 ### FR-02 Foundation Generation
 - Generate pyramidally-structured document for the detected/selected type
-- Output: `{fullDocument, headers[], language, qualityScore, qualityFlags[]}`
+- Output: `{fullDocument, headers[], language}` for email (prompt variant v2, the
+  default); `{…, qualityScore, qualityFlags[]}` for memo, wiki and powerpoint,
+  which still run the self-QA prompt — see [ADR-002](adr-002-one-shot-vs-pipeline.md)
 - Subject line embedded as first line of fullDocument
 - Information preservation: NO essential content from original may be lost
 - MECE rule: headers at same level are mutually exclusive and collectively exhaustive
@@ -43,10 +45,16 @@
 - Priority rule: business impact before technical detail
 
 ### FR-03 Self-QA and Optional Refinement
+**Not in effect for email**, which is the default document type. Prompt variant
+v2 asks for no `qualityFlags`, so the refinement gate below can never open; see
+[ADR-002](adr-002-one-shot-vs-pipeline.md). What follows applies to memo, wiki
+and powerpoint.
+
 - Foundation call includes self-evaluation: `qualityScore` (0-1) and `qualityFlags[]`
 - Flags: `MECE_VIOLATION`, `INFO_LOSS`, `STYLE_MISMATCH`, `SUBJECT_FORMAT`, `FIDELITY_VIOLATION`
 - If qualityScore < threshold (default 0.65) -> conditional refinement pass
-- Quality threshold configurable in Settings > App Defaults
+- Quality threshold configurable in Settings > App Defaults — the setting is
+  live and persisted, and for email it does nothing
 
 ### FR-04 Canvas Model (3-Layer State)
 - `originalText` — immutable source
@@ -85,7 +93,7 @@ See original spec for: subject/title handling, hover copy, output actions, input
 
 | Decision | Choice |
 |----------|--------|
-| Pipeline architecture | 2-call adaptive (detect + foundation+self-QA, optional refine) |
+| Pipeline architecture | Email: one call (detect adds a second when the type is AUTO, which is the shipped default). Memo/wiki/powerpoint: still 2-call adaptive with self-QA and optional refine. See [ADR-002](adr-002-one-shot-vs-pipeline.md) |
 | Prompt format | One XML-structured prompt per doc type, all providers |
 | Canvas model | 3-layer + trace log |
 | Canvas AI | Global rewrite + selection splice |

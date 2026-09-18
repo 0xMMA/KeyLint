@@ -3,6 +3,7 @@ package pyramidize
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -158,6 +159,44 @@ func TestV1CanStillReachRefine(t *testing.T) {
 	if !result.AppliedRefinement {
 		t.Error("refine did not run, so v1 is not the pipeline arm ADR-002 measured")
 	}
+}
+
+// TestAFailedRefineStillCountsAsACall: the flag pays for counting calls, so a
+// refine that errored must not report false. It used to be set only on the
+// success branch, which made a paid call invisible to the eval.
+func TestAFailedRefineStillCountsAsACall(t *testing.T) {
+	counter := &failingSecondCall{first: replyWithSelfQA}
+	settingsSvc := settings.NewServiceFrom(settings.Default(), func(string) string { return "key" })
+	svc := NewService(settingsSvc, nil)
+	svc.newClient = func(string, llm.Config) (llm.Client, error) { return counter, nil }
+
+	result, err := svc.Pyramidize(PyramidizeRequest{
+		Text: "some draft", DocumentType: "email", PromptVariant: 1, Provider: "claude",
+	})
+	if err != nil {
+		t.Fatalf("a failed refine is non-fatal: %v", err)
+	}
+	if counter.calls != 2 {
+		t.Fatalf("calls = %d, want 2", counter.calls)
+	}
+	if !result.AppliedRefinement {
+		t.Error("a refine call that failed reported no call at all")
+	}
+}
+
+// failingSecondCall answers the foundation and then errors, the way a refine
+// call does when the provider is having a bad minute.
+type failingSecondCall struct {
+	calls int
+	first string
+}
+
+func (c *failingSecondCall) Complete(_ context.Context, _ llm.Request) (llm.Response, error) {
+	c.calls++
+	if c.calls == 1 {
+		return llm.Response{Text: c.first}, nil
+	}
+	return llm.Response{}, errors.New("refine failed")
 }
 
 // TestTheShippedEmailPromptAsksForNoSelfQA: the prompt text has to agree with

@@ -8,7 +8,7 @@
 
 - **CLI mode:** `-fix` and `-pyramidize` commands dispatch headlessly from `main.go`
 - **Eval framework:** Deterministic checks + LLM-as-judge, build-tagged (`//go:build eval`)
-- **Test data:** 13 anonymized German business email samples in `test-data/pyramidal-emails/`
+- **Test data:** 13 anonymized German business email samples in `test-data/pyramidal-emails/` (one mixes German and English heavily — code-switching the prompts preserve on purpose)
 - **Results:** Logged to `test-data/eval-runs/<timestamp>/` with `summary.json`, `results.jsonl`, `samples/`
 - **Run:** `EVAL_PROVIDER=claude go test -tags eval ./internal/features/pyramidize/ -v -timeout 600s`
 - **Requires:** `.env` with `ANTHROPIC_API_KEY` in project root

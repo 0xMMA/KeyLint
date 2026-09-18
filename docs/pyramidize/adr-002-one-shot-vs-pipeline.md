@@ -43,8 +43,9 @@ the one-shot**.
 
 ## Method
 
-`./scripts/eval.sh --runs 3` per configuration, 13 business email samples (11
-German, 2 English), judge pinned to `claude-sonnet-4-5-20250929` at temperature
+`./scripts/eval.sh --runs 3` per configuration, 13 German business email samples
+(one mixes German and English heavily; the prompts preserve code-switching on
+purpose), judge pinned to `claude-sonnet-4-5-20250929` at temperature
 0, schema enforcement off. Every number is an interval over three runs.
 
 No prompt was changed. No prompt was tuned to any sample.
@@ -84,12 +85,17 @@ foundation step failed: Claude: the result exceeded the output limit
 costs a 13-sample mean about 0.065, which is most of the gap between 0.7726 and
 0.8651.
 
-Scored over the documents it produced, v1 is 0.8611 (0.8444–0.8730). The honest
-counterpart is v2 **over the same samples** — that is, with the two that ever
-failed under v1 excluded from every v2 run — which gives 0.8707 (0.8618–0.8775),
-not the 0.8651 headline. Those intervals overlap (0.8618 falls inside
-0.8444–0.8730), and so do the judge intervals (0.8125–0.8417 against
-0.8000–0.8477).
+Scored over the documents it produced, v1 is 0.8611 (0.8444–0.8730) against the
+0.8651 headline for v2 — but those are different denominators. Two comparisons
+that are not:
+
+| Both arms restricted the same way | v1 | v2 |
+|---|:---:|:---:|
+| Excluding the two samples that ever failed under v1 | 0.8626 (0.8373–0.8848) | 0.8707 (0.8618–0.8775) |
+
+Overlapping, comfortably. The judge intervals overlap too (0.8125–0.8417 against
+0.8000–0.8477), and there the v1 figure is already completed-only because the
+eval divides by `judgeCount`.
 
 - **Quality: inconclusive.** Per document produced, the pipeline and the one-shot
   are indistinguishable on this suite.
@@ -98,13 +104,16 @@ not the 0.8651 headline. Those intervals overlap (0.8618 falls inside
 
 ### The failure mode is not explained
 
-Both failures are large inputs: `email-dataquality-reply-to-feedback` is the
-suite's **largest** raw input (3537 bytes) and `email-project-status` its
-**third** (2273). An earlier draft of this ADR called the second "mid-sized" —
-that was measured with `wc -c` on the sample files, which include the reference
-output, and it was wrong.
+Four failures, not three: `email-project-status` and
+`email-dataquality-reply-to-feedback` each failed in two of the three runs (1, 1
+and 2 per run).
 
-But size alone does not explain it either, and neither does the self-QA payload:
+Both are large inputs: reply-to-feedback is the suite's **largest** raw input
+(3537 characters, 3683 bytes) and project-status its **third** (2273 / 2299). An
+earlier draft called the second "mid-sized" — that was `wc -c` on the sample
+files, which include the reference output, and it was wrong.
+
+Size alone does not explain it, and neither does the self-QA **payload**:
 `"qualityScore": 0.92, "qualityFlags": []` is roughly fifteen tokens. The largest
 document any run produced is 2585 bytes, comfortably under a quarter of the
 4096-token budget, and on the two failing samples v1's successful outputs are
@@ -112,10 +121,19 @@ document any run produced is 2585 bytes, comfortably under a quarter of the
 document, or a runaway past 4096 tokens — which is a generation that does not
 terminate, not a ceiling gradually approached.
 
-**Why v1 runs away on long inputs and v2 does not is unexplained.** It is
-reproducible (three runs, three failures on two samples) and it is the strongest
-argument against v1, but the mechanism recorded here is a description, not a
-diagnosis.
+What that argument does **not** rule out is the self-QA *instruction*.
+`prompts_selfqa.go` tells the model to assess its output "as five internal
+specialists" and to compute a score from their sub-scores before responding.
+Fifteen tokens of result do not imply fifteen tokens of work: a model that
+narrates that assessment, or restates the document to grade it, produces exactly
+the bimodal shape observed. **This is a named candidate, not a finding** — it was
+not tested, and testing it means a run with the self-QA block removed from v1,
+which is a prompt change and therefore its own experiment.
+
+**Why v1 runs away on the longest inputs and v2 does not is unexplained.** It is
+reproducible — four failures across three runs, concentrated on two samples — and
+it is the strongest argument against v1, but what is recorded here is a
+description, not a diagnosis.
 
 ### Whether the pipeline arm ever made a second call is unrecorded
 
@@ -125,8 +143,12 @@ refine had fired often, v1 would be much slower than the ~1.6 s/sample differenc
 observed — which leaves open that both arms were effectively one-shot and the
 experiment measured prompt wording after all.
 
-The eval now records `appliedRefinement` per sample, so the next run can answer
-this. **This one cannot.**
+The eval now records `appliedRefinement` per sample and `eval-aggregate.sh`
+projects the per-run count into `baseline.json`, so it survives the gitignored
+run folders. For runs recorded before the field existed — including every run
+behind this ADR — the aggregate reports `null` rather than zero, because "nobody
+wrote it down" is not the same claim as "it never fired". **This comparison
+cannot answer it.**
 
 ### Cost and latency
 
@@ -144,12 +166,16 @@ indicative only, they are not product latency, and they should not be quoted.
   (0.8251 against 0.8485), and the spread roughly doubles (0.0477 against
   0.0231).
 
-By this project's own rule — as `scripts/eval-aggregate.sh` implements it — that
-is **"improvement: deterministic"**: an improvement in one metric with no
-regression in the other. The task that commissioned this work asked for a
-stricter bar (better on *both* intervals) before recommending a default switch,
-and that bar is not met. Both readings are recorded here because they differ, and
-the difference is the decision.
+Applying this project's rule **by hand** — an improvement in one metric with no
+regression in the other — that reads as "improvement: deterministic". The script
+will not say so: `eval-aggregate.sh --compare` puts the model in its
+`configKey`, so across two models it answers **"not comparable: different
+configuration"** and never reaches the verdict branch. The reading above is
+mine, by the script's rule, not the script's output.
+
+The task that commissioned this work asked for a stricter bar — better on *both*
+intervals — before recommending a default switch, and that bar is not met. Both
+readings are recorded because they differ, and the difference is the decision.
 
 ## Decisions
 

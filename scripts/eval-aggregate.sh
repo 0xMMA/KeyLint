@@ -81,8 +81,20 @@ PER_SAMPLE=$(cat "${RESULTS[@]}" | jq -s "$JQ_ROUND"'
         judge: (map(select(.judge != null) | .judge.overall) |
                 if length == 0 then null
                 else {mean: ((add / length) | r4), min: (min | r4), max: (max | r4), spread: ((max - min) | r4)} end),
-        passed: (map(select(.deterministic.allPassed == true)) | length)
+        passed: (map(select(.deterministic.allPassed == true)) | length),
+        refined: (map(select(.appliedRefinement == true)) | length)
     })')
+
+# Refine calls per run. The run folders are gitignored, so a baseline that does
+# not carry this cannot answer "did the pipeline arm ever make a second call?"
+# once the runs are gone — which is exactly the gap ADR-002 had to admit.
+# null, not 0, when the field is absent: runs recorded before appliedRefinement
+# existed would otherwise read as a measured "refine never fired", which is a
+# different claim from "nobody wrote it down".
+REFINED=$(for f in "${RESULTS[@]}"; do
+    jq -s 'if any(.[]; has("appliedRefinement")) then [.[] | select(.appliedRefinement == true)] | length else null end' "$f"
+done | jq -s 'if any(.[]; . == null) then null
+              else {mean: ((add / length) * 100 | round / 100), min: min, max: max} end')
 
 # Samples passing, per run. The documented baseline quotes this and nothing
 # computed it, so nobody could check the claim it makes about its own noise.
@@ -92,7 +104,7 @@ done | jq -s "$JQ_ROUND"'{mean: ((add / length) | r4), min: min, max: max, sprea
 
 RUNS_JSON=$(printf '%s\n' "${RUN_DIRS[@]}" | jq -R . | jq -s -c .)
 
-AGGREGATE=$(jq -s --argjson perSample "$PER_SAMPLE" --argjson runs "$RUNS_JSON" --argjson passed "$PASSED" "$JQ_ROUND"'
+AGGREGATE=$(jq -s --argjson perSample "$PER_SAMPLE" --argjson runs "$RUNS_JSON" --argjson passed "$PASSED" --argjson refined "$REFINED" "$JQ_ROUND"'
     {
         createdAt: (.[0].timestamp),
         runCount: length,
@@ -123,6 +135,7 @@ AGGREGATE=$(jq -s --argjson perSample "$PER_SAMPLE" --argjson runs "$RUNS_JSON" 
                 if length == 0 then null
                 else {mean: ((add / length) | r4), min: (min | r4), max: (max | r4), spread: ((max - min) | r4)} end),
         samplesPassing: $passed,
+        refineCalls: $refined,
         perSample: $perSample
     }' "${SUMMARIES[@]}")
 

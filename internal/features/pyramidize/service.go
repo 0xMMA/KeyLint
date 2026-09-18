@@ -167,6 +167,11 @@ func (svc *Service) Pyramidize(req PyramidizeRequest) (PyramidizeResult, error) 
 		logger.Info("pyramidize: quality below threshold, refining",
 			"score", foundation.QualityScore, "flags", foundation.QualityFlags, "threshold", threshold)
 
+		// Recorded before the call is judged: this flag says a second model call
+		// was made, which is what it costs and what an eval needs to count. A
+		// refine that fails still spent the money.
+		result.AppliedRefinement = true
+
 		refined, err := svc.refine(ctx, cfg, opts, req.Text, foundation.FullDocument, foundation.QualityFlags)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -179,7 +184,6 @@ func (svc *Service) Pyramidize(req PyramidizeRequest) (PyramidizeResult, error) 
 			result.Headers = refined.Headers
 			result.QualityScore = refined.QualityScore
 			result.QualityFlags = refined.QualityFlags
-			result.AppliedRefinement = true
 			if result.QualityFlags == nil {
 				result.QualityFlags = []string{}
 			}
@@ -192,7 +196,7 @@ func (svc *Service) Pyramidize(req PyramidizeRequest) (PyramidizeResult, error) 
 
 	logger.Info("pyramidize: done",
 		"docType", result.DocumentType, "score", result.QualityScore,
-		"refined", result.AppliedRefinement)
+		"refineCalled", result.AppliedRefinement)
 	return result, nil
 }
 
