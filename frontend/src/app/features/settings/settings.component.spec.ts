@@ -5,7 +5,7 @@ import { provideAnimationsAsync } from '@angular/platform-browser/animations/asy
 import { ActivatedRoute, convertToParamMap } from '@angular/router';
 import { SettingsComponent } from './settings.component';
 import { WailsService, ClaudeCodeStatus } from '../../core/wails.service';
-import { createWailsMock, defaultSettings, defaultKeyStatus, defaultUpdateInfo, defaultClaudeCodeStatus } from '../../../testing/wails-mock';
+import { createWailsMock, defaultSettings, defaultKeyStatus, defaultUpdateInfo, defaultClaudeCodeStatus, defaultModelList } from '../../../testing/wails-mock';
 
 function makeActivatedRoute(tab?: string): Partial<ActivatedRoute> {
   return {
@@ -377,5 +377,152 @@ describe('SettingsComponent — Claude Code provider card', () => {
 
     const values = fixture.componentInstance.providers.map(p => p.value);
     expect(values).toContain('claude-code');
+  });
+});
+
+
+describe('SettingsComponent — model selection', () => {
+  let fixture: ComponentFixture<SettingsComponent>;
+  let component: SettingsComponent;
+  let el: HTMLElement;
+  let wailsMock: ReturnType<typeof createWailsMock>;
+
+  async function render(source: 'live' | 'static' = 'live'): Promise<void> {
+    wailsMock = createWailsMock();
+    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings });
+    wailsMock.getKeyStatus.mockResolvedValue({ ...defaultKeyStatus });
+    wailsMock.listModels.mockResolvedValue({ ...defaultModelList, source });
+
+    await TestBed.configureTestingModule({
+      imports: [SettingsComponent],
+      providers: [
+        provideAnimationsAsync(),
+        { provide: WailsService, useValue: wailsMock },
+        { provide: ActivatedRoute, useValue: makeActivatedRoute('providers') },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(SettingsComponent);
+    component = fixture.componentInstance;
+    component.settings = { ...defaultSettings };
+    el = fixture.nativeElement;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('offers a fix and a Pyramidize model for every provider that has one', async () => {
+    await render();
+
+    for (const provider of ['openai', 'claude', 'claude-code', 'ollama']) {
+      expect(el.querySelector(`[data-testid="model-fix-${provider}"]`), provider).not.toBeNull();
+      expect(el.querySelector(`[data-testid="model-pyramidize-${provider}"]`), provider).not.toBeNull();
+    }
+    // Bedrock is still a stub and has nothing to choose.
+    expect(el.querySelector('[data-testid="model-fix-bedrock"]')).toBeNull();
+  });
+
+  it('asks the backend for each provider list', async () => {
+    await render();
+
+    for (const provider of ['openai', 'claude', 'claude-code', 'ollama']) {
+      expect(wailsMock.listModels).toHaveBeenCalledWith(provider);
+    }
+  });
+
+  it('says when a list is the built-in one because the provider was unreachable', async () => {
+    await render('static');
+
+    expect(el.querySelector('[data-testid="models-static-openai"]')).not.toBeNull();
+  });
+
+  it('hides that hint when the list came from the provider', async () => {
+    await render('live');
+
+    expect(el.querySelector('[data-testid="models-static-openai"]')).toBeNull();
+  });
+
+  it('lets a model be typed for the API providers but not for the CLI', async () => {
+    await render();
+
+    // An editable PrimeNG select renders a text input; a closed one does not.
+    expect(el.querySelector('[data-testid="model-fix-openai"] input')).not.toBeNull();
+    // The CLI's three aliases are the whole list: a pinned API model ID there
+    // freezes the generation the alias would follow.
+    expect(el.querySelector('[data-testid="model-fix-claude-code"] input')).toBeNull();
+    expect(component.allowsFreeText('claude-code')).toBe(false);
+  });
+
+  it('offers KeyLint\'s default as a selectable entry rather than a placeholder', async () => {
+    await render();
+
+    expect(component.optionsFor('openai')[0]).toEqual({ id: '', label: "KeyLint's default" });
+  });
+
+  it('never calls a provider list "built-in" when there is no endpoint to ask', async () => {
+    wailsMock = createWailsMock();
+    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings });
+    wailsMock.getKeyStatus.mockResolvedValue({ ...defaultKeyStatus });
+    wailsMock.listModels.mockResolvedValue({ ...defaultModelList, source: 'fixed' });
+
+    await TestBed.configureTestingModule({
+      imports: [SettingsComponent],
+      providers: [
+        provideAnimationsAsync(),
+        { provide: WailsService, useValue: wailsMock },
+        { provide: ActivatedRoute, useValue: makeActivatedRoute('providers') },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(SettingsComponent);
+    component = fixture.componentInstance;
+    component.settings = { ...defaultSettings };
+    el = fixture.nativeElement;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(el.querySelector('[data-testid="models-static-claude-code"]')).toBeNull();
+  });
+
+  it('uses the same provider labels as the Active Provider list', async () => {
+    await render();
+
+    for (const mp of component.modelProviders) {
+      const active = component.providers.find(p => p.value === mp.id);
+      expect(mp.label, mp.id).toBe(active!.label);
+    }
+  });
+
+  it('keeps a model the provider does not list, so an unlisted one can be typed', async () => {
+    await render();
+
+    component.setModel('openai', 'fix', 'gpt-not-in-any-list');
+
+    expect(component.modelFor('openai', 'fix')).toBe('gpt-not-in-any-list');
+    expect(component.settings!.models!['openai']?.fix).toBe('gpt-not-in-any-list');
+  });
+
+  it('treats an empty field as "use the default" rather than as a model named ""', async () => {
+    await render();
+
+    component.setModel('claude', 'pyramidize', '   ');
+
+    expect(component.modelFor('claude', 'pyramidize')).toBe('');
+  });
+
+  it('keeps the two features apart', async () => {
+    await render();
+
+    component.setModel('claude', 'fix', 'claude-haiku-4-5-20251001');
+    component.setModel('claude', 'pyramidize', 'claude-opus-4-6');
+
+    expect(component.modelFor('claude', 'fix')).toBe('claude-haiku-4-5-20251001');
+    expect(component.modelFor('claude', 'pyramidize')).toBe('claude-opus-4-6');
   });
 });

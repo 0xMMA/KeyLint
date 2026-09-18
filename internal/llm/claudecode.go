@@ -88,6 +88,14 @@ func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response,
 		return Response{}, fmt.Errorf("%s: model is required", name)
 	}
 
+	// The CLI takes a full model ID as well as an alias, so this is a note and
+	// not a rejection: a pinned ID is a deliberate choice, it just freezes the
+	// generation where an alias follows it. The picker offers only aliases.
+	if !IsClaudeCodeAlias(req.Model) {
+		logger.Info("llm: claude code model is not one of the aliases",
+			"feature", c.cfg.Feature, "model", req.Model, "aliases", "opus, sonnet, haiku")
+	}
+
 	path := c.cfg.CLIPath
 	if path == "" {
 		located, err := LocateClaudeCode()

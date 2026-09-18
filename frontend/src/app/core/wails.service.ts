@@ -14,15 +14,16 @@ import * as PyramidizeService from '../../../bindings/keylint/internal/features/
 import { Settings, KeyStatus } from '../../../bindings/keylint/internal/features/settings/models.js';
 import { UpdateInfo, InstallResult } from '../../../bindings/keylint/internal/features/updater/models.js';
 import type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset } from '../../../bindings/keylint/internal/features/pyramidize/models.js';
-import type { ClaudeCodeStatus } from '../../../bindings/keylint/internal/llm/models.js';
+import type { ClaudeCodeStatus, ModelList, ModelInfo } from '../../../bindings/keylint/internal/llm/models.js';
 
-export type { Settings, KeyStatus, UpdateInfo, InstallResult, ClaudeCodeStatus };
+export type { Settings, KeyStatus, UpdateInfo, InstallResult, ClaudeCodeStatus, ModelList, ModelInfo };
 export type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset };
 
 
 // Default settings used when the Wails backend is unavailable (browser dev / Playwright mode).
 const BROWSER_MODE_DEFAULTS: Settings = {
   active_provider: 'claude',
+  models: {},
   providers: { ollama_url: '', aws_region: '' },
   shortcut_key: 'ctrl+g',
   start_on_boot: false,
@@ -43,6 +44,11 @@ const BROWSER_MODE_CLAUDE_CODE: ClaudeCodeStatus = {
   version: '',
   loggedIn: false,
 };
+
+/** Browser dev / Playwright mode has no backend to ask. */
+function emptyModelList(): ModelList {
+  return { models: [], source: 'static' };
+}
 
 @Injectable({ providedIn: 'root' })
 export class WailsService implements OnDestroy {
@@ -142,6 +148,19 @@ export class WailsService implements OnDestroy {
       return SettingsService.DeleteKey(provider).catch(() => {});
     } catch {
       return Promise.resolve();
+    }
+  }
+
+  /**
+   * Lists the models a provider can serve. A provider that cannot be reached
+   * yields the built-in list with source "static" rather than an error, so a
+   * picker always has something in it.
+   */
+  listModels(provider: string): Promise<ModelList> {
+    try {
+      return SettingsService.ListModels(provider).catch(() => emptyModelList());
+    } catch {
+      return Promise.resolve(emptyModelList());
     }
   }
 

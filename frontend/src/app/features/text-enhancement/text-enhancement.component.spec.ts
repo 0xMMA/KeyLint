@@ -370,13 +370,55 @@ describe('TextEnhancementComponent — Claude Code provider', () => {
     expect(component.providerOptions.map(p => p.value)).toContain('claude-code');
   });
 
-  it('uses model aliases the CLI resolves itself', async () => {
+  it('reads the model list from the backend rather than a hardcoded table', async () => {
+    wailsMock.listModels.mockResolvedValue({
+      models: [{ id: 'opus', label: 'Opus' }, { id: 'sonnet', label: 'Sonnet' }],
+      source: 'live',
+    });
+
     component.providerView = 'claude-code';
     await component.onProviderChange();
     fixture.detectChanges();
 
-    expect(component.modelView).toBe('sonnet');
-    expect(component.currentModelOptions.map(m => m.value)).toEqual(['opus', 'sonnet', 'haiku']);
+    expect(wailsMock.listModels).toHaveBeenCalledWith('claude-code');
+    // A leading entry lets the user say "whatever Settings says" without
+    // knowing a model name; the rest come from the provider.
+    expect(component.currentModelOptions.map(m => m.id)).toEqual(['', 'opus', 'sonnet']);
+    // Switching provider must not carry a model from the previous one.
+    expect(component.modelView).toBe('');
+  });
+
+  it('tells the user when the list is the built-in one because the provider was unreachable', async () => {
+    wailsMock.listModels.mockResolvedValue({ models: [{ id: 'llama3.2', label: 'llama3.2' }], source: 'static' });
+
+    component.providerView = 'ollama';
+    await component.onProviderChange();
+    fixture.detectChanges();
+
+    expect(el.querySelector('[data-testid="model-list-static"]')?.textContent)
+      .toContain('could not be reached');
+  });
+
+  it('stays quiet when the provider answered', async () => {
+    wailsMock.listModels.mockResolvedValue({ models: [{ id: 'llama3.2', label: 'llama3.2' }], source: 'live' });
+
+    component.providerView = 'ollama';
+    await component.onProviderChange();
+    fixture.detectChanges();
+
+    expect(el.querySelector('[data-testid="model-list-static"]')).toBeNull();
+  });
+
+  it('stays quiet for a provider that has no endpoint to ask', async () => {
+    // The CLI's three aliases are the whole list by design, so "built-in" would
+    // be an alarm nobody can clear.
+    wailsMock.listModels.mockResolvedValue({ models: [{ id: 'sonnet', label: 'Sonnet' }], source: 'fixed' });
+
+    component.providerView = 'claude-code';
+    await component.onProviderChange();
+    fixture.detectChanges();
+
+    expect(el.querySelector('[data-testid="model-list-static"]')).toBeNull();
   });
 
   it('warns when the CLI is installed but signed out, instead of failing at call time', async () => {

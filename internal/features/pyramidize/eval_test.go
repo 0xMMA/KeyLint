@@ -24,6 +24,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"keylint/internal/features/settings"
+	"keylint/internal/llm"
 )
 
 // testSample holds one parsed test-data file.
@@ -113,7 +114,16 @@ func TestEvalPyramidize(t *testing.T) {
 	}
 
 	provider := os.Getenv("EVAL_PROVIDER")
+	if provider == "" {
+		provider = settingsSvc.Get().ActiveProvider
+	}
+	// Resolved here and passed as an explicit override, so a run does not depend
+	// on whichever model the developer happens to have picked in the GUI — and
+	// so the value recorded in summary.json is the one that actually ran.
 	model := os.Getenv("EVAL_MODEL")
+	if model == "" {
+		model = llm.DefaultModel(provider, llm.FeaturePyramidize)
+	}
 	variant := 0 // latest
 	if v := os.Getenv("EVAL_VARIANT"); v != "" {
 		fmt.Sscanf(v, "%d", &variant)
@@ -202,22 +212,10 @@ func TestEvalPyramidize(t *testing.T) {
 		})
 	}
 
-	// Resolve effective provider/model for logging (matches service defaults).
+	// provider and model were resolved above and passed to every call, so these
+	// are what ran rather than a guess at what the service would have chosen.
 	effectiveProvider := provider
-	if effectiveProvider == "" {
-		effectiveProvider = "openai" // settings.DefaultSettings().ActiveProvider
-	}
 	effectiveModel := model
-	if effectiveModel == "" {
-		switch effectiveProvider {
-		case "claude":
-			effectiveModel = "claude-sonnet-4-6"
-		case "openai":
-			effectiveModel = "gpt-4o"
-		case "ollama":
-			effectiveModel = "llama3"
-		}
-	}
 
 	// Write summary.
 	effectiveVariant := variant

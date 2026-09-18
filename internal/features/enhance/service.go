@@ -49,15 +49,7 @@ Output: "Hallo Hans, das Release für morgen steht, einen neuen Build brauchen w
 
 // Model IDs and limits for the fix/enhance flow. They stay at the call site
 // until model selection moves into settings (#33 step 4).
-const (
-	openAIModel = "gpt-4o-mini"
-	claudeModel = "claude-haiku-4-5-20251001"
-	ollamaModel = "llama3.2"
-	// claudeCodeModel is a CLI alias, not a pinned ID — the CLI resolves it to
-	// the current generation, which is what a subscription user expects.
-	claudeCodeModel = "haiku"
-	maxTokens       = 2048
-)
+const maxTokens = 2048
 
 // httpTimeout bounds a provider HTTP call, and enhanceTimeout bounds the whole
 // enhancement including a local CLI provider, which has no HTTP client to bound
@@ -145,23 +137,23 @@ func (s *Service) providerConfig(cfg settings.Settings) (llm.Config, string, err
 		if key == "" {
 			return llm.Config{}, "", fmt.Errorf("OpenAI API key is not configured. Go to Settings → AI Providers to add it")
 		}
-		return llm.Config{APIKey: key, HTTPClient: s.client, Feature: logFeature}, openAIModel, nil
+		return llm.Config{APIKey: key, HTTPClient: s.client, Feature: logFeature}, cfg.ModelFor(llm.ProviderOpenAI, llm.FeatureFix), nil
 	case llm.ProviderClaude:
 		key := s.resolveKey(llm.ProviderClaude)
 		if key == "" {
 			return llm.Config{}, "", fmt.Errorf("Anthropic API key is not configured. Go to Settings → AI Providers → Anthropic API Key, and make sure 'Anthropic Claude' is selected as the Active Provider")
 		}
-		return llm.Config{APIKey: key, HTTPClient: s.client, Feature: logFeature}, claudeModel, nil
+		return llm.Config{APIKey: key, HTTPClient: s.client, Feature: logFeature}, cfg.ModelFor(llm.ProviderClaude, llm.FeatureFix), nil
 	case llm.ProviderOllama:
 		return llm.Config{
 			BaseURL:    cfg.Providers.OllamaURL,
 			HTTPClient: s.client,
 			Feature:    logFeature,
-		}, ollamaModel, nil
+		}, cfg.ModelFor(llm.ProviderOllama, llm.FeatureFix), nil
 	case llm.ProviderClaudeCode:
 		// The user signed in to the CLI themselves; KeyLint needs no key and
 		// never touches their credentials.
-		return llm.Config{Feature: logFeature}, claudeCodeModel, nil
+		return llm.Config{Feature: logFeature}, cfg.ModelFor(llm.ProviderClaudeCode, llm.FeatureFix), nil
 	case "bedrock":
 		return llm.Config{}, "", fmt.Errorf("AWS Bedrock is not yet supported. Please select a different provider")
 	default:

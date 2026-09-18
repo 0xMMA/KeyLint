@@ -55,7 +55,7 @@ func (c *anthropicClient) Complete(ctx context.Context, req Request) (Response, 
 	client := c.client(attempts)
 	message, err := client.Messages.New(ctx, params)
 	if err != nil {
-		return Response{}, mapAnthropicError(attempts, err)
+		return Response{}, mapAnthropicError(attempts, req.Model, err)
 	}
 
 	// A truncated answer would be pasted over the user's selection as a
@@ -118,18 +118,18 @@ func (c *anthropicClient) client(attempts *httpAttempts) anthropic.Client {
 
 // mapAnthropicError turns an SDK error into the wording the user sees. The raw
 // body stays out of it — see statusMessage.
-func mapAnthropicError(attempts *httpAttempts, err error) error {
+func mapAnthropicError(attempts *httpAttempts, model string, err error) error {
 	// The caller giving up is not a provider failure — see mapOpenAIError.
 	if isContextError(err) {
 		return transportError(anthropicProvider, err)
 	}
 	var apiErr *anthropic.Error
 	if errors.As(err, &apiErr) {
-		return apiError(anthropicProvider, apiErr.StatusCode, apiErr.RawJSON())
+		return apiErrorForModel(anthropicProvider, apiErr.StatusCode, model, apiErr.RawJSON())
 	}
 	// The SDK could not decode the failure, but the middleware saw the status.
 	if status := attempts.statusOrZero(); status >= 400 {
-		return apiError(anthropicProvider, status, "")
+		return apiErrorForModel(anthropicProvider, status, model, "")
 	}
 	return transportError(anthropicProvider, err)
 }

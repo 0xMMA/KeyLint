@@ -15,17 +15,8 @@ import (
 	"keylint/internal/logger"
 )
 
-// Model IDs and limits for the Pyramidize pipeline. They stay at the call site
-// until model selection moves into settings (#33 step 4).
-const (
-	openAIModel = "gpt-5.2"
-	claudeModel = "claude-sonnet-4-6"
-	ollamaModel = "llama3.2"
-	// claudeCodeModel is a CLI alias, not a pinned ID — the CLI resolves it to
-	// the current generation, which is what a subscription user expects.
-	claudeCodeModel = "sonnet"
-	maxTokens       = 4096
-)
+// maxTokens caps a Pyramidize reply. Model IDs live in settings (#33 step 4).
+const maxTokens = 4096
 
 // logFeature tags this feature's provider calls in the log.
 const logFeature = "pyramidize"
@@ -494,29 +485,23 @@ func (svc *Service) callAISync(ctx context.Context, cfg settings.Settings, opts 
 // override wins over the per-provider default; both stay here until model
 // selection moves into settings (#33 step 4).
 func (svc *Service) providerConfig(provider string, cfg settings.Settings, apiKey, modelOverride string) (llm.Config, string, error) {
-	model := modelOverride
+	// A request-level override wins — the Pyramidize panel lets a user pick a
+	// model for one run without changing their settings.
+	model := strings.TrimSpace(modelOverride)
+	if model == "" {
+		model = cfg.ModelFor(provider, llm.FeaturePyramidize)
+	}
+
 	switch provider {
 	case llm.ProviderOpenAI:
-		if model == "" {
-			model = openAIModel
-		}
 		return llm.Config{APIKey: apiKey, HTTPClient: svc.client, Feature: logFeature}, model, nil
 	case llm.ProviderClaude:
-		if model == "" {
-			model = claudeModel
-		}
 		return llm.Config{APIKey: apiKey, HTTPClient: svc.client, Feature: logFeature}, model, nil
 	case llm.ProviderClaudeCode:
 		// The user signed in to the CLI themselves; KeyLint needs no key and
 		// never touches their credentials.
-		if model == "" {
-			model = claudeCodeModel
-		}
 		return llm.Config{Feature: logFeature}, model, nil
 	case llm.ProviderOllama:
-		if model == "" {
-			model = ollamaModel
-		}
 		return llm.Config{
 			BaseURL:    cfg.Providers.OllamaURL,
 			HTTPClient: svc.client,

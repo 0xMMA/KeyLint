@@ -64,7 +64,7 @@ Model      [claude-sonnet-4-6 ▼]
 **Go changes:**
 - `types.go`: add `Provider string` and `Model string` to `PyramidizeRequest`, `RefineGlobalRequest`, `SpliceRequest`
 - `service.go`: pass `req.Provider`/`req.Model` into the `internal/llm` client instead of reading from settings; fall back to settings provider if `req.Provider` is empty
-- `service.go` (`providerConfig`): per-provider model defaults — `claude-sonnet-4-6`, `gpt-5.2`, `llama3.2` — until #33 step 4 moves them into settings
+- Model defaults now live in `internal/llm/models.go` (#33 step 4), per provider and per feature, with the user's choice in `settings.json` under `models`. A request-level override still wins over both.
 
 **Angular changes:**
 - `wails.service.ts`: update `BROWSER_MODE_DEFAULTS` to reflect new fields
@@ -255,7 +255,7 @@ Also ensure the PrimeNG `<p-tabs>` component itself is `flex: 1; overflow: hidde
 ### Go
 - `internal/llm/` — provider clients behind `Client.Complete`; no per-provider files in the feature package any more
 - `internal/features/pyramidize/types.go` — add `Provider`, `Model` to request types
-- `internal/features/pyramidize/service.go` — pick the provider client via `llm.New(req.Provider, …)` and resolve the model default
+- `internal/features/pyramidize/service.go` — pick the provider client via `llm.New(req.Provider, …)`; the model comes from the request override, then settings, then `llm.DefaultModel`
 - `internal/features/enhance/service.go` — add `EnhanceWithModel(provider, model, text)` RPC
 
 ### Angular

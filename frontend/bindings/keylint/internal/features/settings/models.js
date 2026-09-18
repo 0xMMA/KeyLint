@@ -45,6 +45,45 @@ export class AppPreset {
 }
 
 /**
+ * FeatureModels is the model chosen per feature for one provider. An empty
+ * string means "use the built-in default" — see llm.DefaultModel.
+ */
+export class FeatureModels {
+    /**
+     * Creates a new FeatureModels instance.
+     * @param {Partial<FeatureModels>} [$$source = {}] - The source object to create the FeatureModels.
+     */
+    constructor($$source = {}) {
+        if (!("fix" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["fix"] = "";
+        }
+        if (!("pyramidize" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["pyramidize"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FeatureModels instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FeatureModels}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new FeatureModels(/** @type {Partial<FeatureModels>} */($$parsedSource));
+    }
+}
+
+/**
  * KeyStatus describes whether a key is configured and where it comes from.
  */
 export class KeyStatus {
@@ -201,6 +240,16 @@ export class Settings {
              */
             this["update_channel"] = "";
         }
+        if (!("models" in $$source)) {
+            /**
+             * Models holds the model chosen per provider and feature. An absent key or
+             * an empty string means the built-in default, so older settings files need
+             * no migration.
+             * @member
+             * @type {{ [_ in string]?: FeatureModels }}
+             */
+            this["models"] = {};
+        }
         if (!("app_presets" in $$source)) {
             /**
              * Pyramidize settings
@@ -229,12 +278,16 @@ export class Settings {
     static createFrom($$source = {}) {
         const $$createField1_0 = $$createType0;
         const $$createField9_0 = $$createType2;
+        const $$createField10_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("providers" in $$parsedSource) {
             $$parsedSource["providers"] = $$createField1_0($$parsedSource["providers"]);
         }
+        if ("models" in $$parsedSource) {
+            $$parsedSource["models"] = $$createField9_0($$parsedSource["models"]);
+        }
         if ("app_presets" in $$parsedSource) {
-            $$parsedSource["app_presets"] = $$createField9_0($$parsedSource["app_presets"]);
+            $$parsedSource["app_presets"] = $$createField10_0($$parsedSource["app_presets"]);
         }
         return new Settings(/** @type {Partial<Settings>} */($$parsedSource));
     }
@@ -242,5 +295,7 @@ export class Settings {
 
 // Private type creation functions
 const $$createType0 = Provider.createFrom;
-const $$createType1 = AppPreset.createFrom;
-const $$createType2 = $Create.Array($$createType1);
+const $$createType1 = FeatureModels.createFrom;
+const $$createType2 = $Create.Map($Create.Any, $$createType1);
+const $$createType3 = AppPreset.createFrom;
+const $$createType4 = $Create.Array($$createType3);

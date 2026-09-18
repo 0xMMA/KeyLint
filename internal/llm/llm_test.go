@@ -590,3 +590,12 @@ func TestTypedErrorWording(t *testing.T) {
 		})
 	}
 }
+
+// newRawServer is newServer for endpoints that are not the completion API —
+// model listings answer a GET and have their own shapes.
+func newRawServer(t *testing.T, handler http.HandlerFunc) string {
+	t.Helper()
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	return srv.URL
+}

@@ -59,3 +59,87 @@ export class ClaudeCodeStatus {
         return new ClaudeCodeStatus(/** @type {Partial<ClaudeCodeStatus>} */($$parsedSource));
     }
 }
+
+/**
+ * ModelInfo is one entry in a model picker.
+ */
+export class ModelInfo {
+    /**
+     * Creates a new ModelInfo instance.
+     * @param {Partial<ModelInfo>} [$$source = {}] - The source object to create the ModelInfo.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("label" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["label"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ModelInfo instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ModelInfo}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ModelInfo(/** @type {Partial<ModelInfo>} */($$parsedSource));
+    }
+}
+
+/**
+ * ModelList is a picker's contents plus where they came from.
+ */
+export class ModelList {
+    /**
+     * Creates a new ModelList instance.
+     * @param {Partial<ModelList>} [$$source = {}] - The source object to create the ModelList.
+     */
+    constructor($$source = {}) {
+        if (!("models" in $$source)) {
+            /**
+             * @member
+             * @type {ModelInfo[]}
+             */
+            this["models"] = [];
+        }
+        if (!("source" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["source"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ModelList instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ModelList}
+     */
+    static createFrom($$source = {}) {
+        const $$createField0_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("models" in $$parsedSource) {
+            $$parsedSource["models"] = $$createField0_0($$parsedSource["models"]);
+        }
+        return new ModelList(/** @type {Partial<ModelList>} */($$parsedSource));
+    }
+}
+
+// Private type creation functions
+const $$createType0 = ModelInfo.createFrom;
+const $$createType1 = $Create.Array($$createType0);
