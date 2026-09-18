@@ -390,6 +390,11 @@ describe('TextEnhancementComponent — Claude Code provider', () => {
 
     expect(component.apiKeySet).toBe(false);
     expect(el.querySelector('[data-testid="api-key-banner"]')).not.toBeNull();
+    // "No AI API key configured" is the one thing that is never wrong here.
+    const message = el.querySelector('[data-testid="api-key-banner-message"]')!.textContent!;
+    expect(message).toContain('not signed in');
+    expect(message).toContain('sign in');
+    expect(message).not.toContain('API key');
   });
 
   it('warns when the CLI is not installed at all', async () => {
@@ -404,6 +409,38 @@ describe('TextEnhancementComponent — Claude Code provider', () => {
     // Without this the test also passes when only half the branch is reverted.
     expect(component.apiKeySet).toBe(false);
     expect(el.querySelector('[data-testid="api-key-banner"]')).not.toBeNull();
+    const message = el.querySelector('[data-testid="api-key-banner-message"]')!.textContent!;
+    expect(message).toContain('not found on this machine');
+    expect(message).not.toContain('API key');
+  });
+
+  it('keeps saying "API key" for the providers that actually need one', async () => {
+    component.providerView = 'openai';
+    await component.onProviderChange();
+    fixture.detectChanges();
+
+    expect(el.querySelector('[data-testid="api-key-banner-message"]')!.textContent)
+      .toContain('No AI API key configured');
+  });
+
+  it('ignores a stale probe when the user switches provider again', async () => {
+    // claude-code costs two process spawns, so a quick second switch can
+    // finish first; the slower answer must not overwrite it.
+    let resolveSlow: (v: unknown) => void = () => {};
+    wailsMock.getClaudeCodeStatus.mockReturnValueOnce(new Promise(resolve => { resolveSlow = resolve; }));
+
+    component.providerView = 'claude-code';
+    const slowSwitch = component.onProviderChange();
+
+    component.providerView = 'openai';
+    await component.onProviderChange();
+
+    resolveSlow({ installed: false, loggedIn: false, path: '', version: '' });
+    await slowSwitch;
+    fixture.detectChanges();
+
+    expect(el.querySelector('[data-testid="api-key-banner-message"]')!.textContent)
+      .toContain('No AI API key configured');
   });
 
   it('stays quiet when the CLI is installed and signed in', async () => {

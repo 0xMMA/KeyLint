@@ -9,11 +9,17 @@ import (
 // off by default and read once, at package init.
 //
 // Enforcing them measurably helps and measurably hurts. Two eval runs on
-// Sonnet 4.6 (test-data/eval-runs/2026-09-18T01-50-00 and …T02-00-33, against
-// the 0.7680 / 0.8833 baseline from #52):
+// Sonnet 4.6 with the schemas on (test-data/eval-runs/2026-09-18T01-45-56 and
+// …T01-50-00), against the 0.7680 / 0.8833 baseline from #52:
 //
 //	deterministic  0.7680 → 0.8025 / 0.8445
 //	judge          0.8833 → 0.8223 / 0.8215
+//
+// With them off and the parser fixed, …T02-10-25 gives 0.8262 / 0.8862 — the
+// first run comparable to that baseline, because until then the judge's own
+// schema bypassed this switch. Treat all of these as single runs: …T01-37-46
+// scored 0.8222 / 0.8769 in a third configuration, so the run-to-run spread is
+// of the same order as the effects above (#53).
 //
 // The gain is real — email-dataquality-reply-to-feedback, which failed
 // reproducibly with a parse error, succeeds. So is the loss, and it is the kind

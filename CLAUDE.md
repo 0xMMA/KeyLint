@@ -40,6 +40,7 @@ EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 go test -tags eval ...
 ./scripts/eval.sh                                      # automated eval with summary
 ./scripts/eval.sh --provider claude --model claude-sonnet-4-6
 ./scripts/eval.sh --variant 1                          # compare v1 vs v2 prompts
+./scripts/eval.sh --schema                             # enforce the JSON schemas (default off, see pyramidize/schemas.go)
 EVAL_VARIANT=2 go test -tags eval ...                  # variant via env var
 ./scripts/eval-human.sh                                # interactive human review mode
 ```

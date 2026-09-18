@@ -35,6 +35,14 @@ const PROVIDER_OPTIONS = [
 /** Providers that need no credential at all. */
 const KEYLESS_PROVIDERS = new Set(['ollama']);
 
+// The banner used to say "No AI API key configured" whatever was wrong, which
+// is the one thing that is never wrong with the Claude Code CLI. These match
+// the welcome wizard's wording for the same two states.
+const MISSING_KEY_MESSAGE = 'No AI API key configured.';
+const CLI_NOT_INSTALLED_MESSAGE = 'Claude Code CLI not found on this machine.';
+const CLI_NOT_SIGNED_IN_MESSAGE =
+  'Claude Code is installed but not signed in. Open a terminal, run `claude`, and sign in.';
+
 const PROVIDER_MODELS: Record<string, Array<{ label: string; value: string }>> = {
   claude: [
     { label: 'Sonnet 4.6', value: 'claude-sonnet-4-6' },
@@ -124,7 +132,7 @@ function addTrace(label: string, snapshot: string): void {
 
         @if (!bannerDismissedView && !apiKeySet) {
           <div class="api-key-banner" data-testid="api-key-banner">
-            <span>⚠ No AI API key configured.</span>
+            <span data-testid="api-key-banner-message">⚠ {{ credentialsMessage }}</span>
             <p-button
               icon="pi pi-times"
               size="small"
@@ -1026,6 +1034,8 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   errorMessage = '';
   refinementWarning = '';
   apiKeySet = true;
+  /** What the banner says — the reason depends on the provider. */
+  credentialsMessage = MISSING_KEY_MESSAGE;
   customInstructions = '';
   globalInstruction = '';
   detectedTypeView = '';
@@ -1097,7 +1107,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
       selectedModel = DEFAULT_MODELS[selectedProvider] ?? 'claude-sonnet-4-6';
     }
 
-    this.apiKeySet = await this.hasUsableCredentials(selectedProvider);
+    await this.refreshCredentialsBanner();
 
     qualityThreshold = await this.wails.getQualityThreshold();
 
@@ -1146,28 +1156,47 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     // Reset model to default for new provider
     selectedModel = DEFAULT_MODELS[selectedProvider] ?? '';
     // The "no API key" banner belongs to the provider, so re-evaluate it here.
-    this.apiKeySet = await this.hasUsableCredentials(selectedProvider);
+    await this.refreshCredentialsBanner();
     this.cdr.detectChanges();
   }
 
   /**
-   * Reports whether the provider can be used as configured. Ollama carries no
-   * credential, so asking the keyring about it would always answer "not set"
-   * and show a banner the user cannot act on. The Claude Code CLI does have a
-   * usable answer — installed and signed in — and treating it as unconditionally
-   * fine meant a missing or signed-out CLI showed nothing until the call failed.
+   * Refreshes the banner for the provider selected right now.
+   *
+   * Ollama carries no credential, so asking the keyring about it would always
+   * answer "not set" and show a banner the user cannot act on. The Claude Code
+   * CLI does have a usable answer — installed and signed in — and each of its
+   * two failures needs its own wording.
+   *
+   * Deliberately one async function rather than a helper pair: the claude-code
+   * branch spawns two processes, so a quick second switch can finish first and
+   * a stale answer must not overwrite the current one — and an extra await hop
+   * here delays the shortcut subscription in ngOnInit past what the specs wait
+   * for.
    */
-  private async hasUsableCredentials(provider: string): Promise<boolean> {
+  private async refreshCredentialsBanner(): Promise<void> {
+    const provider = selectedProvider;
+    let ok: boolean;
+    let message = MISSING_KEY_MESSAGE;
+
     if (provider === 'claude-code') {
       // ngOnInit awaits this before subscribing to the shortcut, so a failed
       // RPC must not abort it. An unanswerable probe means "cannot tell",
       // which is better shown as the banner than as a dead page.
       const status = await this.wails.getClaudeCodeStatus().catch(() => null);
-      return !!status?.installed && !!status?.loggedIn;
+      ok = !!status?.installed && !!status.loggedIn;
+      message = status?.installed ? CLI_NOT_SIGNED_IN_MESSAGE : CLI_NOT_INSTALLED_MESSAGE;
+    } else if (KEYLESS_PROVIDERS.has(provider)) {
+      ok = true;
+    } else {
+      const keyStatus = await this.wails.getKeyStatus(provider);
+      ok = keyStatus.is_set;
     }
-    if (KEYLESS_PROVIDERS.has(provider)) return true;
-    const keyStatus = await this.wails.getKeyStatus(provider);
-    return keyStatus.is_set;
+
+    // A newer switch already answered; this result is stale.
+    if (provider !== selectedProvider) return;
+    this.apiKeySet = ok;
+    this.credentialsMessage = message;
   }
 
   onTabChange(value: unknown): void {

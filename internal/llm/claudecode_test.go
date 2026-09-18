@@ -1,10 +1,12 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +16,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"keylint/internal/logger"
 )
 
 // stubPath is the compiled stand-in for the Claude Code CLI. It is a real
@@ -465,12 +469,20 @@ func TestClaudeCodeWithoutSchema(t *testing.T) {
 
 // TestClaudeCodeStoppedEarly covers a run that ended badly: result is filled but
 // the answer is half written, and pasting it over the user's selection would be
-// worse than saying nothing.
+// worse than saying nothing. The half-written text is the user's own document,
+// so it goes to the debug log through Redact and not into the error, which is
+// formatted into Error lines whatever the sensitive-logging setting says (#41).
 func TestClaudeCodeStoppedEarly(t *testing.T) {
+	const marker = "PARTIAL-DOCUMENT-cf83e1357eef"
+
+	var logs bytes.Buffer
+	logger.InitWithWriter(&logs, "debug", false)
+	t.Cleanup(func() { logger.InitWithWriter(io.Discard, "off", false) })
+
 	s := newStub(t)
 	// api_error is one of the CLI's real terminal_reason values; an
 	// output-token cut-off is stop_reason, not this field.
-	s.replies(`{"result":"They are going to the","is_error":false,"terminal_reason":"api_error"}`)
+	s.replies(`{"result":"` + marker + `","is_error":false,"terminal_reason":"api_error"}`)
 
 	_, err := s.client().Complete(context.Background(), Request{Model: "haiku", User: "x"})
 	if err == nil {
@@ -479,9 +491,11 @@ func TestClaudeCodeStoppedEarly(t *testing.T) {
 	if !strings.Contains(err.Error(), "api_error") {
 		t.Errorf("error = %v, want it to name the reason", err)
 	}
-	// The partial answer belongs in the message, so the user can see what was lost.
-	if !strings.Contains(err.Error(), "They are going to the") {
-		t.Errorf("error = %v, want it to carry the partial text", err)
+	if strings.Contains(err.Error(), marker) {
+		t.Errorf("the user's document reached the error string: %v", err)
+	}
+	if strings.Contains(logs.String(), marker) {
+		t.Errorf("the user's document reached the log:\n%s", logs.String())
 	}
 }
 

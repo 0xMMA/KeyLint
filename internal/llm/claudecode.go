@@ -205,8 +205,12 @@ func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response,
 	}
 
 	if env.TerminalReason != "" && env.TerminalReason != terminalReasonCompleted {
-		return Response{}, fmt.Errorf("%s stopped before finishing (%s): %s",
-			name, env.TerminalReason, partialText(env))
+		// The partial answer is the user's own text. It goes to Debug through
+		// Redact, not into the error — an error string is formatted into Error
+		// lines whatever the sensitive-logging setting says (#41).
+		logger.Debug("llm: claude code stopped early", "feature", c.cfg.Feature,
+			"terminal_reason", env.TerminalReason, "partial", logger.Redact(partialText(env)))
+		return Response{}, fmt.Errorf("%s stopped before finishing (%s)", name, env.TerminalReason)
 	}
 
 	text := env.Result
@@ -230,8 +234,7 @@ func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response,
 	return Response{Text: text}, nil
 }
 
-// partialText summarises what a cut-off run produced, so the message says what
-// was lost without pasting it anywhere.
+// partialText summarises what a cut-off run produced, for the debug log only.
 func partialText(env claudeCodeEnvelope) string {
 	partial := strings.TrimSpace(env.Result)
 	if partial == "" {

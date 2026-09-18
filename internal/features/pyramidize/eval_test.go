@@ -231,8 +231,10 @@ func TestEvalPyramidize(t *testing.T) {
 		"providerOverride": provider,
 		"modelOverride":    model,
 		"promptVariant":    effectiveVariant,
-		"sampleCount":      len(samples),
-		"avgDeterministic": totalDet / float64(len(samples)),
+		// Which configuration produced these numbers; see schemas.go.
+		"schemaEnforcement": schemaEnforcement,
+		"sampleCount":       len(samples),
+		"avgDeterministic":  totalDet / float64(len(samples)),
 	}
 	if judgeCount > 0 {
 		summary["avgJudge"] = totalJudge / float64(judgeCount)
