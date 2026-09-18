@@ -1,5 +1,7 @@
 # ADR-001: Pipeline Architecture — Single-Call Self-QA vs Multi-Agent Specialists
 
+> **Superseded in part for email by [ADR-002](adr-002-one-shot-vs-pipeline.md)** — the typed email path is a single call and the pipeline buys no measured quality there. The rationale below still applies to memo, wiki and powerpoint.
+
 **Status:** Accepted (with caveats — see Future Considerations)
 **Date:** 2026-03-08 (original), updated 2026-03-30 with v1 analysis findings
 

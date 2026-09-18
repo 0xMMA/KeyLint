@@ -28,6 +28,45 @@ shape.
 | Avg judge overall | **0.8485** | 0.8338 | 0.8569 | 0.0231 |
 | Samples passing | — | 7/13 | 9/13 | 2 samples |
 
+### Other configurations measured (2026-09-18)
+
+Same suite, same judge, three runs each. Reported side by side because
+`--compare` refuses every one of these pairs: it requires both sides to share
+model, prompt variant and the rest of the configuration, and these differ in
+exactly those fields. See [ADR-002](adr-002-one-shot-vs-pipeline.md).
+
+| Configuration | Deterministic | Judge | Documents produced | Passing |
+|---|:---:|:---:|:---:|:---:|
+| Sonnet 4.6 + v2 — the baseline above | 0.8353 (0.8209–0.8446) | 0.8485 (0.8338–0.8569) | 13 of 13 | 7–9 |
+| Sonnet 5 + v2 (one-shot, shipped prompt) | 0.8651 (0.8606–0.8683) | 0.8251 (0.8000–0.8477) | 13 of 13 | 8–10 |
+| Sonnet 5 + v1 (pipeline, self-QA + refine) | 0.7726 (0.7326–0.8058) | 0.8290 (0.8125–0.8417) | 11–12 of 13 | 9–10 |
+| Sonnet 5 + v1, completed documents only | 0.8611 (0.8444–0.8730) | — | — | — |
+
+Two readings that are easy to get wrong here:
+
+**v1's low deterministic score is failed documents, not bad writing.** One or two
+of the thirteen samples hit `stop_reason: max_tokens` against the shared
+`maxTokens = 4096` in every run. A zeroed sample costs a 13-sample mean about
+0.065. Scored over what it produced, v1 sits at 0.8611 (0.8444–0.8730); v2 over
+the same samples is 0.8707 (0.8618–0.8775). Overlapping, therefore inconclusive.
+Why v1 runs away on the two largest inputs while v2 does not is **unexplained** —
+the self-QA payload is about fifteen tokens and the largest document any run
+produced is well under a quarter of the budget. Note also that the v1 row mixes
+denominators: its deterministic mean is over all 13 with zeros, its judge mean
+over the 11–12 that completed.
+
+**Sonnet 5 is not simply better than 4.6 on the shipped prompt.** Deterministic
+is clearly up — the intervals do not overlap. The judge is inconclusive, its mean
+is lower, and its spread roughly doubles (0.0477 against 0.0231). By this
+document's own rule that is "improvement: deterministic" — an improvement in one
+metric with no regression in the other. The default model is unchanged anyway,
+because the work that measured it was asked for a stricter bar; see
+[ADR-002](adr-002-one-shot-vs-pipeline.md), which records both readings.
+
+**These rows measure the explicitly typed email path.** The shipped default is
+`auto`, which spends a detect call first — two calls, or three if detection
+picks a document type that still runs self-QA.
+
 ### The noise floor
 
 **A single-run delta of less than 0.024 (deterministic) or 0.023 (judge) is not
@@ -216,7 +255,7 @@ Note: Only `email-diagnose-update` is a real quality problem (judge completeness
 
 ## Quality Improvement Roadmap
 
-1. **V1 specialist architecture** — Reimplement 4 parallel specialist agents in Go for independent quality verification (see ADR-001)
+1. ~~**V1 specialist architecture** — Reimplement 4 parallel specialist agents in Go for independent quality verification (see ADR-001)~~ — **parked.** [ADR-002](adr-002-one-shot-vs-pipeline.md) found the 2-call pipeline buys no measured quality over a single call for email; a 6-call architecture needs evidence before it is proposed again. `roadmap.md` already parks it.
 2. **Semantic eval checks** — Python sentence-transformer script for eval, replacing term overlap
 3. **Inline deterministic QA** — Move existing checks into live pipeline as post-LLM gate
 4. **NLP info-loss detection** — Sentence embeddings via hugot/ONNX for live QA (Tier 2)

@@ -1,0 +1,284 @@
+{
+  "createdAt": "2026-09-18T05-32-10",
+  "runCount": 3,
+  "runs": [
+    "test-data/eval-runs/2026-09-18T05-32-10/",
+    "test-data/eval-runs/2026-09-18T05-38-25/",
+    "test-data/eval-runs/2026-09-18T05-44-08/"
+  ],
+  "config": {
+    "gitSHA": "52cbc40",
+    "provider": "claude",
+    "model": "claude-sonnet-5",
+    "promptVariant": 1,
+    "judge": {
+      "provider": "claude",
+      "model": "claude-sonnet-4-5-20250929",
+      "temperature": 0
+    },
+    "schemaEnforcement": false,
+    "qualityThreshold": 0.65,
+    "sampleCount": 13
+  },
+  "configKey": "claude|claude-sonnet-5|claude|claude-sonnet-4-5-20250929|1|false|0.65|13",
+  "configConsistent": true,
+  "judgeCoverage": {
+    "min": 11,
+    "max": 12,
+    "of": 13
+  },
+  "deterministic": {
+    "mean": 0.7726,
+    "min": 0.7326,
+    "max": 0.8058,
+    "spread": 0.0732
+  },
+  "judge": {
+    "mean": 0.829,
+    "min": 0.8125,
+    "max": 0.8417,
+    "spread": 0.0292
+  },
+  "samplesPassing": {
+    "mean": 9.3333,
+    "min": 9,
+    "max": 10,
+    "spread": 1
+  },
+  "perSample": [
+    {
+      "name": "email-adverity-field-structuring",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.8973,
+        "min": 0.8531,
+        "max": 0.95,
+        "spread": 0.0969
+      },
+      "judge": {
+        "mean": 0.75,
+        "min": 0.75,
+        "max": 0.75,
+        "spread": 0
+      },
+      "passed": 3
+    },
+    {
+      "name": "email-airbyte-escalation",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9244,
+        "min": 0.9077,
+        "max": 0.9385,
+        "spread": 0.0308
+      },
+      "judge": {
+        "mean": 0.86,
+        "min": 0.82,
+        "max": 0.88,
+        "spread": 0.06
+      },
+      "passed": 3
+    },
+    {
+      "name": "email-answer-info-update",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.888,
+        "min": 0.8596,
+        "max": 0.9109,
+        "spread": 0.0512
+      },
+      "judge": {
+        "mean": 0.8367,
+        "min": 0.75,
+        "max": 0.88,
+        "spread": 0.13
+      },
+      "passed": 3
+    },
+    {
+      "name": "email-dataquality",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.887,
+        "min": 0.8543,
+        "max": 0.9169,
+        "spread": 0.0626
+      },
+      "judge": {
+        "mean": 0.7,
+        "min": 0.7,
+        "max": 0.7,
+        "spread": 0
+      },
+      "passed": 3
+    },
+    {
+      "name": "email-dataquality-followup",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9122,
+        "min": 0.8611,
+        "max": 0.9456,
+        "spread": 0.0845
+      },
+      "judge": {
+        "mean": 0.88,
+        "min": 0.88,
+        "max": 0.88,
+        "spread": 0
+      },
+      "passed": 3
+    },
+    {
+      "name": "email-dataquality-reply-to-feedback",
+      "runs": 3,
+      "errors": 2,
+      "deterministic": {
+        "mean": 0.2477,
+        "min": 0,
+        "max": 0.743,
+        "spread": 0.743
+      },
+      "judge": {
+        "mean": 0.88,
+        "min": 0.88,
+        "max": 0.88,
+        "spread": 0
+      },
+      "passed": 0
+    },
+    {
+      "name": "email-diagnose-update",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.7351,
+        "min": 0.6426,
+        "max": 0.8092,
+        "spread": 0.1666
+      },
+      "judge": {
+        "mean": 0.8533,
+        "min": 0.8,
+        "max": 0.88,
+        "spread": 0.08
+      },
+      "passed": 0
+    },
+    {
+      "name": "email-kpi-request",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.906,
+        "min": 0.8675,
+        "max": 0.9444,
+        "spread": 0.0769
+      },
+      "judge": {
+        "mean": 0.8867,
+        "min": 0.88,
+        "max": 0.9,
+        "spread": 0.02
+      },
+      "passed": 3
+    },
+    {
+      "name": "email-meeting-request",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.7839,
+        "min": 0.7571,
+        "max": 0.8095,
+        "spread": 0.0524
+      },
+      "judge": {
+        "mean": 0.7167,
+        "min": 0.65,
+        "max": 0.75,
+        "spread": 0.1
+      },
+      "passed": 0
+    },
+    {
+      "name": "email-onboarding-erfolgreich",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.8726,
+        "min": 0.8648,
+        "max": 0.8805,
+        "spread": 0.0157
+      },
+      "judge": {
+        "mean": 0.8967,
+        "min": 0.88,
+        "max": 0.93,
+        "spread": 0.05
+      },
+      "passed": 3
+    },
+    {
+      "name": "email-passwort erhalten",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.8498,
+        "min": 0.8214,
+        "max": 0.8755,
+        "spread": 0.054
+      },
+      "judge": {
+        "mean": 0.87,
+        "min": 0.85,
+        "max": 0.88,
+        "spread": 0.03
+      },
+      "passed": 3
+    },
+    {
+      "name": "email-project-status",
+      "runs": 3,
+      "errors": 2,
+      "deterministic": {
+        "mean": 0.3074,
+        "min": 0,
+        "max": 0.9221,
+        "spread": 0.9221
+      },
+      "judge": {
+        "mean": 0.7,
+        "min": 0.7,
+        "max": 0.7,
+        "spread": 0
+      },
+      "passed": 1
+    },
+    {
+      "name": "email-software-deployment",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.8328,
+        "min": 0.7965,
+        "max": 0.8586,
+        "spread": 0.062
+      },
+      "judge": {
+        "mean": 0.8933,
+        "min": 0.88,
+        "max": 0.9,
+        "spread": 0.02
+      },
+      "passed": 3
+    }
+  ]
+}
