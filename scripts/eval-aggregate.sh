@@ -157,11 +157,23 @@ fi
 VERDICT=$(printf '%s\n' "$AGGREGATE" | jq --slurpfile base "$COMPARE" "$JQ_ROUND"'
     . as $now
     | $base[0] as $was
+    # Each metric judged on its own: does the new interval clear the old one?
+    | (if $now.deterministic.max < $was.deterministic.min then "regression"
+       elif $now.deterministic.min > $was.deterministic.max then "improvement"
+       else "overlap" end) as $detVerdict
+    | (if ($now.judge.mean == null) or ($was.judge.mean == null) then "overlap"
+       elif $now.judge.max < $was.judge.min then "regression"
+       elif $now.judge.min > $was.judge.max then "improvement"
+       else "overlap" end) as $judgeVerdict
+    | ("deterministic " + $detVerdict) as $detLabel
+    | ("judge " + $judgeVerdict) as $judgeLabel
     | {
         baseline: {config: ($was.configKey // "unknown"), runs: $was.runCount, gitSHA: $was.config.gitSHA,
                    deterministic: $was.deterministic, judge: $was.judge, samplesPassing: $was.samplesPassing},
         now:      {config: $now.configKey, runs: $now.runCount, gitSHA: $now.config.gitSHA,
                    deterministic: $now.deterministic, judge: $now.judge, samplesPassing: $now.samplesPassing},
+        deterministicVerdict: $detVerdict,
+        judgeVerdict: $judgeVerdict,
         deterministicDelta: (($now.deterministic.mean - $was.deterministic.mean) | r4),
         judgeDelta: ((($now.judge.mean // 0) - ($was.judge.mean // 0)) | r4),
         verdict: (
@@ -171,14 +183,20 @@ VERDICT=$(printf '%s\n' "$AGGREGATE" | jq --slurpfile base "$COMPARE" "$JQ_ROUND
                 "not comparable: the judge did not score every sample"
             elif ($was.runCount < 2) or ($now.runCount < 2) then
                 "indicative only: one run has no range to compare"
-            elif ($now.deterministic.max < $was.deterministic.min)
-                 or (($now.judge.max // 1) < ($was.judge.min // 0)) then
-                "regression: the new range sits entirely below the old one"
-            elif ($now.deterministic.min > $was.deterministic.max)
-                 and (($now.judge.min // 0) > ($was.judge.max // 1)) then
-                "improvement: the new range sits entirely above the old one"
             else
-                "inconclusive: the ranges overlap"
+                # Per metric, because "a regression" without naming which number
+                # moved sends the reader back to the raw runs. A regression in
+                # one metric is still a regression; an improvement is only
+                # claimed when nothing moved the other way.
+                ([($detVerdict | select(. == "regression")), ($judgeVerdict | select(. == "regression"))] | length) as $regressions
+                | ([($detVerdict | select(. == "improvement")), ($judgeVerdict | select(. == "improvement"))] | length) as $improvements
+                | if $regressions > 0 then
+                      "regression: " + ([$detLabel, $judgeLabel] | map(select(test("regression"))) | join(", "))
+                  elif $improvements > 0 and ([$detVerdict, $judgeVerdict] | map(select(. == "regression")) | length) == 0 then
+                      "improvement: " + ([$detLabel, $judgeLabel] | map(select(test("improvement"))) | join(", "))
+                  else
+                      "inconclusive: the ranges overlap"
+                  end
             end
         )
       }')

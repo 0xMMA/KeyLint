@@ -90,7 +90,7 @@ Score the CANDIDATE on these dimensions (0.0 to 1.0):
 Respond with ONLY a JSON object:
 {"pyramidStructure":0.0,"clarity":0.0,"completeness":0.0,"tonePreservation":0.0,"overall":0.0,"rationale":"Brief explanation"}`
 
-// RunJudge calls the LLM to evaluate a candidate output against the baseline.
+// runJudge calls the LLM to evaluate a candidate output against the baseline.
 //
 // The judge always sends its schema, whatever KEYLINT_PYRAMIDIZE_SCHEMA says.
 // That flag is a property of the pipeline under test; letting it reach the judge
@@ -98,7 +98,11 @@ Respond with ONLY a JSON object:
 // constrained instruments, and comparing those two configurations is the only
 // reason the flag exists. The judge's schema constrains five numbers and a
 // sentence — it cannot flatter the candidate, only make the reply parse.
-func (svc *Service) RunJudge(settingsSvc *settings.Service, judge JudgeConfig, rawInput, baseline, candidate string) (JudgeScore, error) {
+// Unexported: Service is registered with Wails, and every exported method on it
+// becomes callable from the webview. The judge spends the user's API key on a
+// scoring call the product has no use for, so it must not be part of that
+// surface — see bindings_test.go, which fails if this set drifts again.
+func (svc *Service) runJudge(settingsSvc *settings.Service, judge JudgeConfig, rawInput, baseline, candidate string) (JudgeScore, error) {
 	cfg := settingsSvc.Get()
 	// Fixed order, every time: the judge reads three texts, and reordering them
 	// between runs would change the scores for reasons that have nothing to do

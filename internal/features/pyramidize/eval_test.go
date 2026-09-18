@@ -68,7 +68,10 @@ func gitSHA() string {
 		return ""
 	}
 	sha := strings.TrimSpace(string(out))
-	if dirty, err := exec.Command("git", "status", "--porcelain").Output(); err == nil && len(strings.TrimSpace(string(dirty))) > 0 {
+	// Tracked changes only. A run writes into test-data/eval-runs/ and
+	// test-data/eval-baselines/, so counting untracked files would mark every
+	// run after the first as dirty and make the marker meaningless.
+	if dirty, err := exec.Command("git", "status", "--porcelain", "--untracked-files=no").Output(); err == nil && len(strings.TrimSpace(string(dirty))) > 0 {
 		sha += "-dirty"
 	}
 	return sha
@@ -245,7 +248,7 @@ func TestEvalPyramidize(t *testing.T) {
 
 				// LLM-as-judge (if baseline available).
 				if sample.Baseline != "" {
-					score, err := svc.RunJudge(settingsSvc, judge,
+					score, err := svc.runJudge(settingsSvc, judge,
 						sample.RawInput, sample.Baseline, result.FullDocument)
 					if err != nil {
 						t.Logf("judge failed: %v", err)

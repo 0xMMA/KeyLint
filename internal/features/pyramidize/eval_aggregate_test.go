@@ -41,9 +41,11 @@ func fakeRun(t *testing.T, dir, model string, det, judge float64) string {
 	if err := os.WriteFile(filepath.Join(dir, "summary.json"), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// allPassed drives samplesPassing; sample-a passes, sample-b does not, so a
+	// count of exactly 1 is the only right answer.
 	lines := fmt.Sprintf(
-		`{"name":"sample-a","deterministic":{"overallScore":%.2f},"judge":{"overall":%.2f}}`+"\n"+
-			`{"name":"sample-b","deterministic":{"overallScore":%.2f},"judge":{"overall":%.2f}}`+"\n",
+		`{"name":"sample-a","deterministic":{"overallScore":%.2f,"allPassed":true},"judge":{"overall":%.2f}}`+"\n"+
+			`{"name":"sample-b","deterministic":{"overallScore":%.2f,"allPassed":false},"judge":{"overall":%.2f}}`+"\n",
 		det, judge, det, judge)
 	if err := os.WriteFile(filepath.Join(dir, "results.jsonl"), []byte(lines), 0o644); err != nil {
 		t.Fatal(err)
@@ -282,8 +284,18 @@ func TestThePassCountIsRecorded(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d", code)
 	}
-	if got["samplesPassing"] == nil {
-		t.Error("no samplesPassing in the aggregate")
+	passing, ok := got["samplesPassing"].(map[string]any)
+	if !ok {
+		t.Fatal("no samplesPassing in the aggregate")
+	}
+	// One of the two samples passes in every fake run.
+	for _, field := range []string{"mean", "min", "max"} {
+		if passing[field] != float64(1) {
+			t.Errorf("samplesPassing.%s = %v, want 1", field, passing[field])
+		}
+	}
+	if passing["spread"] != float64(0) {
+		t.Errorf("samplesPassing.spread = %v, want 0", passing["spread"])
 	}
 }
 

@@ -24,9 +24,15 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
-# Load .env if present (contains API keys for eval).
-# shellcheck disable=SC1091
-[[ -f .env ]] && set -a && source .env && set +a
+# Load credentials from .env, and only credentials. Sourcing the whole file
+# would let it set EVAL_PROVIDER or EVAL_MODEL behind the flags parsed below —
+# the same trap the Go side had, in the opposite direction.
+if [[ -f .env ]]; then
+    while IFS='=' read -r key value; do
+        [[ "$key" == *_API_KEY ]] || continue
+        export "$key=${value%$'\r'}"
+    done < <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .env)
+fi
 
 RUNS=1
 COMPARE=""

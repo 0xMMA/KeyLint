@@ -113,35 +113,43 @@ good day.
 |--------|:---:|:---:|
 | Avg deterministic | 0.8162 and 0.8379 (two Sonnet 4.6 runs) | 0.8353 (0.8209–0.8446) |
 | Avg judge overall | 0.8915 and 0.8969 | 0.8485 (0.8338–0.8569) |
-| Samples passing | 9/13 (one run) | 7–9/13 |
+| Samples passing | 8/13 in both archived runs | 7–9/13 |
 
 #53 reported an unchanged `main` scoring 0.768 against the documented 0.82 and
 read it as a regression. The evidence does not support that reading, for three
 reasons of decreasing certainty:
 
-**1. March was never one number.** The archived runs under
-`test-data/eval-runs/` hold two complete Sonnet 4.6 runs from that week:
-`2026-03-29T22-03-24` at 0.8162 and `2026-03-31T23-56-48` at 0.8379. Those two
-span 0.022 — the same interval as the three September runs. The table said 0.82
-because someone had to pick one. Both March runs overlap the September range, so
-by the test this document now recommends, nothing happened between March and
-September.
+**1. March was never one number.** The archived runs hold two complete Sonnet
+4.6 runs from that week: `2026-03-29T22-03-24` at 0.8162 and
+`2026-03-31T23-56-48` at 0.8379. Those two span 0.022 — the same interval as the
+three September runs. The table said 0.82 because someone had to pick one. (It
+also said 9 of 13 passing; both archived runs pass 8, so that figure came from a
+third run or from nowhere. Which is the point.)
 
-**2. The judge column was never comparable.** March ran an unpinned judge;
-this baseline pins `claude-sonnet-4-5-20250929` at temperature 0. The 0.89 and
-the 0.8485 are two different instruments, and the gap between them says nothing
-about the pipeline.
+**2. Strictly, they cannot be compared at all — and that is the lesson.**
+Running `./scripts/eval-aggregate.sh` over those two March runs exits 2: their
+summaries predate the recorded configuration, so `promptVariant`, `judge` and
+`schemaEnforcement` are missing, and the tool refuses to average runs whose
+configuration it cannot establish. Every number in this section from before
+September is therefore an indication, not a measurement. That refusal is the
+feature: it is what stops the next person building an argument on two runs that
+may not have measured the same thing.
 
-**3. The 0.768 is consistent with a bug that is now fixed, but the run is
-gone.** #53 records that `email-dataquality-reply-to-feedback` failed in it with
+**3. The judge column was never comparable either.** March ran an unpinned
+judge; this baseline pins `claude-sonnet-4-5-20250929` at temperature 0. The
+0.89 and the 0.8485 are two different instruments, and the gap between them says
+nothing about the pipeline.
+
+**The 0.768 is consistent with a bug that is now fixed, but the run is gone.**
+#53 records that `email-dataquality-reply-to-feedback` failed in it with
 `invalid character '(' after array element`. A failed sample scores zero, and
 that sample averages 0.768 across the September runs, so losing it costs a
 13-sample mean about 0.059 — while the reported gap to the March table was
 0.052. The arithmetic fits, but the run directory it refers to no longer exists
-on any machine here, so this is a plausible reconstruction and not a measurement.
-What *is* verifiable: #54 fixed the parser (`unmarshalRobust` repairs array
-elements, with a regression test), and across the three September runs there
-were **no sample errors at all**.
+on any machine here, so this is a plausible reconstruction and not a
+measurement. What *is* verifiable: #54 fixed the parser (`unmarshalRobust`
+repairs array elements, with a regression test), and across the three September
+runs there were **no sample errors at all**.
 
 ## Superseded: the March table
 

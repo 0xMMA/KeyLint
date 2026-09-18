@@ -83,7 +83,7 @@ func TestTheJudgeSendsItsTemperatureAndSchema(t *testing.T) {
 
 	// Through RunJudge itself, not a hand-built aiOpts: the pin is worth
 	// nothing if RunJudge stops applying it.
-	if _, err := svc.RunJudge(settingsSvc, JudgeConfigFromEnv(), "raw", "baseline", "candidate"); err != nil {
+	if _, err := svc.runJudge(settingsSvc, JudgeConfigFromEnv(), "raw", "baseline", "candidate"); err != nil {
 		t.Fatalf("RunJudge: %v", err)
 	}
 
@@ -116,7 +116,7 @@ func TestTheJudgeSchemaIgnoresThePipelineFlag(t *testing.T) {
 	rec.client.reply = `{"pyramidStructure":0.8,"clarity":0.8,"completeness":0.8,"tonePreservation":0.8,"overall":0.8,"rationale":"ok"}`
 	settingsSvc := settings.NewServiceFrom(settings.Default(), func(string) string { return "key" })
 
-	if _, err := svc.RunJudge(settingsSvc, JudgeConfigFromEnv(), "raw", "baseline", "candidate"); err != nil {
+	if _, err := svc.runJudge(settingsSvc, JudgeConfigFromEnv(), "raw", "baseline", "candidate"); err != nil {
 		t.Fatalf("RunJudge: %v", err)
 	}
 	if len(rec.client.gotRequest.JSONSchema) == 0 {
@@ -131,7 +131,7 @@ func TestTheJudgeReadsTheThreeTextsInAFixedOrder(t *testing.T) {
 	rec.client.reply = `{"pyramidStructure":0.8,"clarity":0.8,"completeness":0.8,"tonePreservation":0.8,"overall":0.8,"rationale":"ok"}`
 	settingsSvc := settings.NewServiceFrom(settings.Default(), func(string) string { return "key" })
 
-	if _, err := svc.RunJudge(settingsSvc, JudgeConfigFromEnv(), "RAW", "BASE", "CAND"); err != nil {
+	if _, err := svc.runJudge(settingsSvc, JudgeConfigFromEnv(), "RAW", "BASE", "CAND"); err != nil {
 		t.Fatalf("RunJudge: %v", err)
 	}
 

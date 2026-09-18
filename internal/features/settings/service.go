@@ -32,23 +32,6 @@ var envVars = map[string]string{
 }
 
 // Service handles loading and saving application settings.
-// KeyLookup resolves a provider's API key.
-//
-// Production uses the environment-then-keyring lookup; an eval run or a test
-// passes one that reads nothing else, so a machine's keyring and the developer's
-// own settings cannot change what a measurement produces.
-type KeyLookup func(provider string) string
-
-// EnvOnlyKeys reads API keys from the environment and nowhere else. `.env` is
-// loaded into the environment before this is called, so it is the eval's key
-// source: no keyring, no prompt, no fallback.
-func EnvOnlyKeys(provider string) string {
-	if envVar, ok := envVars[provider]; ok && envVar != "" {
-		return os.Getenv(envVar)
-	}
-	return ""
-}
-
 type Service struct {
 	// filePath is empty for a service built with NewServiceFrom: it has no file
 	// to read or write, which is what makes it isolated.
@@ -77,6 +60,23 @@ type Service struct {
 	// forgetModelList. Per provider rather than global, so pasting an OpenAI key
 	// does not throw away an Anthropic listing that is already on its way back.
 	modelGeneration map[string]uint64
+}
+
+// KeyLookup resolves a provider's API key.
+//
+// Production uses the environment-then-keyring lookup; an eval run or a test
+// passes one that reads nothing else, so a machine's keyring and the developer's
+// own settings cannot change what a measurement produces.
+type KeyLookup func(provider string) string
+
+// EnvOnlyKeys reads API keys from the environment and nowhere else. `.env` is
+// loaded into the environment before this is called, so it is the eval's key
+// source: no keyring, no prompt, no fallback.
+func EnvOnlyKeys(provider string) string {
+	if envVar, ok := envVars[provider]; ok && envVar != "" {
+		return os.Getenv(envVar)
+	}
+	return ""
 }
 
 // NewService creates a new SettingsService, loading existing settings from disk.
