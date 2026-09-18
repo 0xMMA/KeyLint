@@ -342,9 +342,10 @@ func writeBaseline(t *testing.T, root, out string) {
 }
 
 // TestARunRecordedBeforeTheSuiteFieldStillKeys: summary.json gained `suite` when
-// the Fix suite arrived, and `checksVersion` a round later. Runs recorded before
-// those have neither, and the key has to name them anyway — as `pyramidize`,
-// which is what they were, and checks version 1, which is what scored them.
+// the Fix suite arrived, and `checksVersion` a round later. Runs
+// recorded before those have neither, and the key has to name them anyway — as
+// `pyramidize`, which is what they were, and checks version 1, which is what
+// scored them.
 func TestARunRecordedBeforeTheSuiteFieldStillKeys(t *testing.T) {
 	root := t.TempDir()
 	runs := []string{

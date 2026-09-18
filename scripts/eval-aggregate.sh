@@ -78,7 +78,9 @@ done
 #
 # checksVersion IS in the key, for the opposite reason: the checks are what the
 # suite measures WITH, and a run scored by a different instrument is a different
-# measurement however similar the prompt was.
+# measurement however similar the prompt was. Anything else that sits between
+# the model and the score — post-processing of the model reply, say — belongs
+# here for the same reason, and would need its own version field.
 #
 # promptHash is deliberately NOT in the key. It was, for one revision, and that
 # made the suite refuse the comparison it exists to make: change the prompt, and
