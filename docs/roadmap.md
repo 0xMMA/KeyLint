@@ -178,11 +178,13 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 - [x] PR #31 description is stale vs. branch content
 - [x] `frontend/e2e/shell-menu-deep{,2,3,4,5}.spec.ts` are exploratory layout probes from a debugging session — consolidate into one spec or delete (#43: hover-expand, two-tone logo and active-icon colour folded into `shell-menu.spec.ts`, the rest deleted)
 - [ ] `GetClaudeCodeStatus` spawns two processes per call and is called from four uncached places (Pyramidize init and provider change, the settings card, the welcome wizard) — 0.13s on a native binary here, materially slower through a Windows `claude.cmd` shim, and the Pyramidize page's first paint waits on it. Cache it in the Go service with a bypass for the Re-check button.
-- [ ] `awalsh128/cache-apt-pkgs-action@latest` (`build-linux.yml` ×3, `release.yml`) is a third-party action on a mutable tag in a fork-triggered workflow — pin to a commit SHA
+- [x] `awalsh128/cache-apt-pkgs-action@latest` (`build-linux.yml` ×**4**, `release.yml` ×3 — the count here was stale) pinned to `553a35bb` (v1.6.3). Upstream has since deprecated its own `latest` tag and tells consumers to pin
 - [ ] `.claude/rules/angular-components.md` exists but is not referenced from `CLAUDE.md`
 - [x] `internal/features/enhance` has no tests — fixed in #39
 - [ ] `docs/pyramidize/ux-roadmap.md` model strategy section is outdated (Sonnet 4.6 / GPT-5.2 era); superseded by E2 step 4
-- [ ] Pin third-party GitHub Actions to commit SHAs, add Dependabot for actions (#51) — highest-severity CI finding
+- [x] Pin third-party GitHub Actions to commit SHAs, add Dependabot for actions (#51). `actions/*` stay on floating major tags by design — GitHub's own org, and Dependabot now moves them — so the workflows are hardened, not fully SHA-pinned
+- [ ] Add `gomod` and `npm` to Dependabot: the dependency drift recorded at the top of this file (Wails alpha.72 vs beta.23, `@wailsio/runtime` mismatched, Angular 21.2 vs 22.1) is exactly what those ecosystems would surface
+- [ ] `MicrosoftEdgeWebview2Setup.exe` is curled from a redirector with no checksum or signature check (`release.yml`, `build-linux.yml`) and bundled into the installer users run — the one remaining unverified external binary, and the only one that reaches end users
 - [ ] Branch protection on `main` (required checks incl. `e2e`) — Michael, repo settings
 - [ ] Shortcut robustness under rapid input (#42, #44) after #31 lands
 - [ ] CLI `-fix` hangs on a never-closing stdin pipe (#46)

@@ -1,0 +1,37 @@
+version: 2
+
+updates:
+  # Pinned action SHAs stop being a security measure the moment nobody moves
+  # them: a pin freezes whatever bug or fix the action had on the day it was
+  # set. Dependabot is what makes pinning sustainable rather than a one-off.
+  #
+  # It understands the `@<sha> # vX.Y.Z` form and updates both parts together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore(ci)
+    groups:
+      # Minor and patch only. A group without update-types swallows majors too,
+      # and every actions/* entry here is on a floating major tag several
+      # versions behind — so the first weekly run would have opened one PR
+      # carrying nine major bumps of the CI toolchain plus the
+      # action-gh-release v2→v3 that this repo deliberately deferred. Batching
+      # routine bumps is the point; batching a runtime migration is not.
+      actions:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+    ignore:
+      # v3.0.0 moves the action runtime from Node 20 to Node 24. Nothing forces
+      # it yet and the release path cannot be exercised without pushing a tag,
+      # so the bump waits for someone who can watch a real release. This entry
+      # is the reminder that it is a decision and not an oversight — drop it
+      # when GitHub retires the Node 20 runtime, which it has announced it will.
+      - dependency-name: softprops/action-gh-release
+        update-types:
+          - version-update:semver-major
