@@ -108,8 +108,8 @@ func TestEnhanceOpenAI(t *testing.T) {
 	if rec.cfg.Feature != logFeature {
 		t.Errorf("Feature = %q, want %q so the logs name the calling feature", rec.cfg.Feature, logFeature)
 	}
-	if rec.client.gotRequest.Model != openAIModel {
-		t.Errorf("Model = %q, want %q", rec.client.gotRequest.Model, openAIModel)
+	if rec.client.gotRequest.Model != llm.DefaultModel(llm.ProviderOpenAI, llm.FeatureFix) {
+		t.Errorf("Model = %q, want %q", rec.client.gotRequest.Model, llm.DefaultModel(llm.ProviderOpenAI, llm.FeatureFix))
 	}
 	if rec.client.gotRequest.User != "their going to the meeting" {
 		t.Errorf("User = %q, want the input text", rec.client.gotRequest.User)
@@ -139,8 +139,8 @@ func TestEnhanceClaude(t *testing.T) {
 	if rec.cfg.APIKey != "sk-ant-test" {
 		t.Errorf("APIKey = %q, want sk-ant-test", rec.cfg.APIKey)
 	}
-	if rec.client.gotRequest.Model != claudeModel {
-		t.Errorf("Model = %q, want %q", rec.client.gotRequest.Model, claudeModel)
+	if rec.client.gotRequest.Model != llm.DefaultModel(llm.ProviderClaude, llm.FeatureFix) {
+		t.Errorf("Model = %q, want %q", rec.client.gotRequest.Model, llm.DefaultModel(llm.ProviderClaude, llm.FeatureFix))
 	}
 }
 
@@ -159,8 +159,8 @@ func TestEnhanceOllamaNeedsNoKey(t *testing.T) {
 	if rec.cfg.BaseURL != "http://ollama.test:11434" {
 		t.Errorf("BaseURL = %q, want the configured Ollama URL", rec.cfg.BaseURL)
 	}
-	if rec.client.gotRequest.Model != ollamaModel {
-		t.Errorf("Model = %q, want %q", rec.client.gotRequest.Model, ollamaModel)
+	if rec.client.gotRequest.Model != llm.DefaultModel(llm.ProviderOllama, llm.FeatureFix) {
+		t.Errorf("Model = %q, want %q", rec.client.gotRequest.Model, llm.DefaultModel(llm.ProviderOllama, llm.FeatureFix))
 	}
 }
 
@@ -224,21 +224,43 @@ func TestEnhancePropagatesProviderError(t *testing.T) {
 	}
 }
 
-// TestEnhanceWireConstantsUnchanged pins the literals that #33 step 1 promised
-// not to touch. Without this the model assertions elsewhere in this file only
-// prove that a constant was passed through, not which one.
-func TestEnhanceWireConstantsUnchanged(t *testing.T) {
-	if openAIModel != "gpt-4o-mini" {
-		t.Errorf("openAIModel = %q, want gpt-4o-mini", openAIModel)
+// TestEnhanceDefaultsUnchanged pins the models the fix flow shipped with.
+// Moving them into settings must not move them: changing a default is a quality
+// decision that belongs with E3 (#34) and needs an eval run.
+func TestEnhanceDefaultsUnchanged(t *testing.T) {
+	want := map[string]string{
+		llm.ProviderOpenAI:     "gpt-4o-mini",
+		llm.ProviderClaude:     "claude-haiku-4-5-20251001",
+		llm.ProviderOllama:     "llama3.2",
+		llm.ProviderClaudeCode: "haiku",
 	}
-	if claudeModel != "claude-haiku-4-5-20251001" {
-		t.Errorf("claudeModel = %q, want claude-haiku-4-5-20251001", claudeModel)
-	}
-	if ollamaModel != "llama3.2" {
-		t.Errorf("ollamaModel = %q, want llama3.2", ollamaModel)
+	for provider, model := range want {
+		if got := llm.DefaultModel(provider, llm.FeatureFix); got != model {
+			t.Errorf("default fix model for %s = %q, want %q", provider, got, model)
+		}
 	}
 	if maxTokens != 2048 {
 		t.Errorf("maxTokens = %d, want 2048", maxTokens)
+	}
+}
+
+// TestEnhanceUsesTheConfiguredModel covers the point of #33 step 4: a model
+// chosen in settings reaches the provider.
+func TestEnhanceUsesTheConfiguredModel(t *testing.T) {
+	cfg := settings.Default()
+	cfg.ActiveProvider = "openai"
+	cfg.Models = map[string]settings.FeatureModels{
+		"openai": {Fix: "gpt-4.1-mini", Pyramidize: "gpt-5.2-pro"},
+	}
+	svc, rec := newTestService(t, cfg, map[string]string{"openai": "sk-test"})
+
+	if _, err := svc.Enhance("text"); err != nil {
+		t.Fatalf("Enhance: %v", err)
+	}
+	// Also covers the two features not leaking into each other: the same
+	// provider has a different model configured for Pyramidize.
+	if got := rec.client.gotRequest.Model; got != "gpt-4.1-mini" {
+		t.Errorf("Model = %q, want the configured fix model (the Pyramidize one is gpt-5.2-pro)", got)
 	}
 }
 
@@ -305,11 +327,11 @@ func TestEnhanceClaudeCodeNeedsNoKey(t *testing.T) {
 	if rec.cfg.APIKey != "" {
 		t.Errorf("APIKey = %q, want empty", rec.cfg.APIKey)
 	}
-	if rec.client.gotRequest.Model != claudeCodeModel {
-		t.Errorf("Model = %q, want %q", rec.client.gotRequest.Model, claudeCodeModel)
+	if rec.client.gotRequest.Model != llm.DefaultModel(llm.ProviderClaudeCode, llm.FeatureFix) {
+		t.Errorf("Model = %q, want %q", rec.client.gotRequest.Model, llm.DefaultModel(llm.ProviderClaudeCode, llm.FeatureFix))
 	}
-	if claudeCodeModel != "haiku" {
-		t.Errorf("claudeCodeModel = %q, want the alias haiku so the CLI picks the current generation", claudeCodeModel)
+	if llm.DefaultModel(llm.ProviderClaudeCode, llm.FeatureFix) != "haiku" {
+		t.Errorf("llm.DefaultModel(llm.ProviderClaudeCode, llm.FeatureFix) = %q, want the alias haiku so the CLI picks the current generation", llm.DefaultModel(llm.ProviderClaudeCode, llm.FeatureFix))
 	}
 }
 

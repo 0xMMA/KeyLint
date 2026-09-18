@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"keylint/internal/llm"
@@ -27,6 +28,10 @@ var envVars = map[string]string{
 type Service struct {
 	filePath string
 	current  Settings
+
+	// models caches per-provider listings; see ListModels.
+	modelsMu sync.Mutex
+	models   map[string]cachedModelList
 }
 
 // NewService creates a new SettingsService, loading existing settings from disk.
@@ -95,6 +100,10 @@ func (s *Service) Get() Settings {
 
 // Save persists the provided settings to disk.
 func (s *Service) Save(updated Settings) error {
+	// Ollama's list comes from whatever URL is configured.
+	if updated.Providers.OllamaURL != s.current.Providers.OllamaURL {
+		s.forgetModelList(llm.ProviderOllama)
+	}
 	s.current = updated
 	data, err := json.MarshalIndent(updated, "", "  ")
 	if err != nil {
@@ -141,12 +150,117 @@ func (s *Service) GetKey(provider string) string {
 // SetKey stores an API key for the given provider in the OS keyring.
 // Returns an error if the keyring is unavailable on this platform.
 func (s *Service) SetKey(provider, key string) error {
-	return keyring.Set(appName, provider, key)
+	if err := keyring.Set(appName, provider, key); err != nil {
+		return err
+	}
+	// Only now: a write that failed leaves the old key in place, and dropping
+	// the list for it would cost a listing round trip that changes nothing.
+	s.forgetModelList(provider)
+	return nil
 }
 
 // DeleteKey removes an API key for the given provider from the OS keyring.
 func (s *Service) DeleteKey(provider string) error {
-	return keyring.Delete(appName, provider)
+	if err := keyring.Delete(appName, provider); err != nil {
+		return err
+	}
+	s.forgetModelList(provider)
+	return nil
+}
+
+// modelListFailureTTL is how long a failed listing is remembered. Short,
+// because the usual cause is something the user is about to fix — a key that
+// is not pasted yet, a daemon that is not started.
+const modelListFailureTTL = 30 * time.Second
+
+// modelListTTL keeps a provider's model list for a while: the settings screen
+// and the Pyramidize selector both ask for it, and a listing call costs a round
+// trip to the provider (or a process spawn, for a local daemon that is down).
+const modelListTTL = 10 * time.Minute
+
+// modelListTimeout bounds one listing call so a wedged provider cannot hang the
+// settings screen.
+const modelListTimeout = 20 * time.Second
+
+// cachedModelList is one provider's list and when it was fetched.
+type cachedModelList struct {
+	list    llm.ModelList
+	fetched time.Time
+	// failed marks a listing that fell back to the built-in list, so it expires
+	// sooner than a good one.
+	failed bool
+}
+
+// ListModels returns the models a provider can serve, cached for modelListTTL.
+// A provider that cannot be reached yields the built-in list with
+// source "static" rather than an error: a picker with the usual entries is more
+// use than an empty one, and the source says which it is.
+func (s *Service) ListModels(provider string) llm.ModelList {
+	s.modelsMu.Lock()
+	cached, ok := s.models[provider]
+	s.modelsMu.Unlock()
+	if ok && time.Since(cached.fetched) < cached.ttl() {
+		return cached.list
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), modelListTimeout)
+	defer cancel()
+
+	cfg, ok := s.modelListConfig(provider)
+	if !ok {
+		// No credential yet: the request would only earn a 401, and caching that
+		// would keep the built-in list on screen after the user pastes a key.
+		return llm.CuratedModels(provider)
+	}
+
+	list, err := llm.ListModels(ctx, provider, cfg)
+	if err != nil {
+		logger.Info("settings: model list unavailable, using the built-in one",
+			"provider", provider, "err", err)
+	}
+
+	s.modelsMu.Lock()
+	if s.models == nil {
+		s.models = map[string]cachedModelList{}
+	}
+	s.models[provider] = cachedModelList{list: list, fetched: time.Now(), failed: err != nil}
+	s.modelsMu.Unlock()
+	return list
+}
+
+// ttl is how long this entry stays valid.
+func (c cachedModelList) ttl() time.Duration {
+	if c.failed {
+		return modelListFailureTTL
+	}
+	return modelListTTL
+}
+
+// forgetModelList drops a provider's cached listing, so the next ask goes to the
+// provider. Without this, pasting a key leaves the built-in list on screen for
+// the rest of the TTL — which is the one flow model selection exists for.
+func (s *Service) forgetModelList(provider string) {
+	s.modelsMu.Lock()
+	delete(s.models, provider)
+	s.modelsMu.Unlock()
+}
+
+// modelListConfig gives a listing call the credentials and endpoint a
+// completion would use. The Feature field only tags the log line; no model is
+// resolved here, because a listing does not generate anything.
+// The second return is false when the provider cannot be asked at all yet.
+func (s *Service) modelListConfig(provider string) (llm.Config, bool) {
+	cfg := llm.Config{Feature: "settings"}
+	switch provider {
+	case llm.ProviderOpenAI, llm.ProviderClaude:
+		cfg.APIKey = s.GetKey(provider)
+		if cfg.APIKey == "" {
+			return cfg, false
+		}
+	case llm.ProviderOllama:
+		cfg.BaseURL = s.Get().Providers.OllamaURL
+	}
+	return cfg, true
 }
 
 // claudeCodeStatusTimeout bounds the whole detection so the settings screen and

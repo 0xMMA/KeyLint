@@ -247,3 +247,49 @@ func TestDefault_LogLevel_IsOff(t *testing.T) {
 		t.Errorf("expected Default().LogLevel=off, got %q", d.LogLevel)
 	}
 }
+
+// TestModelsSurviveARoundTrip covers what #33 step 4 adds to the settings file.
+func TestModelsSurviveARoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	svc := newServiceAt(t, dir)
+
+	updated := settings.Default()
+	updated.Models = map[string]settings.FeatureModels{
+		"claude": {Fix: "claude-haiku-4-5-20251001", Pyramidize: "claude-opus-4-6"},
+		"openai": {Pyramidize: "gpt-5.2-pro"},
+	}
+	if err := svc.Save(updated); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	reloaded := newServiceAt(t, dir).Get()
+	if got := reloaded.Models["claude"].Pyramidize; got != "claude-opus-4-6" {
+		t.Errorf("claude pyramidize model = %q, want claude-opus-4-6", got)
+	}
+	if got := reloaded.ModelFor("openai", "pyramidize"); got != "gpt-5.2-pro" {
+		t.Errorf("ModelFor(openai, pyramidize) = %q, want the saved value", got)
+	}
+	// Only one feature was set for openai; the other falls back.
+	if got := reloaded.ModelFor("openai", "fix"); got != "gpt-4o-mini" {
+		t.Errorf("ModelFor(openai, fix) = %q, want the built-in default", got)
+	}
+}
+
+// TestSettingsWithoutModelsNeedNoMigration: an older file simply has no key,
+// and every lookup falls through to the built-in default.
+func TestSettingsWithoutModelsNeedNoMigration(t *testing.T) {
+	dir := t.TempDir()
+	newServiceAt(t, dir) // creates the directory the settings file lives in
+	path := filepath.Join(dir, "KeyLint", "settings.json")
+	if err := os.WriteFile(path, []byte(`{"active_provider":"claude"}`), 0600); err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+
+	reloaded := newServiceAt(t, dir).Get()
+	if reloaded.Models != nil {
+		t.Errorf("Models = %v, want nil for a file that has no such key", reloaded.Models)
+	}
+	if got := reloaded.ModelFor("claude", "fix"); got != "claude-haiku-4-5-20251001" {
+		t.Errorf("ModelFor = %q, want the built-in default", got)
+	}
+}

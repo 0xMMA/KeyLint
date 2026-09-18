@@ -10,9 +10,37 @@ import { MessageModule } from 'primeng/message';
 import { CardModule } from 'primeng/card';
 import { TagModule } from 'primeng/tag';
 import { ActivatedRoute } from '@angular/router';
-import { WailsService, Settings as AppSettings, KeyStatus, UpdateInfo, AppPreset, ClaudeCodeStatus } from '../../core/wails.service';
+import { WailsService, Settings as AppSettings, KeyStatus, UpdateInfo, AppPreset, ClaudeCodeStatus, ModelInfo } from '../../core/wails.service';
 import { DOCUMENT_TYPE_OPTIONS } from '../../core/constants';
 import { LogService } from '../../core/log.service';
+
+/**
+ * Lets a user defer to KeyLint's default without knowing a model name.
+ * PrimeNG only renders a placeholder while the value is null or undefined and
+ * this component writes "", so an explicit option is what makes it visible.
+ */
+/**
+ * One entry in a model picker.
+ *
+ * `label` is deliberately the model ID, not the display name: PrimeNG writes
+ * optionLabel into the editable input and submits whatever stands there as the
+ * value, so a display name there would be saved as a model ID that no provider
+ * knows. The readable name lives in `display` and is rendered by the option
+ * template instead.
+ */
+interface ModelOption {
+  id: string;
+  label: string;
+  display: string;
+}
+
+const DEFAULT_MODEL_OPTION: ModelOption = { id: '', label: '', display: "KeyLint's default" };
+const DEFAULT_MODEL_ONLY: ModelOption[] = [DEFAULT_MODEL_OPTION];
+
+/** Picker entry for one model the provider reported. */
+function toModelOption(model: ModelInfo): ModelOption {
+  return { id: model.id, label: model.id, display: model.label || model.id };
+}
 
 interface ProviderKey {
   id: string;
@@ -219,6 +247,74 @@ interface ProviderKey {
                   </div>
                 }
 
+                <!-- Model selection per provider (#33 step 4) -->
+                <div class="form-group mt-4">
+                  <label>Models</label>
+                  <small class="hint-text">
+                    Which model each feature uses. Leave a field empty for KeyLint's default.
+                    The lists come from the provider; type a name to use one that is not listed.
+                  </small>
+                </div>
+
+                @for (mp of modelProviders; track mp.id) {
+                  <div class="key-row" [attr.data-testid]="'models-' + mp.id">
+                    <div class="key-header">
+                      <span class="key-label">{{ mp.label }}</span>
+                      @if (showsBuiltInHint(mp.id)) {
+                        <p-tag
+                          [attr.data-testid]="'models-static-' + mp.id"
+                          value="built-in list"
+                          severity="secondary"
+                        />
+                      }
+                    </div>
+                    <div class="form-group">
+                      <label>Fix model</label>
+                      <p-select
+                        [attr.data-testid]="'model-fix-' + mp.id"
+                        [editable]="allowsFreeText(mp.id)"
+                        [options]="optionsFor(mp.id)"
+                        optionLabel="label"
+                        optionValue="id"
+                        [ngModel]="modelFor(mp.id, 'fix')"
+                        (ngModelChange)="setModel(mp.id, 'fix', $event)"
+                      >
+                        <ng-template #item let-option>
+                          <span class="model-option-name">{{ option.display }}</span>
+                          @if (option.id && option.id !== option.display) {
+                            <small class="model-option-id">{{ option.id }}</small>
+                          }
+                        </ng-template>
+                        <ng-template #selectedItem let-option>
+                          {{ option?.display || option?.id }}
+                        </ng-template>
+                      </p-select>
+                    </div>
+                    <div class="form-group">
+                      <label>Pyramidize model</label>
+                      <p-select
+                        [attr.data-testid]="'model-pyramidize-' + mp.id"
+                        [editable]="allowsFreeText(mp.id)"
+                        [options]="optionsFor(mp.id)"
+                        optionLabel="label"
+                        optionValue="id"
+                        [ngModel]="modelFor(mp.id, 'pyramidize')"
+                        (ngModelChange)="setModel(mp.id, 'pyramidize', $event)"
+                      >
+                        <ng-template #item let-option>
+                          <span class="model-option-name">{{ option.display }}</span>
+                          @if (option.id && option.id !== option.display) {
+                            <small class="model-option-id">{{ option.id }}</small>
+                          }
+                        </ng-template>
+                        <ng-template #selectedItem let-option>
+                          {{ option?.display || option?.id }}
+                        </ng-template>
+                      </p-select>
+                    </div>
+                  </div>
+                }
+
                 <!-- Ollama URL (not a secret) -->
                 <div class="form-group mt-4">
                   <label>Ollama Server URL</label>
@@ -403,6 +499,11 @@ interface ProviderKey {
       color: var(--p-text-muted-color);
       margin-bottom: 1rem;
     }
+    .model-option-id {
+      display: block;
+      font-size: 0.75rem;
+      color: var(--p-text-muted-color);
+    }
     code {
       background: var(--p-content-hover-background);
       padding: 1px 4px;
@@ -478,6 +579,28 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   readonly docTypeOptions = DOCUMENT_TYPE_OPTIONS;
 
+  /**
+   * Providers whose model can be chosen. Derived from the Active Provider list
+   * rather than repeated, so the two cannot drift apart; Bedrock is excluded
+   * because it is still a stub with nothing to choose.
+   *
+   * Computed once: a getter would hand the template a new array on every
+   * change-detection pass.
+   */
+  readonly modelProviders = this.providers
+    .filter(p => p.value !== 'bedrock')
+    .map(p => ({ id: p.value, label: p.label }));
+
+  /** Picker contents including the leading default entry; see optionsFor. */
+  modelSelectOptions: Record<string, ModelOption[]> = {};
+
+  /** Picker contents per provider, and whether they are live or built-in. */
+  modelOptions: Record<string, ModelInfo[]> = {};
+  modelSource: Record<string, string> = {};
+
+  /** The Ollama URL as last persisted; see save(). */
+  private savedOllamaURL = '';
+
   /** Null until the first detection run finishes. */
   claudeCodeStatus: ClaudeCodeStatus | null = null;
   claudeCodeChecking = false;
@@ -500,6 +623,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   async ngOnInit(): Promise<void> {
     this.activeTab = this.route.snapshot.queryParamMap.get('tab') ?? 'general';
     this.settings = await this.wails.loadSettings();
+    this.savedOllamaURL = this.settings?.providers?.ollama_url ?? '';
     this.log.info('settings: loaded');
     await this.refreshKeyStatuses();
     this.appVersion = await this.wails.getVersion();
@@ -509,10 +633,72 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
     // Detection spawns processes, so the rest of the screen must not wait for it.
     void this.recheckClaudeCode();
+    // Same for the model lists: four providers, each a round trip.
+    void this.loadModelOptions();
   }
 
   ngOnDestroy(): void {
     this.destroyed = true;
+  }
+
+  /** Reads the configured model, or "" when the default applies. */
+  modelFor(provider: string, feature: 'fix' | 'pyramidize'): string {
+    return this.settings?.models?.[provider]?.[feature] ?? '';
+  }
+
+  /** Stores a model choice; an empty value means "use KeyLint's default". */
+  setModel(provider: string, feature: 'fix' | 'pyramidize', model: string): void {
+    if (!this.settings) return;
+    const models = { ...(this.settings.models ?? {}) };
+    const entry = { fix: '', pyramidize: '', ...(models[provider] ?? {}) };
+    entry[feature] = (model ?? '').trim();
+    models[provider] = entry;
+    this.settings.models = models;
+  }
+
+  /**
+   * The provider's models, with a leading entry for KeyLint's own default.
+   * PrimeNG only renders a placeholder while the value is null or undefined,
+   * and this component writes "" — so an explicit option is what makes the
+   * default visible and selectable.
+   */
+  optionsFor(provider: string): ModelOption[] {
+    return this.modelSelectOptions[provider] ?? DEFAULT_MODEL_ONLY;
+  }
+
+  /**
+   * Whether a model outside the list can be typed. The Claude Code CLI's three
+   * aliases are the whole list the picker offers, because an alias follows the
+   * generation where a pinned API model ID freezes it. The backend still
+   * accepts a pinned ID from a hand-edited settings.json and only logs it —
+   * this is the picker steering the choice, not a rejection.
+   */
+  allowsFreeText(provider: string): boolean {
+    return provider !== 'claude-code';
+  }
+
+  /**
+   * "Built-in list" means the provider could not be reached, which is something
+   * the user can fix. It is not shown for a provider that has no endpoint to
+   * ask, nor when there is nothing to show at all.
+   */
+  showsBuiltInHint(provider: string): boolean {
+    return this.modelSource[provider] === 'static' && (this.modelOptions[provider]?.length ?? 0) > 0;
+  }
+
+  /** Fetches every provider's model list in parallel; failures fall back. */
+  private async loadModelOptions(): Promise<void> {
+    // Rendered as each provider answers: one that is wedged would otherwise
+    // leave all four pickers empty for as long as its timeout.
+    await Promise.all(this.modelProviders.map(async mp => {
+      const list = await this.wails.listModels(mp.id).catch(() => null);
+      this.modelOptions[mp.id] = list?.models ?? [];
+      this.modelSelectOptions[mp.id] = [DEFAULT_MODEL_OPTION, ...(list?.models ?? []).map(toModelOption)];
+      this.modelSource[mp.id] = list?.source ?? 'static';
+      if (!this.destroyed) {
+        this.cdr.detectChanges();
+      }
+    }));
   }
 
   /** Re-runs Claude Code detection, e.g. after the user signed in elsewhere. */
@@ -572,6 +758,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
     } finally {
       pk.saving = false;
     }
+    // The model list depends on this key.
+    void this.loadModelOptions();
   }
 
   async clearKey(pk: ProviderKey): Promise<void> {
@@ -586,6 +774,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
     } finally {
       pk.saving = false;
     }
+    // The model list depends on this key.
+    void this.loadModelOptions();
   }
 
   async checkForUpdate(): Promise<void> {
@@ -625,8 +815,15 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   async save(): Promise<void> {
     if (!this.settings) return;
+    const ollamaURLChanged = this.settings.providers?.ollama_url !== this.savedOllamaURL;
     await this.wails.saveSettings(this.settings);
+    this.savedOllamaURL = this.settings.providers?.ollama_url ?? '';
     this.log.info('settings: saved');
+    if (ollamaURLChanged) {
+      // A daemon at another address has other models pulled, so the picker
+      // would otherwise keep showing the old machine's list.
+      void this.loadModelOptions();
+    }
     this.saved = true;
     this.cdr.detectChanges();
     setTimeout(() => { this.saved = false; this.cdr.detectChanges(); }, 3000);
@@ -635,6 +832,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   async resetToDefaults(): Promise<void> {
     await this.wails.resetSettings();
     this.settings = await this.wails.loadSettings();
+    this.savedOllamaURL = this.settings?.providers?.ollama_url ?? '';
     this.saved = true;
     this.cdr.detectChanges();
     setTimeout(() => { this.saved = false; this.cdr.detectChanges(); }, 3000);

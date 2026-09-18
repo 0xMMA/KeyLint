@@ -79,7 +79,7 @@ func completeViaOpenAI(ctx context.Context, cfg Config, p provider, baseURL stri
 	client := openAISDKClient(cfg, baseURL, attempts)
 	completion, err := client.Chat.Completions.New(ctx, params)
 	if err != nil {
-		return Response{}, mapOpenAIError(p, attempts, err)
+		return Response{}, mapOpenAIError(p, attempts, req.Model, err)
 	}
 	if len(completion.Choices) == 0 {
 		return Response{}, fmt.Errorf("%s returned no choices", p.name)
@@ -159,7 +159,7 @@ func environmentCustomHeaders() []string {
 
 // mapOpenAIError turns an SDK error into the wording the user sees. The raw body
 // stays out of it — see statusMessage.
-func mapOpenAIError(p provider, attempts *httpAttempts, err error) error {
+func mapOpenAIError(p provider, attempts *httpAttempts, model string, err error) error {
 	// The caller giving up is not a provider failure, and callers test for it
 	// with errors.Is — so it must not become a status even if an earlier
 	// attempt saw one.
@@ -168,13 +168,13 @@ func mapOpenAIError(p provider, attempts *httpAttempts, err error) error {
 	}
 	var apiErr *openai.Error
 	if errors.As(err, &apiErr) {
-		return apiError(p, apiErr.StatusCode, apiErr.RawJSON())
+		return apiErrorForModel(p, apiErr.StatusCode, model, apiErr.RawJSON())
 	}
 	// OpenAI-compatible servers that answer {"error":"<string>"} rather than an
 	// object defeat the SDK's typed error, and the status would otherwise be
 	// lost behind a JSON-unmarshal message. The middleware saw it.
 	if status := attempts.statusOrZero(); status >= 400 {
-		return apiError(p, status, "")
+		return apiErrorForModel(p, status, model, "")
 	}
 	return transportError(p, err)
 }

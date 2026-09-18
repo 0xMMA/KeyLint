@@ -31,6 +31,8 @@ Env var mapping (`internal/features/settings/service.go`):
 
 Keys are NOT stored in `settings.json`. `GetKey(provider)` / `SetKey` / `DeleteKey` / `GetKeyStatus` are the API surface.
 
+**Model selection:** `settings.json` carries `models` — per provider, a model for `fix` and one for `pyramidize`. An absent key or an empty string means the built-in default from `internal/llm/models.go`, so an older file needs no migration. Resolution order is request override (Pyramidize's panel) → settings → default. `SettingsService.ListModels(provider)` returns what a provider can serve, cached for 10 minutes; a provider that cannot be reached yields the curated list with `source: "static"` rather than an error, so a picker is never empty.
+
 ## Platform Differences
 
 **Shortcut:** `internal/features/shortcut/service_linux.go` (build tag `!windows`) is a no-op with a `Simulate()` helper for dev. `service_windows.go` uses Win32 `RegisterHotKey`.

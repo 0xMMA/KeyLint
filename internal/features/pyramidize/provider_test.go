@@ -64,9 +64,9 @@ func TestCallAISyncModelDefaults(t *testing.T) {
 		provider  string
 		wantModel string
 	}{
-		{"openai", openAIModel},
-		{"claude", claudeModel},
-		{"ollama", ollamaModel},
+		{"openai", llm.DefaultModel(llm.ProviderOpenAI, llm.FeaturePyramidize)},
+		{"claude", llm.DefaultModel(llm.ProviderClaude, llm.FeaturePyramidize)},
+		{"ollama", llm.DefaultModel(llm.ProviderOllama, llm.FeaturePyramidize)},
 	}
 	for _, tc := range tests {
 		t.Run(tc.provider, func(t *testing.T) {
@@ -186,21 +186,70 @@ func TestResolveAPIKeyNoKeyProvider(t *testing.T) {
 	}
 }
 
-// TestPyramidizeWireConstantsUnchanged pins the literals that #33 step 1
-// promised not to touch. The model assertions above only prove a constant was
-// passed through; this one proves which.
-func TestPyramidizeWireConstantsUnchanged(t *testing.T) {
-	if openAIModel != "gpt-5.2" {
-		t.Errorf("openAIModel = %q, want gpt-5.2", openAIModel)
+// TestPyramidizeDefaultsUnchanged pins the models this pipeline shipped with;
+// moving them into settings must not move them.
+func TestPyramidizeDefaultsUnchanged(t *testing.T) {
+	want := map[string]string{
+		llm.ProviderOpenAI:     "gpt-5.2",
+		llm.ProviderClaude:     "claude-sonnet-4-6",
+		llm.ProviderOllama:     "llama3.2",
+		llm.ProviderClaudeCode: "sonnet",
 	}
-	if claudeModel != "claude-sonnet-4-6" {
-		t.Errorf("claudeModel = %q, want claude-sonnet-4-6", claudeModel)
-	}
-	if ollamaModel != "llama3.2" {
-		t.Errorf("ollamaModel = %q, want llama3.2", ollamaModel)
+	for provider, model := range want {
+		if got := llm.DefaultModel(provider, llm.FeaturePyramidize); got != model {
+			t.Errorf("default pyramidize model for %s = %q, want %q", provider, got, model)
+		}
 	}
 	if maxTokens != 4096 {
 		t.Errorf("maxTokens = %d, want 4096", maxTokens)
+	}
+}
+
+// TestModelResolutionOrder pins the whole point of #33 step 4: a per-request
+// override beats settings, settings beat the built-in default.
+func TestModelResolutionOrder(t *testing.T) {
+	configured := settings.Default()
+	configured.ActiveProvider = "claude"
+	configured.Models = map[string]settings.FeatureModels{
+		"claude": {Pyramidize: "claude-opus-4-6"},
+	}
+
+	tests := []struct {
+		name string
+		cfg  settings.Settings
+		opts aiOpts
+		want string
+	}{
+		{
+			name: "request override wins",
+			cfg:  configured,
+			opts: aiOpts{model: "claude-sonnet-5"},
+			want: "claude-sonnet-5",
+		},
+		{
+			name: "settings win over the default",
+			cfg:  configured,
+			opts: aiOpts{},
+			want: "claude-opus-4-6",
+		},
+		{
+			name: "the default applies when nothing is configured",
+			cfg:  func() settings.Settings { c := settings.Default(); c.ActiveProvider = "claude"; return c }(),
+			opts: aiOpts{},
+			want: llm.DefaultModel(llm.ProviderClaude, llm.FeaturePyramidize),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, rec := newTestService()
+			if _, err := svc.callAISync(context.Background(), tc.cfg, tc.opts, "key", "system", "user", nil); err != nil {
+				t.Fatalf("callAISync: %v", err)
+			}
+			if got := rec.client.gotRequest.Model; got != tc.want {
+				t.Errorf("Model = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -308,11 +357,11 @@ func TestCallAISyncClaudeCodeNeedsNoKey(t *testing.T) {
 	if rec.cfg.APIKey != "" {
 		t.Errorf("APIKey = %q, want empty — the user signed in to the CLI themselves", rec.cfg.APIKey)
 	}
-	if rec.client.gotRequest.Model != claudeCodeModel {
-		t.Errorf("Model = %q, want %q", rec.client.gotRequest.Model, claudeCodeModel)
+	if rec.client.gotRequest.Model != llm.DefaultModel(llm.ProviderClaudeCode, llm.FeaturePyramidize) {
+		t.Errorf("Model = %q, want %q", rec.client.gotRequest.Model, llm.DefaultModel(llm.ProviderClaudeCode, llm.FeaturePyramidize))
 	}
-	if claudeCodeModel != "sonnet" {
-		t.Errorf("claudeCodeModel = %q, want the alias sonnet so the CLI picks the current generation", claudeCodeModel)
+	if llm.DefaultModel(llm.ProviderClaudeCode, llm.FeaturePyramidize) != "sonnet" {
+		t.Errorf("llm.DefaultModel(llm.ProviderClaudeCode, llm.FeaturePyramidize) = %q, want the alias sonnet so the CLI picks the current generation", llm.DefaultModel(llm.ProviderClaudeCode, llm.FeaturePyramidize))
 	}
 }
 

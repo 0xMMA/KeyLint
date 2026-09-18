@@ -75,6 +75,20 @@ export function GetKeyStatus(provider) {
 }
 
 /**
+ * ListModels returns the models a provider can serve, cached for modelListTTL.
+ * A provider that cannot be reached yields the built-in list with
+ * source "static" rather than an error: a picker with the usual entries is more
+ * use than an empty one, and the source says which it is.
+ * @param {string} provider
+ * @returns {$CancellablePromise<llm$0.ModelList>}
+ */
+export function ListModels(provider) {
+    return $Call.ByID(3734180264, provider).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType3($result);
+    }));
+}
+
+/**
  * ResetToDefaults resets settings to their default values and saves to disk.
  * @returns {$CancellablePromise<void>}
  */
@@ -106,3 +120,4 @@ export function SetKey(provider, key) {
 const $$createType0 = $models.Settings.createFrom;
 const $$createType1 = llm$0.ClaudeCodeStatus.createFrom;
 const $$createType2 = $models.KeyStatus.createFrom;
+const $$createType3 = llm$0.ModelList.createFrom;

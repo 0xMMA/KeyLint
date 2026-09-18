@@ -9,6 +9,7 @@ export {
 
 export {
     AppPreset,
+    FeatureModels,
     KeyStatus,
     Provider,
     Settings

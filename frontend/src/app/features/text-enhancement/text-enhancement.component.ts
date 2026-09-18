@@ -32,6 +32,9 @@ const PROVIDER_OPTIONS = [
   { label: 'Ollama', value: 'ollama' },
 ];
 
+/** Lets a user say "use what Settings says" without knowing the model name. */
+const DEFAULT_MODEL_OPTION = { id: '', label: 'KeyLint default' };
+
 /** Providers that need no credential at all. */
 const KEYLESS_PROVIDERS = new Set(['ollama']);
 
@@ -42,41 +45,6 @@ const MISSING_KEY_MESSAGE = 'No AI API key configured.';
 const CLI_NOT_INSTALLED_MESSAGE = 'Claude Code CLI not found on this machine.';
 const CLI_NOT_SIGNED_IN_MESSAGE =
   'Claude Code is installed but not signed in. Open a terminal, run `claude`, and sign in.';
-
-const PROVIDER_MODELS: Record<string, Array<{ label: string; value: string }>> = {
-  claude: [
-    { label: 'Sonnet 4.6', value: 'claude-sonnet-4-6' },
-    { label: 'Opus 4.6', value: 'claude-opus-4-6' },
-    { label: 'Haiku 4.5', value: 'claude-haiku-4-5' },
-  ],
-  openai: [
-    { label: 'GPT-5.2', value: 'gpt-5.2' },
-    { label: 'GPT-5.2 Pro', value: 'gpt-5.2-pro' },
-    { label: 'GPT-4.1', value: 'gpt-4.1' },
-    { label: 'GPT-4.1 Mini', value: 'gpt-4.1-mini' },
-    { label: 'o3', value: 'o3' },
-  ],
-  'claude-code': [
-    // Aliases, not pinned IDs: the CLI resolves them to the current generation.
-    { label: 'Opus', value: 'opus' },
-    { label: 'Sonnet', value: 'sonnet' },
-    { label: 'Haiku', value: 'haiku' },
-  ],
-  ollama: [
-    { label: 'llama3.2', value: 'llama3.2' },
-    { label: 'mistral', value: 'mistral' },
-    { label: 'gemma3', value: 'gemma3' },
-    { label: 'phi4', value: 'phi4' },
-    { label: 'qwen2.5', value: 'qwen2.5' },
-  ],
-};
-
-const DEFAULT_MODELS: Record<string, string> = {
-  claude: 'claude-sonnet-4-6',
-  'claude-code': 'sonnet',
-  openai: 'gpt-5.2',
-  ollama: 'llama3.2',
-};
 
 let originalText = '';
 let pyramidizedText = '';   // snapshot of most recent foundation call
@@ -91,8 +59,12 @@ let isPreviewMode = false;
 let traceLogOpen = false;
 let wasCancelled = false;
 let bannerDismissed = false; // session-only
-let selectedProvider = 'claude';
-let selectedModel = 'claude-sonnet-4-6';
+// Empty until ngOnInit reads the active provider from settings. Initialising
+// it to a provider here made that branch unreachable, so the panel always
+// opened on Claude whatever the user had configured.
+let selectedProvider = '';
+// Empty means "whatever settings say for this provider" — the backend resolves it.
+let selectedModel = '';
 let qualityThreshold = 0.65;
 let advancedOpen = false;
 
@@ -160,12 +132,17 @@ function addTrace(label: string, snapshot: string): void {
 
         <div class="form-group">
           <label>Model</label>
+          @if (modelListIsStatic) {
+            <small class="hint-text" data-testid="model-list-static">
+              Showing KeyLint's built-in list — the provider could not be reached.
+            </small>
+          }
           <p-select
             data-testid="model-select"
             [(ngModel)]="modelView"
             [options]="currentModelOptions"
             optionLabel="label"
-            optionValue="value"
+            optionValue="id"
           />
         </div>
 
@@ -1034,6 +1011,8 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   errorMessage = '';
   refinementWarning = '';
   apiKeySet = true;
+  /** Set on destroy so a late model list does not refresh a dead view. */
+  private destroyed = false;
   /** What the banner says — the reason depends on the provider. */
   credentialsMessage = MISSING_KEY_MESSAGE;
   customInstructions = '';
@@ -1063,9 +1042,15 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
 
   readonly providerOptions = PROVIDER_OPTIONS;
 
-  get currentModelOptions(): Array<{ label: string; value: string }> {
-    return PROVIDER_MODELS[selectedProvider] ?? PROVIDER_MODELS['claude'];
+  /** The provider's models, with a leading entry for the configured default. */
+  modelOptions: Array<{ id: string; label: string }> = [DEFAULT_MODEL_OPTION];
+  /** Set when the list is the built-in one because the provider was unreachable. */
+  modelListIsStatic = false;
+
+  get currentModelOptions(): Array<{ id: string; label: string }> {
+    return this.modelOptions;
   }
+
 
   readonly docTypeOptions = [
     { label: 'AUTO (detect)', value: 'auto' },
@@ -1104,10 +1089,14 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     // Initialise provider from settings if not already set this session
     if (!selectedProvider && settings.active_provider) {
       selectedProvider = settings.active_provider;
-      selectedModel = DEFAULT_MODELS[selectedProvider] ?? 'claude-sonnet-4-6';
+      // Empty means "whatever Settings says for this provider".
+      selectedModel = '';
     }
 
     await this.refreshCredentialsBanner();
+    // Not awaited: the page has nothing to show from it yet, and waiting for a
+    // provider round trip here would delay the shortcut subscription below.
+    void this.loadModelOptions();
 
     qualityThreshold = await this.wails.getQualityThreshold();
 
@@ -1153,11 +1142,29 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   }
 
   async onProviderChange(): Promise<void> {
-    // Reset model to default for new provider
-    selectedModel = DEFAULT_MODELS[selectedProvider] ?? '';
+    // Back to "whatever settings say": a model from the previous provider would
+    // not exist on this one.
+    selectedModel = '';
+    await this.loadModelOptions();
     // The "no API key" banner belongs to the provider, so re-evaluate it here.
     await this.refreshCredentialsBanner();
     this.cdr.detectChanges();
+  }
+
+  /** Loads the current provider's models; the list is shared with Settings. */
+  private async loadModelOptions(): Promise<void> {
+    const provider = selectedProvider;
+    const list = await this.wails.listModels(provider);
+    if (provider !== selectedProvider) return;
+    this.modelOptions = [DEFAULT_MODEL_OPTION, ...(list.models ?? [])];
+    // "fixed" means the provider has no endpoint to ask, which is not a problem
+    // to report; "static" means it could not be reached, which is. With nothing
+    // to show either way there is no fallback to explain, so an unknown or
+    // empty provider must not raise an alarm about a list it never had.
+    this.modelListIsStatic = list.source === 'static' && (list.models?.length ?? 0) > 0;
+    if (!this.destroyed) {
+      this.cdr.detectChanges();
+    }
   }
 
   /**
@@ -1517,6 +1524,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.destroyed = true;
     this.sub?.unsubscribe();
   }
 }

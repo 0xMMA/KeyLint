@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -41,8 +42,8 @@ type Request struct {
 	System string
 	// User is the user message.
 	User string
-	// Model is the provider-specific model ID and is required — defaults live
-	// at the call site until they move into settings (#33 step 4).
+	// Model is the provider-specific model ID and is required. Callers resolve
+	// it through settings and llm.DefaultModel; this package does not guess.
 	Model string
 	// MaxTokens caps the response length. Only providers whose API requires it
 	// (Anthropic) send it; the others keep the request shape they had before.
@@ -238,8 +239,23 @@ func statusMessage(status int) string {
 // apiError is the user-facing wording for a provider that answered with a
 // status: "<Provider> error <status>: <reason>".
 func apiError(p provider, status int, rawBody string) error {
+	return apiErrorForModel(p, status, "", rawBody)
+}
+
+// apiErrorForModel is apiError for a call that named a model. A 404 then almost
+// always means the configured model is gone or was never available to this
+// account, and an error that does not say which one leaves the user hunting.
+func apiErrorForModel(p provider, status int, model, rawBody string) error {
 	if rawBody != "" {
 		logger.Debug("llm: error body", "provider", p.id, "status", status, "body", logger.Redact(rawBody))
+	}
+	if status == http.StatusNotFound && model != "" {
+		// Naming the model matters — a model configured months ago and since
+		// retired is the likeliest 404 here — but it must not displace the other
+		// cause the old wording carried: a mistyped endpoint answers 404 too,
+		// and sending that user to the model picker wastes their time.
+		return fmt.Errorf("%s error %d: the model %q was not found, or the endpoint URL is wrong — check both in Settings → AI Providers",
+			p.name, status, model)
 	}
 	return fmt.Errorf("%s error %d: %s", p.name, status, statusMessage(status))
 }
@@ -250,7 +266,28 @@ func apiError(p provider, status int, rawBody string) error {
 // response body, which is exactly what #41 keeps out of error strings. Map it
 // through apiError instead.
 func transportError(p provider, err error) error {
-	return fmt.Errorf("%s request failed: %w", p.name, err)
+	return fmt.Errorf("%s request failed: %w", p.name, redactURLError(err))
+}
+
+// redactURLError strips userinfo from the URL a *url.Error carries.
+//
+// Go puts the whole request URL in the message, and a self-hosted Ollama or an
+// OpenAI-compatible gateway is reached through a URL the user typed — which may
+// carry credentials. Those errors are logged at Info and shown in the UI, so
+// they must not repeat the secret back.
+func redactURLError(err error) error {
+	var urlErr *url.Error
+	if !errors.As(err, &urlErr) {
+		return err
+	}
+	parsed, perr := url.Parse(urlErr.URL)
+	if perr != nil || parsed.User == nil {
+		return err
+	}
+	parsed.User = nil
+	cleaned := *urlErr
+	cleaned.URL = parsed.String()
+	return &cleaned
 }
 
 // fingerprintHeaders describe the machine rather than the request. Both SDKs
