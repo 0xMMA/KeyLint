@@ -13,12 +13,10 @@ updates:
     commit-message:
       prefix: chore(ci)
     groups:
-      # Minor and patch only. A group without update-types swallows majors too,
-      # and every actions/* entry here is on a floating major tag several
-      # versions behind — so the first weekly run would have opened one PR
-      # carrying nine major bumps of the CI toolchain plus the
-      # action-gh-release v2→v3 that this repo deliberately deferred. Batching
-      # routine bumps is the point; batching a runtime migration is not.
+      # One PR a week for the routine bumps. update-types here decides what goes
+      # INTO the group — it does not suppress anything, which is the mistake the
+      # previous version of this file made: majors simply arrived as individual
+      # PRs instead. They are blocked below.
       actions:
         patterns:
           - "*"
@@ -27,11 +25,26 @@ updates:
           - patch
 
     ignore:
-      # v3.0.0 moves the action runtime from Node 20 to Node 24. Nothing forces
-      # it yet and the release path cannot be exercised without pushing a tag,
-      # so the bump waits for someone who can watch a real release. This entry
-      # is the reminder that it is a decision and not an oversight — drop it
-      # when GitHub retires the Node 20 runtime, which it has announced it will.
-      - dependency-name: softprops/action-gh-release
+      # Majors are not proposed at all.
+      #
+      # Not because they do not matter — because for GitHub Actions they arrive
+      # as unreviewable singles. Every major in this repo's history has been a
+      # Node runtime bump, and several of these actions only work in matched
+      # pairs: upload-artifact with download-artifact, upload-pages-artifact
+      # with deploy-pages. Dependabot proposes each half on its own, and merging
+      # one half breaks the release or the site.
+      #
+      # THE COST OF THIS LINE: nobody is told about a major again. That is a
+      # trade, not a fix. Check them deliberately — `gh api
+      # repos/actions/<name>/releases/latest` across the actions in
+      # .github/workflows/ — when touching CI, and bump them together in one
+      # commit the way #73 did.
+      # Still true and worth keeping written down, even though the wildcard
+      # below now covers it: softprops/action-gh-release stays on v2. v3.0.0
+      # moves the runtime from Node 20 to Node 24, and the release path cannot
+      # be exercised without pushing a tag — so that bump waits for someone who
+      # can watch a real release. Revisit when GitHub retires the Node 20
+      # runtime, which it has announced it will.
+      - dependency-name: "*"
         update-types:
           - version-update:semver-major
