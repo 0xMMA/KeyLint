@@ -42,9 +42,14 @@ test.describe('leaving Settings', () => {
     expect(await routedPages(page)).toEqual(['settings-page']);
 
     // 2. Click through every Settings tab.
+    // toHaveCount retries; locator.count() samples once. The container is
+    // visible before PrimeNG has rendered the tabs into it, so counting here
+    // returned 0 in roughly one local run in three. The number is pinned rather
+    // than lower-bounded because a tab appearing or disappearing should fail
+    // this test loudly, not quietly change what it clicks through.
     const tabs = page.locator('.settings-page [role="tab"]');
+    await expect(tabs, 'the Settings tabs should be present').toHaveCount(4);
     const count = await tabs.count();
-    expect(count, 'the Settings tabs should be present').toBeGreaterThan(1);
     for (let i = 0; i < count; i++) {
       await tabs.nth(i).click();
       // Let any panel animation start and finish before the next click.

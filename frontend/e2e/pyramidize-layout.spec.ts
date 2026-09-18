@@ -61,9 +61,10 @@ test.describe('Pyramidize — tab switching', () => {
   test('both panels are never simultaneously visible', async ({ page }) => {
     await gotoEnhance(page);
 
+    // toHaveCount retries where count() samples once — see
+    // router-leave-settings.spec.ts for the failure that taught us.
     const panels = page.locator('p-tabpanel');
-    const count  = await panels.count();
-    expect(count).toBe(2);
+    await expect(panels).toHaveCount(2);
 
     // Measure how many panels have height > 0 on the initial render.
     const heights = await panels.evaluateAll((els) =>

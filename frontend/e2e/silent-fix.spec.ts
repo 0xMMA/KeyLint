@@ -10,10 +10,24 @@ async function screenshot(page: Page, name: string): Promise<void> {
   console.log(`📸 Screenshot: e2e/screenshots/${name}.png`);
 }
 
-// NOTE: These tests make live API calls to Anthropic and are skipped after initial verification.
-// To re-enable for debugging, remove the `.skip`.
-// Verified working 2026-03-05. Skipped to avoid burning live API tokens.
-// Remove .skip to re-run (requires ANTHROPIC_API_KEY in .env).
+// SKIPPED, AND REMOVING `.skip` WILL NOT MAKE IT WORK.
+//
+// These tests were written against a browser-mode fallback in the Angular app:
+// the app would call the Anthropic API itself, the spec would proxy that call
+// through `page.route()` to get around CORS, and the key reached the app via
+// `localStorage.setItem('_e2e_apikey_claude', ...)`. That fallback is gone —
+// `TextEnhancementService` is now a pass-through to `WailsService`, nothing in
+// `frontend/src` reads `_e2e_apikey_claude`, and no code under `src/` calls a
+// provider at all. So the second test would fill the input, click, and wait
+// 30s for an output element that nothing populates.
+//
+// Left in place rather than deleted because the proxy pattern below is the
+// hard-won part and would have to be rewritten from scratch. Reviving this
+// needs a decision first: either give the app a test-only provider path again,
+// or drive the real Go backend (which means a Wails binary, not `ng serve`).
+// The first and third tests are independent of all that and would pass today.
+//
+// Last verified working 2026-03-05, before the fallback was removed.
 test.describe.skip('Silent Fix — live API verification (skipped)', () => {
   test('Fix page renders correctly', async ({ page }) => {
     await page.goto('/fix');

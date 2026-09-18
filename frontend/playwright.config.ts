@@ -38,9 +38,5 @@ export default defineConfig({
     // never a server worth reusing, and silently attaching to a stale one would
     // test the wrong build.
     reuseExistingServer: !process.env['CI'],
-    // Inject NG_APP_* vars so Angular's esbuild builder exposes them via import.meta.env
-    env: {
-      NG_APP_ANTHROPIC_API_KEY: process.env['ANTHROPIC_API_KEY'] ?? '',
-    },
   },
 });
