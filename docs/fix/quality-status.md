@@ -13,7 +13,9 @@ links to the other; `CLAUDE.md` points at both.
 
 ## What the suite is
 
-15 samples in `test-data/fix-samples/`, each a directory of three files:
+15 samples in `test-data/fix-samples/`, split into a tuning half and a held-out
+half (see [The split](#the-split) below). Each sample is a directory of three
+files:
 
 | File | Purpose |
 |---|---|
@@ -43,6 +45,79 @@ English text that must go (`Lieferschein`), deliberate code-switching, ASCII
 umlauts, punctuation, a Markdown snippet, a chat message whose register must
 survive, a long run-on paragraph, product names — and one sentence that is
 already correct and must come back untouched.
+
+### The split
+
+The fifteen samples live in two directories: `test-data/fix-samples/tune/` (10)
+and `test-data/fix-samples/holdout/` (5).
+
+This exists because of a measured failure, not a principle. Six prompt variants
+were compared on all fifteen samples and the best one shipped; re-measuring that
+same prompt afterwards came out lower on both counts that mattered —
+deterministic 0.9513 → 0.9465, samples passing 12 → 11 — which turned a
+non-overlapping improvement into an overlap. Picking the best of six draws is
+itself a measurement, and nothing in the suite could see it.
+
+**The rule**, in the order it is applied, so that anyone can re-derive the split
+rather than trust the lists:
+
+1. `mixed-code-switching` goes to the **holdout**. It is the only sample in a
+   mixed language, and a holdout that cannot represent a language cannot measure
+   it.
+2. `schon-korrekt` goes to **tune**. It is the only sample whose correct answer
+   is "change nothing", and a half that cannot exercise that during tuning
+   cannot be tuned against safely.
+3. Of the remaining 13 in alphabetical order, **every third** — positions 3, 6,
+   9 and 12 — joins the holdout. The rest is the tuning half.
+
+That yields:
+
+| holdout (5) | tune (10) |
+|---|---|
+| `de-nomen-gross` | `chat-ton` |
+| `en-french-word` | `de-anglizismus-bleibt` |
+| `en-run-on` | `de-tech-terms-bleiben` |
+| `markdown-struktur` | `de-umlaute-ascii` |
+| `mixed-code-switching` | `en-german-word-ersetzen` |
+| | `en-grammar-basics` |
+| | `interpunktion` |
+| | `langer-absatz` |
+| | `produktnamen` |
+| | `schon-korrekt` |
+
+German, English and mixed are all represented in the holdout. The two named
+exceptions are the part to be suspicious of, so they are stated with their
+reasons rather than with their effect — and neither was chosen after looking at
+a score.
+
+**Adding or removing a sample re-derives the split**, because positions 3, 6, 9
+and 12 move. That is not a detail: it retires any held-out measurement taken
+before the change, since the half that was held out is no longer the half being
+reported. Re-record rather than carry the old number forward.
+
+**One consequence worth stating plainly.** There is exactly one mixed-language
+sample, so putting it in the holdout leaves the tuning half with none — and the
+violation still open on #80 is precisely the code-switching one. The next
+attempt at it therefore has nothing to iterate against and gets one measurement
+at the end. That is the honest position rather than a flaw in the split, but it
+is also an argument for writing a second mixed sample so that one can sit on
+each side.
+
+### The protocol
+
+- **Tune on `tune`.** `./scripts/eval.sh --suite fix --split tune --runs 3`.
+  Iterate there as much as the question needs.
+- **Measure `holdout` once, at the end**, when the change is otherwise final:
+  `--split holdout --runs 3`. Once. A second look at it makes it a tuning set.
+- **Report both**, with the number of tune-half iterations that preceded them.
+  A holdout number reported without saying how many variants produced the
+  winner says less than it appears to.
+- **Baselines measure `all`**, which is the default, because a baseline is a
+  description of what ships rather than a step in a search.
+
+`split` is part of the `configKey`, so `--compare` refuses a tune-half run
+against an all-samples baseline instead of printing a delta between two
+different things.
 
 ### The checks
 

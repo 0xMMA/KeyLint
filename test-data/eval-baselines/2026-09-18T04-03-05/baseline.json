@@ -21,9 +21,10 @@
     "schemaEnforcement": false,
     "qualityThreshold": 0.65,
     "sampleCount": 13,
-    "checksVersion": 1
+    "checksVersion": 1,
+    "split": "all"
   },
-  "configKey": "pyramidize|claude|claude-sonnet-4-6|claude|claude-sonnet-4-5-20250929|2|false|0.65|13|1",
+  "configKey": "pyramidize|claude|claude-sonnet-4-6|claude|claude-sonnet-4-5-20250929|2|false|0.65|13|1|all",
   "configConsistent": true,
   "judgeCoverage": {
     "min": 13,

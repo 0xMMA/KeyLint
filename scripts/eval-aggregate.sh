@@ -76,6 +76,10 @@ done
 # A run recorded before the suite field existed WAS a pyramidize run — there was
 # no other suite — so defaulting it is a fact about those files, not a guess.
 #
+# split IS in the key: the Fix samples are divided into a tuning half and a
+# held-out half, and a number from ten samples is not a number from fifteen. Runs
+# that predate the split, and every pyramidize run, key as "all".
+#
 # checksVersion IS in the key, for the opposite reason: the checks are what the
 # suite measures WITH, and a run scored by a different instrument is a different
 # measurement however similar the prompt was. Anything else that sits between
@@ -93,14 +97,15 @@ def keyFrom(c): [(c.suite // "pyramidize"), c.provider, c.model,
                  (c.judge.provider // "none"), (c.judge.model // "none"),
                  (c.promptVariant|tostring), (c.schemaEnforcement|tostring),
                  (c.qualityThreshold|tostring), (c.sampleCount|tostring),
-                 ((c.checksVersion // 1)|tostring)] | join("|");
+                 ((c.checksVersion // 1)|tostring), (c.split // "all")] | join("|");
 # A baseline written before the suite name joined the key stored eight fields.
 # Upgrading it on READ is what keeps the baselines recorded so far usable;
 # refusing them would have made a key format change quietly discard every
 # measurement the project has.
 def upgradeKey(k): (k | split("|")) as $p
-                 | if ($p|length) == 8 then ((["pyramidize"] + $p + ["1"]) | join("|"))
-                   elif ($p|length) == 9 then (($p + ["1"]) | join("|"))
+                 | if ($p|length) == 8 then ((["pyramidize"] + $p + ["1", "all"]) | join("|"))
+                   elif ($p|length) == 9 then (($p + ["1", "all"]) | join("|"))
+                   elif ($p|length) == 10 then (($p + ["all"]) | join("|"))
                    else k end;
 def baselineKey(b): if (b.config|type) == "object" then keyFrom(b.config) else upgradeKey(b.configKey // "unknown") end;'
 
@@ -145,6 +150,7 @@ AGGREGATE=$(jq -s --argjson perSample "$PER_SAMPLE" --argjson runs "$RUNS_JSON" 
             suite: (.[0].suite // "pyramidize"),
             promptHash: (.[0].promptHash // null),
             checksVersion: (.[0].checksVersion // 1),
+            split: (.[0].split // "all"),
             gitSHA: .[0].gitSHA,
             provider: .[0].provider,
             model: .[0].model,

@@ -46,6 +46,7 @@ WRITE_BASELINE=0
 SUITE=pyramidize
 VARIANT_SET=0
 SCHEMA_SET=0
+SPLIT_SET=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -55,6 +56,7 @@ while [[ $# -gt 0 ]]; do
         --schema)   export KEYLINT_PYRAMIDIZE_SCHEMA=1; SCHEMA_SET=1; shift ;;
         --runs)     RUNS="$2"; WRITE_BASELINE=1; shift 2 ;;
         --suite)    SUITE="$2"; shift 2 ;;
+        --split)    export EVAL_SPLIT="$2"; SPLIT_SET=1; shift 2 ;;
         --compare)  COMPARE="$2"; shift 2 ;;
         *)          echo "Unknown flag: $1" >&2; exit 1 ;;
     esac
@@ -82,6 +84,19 @@ case "$SUITE" in
     *)          echo "--suite takes 'pyramidize' or 'fix'" >&2; exit 3 ;;
 esac
 
+# The Fix samples are split into a tuning half and a held-out half. Default is
+# all fifteen, which is what a baseline should measure; --split narrows a run to
+# one half. The half is recorded in summary.json and carried into the configKey,
+# so --compare refuses to read a tune-half number against an all-samples one.
+case "${EVAL_SPLIT:-all}" in
+    all|tune|holdout) ;;
+    *) echo "--split takes 'all', 'tune' or 'holdout'" >&2; exit 3 ;;
+esac
+if (( SPLIT_SET )) && [[ "$SUITE" != "fix" ]]; then
+    echo "--split applies to the fix suite; the pyramidize samples are not split" >&2
+    exit 3
+fi
+
 # Both of these configure the Pyramidize pipeline and nothing else. Accepting
 # them under --suite fix printed "Variant: 2" in the header and measured variant
 # 0 — a run that says it tested something it did not.
@@ -101,6 +116,9 @@ echo "Provider: ${EVAL_PROVIDER:-<eval default: claude>}"
 echo "Model:    ${EVAL_MODEL:-<provider default>}"
 if [[ "$SUITE" != "fix" ]]; then
     echo "Variant:  ${EVAL_VARIANT:-0 (latest)}"
+fi
+if [[ "$SUITE" == "fix" ]]; then
+    echo "Split:    ${EVAL_SPLIT:-all}"
 fi
 echo "Judge:    ${EVAL_JUDGE_PROVIDER:-claude} / ${EVAL_JUDGE_MODEL:-<pinned>} @ temp 0"
 echo "Runs:     $RUNS"
