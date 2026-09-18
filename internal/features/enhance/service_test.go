@@ -107,8 +107,8 @@ func TestEnhanceOpenAI(t *testing.T) {
 	if rec.client.gotRequest.Model != llm.DefaultModel(llm.ProviderOpenAI, llm.FeatureFix) {
 		t.Errorf("Model = %q, want %q", rec.client.gotRequest.Model, llm.DefaultModel(llm.ProviderOpenAI, llm.FeatureFix))
 	}
-	if rec.client.gotRequest.User != "their going to the meeting" {
-		t.Errorf("User = %q, want the input text", rec.client.gotRequest.User)
+	if rec.client.gotRequest.User != buildUserMessage("their going to the meeting") {
+		t.Errorf("User = %q, want the input text between the markers", rec.client.gotRequest.User)
 	}
 	if rec.client.gotRequest.System != systemPrompt {
 		t.Error("System must be the enhance system prompt")
@@ -303,8 +303,8 @@ func TestEnhanceOllamaSendsASystemMessage(t *testing.T) {
 	if gotMessages[0].Role != "system" || gotMessages[0].Content != systemPrompt {
 		t.Errorf("first message = %+v, want the enhance system prompt in a system role", gotMessages[0])
 	}
-	if gotMessages[1].Role != "user" || gotMessages[1].Content != "my text" {
-		t.Errorf("second message = %+v, want the user text", gotMessages[1])
+	if gotMessages[1].Role != "user" || gotMessages[1].Content != buildUserMessage("my text") {
+		t.Errorf("second message = %+v, want the user text between the markers", gotMessages[1])
 	}
 }
 

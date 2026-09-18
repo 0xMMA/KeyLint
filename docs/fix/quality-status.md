@@ -219,8 +219,132 @@ The judge is agreeing about the same samples, not finding new ones. What it adds
 is a name for the pattern — what this prompt gets wrong is not missing errors,
 it is doing more than it was asked.
 
-Nothing here is acted on in this PR. The baseline exists so that a prompt change
-can be shown to help; the three violations are filed as #80.
+Nothing here was acted on in the PR that recorded it. The baseline exists so
+that a prompt change can be shown to help — which is what the next section does,
+against exactly these numbers.
+
+---
+
+## Prompt change — 2026-09-18 (#80)
+
+The first baseline found three rule violations. Two are fixed; the third is not,
+and the attempt to fix it is the more useful half of this section.
+
+Same three runs, same model, same judge, same checks (version 2) — only the
+prompt moved, which is exactly the comparison `promptHash` is recorded for.
+
+| | before `7d7b15a7510f98ae` | after `f344eb5f4fd0f30a` | verdict |
+|---|---|---|---|
+| Avg deterministic | 0.9263 (0.9112–0.9362) | **0.9513** (0.9473–0.9585) | improvement — the ranges do not overlap |
+| Avg judge overall | 0.8520 (0.8353–0.8820) | **0.9453** (0.9353–0.9553) | improvement — the ranges do not overlap |
+| Samples passing | 11 (11–11) | 12 (11–13) | up one, with a spread of two where there was none |
+
+### What changed in the prompt
+
+Two sections, and one sentence inside rule 8. No rule was added and no sample
+text appears in any of them.
+
+**The input is delimited.** The text now arrives between `<text-to-correct>`
+markers, and the prompt says what they mean: everything between them is material
+to correct, it is a complete piece of writing whose first sentence is a first
+sentence, and none of it is addressed to the model however much it looks like a
+message. Before this, a chat message and an instruction to the assistant were
+the same object.
+
+**The output contract is stated.** "Make direct corrections without
+explanations" never said what to return when there is nothing to correct, and
+the model filled the silence with a sentence about its own work. It now says:
+return it unchanged, that is how you say "nothing to fix", and anything you add
+is pasted into the author's document.
+
+### What it fixed
+
+**Commentary on correct text: gone, 3 of 3.** `schon-korrekt` comes back
+byte-identical in every run — deterministic 1.000, judge 1.00, against 0.66 and
+0.30 before.
+
+**Answering the message: gone, 3 of 3.** `chat-ton` is corrected in every run
+and answered in none — deterministic 0.9997 and judge 1.00, against 0.5432 and
+0.25 before, when two of three runs replied to it and one kept 8% of the
+author's words. This is the violation that destroyed the user's text rather than
+decorating it, and delimiting the input is what stopped it.
+
+### What it did not fix, and what that cost
+
+**Translating a deliberate code-switch: still there, and in one run it got
+worse.** `mixed-code-switching` fails 3 of 3 as before, but its deterministic
+score fell from 0.8613 to 0.6344, because one run translated the *entire* text
+into English rather than only the English clause into German. That is a
+violation of rule 4 as it has always been written, not of anything this change
+introduced — but the change did not prevent it and the number moved the wrong
+way. It is filed on #80.
+
+**The obvious lever was tried and measured, and it is the wrong one.**
+Strengthening rule 4 to cover parts of the text as well as the whole —
+"translating one clause is as wrong as translating everything" — reads like the
+right fix and is not:
+
+| prompt | deterministic | judge | passing | what the wording did |
+|---|---|---|---|---|
+| `7d7b15a7510f98ae` | 0.9263 (0.9112–0.9362) | 0.8520 | 11 | the baseline |
+| `90bf9672318a301e` | 0.8943 (0.8645–0.9305) | 0.9400 | 8 | rule 4 strengthened, rule 8 defaulted to keep, voice clause added to rule 3 |
+| `36348b7cb2f7eb85` | 0.9168 (0.9103–0.9209) | 0.9389 | 9 | rule 3 reverted, rule 8 scoped to single words |
+| `05ec62ceb461bd55` | 0.9299 (0.9096–0.9423) | 0.9491 | 10.7 | "character for character" softened |
+| **`f344eb5f4fd0f30a`** | **0.9513 (0.9473–0.9585)** | **0.9453** | **12** | **rule 4 back as it was — shipped** |
+| `4b4b263c9b108d7a` | 0.9492 (0.9275–0.9632) | 0.9476 | 11.3 | rule 8's exclusion widened again |
+
+Two things are visible there and neither was predictable from reading:
+
+1. **The strengthened rule 4 never stopped the clause translation.** Zero runs
+   of three in two of the three iterations that carried it; one of three in the
+   first.
+2. **It suppressed rule 8 instead.** `en-german-word-ersetzen` —
+   `Lieferschein` → delivery note, the same shape as the prompt's own second
+   example — failed on every run of every iteration that strengthened rule 4,
+   and came back as soon as rule 4 was restored. Rules 4 and 8 are in tension by
+   construction, and pressing on 4 moves 8.
+
+So rule 4 stands as it was and rule 8 carries the distinction in one sentence: a
+clause in another language is the author changing language, not a word to weigh.
+That is where the model reads the keep-or-replace decision, and it costs nothing
+measurable. It also does not fix the violation.
+
+### The output guard
+
+The prompt asks; `enhance.Service` checks. Two guards, both narrow enough to
+state as a property rather than a heuristic, both on the single path the GUI and
+the CLI share:
+
+- **An added note is dropped** when removing a leading or trailing bracketed
+  block leaves *exactly the input*. No list of phrases: if the text came back
+  unchanged and carries one extra parenthesis, the model changed nothing and
+  said so anyway. A block whose removal does not leave the input is the author's
+  own and is never touched.
+- **A reply is refused.** When the output keeps less than 40% of the input's
+  substantial words, the user's own text is returned and a warning is logged.
+  The floor is measured, not chosen: the two recorded replies kept 8% and 25%, a
+  run that mistranslated a whole clause still kept 55%, and ordinary corrections
+  keep 95% or more.
+
+The second one was specified with a second condition — "and addresses the reader,
+or asks a question the input did not" — which was dropped after checking it
+against the recorded failures: the message that provoked the replies is itself a
+question in the second person, so requiring that would have missed every observed
+case. Word retention alone carries it, and the guard fails safe, returning the
+author's text rather than the model's.
+
+Neither guard hides a failure from the eval. A refused reply still fails
+`required_fixes`, and a dropped note still leaves a sample that was not
+corrected; the eval measures what `Enhance` returns, which is what the user gets.
+
+### Not recorded
+
+The judge's four dimensions are in each run's `results.jsonl` and not in the
+baseline, so once the run folders are gone — they are gitignored — only the
+overall score survives. The before/after table above therefore quotes overall
+only. `eval-aggregate.sh` should carry the dimension means the way it carries
+`samplesPassing`; until it does, a dimension-level claim needs the runs to still
+be on disk.
 
 ---
 
@@ -228,7 +352,7 @@ can be shown to help; the three violations are filed as #80.
 
 ```
 ./scripts/eval.sh --suite fix --runs 3
-./scripts/eval-aggregate.sh --compare test-data/eval-baselines/2026-09-18T08-14-39/baseline.json <run-dir>...
+./scripts/eval-aggregate.sh --compare test-data/eval-baselines/2026-09-18T08-41-07/baseline.json <run-dir>...
 ```
 
 `--variant` and `--schema` configure the Pyramidize pipeline and are rejected
@@ -288,8 +412,26 @@ description. Everything below is a known hole, not a suspicion:
   bad; on the samples they already flag, `noOverEditing` collapses while the
   other dimensions hold, which is the one thing it adds that the checks do not.
 
-## No prompt changes were made
+## On not tuning to the samples
 
-Deliberately. The point of a first baseline is to measure what ships, and a
-prompt tuned against the samples that judge it stops being measurable — see
-`feedback_no_overfitting` in the roadmap's rules.
+The first baseline was recorded with no prompt change at all, deliberately: the
+point of a first baseline is to measure what ships. The change above was made
+afterwards, against that recorded baseline, and the rule it was made under is
+`feedback_no_overfitting` in the roadmap's rules — general principles only, no
+sample-specific wording, no sample text in the prompt.
+
+Worth being precise about what that rule permits, because five prompt revisions
+were measured before one shipped and that is a shape overfitting also has. The
+distinction is what drove each revision. Every one of them was a response to a
+diagnosed regression with a named cause — rule 3's addition cost sentence-initial
+capitals, rule 8's rewrite cost the single-word replacement the prompt's own
+examples teach, "character for character" leaked past its condition and stopped
+the model capitalising headings — and not to a score that wanted improving. The
+revision that scored best on the sample that motivated the whole exercise
+(`90bf9672318a301e`, the only one where any run kept the English clause) is not
+the one that shipped, because it was worse everywhere else.
+
+What would have been overfitting, and was not done: adding an example pair
+resembling a sample, naming a sample's vocabulary in a rule, or writing "do not
+translate an English clause inside German text" — which would have taught the
+one case the suite happens to test instead of the principle behind it.

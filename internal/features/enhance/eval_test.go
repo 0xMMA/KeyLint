@@ -66,7 +66,11 @@ func gitSHA() string {
 // produced it; this says whether the prompt itself moved, which is the thing an
 // eval of a prompt is actually comparing.
 func promptHash() string {
-	sum := sha256.Sum256([]byte(systemPrompt))
+	// The wrapper is part of the prompt: the markers are what tell the model the
+	// text is a document rather than a message, and a run that changed them
+	// measured something else. Hashing only the system prompt would have called
+	// that the same configuration.
+	sum := sha256.Sum256([]byte(systemPrompt + "\n" + buildUserMessage("")))
 	return hex.EncodeToString(sum[:8])
 }
 
