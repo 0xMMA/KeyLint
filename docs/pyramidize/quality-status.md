@@ -2,6 +2,8 @@
 
 > Last updated: 2026-09-18
 
+> The Fix prompt has its own suite and baseline: [`docs/fix/quality-status.md`](../fix/quality-status.md).
+
 ---
 
 ## Eval Infrastructure

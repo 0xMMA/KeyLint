@@ -5,7 +5,8 @@ set -euo pipefail
 # Wraps `go test -tags eval` and prints a summary.
 #
 # Usage:
-#   ./scripts/eval.sh                          # one run, configured provider, latest variant
+#   ./scripts/eval.sh                          # one run of the pyramidize suite
+#   ./scripts/eval.sh --suite fix --runs 3     # the silent grammar fix instead
 #   EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 ./scripts/eval.sh
 #   ./scripts/eval.sh --provider openai --model gpt-4o
 #   ./scripts/eval.sh --variant 1              # run with prompt variant v1
@@ -37,6 +38,12 @@ fi
 RUNS=1
 COMPARE=""
 WRITE_BASELINE=0
+# Which suite to run. pyramidize is the default because it is the older one and
+# every recorded baseline belongs to it; --suite fix measures the silent grammar
+# fix instead. They write the same summary.json shape, so eval-aggregate.sh
+# reads either — but a baseline from one is not comparable with the other, and
+# the configKey carries the model and variant that say so.
+SUITE=pyramidize
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -45,6 +52,7 @@ while [[ $# -gt 0 ]]; do
         --variant)  export EVAL_VARIANT="$2"; shift 2 ;;
         --schema)   export KEYLINT_PYRAMIDIZE_SCHEMA=1; shift ;;
         --runs)     RUNS="$2"; WRITE_BASELINE=1; shift 2 ;;
+        --suite)    SUITE="$2"; shift 2 ;;
         --compare)  COMPARE="$2"; shift 2 ;;
         *)          echo "Unknown flag: $1" >&2; exit 1 ;;
     esac
@@ -66,7 +74,13 @@ if [[ -n "$COMPARE" && ! -f "$COMPARE" ]]; then
 fi
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 3; }
 
-echo "=== KeyLint Pyramidize Eval ==="
+case "$SUITE" in
+    pyramidize) SUITE_PKG=./internal/features/pyramidize/ ;;
+    fix)        SUITE_PKG=./internal/features/enhance/ ;;
+    *)          echo "--suite takes 'pyramidize' or 'fix'" >&2; exit 3 ;;
+esac
+
+echo "=== KeyLint Eval: $SUITE ==="
 echo "Provider: ${EVAL_PROVIDER:-<eval default: claude>}"
 echo "Model:    ${EVAL_MODEL:-<provider default>}"
 echo "Variant:  ${EVAL_VARIANT:-0 (latest)}"
@@ -84,7 +98,7 @@ for (( i = 1; i <= RUNS; i++ )); do
     # already spent on the earlier runs.
     BEFORE=$(ls -d test-data/eval-runs/*/ 2>/dev/null | sort || true)
     set +e
-    go test -tags eval ./internal/features/pyramidize/ -v -timeout 900s 2>&1 | tee /dev/stderr | tail -1
+    go test -tags eval "$SUITE_PKG" -v -timeout 900s 2>&1 | tee /dev/stderr | tail -1
     run_status=${PIPESTATUS[0]}
     set -e
     AFTER=$(ls -d test-data/eval-runs/*/ 2>/dev/null | sort || true)

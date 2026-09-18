@@ -132,7 +132,8 @@ Hypothesis: with Opus 5 / Sonnet 5 a single well-structured call matches the det
 - [ ] Still open from that line: **structured output** (`--json-schema` / `output_config.format`). All three baselines ran with `schemaEnforcement: false`, so enforcement remains unmeasured (#47)
 - [ ] Still open: the **AUTO default costs two calls** (detect + foundation) and is what ships; changing it needs detection-accuracy evidence that does not exist yet
 - [ ] Compare via eval; keep whichever wins, delete the loser. Rules from `feedback_no_overfitting`: general principles only
-- [ ] Fix prompt: same exercise with a small sample set (currently no eval for Fix — add one, 10–15 samples)
+- [x] Fix prompt eval: 15 samples in `test-data/fix-samples/`, deterministic checks plus the same pinned judge, baselined on the shipped default — see [`docs/fix/quality-status.md`](fix/quality-status.md). It found two reproducible rule violations (trailing commentary on correct text, and translating deliberate code-switching); no prompt change yet, by the no-overfitting rule
+- [ ] Act on what the Fix eval found — a prompt change that measurably beats the recorded baseline
 - [ ] Parked until eval says otherwise: v1 specialist architecture, NLP QA stages (`docs/pyramidize/adr-001-pipeline-architecture.md`)
 
 #### E4 · Dependency upgrade wave
