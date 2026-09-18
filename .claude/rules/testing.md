@@ -11,6 +11,11 @@
 
 ## jsdom Polyfills
 
+Still true on jsdom 30, checked inside the running test environment rather than
+against the library: `matchMedia`, `ResizeObserver` and `IntersectionObserver`
+are all undefined. Re-check with a throwaway spec before assuming a bump changed
+it — the library and the environment the builder sets up are not the same thing.
+
 TabList uses `ResizeObserver` which doesn't exist in jsdom. Add at the top of specs that import tab components:
 
 ```typescript
@@ -22,6 +27,23 @@ whether to go modal, and jsdom has none. Stub it to "no match" in specs that
 open one. This is a jsdom gap in a library, not permission to use `matchMedia`
 in app code — KeyLint's own code must not read it for theme detection, see
 `architecture.md`.
+
+## The Test Runner
+
+`ng test` runs through `@angular/build:unit-test` with `runner: vitest`
+(`frontend/angular.json`). The builder declares vitest as an **optional** peer
+at `^4.0.8` — including on `@angular/build@22`, the newest published — while the
+repo runs vitest 5. That is deliberate and measured: `npm ci` resolves it
+cleanly, all 198 tests pass, and a deliberately broken assertion still fails.
+What it means is that the pairing is unsupported rather than merely untested, so
+a builder-side breakage has no upstream guarantee behind it. Read the
+`ERESOLVE overriding peer dependency` line in an install log as expected, not as
+a problem to fix by downgrading something else.
+
+Each spec file gets its own environment, so a global stub (`ResizeObserver`,
+`matchMedia`) belongs in every file that needs it. Do not rely on another
+file having set one: leakage between files was observed once and did not
+reproduce in ten runs, which is the worst kind of dependency to have.
 
 ## Go Tests
 
