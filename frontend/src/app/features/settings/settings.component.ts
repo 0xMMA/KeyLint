@@ -723,7 +723,11 @@ export class SettingsComponent implements OnInit, OnDestroy {
       this.claudeCodeStatus = await this.wails.getClaudeCodeStatus();
     } finally {
       this.claudeCodeChecking = false;
-      // Detection can outlive the screen; refreshing a destroyed view throws.
+      // Detection can outlive the screen. Refreshing a destroyed view does NOT
+      // throw on this Angular version — measured, see shell-routing.spec.ts —
+      // so this guard is about not doing pointless work, not about safety. The
+      // comment it replaces claimed the opposite and sent #38's investigation
+      // after a phantom.
       if (!this.destroyed) {
         this.cdr.detectChanges();
       }
