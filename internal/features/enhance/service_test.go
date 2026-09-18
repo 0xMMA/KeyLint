@@ -72,9 +72,6 @@ func newTestService(t *testing.T, cfg settings.Settings, keys map[string]string)
 	// reach, so this test measures the code and not the machine.
 	settingsSvc := settings.NewServiceFrom(cfg, settings.EnvOnlyKeys)
 
-	// A plausible correction of the input the tests send, not an unrelated
-	// string: Enhance now runs its output guard, and a reply that shares
-	// nothing with the input is refused on purpose.
 	rec := &recorder{client: &fakeClient{reply: fakeCorrection}}
 	svc := NewService(settingsSvc)
 	svc.newClient = rec.new

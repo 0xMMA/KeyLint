@@ -342,11 +342,10 @@ func writeBaseline(t *testing.T, root, out string) {
 }
 
 // TestARunRecordedBeforeTheSuiteFieldStillKeys: summary.json gained `suite` when
-// the Fix suite arrived, then `checksVersion`, then `guardVersion`. Runs
-// recorded before those have none of them, and the key has to name them anyway
-// — as `pyramidize`, which is what they were, checks version 1, which is what
-// scored them, and guard version 0, which is what stood between the model and
-// the score: nothing.
+// the Fix suite arrived, and `checksVersion` a round later. Runs
+// recorded before those have neither, and the key has to name them anyway — as
+// `pyramidize`, which is what they were, and checks version 1, which is what
+// scored them.
 func TestARunRecordedBeforeTheSuiteFieldStillKeys(t *testing.T) {
 	root := t.TempDir()
 	runs := []string{
@@ -357,7 +356,7 @@ func TestARunRecordedBeforeTheSuiteFieldStillKeys(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}
-	const want = "pyramidize|claude|claude-sonnet-4-6|claude|claude-sonnet-4-5-20250929|2|false|0.65|2|1|0"
+	const want = "pyramidize|claude|claude-sonnet-4-6|claude|claude-sonnet-4-5-20250929|2|false|0.65|2|1"
 	if got["configKey"] != want {
 		t.Errorf("configKey = %v\nwant       %v", got["configKey"], want)
 	}
@@ -409,15 +408,14 @@ func downgradeKey(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 	parts := strings.Split(doc["configKey"].(string), "|")
-	if len(parts) != 11 {
-		t.Fatalf("configKey has %d fields, expected the current 11: %v", len(parts), doc["configKey"])
+	if len(parts) != 10 {
+		t.Fatalf("configKey has %d fields, expected the current 10: %v", len(parts), doc["configKey"])
 	}
-	doc["configKey"] = strings.Join(parts[1:len(parts)-2], "|")
+	doc["configKey"] = strings.Join(parts[1:len(parts)-1], "|")
 	cfg := doc["config"].(map[string]any)
 	delete(cfg, "suite")
 	delete(cfg, "promptHash")
 	delete(cfg, "checksVersion")
-	delete(cfg, "guardVersion")
 
 	out, _ := json.Marshal(doc)
 	if err := os.WriteFile(path, out, 0o644); err != nil {

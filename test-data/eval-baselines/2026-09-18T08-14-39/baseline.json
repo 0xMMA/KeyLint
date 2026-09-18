@@ -21,10 +21,9 @@
     },
     "schemaEnforcement": false,
     "qualityThreshold": 0,
-    "sampleCount": 15,
-    "guardVersion": 0
+    "sampleCount": 15
   },
-  "configKey": "fix|claude|claude-haiku-4-5-20251001|claude|claude-sonnet-4-5-20250929|0|false|0|15|2|0",
+  "configKey": "fix|claude|claude-haiku-4-5-20251001|claude|claude-sonnet-4-5-20250929|0|false|0|15|2",
   "configConsistent": true,
   "judgeCoverage": {
     "min": 15,

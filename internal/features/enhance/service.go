@@ -112,12 +112,6 @@ type Service struct {
 	// getKey resolves a provider API key. Tests replace it so they never touch
 	// the OS keyring.
 	getKey func(provider string) string
-	// lastGuardAction is what the output guard did on the most recent call. It
-	// exists for the eval: a sample that passes because the guard cleaned up
-	// after the model is not the same result as one the model got right, and
-	// without recording it the two are indistinguishable in the scorecard.
-	// Single-call use only — the eval runs samples in sequence.
-	lastGuardAction guardAction
 }
 
 // NewService creates an EnhanceService backed by the given settings.
@@ -168,11 +162,7 @@ func (s *Service) Enhance(text string) (result string, err error) {
 	if err != nil {
 		return "", err
 	}
-	// The prompt asks; the guard checks. Both the GUI and the CLI reach the
-	// model through this one function, so neither can get the unguarded answer.
-	guarded, action := guardOutput(text, resp.Text)
-	s.lastGuardAction = action
-	return guarded, nil
+	return resp.Text, nil
 }
 
 // providerConfig resolves credentials, endpoint and model ID for the active

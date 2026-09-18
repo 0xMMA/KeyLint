@@ -76,12 +76,11 @@ done
 # A run recorded before the suite field existed WAS a pyramidize run — there was
 # no other suite — so defaulting it is a fact about those files, not a guess.
 #
-# checksVersion and guardVersion ARE in the key, for the opposite reason: the
-# checks are what the suite measures WITH, and the output guard sits between the
-# model and the score, so a run scored by either of those in a different version
-# is a different measurement however similar the prompt was. The guard was added
-# after the fact and moved a number the prompt was credited with; runs from
-# before it exists key as version 0.
+# checksVersion IS in the key, for the opposite reason: the checks are what the
+# suite measures WITH, and a run scored by a different instrument is a different
+# measurement however similar the prompt was. Anything else that sits between
+# the model and the score — post-processing of the model reply, say — belongs
+# here for the same reason, and would need its own version field.
 #
 # promptHash is deliberately NOT in the key. It was, for one revision, and that
 # made the suite refuse the comparison it exists to make: change the prompt, and
@@ -94,15 +93,14 @@ def keyFrom(c): [(c.suite // "pyramidize"), c.provider, c.model,
                  (c.judge.provider // "none"), (c.judge.model // "none"),
                  (c.promptVariant|tostring), (c.schemaEnforcement|tostring),
                  (c.qualityThreshold|tostring), (c.sampleCount|tostring),
-                 ((c.checksVersion // 1)|tostring), ((c.guardVersion // 0)|tostring)] | join("|");
+                 ((c.checksVersion // 1)|tostring)] | join("|");
 # A baseline written before the suite name joined the key stored eight fields.
 # Upgrading it on READ is what keeps the baselines recorded so far usable;
 # refusing them would have made a key format change quietly discard every
 # measurement the project has.
 def upgradeKey(k): (k | split("|")) as $p
-                 | if ($p|length) == 8 then ((["pyramidize"] + $p + ["1", "0"]) | join("|"))
-                   elif ($p|length) == 9 then (($p + ["1", "0"]) | join("|"))
-                   elif ($p|length) == 10 then (($p + ["0"]) | join("|"))
+                 | if ($p|length) == 8 then ((["pyramidize"] + $p + ["1"]) | join("|"))
+                   elif ($p|length) == 9 then (($p + ["1"]) | join("|"))
                    else k end;
 def baselineKey(b): if (b.config|type) == "object" then keyFrom(b.config) else upgradeKey(b.configKey // "unknown") end;'
 
@@ -147,7 +145,6 @@ AGGREGATE=$(jq -s --argjson perSample "$PER_SAMPLE" --argjson runs "$RUNS_JSON" 
             suite: (.[0].suite // "pyramidize"),
             promptHash: (.[0].promptHash // null),
             checksVersion: (.[0].checksVersion // 1),
-            guardVersion: (.[0].guardVersion // 0),
             gitSHA: .[0].gitSHA,
             provider: .[0].provider,
             model: .[0].model,
@@ -177,9 +174,6 @@ AGGREGATE=$(jq -s --argjson perSample "$PER_SAMPLE" --argjson runs "$RUNS_JSON" 
         judge: (map(select(.avgJudge != null) | .avgJudge) |
                 if length == 0 then null
                 else {mean: ((add / length) | r4), min: (min | r4), max: (max | r4), spread: ((max - min) | r4)} end),
-        # Summed across runs: a score that only holds because the guard cleaned
-        # up after the model is a different result from one the model earned.
-        guardActions: ([.[].guardActions // {}] | add // {}),
         samplesPassing: $passed,
         refineCalls: $refined,
         perSample: $perSample
@@ -228,7 +222,6 @@ VERDICT=$(printf '%s\n' "$AGGREGATE" | jq --slurpfile base "$COMPARE" "$JQ_ROUND
     | ("deterministic " + $detVerdict) as $detLabel
     | ("judge " + $judgeVerdict) as $judgeLabel
     | {
-        guardActions: {baseline: ($was.guardActions // null), now: ($now.guardActions // null)},
         promptHash: {baseline: ($was.config.promptHash // null), now: ($now.config.promptHash // null),
                      changed: (($was.config.promptHash // null) != ($now.config.promptHash // null))},
         baseline: {config: $wasKey, runs: $was.runCount, gitSHA: $was.config.gitSHA,
