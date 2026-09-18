@@ -203,6 +203,11 @@ func TestEvalPyramidize(t *testing.T) {
 		Deterministic EvalScorecard `json:"deterministic"`
 		Judge         *JudgeScore   `json:"judge,omitempty"`
 		Error         string        `json:"error,omitempty"`
+		// AppliedRefinement says whether this sample cost a second model call.
+		// Without it a run cannot show whether the pipeline arm of a comparison
+		// ever behaved like a pipeline — the gap ADR-002 had to record as
+		// unfalsifiable from its own data.
+		AppliedRefinement bool `json:"appliedRefinement"`
 	}
 
 	resultsFile, err := os.Create(filepath.Join(runDir, "results.jsonl"))
@@ -227,7 +232,7 @@ func TestEvalPyramidize(t *testing.T) {
 				PromptVariant:      variant,
 			})
 
-			sr := sampleResult{Name: sample.Name}
+			sr := sampleResult{Name: sample.Name, AppliedRefinement: result.AppliedRefinement}
 
 			if err != nil {
 				sr.Error = err.Error()

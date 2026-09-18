@@ -127,8 +127,10 @@ Issue: #34.
 Hypothesis: with Opus 5 / Sonnet 5 a single well-structured call matches the detect → foundation → self-QA → refine pipeline on the existing eval. If true, the refine stage and the quality-threshold setting go away, latency halves, and the code shrinks.
 
 - [x] **Prerequisite done (#53, #59):** the eval is trustworthy enough to compare against. Runs are isolated from the developer's settings and keyring, the judge is pinned to a dated snapshot at temperature 0, `summary.json` records the full effective config, and `--runs n` produces a baseline with a spread. The current default (`claude-sonnet-4-6`, schema off) is re-baselined in `quality-status.md` with its noise floor.
-- [ ] Re-baseline the current pipeline on **Sonnet 5 and Opus 5** (`scripts/eval.sh --runs 3 --model claude-sonnet-5`) — still open, and now comparable: `--runs 3 --compare <baseline.json>` says whether a difference clears the noise floor
-- [ ] Prompt variant `v3`: single call, structured output via `--json-schema` / `output_config.format`, no self-QA JSON
+- [ ] Re-baseline on **Opus 5** — Sonnet 5 is done (`quality-status.md`, three runs: deterministic clearly up, judge inconclusive and noisier), Opus 5 is not
+- [x] ~~Prompt variant `v3`: single call, no self-QA JSON~~ — **not built, see [ADR-002](pyramidize/adr-002-one-shot-vs-pipeline.md).** The typed email path has been a single call since v2, so a v3 would have compared two one-shot prompts. The pipeline-vs-one-shot question was answered with the existing v1 (pipeline) against v2 (one-shot): quality inconclusive, reliability clearly one-shot.
+- [ ] Still open from that line: **structured output** (`--json-schema` / `output_config.format`). All three baselines ran with `schemaEnforcement: false`, so enforcement remains unmeasured (#47)
+- [ ] Still open: the **AUTO default costs two calls** (detect + foundation) and is what ships; changing it needs detection-accuracy evidence that does not exist yet
 - [ ] Compare via eval; keep whichever wins, delete the loser. Rules from `feedback_no_overfitting`: general principles only
 - [ ] Fix prompt: same exercise with a small sample set (currently no eval for Fix — add one, 10–15 samples)
 - [ ] Parked until eval says otherwise: v1 specialist architecture, NLP QA stages (`docs/pyramidize/adr-001-pipeline-architecture.md`)
