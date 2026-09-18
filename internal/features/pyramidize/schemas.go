@@ -33,6 +33,10 @@ import (
 // The switch stays so E3 (#34) can measure enforcement again on a reworked
 // prompt: KEYLINT_PYRAMIDIZE_SCHEMA=1, or ./scripts/eval.sh --schema. See #53
 // for why the documented quality baseline is not the one to compare against.
+// Read at package init, so it must already be in the environment when the test
+// binary starts: scripts/eval.sh --schema exports it before `go test`. A line in
+// .env cannot turn it on — the eval loads that file from inside the test body,
+// which is too late.
 var schemaEnforcement = os.Getenv("KEYLINT_PYRAMIDIZE_SCHEMA") == "1"
 
 // enforcedSchema returns the schema a step should send, or nil while

@@ -61,7 +61,19 @@ type Request struct {
 	// none of them is a parser: a caller still unmarshals the text it gets back,
 	// and should still do so defensively.
 	JSONSchema json.RawMessage
+	// Temperature pins the sampling temperature. nil leaves it to the provider,
+	// which is what the product wants — a fix or a restructure reads better with
+	// the provider's own default.
+	//
+	// It exists for measurement: an LLM-as-judge that scores the same output
+	// differently on each run cannot tell a prompt change from noise. The Claude
+	// Code CLI has no flag for it and ignores this field.
+	Temperature *float64
 }
+
+// Temp is a helper for setting Request.Temperature, which is a pointer so that
+// "not set" and "set to 0" are different things.
+func Temp(v float64) *float64 { return &v }
 
 // Response is the text of a completion.
 type Response struct {

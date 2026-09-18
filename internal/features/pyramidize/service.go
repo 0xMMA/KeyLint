@@ -329,6 +329,9 @@ func (svc *Service) SetQualityThreshold(v float64) error {
 type aiOpts struct {
 	provider string // if empty, uses cfg.ActiveProvider
 	model    string // if empty, uses provider built-in default
+	// temperature pins sampling. nil leaves it to the provider, which is what
+	// the product does; the eval judge sets it so its scores are repeatable.
+	temperature *float64
 }
 
 // --- internal pipeline helpers ---
@@ -472,8 +475,9 @@ func (svc *Service) callAISync(ctx context.Context, cfg settings.Settings, opts 
 		// Every step here parses JSON, so ask for an object even when schema
 		// enforcement is off — that is what this pipeline did before schemas
 		// existed, and losing it would leave OpenAI and Ollama unconstrained.
-		JSONMode:   true,
-		JSONSchema: schema,
+		JSONMode:    true,
+		JSONSchema:  schema,
+		Temperature: opts.temperature,
 	})
 	if err != nil {
 		return "", err

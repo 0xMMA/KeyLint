@@ -47,6 +47,9 @@ func completeViaOpenAI(ctx context.Context, cfg Config, p provider, baseURL stri
 			openai.UserMessage(req.User),
 		},
 	}
+	if req.Temperature != nil {
+		params.Temperature = openai.Float(*req.Temperature)
+	}
 	switch {
 	case len(req.JSONSchema) > 0:
 		schema, err := schemaObject(req.JSONSchema)

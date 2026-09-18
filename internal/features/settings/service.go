@@ -3,6 +3,7 @@ package settings
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"maps"
 	"os"
 	"path/filepath"
@@ -18,6 +19,10 @@ import (
 
 const appName = "KeyLint"
 
+// errIsolated is what a service built with NewServiceFrom answers to a request
+// that would reach outside its explicit configuration.
+var errIsolated = errors.New("settings: this service has an explicit key source and does not use the keyring")
+
 // envVars maps provider ID → environment variable name for the API key.
 // Empty string means no standard env var for that provider.
 var envVars = map[string]string{
@@ -27,8 +32,34 @@ var envVars = map[string]string{
 }
 
 // Service handles loading and saving application settings.
+// KeyLookup resolves a provider's API key.
+//
+// Production uses the environment-then-keyring lookup; an eval run or a test
+// passes one that reads nothing else, so a machine's keyring and the developer's
+// own settings cannot change what a measurement produces.
+type KeyLookup func(provider string) string
+
+// EnvOnlyKeys reads API keys from the environment and nowhere else. `.env` is
+// loaded into the environment before this is called, so it is the eval's key
+// source: no keyring, no prompt, no fallback.
+func EnvOnlyKeys(provider string) string {
+	if envVar, ok := envVars[provider]; ok && envVar != "" {
+		return os.Getenv(envVar)
+	}
+	return ""
+}
+
 type Service struct {
+	// filePath is empty for a service built with NewServiceFrom: it has no file
+	// to read or write, which is what makes it isolated.
 	filePath string
+	// keys overrides where API keys come from, and isolated says whether this
+	// service was built that way at all. Two fields rather than a nil check:
+	// NewServiceFrom(cfg, nil) must not silently fall back to the environment
+	// and the keyring, which is exactly what an isolated service exists to
+	// avoid, and a nil lookup is an easy thing for a caller to pass.
+	keys     KeyLookup
+	isolated bool
 
 	// currentMu guards current. Wails serves every RPC on its own goroutine, so
 	// saving settings and loading a model list genuinely run at the same time —
@@ -66,6 +97,21 @@ func NewService() (*Service, error) {
 		return nil, err
 	}
 	return svc, nil
+}
+
+// NewServiceFrom builds a service around an explicit configuration and key
+// source. It reads no settings file and touches no keyring, so a run against it
+// measures the configuration it was given rather than whatever the machine
+// happens to hold.
+//
+// Saving is in-memory only: there is no file to write, and writing to the
+// user's real one would be the opposite of what this constructor is for.
+func NewServiceFrom(cfg Settings, keys KeyLookup) *Service {
+	if keys == nil {
+		// No lookup means no keys — never the ambient ones.
+		keys = func(string) string { return "" }
+	}
+	return &Service{current: cfg.clone(), keys: keys, isolated: true}
 }
 
 func (s *Service) load() error {
@@ -146,6 +192,11 @@ func (s *Service) Save(updated Settings) error {
 	if ollamaMoved {
 		s.forgetModelList(llm.ProviderOllama)
 	}
+	if s.filePath == "" {
+		// Built with NewServiceFrom: the update is kept in memory, because the
+		// only file this could write to is the user's real one.
+		return nil
+	}
 	data, err := json.MarshalIndent(updated, "", "  ")
 	if err != nil {
 		return err
@@ -160,6 +211,12 @@ func (s *Service) Save(updated Settings) error {
 // GetKeyStatus returns whether an API key is configured for the given provider,
 // and where it comes from ("env", "keyring", or "none").
 func (s *Service) GetKeyStatus(provider string) KeyStatus {
+	if s.isolated {
+		if s.keys(provider) != "" {
+			return KeyStatus{IsSet: true, Source: "env"}
+		}
+		return KeyStatus{IsSet: false, Source: "none"}
+	}
 	if envVar, ok := envVars[provider]; ok && envVar != "" {
 		if os.Getenv(envVar) != "" {
 			return KeyStatus{IsSet: true, Source: "env"}
@@ -176,6 +233,9 @@ func (s *Service) GetKeyStatus(provider string) KeyStatus {
 // Priority: environment variable → OS keyring.
 // Returns empty string if not configured.
 func (s *Service) GetKey(provider string) string {
+	if s.isolated {
+		return s.keys(provider)
+	}
 	if envVar, ok := envVars[provider]; ok && envVar != "" {
 		if val := os.Getenv(envVar); val != "" {
 			return val
@@ -191,6 +251,9 @@ func (s *Service) GetKey(provider string) string {
 // SetKey stores an API key for the given provider in the OS keyring.
 // Returns an error if the keyring is unavailable on this platform.
 func (s *Service) SetKey(provider, key string) error {
+	if s.isolated {
+		return errIsolated
+	}
 	if err := keyring.Set(appName, provider, key); err != nil {
 		return err
 	}
@@ -202,6 +265,9 @@ func (s *Service) SetKey(provider, key string) error {
 
 // DeleteKey removes an API key for the given provider from the OS keyring.
 func (s *Service) DeleteKey(provider string) error {
+	if s.isolated {
+		return errIsolated
+	}
 	if err := keyring.Delete(appName, provider); err != nil {
 		return err
 	}

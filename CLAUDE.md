@@ -34,15 +34,33 @@ cat input.txt | ./bin/KeyLint -fix                     # fix from stdin
 # Requires .env with ANTHROPIC_API_KEY (or OPENAI_API_KEY) in project root.
 # Uses //go:build eval tag — never included in normal `go test` runs.
 # Results are logged to test-data/eval-runs/<timestamp>/ with summary.json.
-go test -tags eval ./internal/features/pyramidize/ -v -timeout 300s
-EVAL_PROVIDER=claude go test -tags eval ./internal/features/pyramidize/ -v -timeout 600s
+go test -tags eval ./internal/features/pyramidize/ -v -timeout 900s
+EVAL_PROVIDER=claude go test -tags eval ./internal/features/pyramidize/ -v -timeout 900s
 EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 go test -tags eval ...
-./scripts/eval.sh                                      # automated eval with summary
+./scripts/eval.sh                                      # one run, prints the summary
 ./scripts/eval.sh --provider claude --model claude-sonnet-4-6
 ./scripts/eval.sh --variant 1                          # compare v1 vs v2 prompts
 ./scripts/eval.sh --schema                             # enforce the JSON schemas (default off, see pyramidize/schemas.go)
+./scripts/eval.sh --runs 3                             # n runs → test-data/eval-baselines/<ts>/baseline.json (needs n≥2)
+./scripts/eval.sh --runs 3 --compare path/to/baseline.json   # verdict vs a baseline
+./scripts/eval-aggregate.sh <run-dir>...               # same maths on recorded runs, no API calls
+./scripts/eval-aggregate.sh --compare base.json <run-dir>...
 EVAL_VARIANT=2 go test -tags eval ...                  # variant via env var
+EVAL_JUDGE_MODEL=... ./scripts/eval.sh                 # override the pinned judge (recorded in summary.json)
 ./scripts/eval-human.sh                                # interactive human review mode
+
+# One run is a sample, not a measurement: the same commit and model move by a few
+# points between runs. Use --runs 3 for anything you intend to quote, on BOTH
+# sides of a comparison — a single run has no range, and --compare answers
+# "indicative only" rather than pretending otherwise.
+# --compare asks whether the two observed intervals overlap, not whether a mean
+# moved. Exit codes: 0 nothing to report, 1 regression (new range entirely below
+# the old), 2 not comparable (different configuration, or the judge skipped
+# samples), 3 usage or unusable input.
+# Runs are isolated: settings come from an explicit config and keys from the
+# environment only, so ~/.config/KeyLint/settings.json and the OS keyring cannot
+# move a number. The judge is pinned to a dated snapshot; the pipeline is not,
+# because users get the alias.
 ```
 
 ## Why (The Context)

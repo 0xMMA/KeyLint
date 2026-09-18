@@ -68,13 +68,9 @@ func newTestService(t *testing.T, cfg settings.Settings, keys map[string]string)
 	t.Cleanup(func() { os.Setenv(envKey, original) })
 	os.Setenv(envKey, t.TempDir())
 
-	settingsSvc, err := settings.NewService()
-	if err != nil {
-		t.Fatalf("settings.NewService: %v", err)
-	}
-	if err := settingsSvc.Save(cfg); err != nil {
-		t.Fatalf("settings.Save: %v", err)
-	}
+	// Built from an explicit config: no settings file to read, no keyring to
+	// reach, so this test measures the code and not the machine.
+	settingsSvc := settings.NewServiceFrom(cfg, settings.EnvOnlyKeys)
 
 	rec := &recorder{client: &fakeClient{reply: "improved text"}}
 	svc := NewService(settingsSvc)
