@@ -56,7 +56,7 @@ jobs:
             -ldflags="-w -s -X main.AppVersion=${{ github.ref_name }}" -o bin/KeyLint .
 
       - name: Upload Linux artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: KeyLint-linux-amd64
           path: bin/KeyLint
@@ -135,13 +135,13 @@ jobs:
             build/windows/nsis/project.nsi
 
       - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: KeyLint-windows-amd64
           path: bin/KeyLint.exe
 
       - name: Upload Windows installer artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: KeyLint-windows-amd64-installer
           path: bin/KeyLint-amd64-installer.exe
