@@ -720,7 +720,9 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.claudeCodeChecking = true;
     this.cdr.detectChanges();
     try {
-      this.claudeCodeStatus = await this.wails.getClaudeCodeStatus();
+      // force: this method is the Re-check button, and a cached answer is
+      // exactly what the user pressed it to get past.
+      this.claudeCodeStatus = await this.wails.getClaudeCodeStatus(true);
     } finally {
       this.claudeCodeChecking = false;
       // Detection can outlive the screen. Refreshing a destroyed view does NOT

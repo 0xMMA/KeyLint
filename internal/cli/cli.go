@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"keylint/internal/features/enhance"
 	"keylint/internal/features/settings"
@@ -54,11 +55,25 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) error {
 	}
 }
 
-// readInput returns text from the first available source:
-// 1. File path (if filePath is non-empty)
-// 2. Stdin (if stdinReader is non-nil)
-// 3. Inline string (if inlineText is non-empty)
-// Returns an error if no input is provided.
+// stdinFirstByteTimeout bounds the wait for the FIRST byte on stdin.
+//
+// Once something arrives the rest is read without a deadline: a slow producer is
+// still a producer. What this guards against is the opposite — a pipe that is
+// open and silent, which makes the command hang with no output and no
+// explanation, looking like the AI call is slow.
+const stdinFirstByteTimeout = 2 * time.Second
+
+// readInput returns text from the first source the caller actually asked for:
+//
+//  1. -f <file>
+//  2. inline text
+//  3. stdin, and only when neither of the above was given
+//
+// Stdin comes last on purpose. It used to come second, so `KeyLint -fix "some
+// text"` run with anything attached to stdin — a shell wrapper, an editor's
+// run pane, a CI step — read that instead of the text on the command line, and
+// blocked when nothing ever arrived. An argument the user typed is not
+// ambiguous; it wins.
 func readInput(filePath, inlineText string, stdinReader io.Reader) (string, error) {
 	if filePath != "" {
 		data, err := os.ReadFile(filePath)
@@ -67,20 +82,59 @@ func readInput(filePath, inlineText string, stdinReader io.Reader) (string, erro
 		}
 		return strings.TrimSpace(string(data)), nil
 	}
+	if inlineText != "" {
+		return inlineText, nil
+	}
 	if stdinReader != nil {
-		data, err := io.ReadAll(stdinReader)
+		text, err := readStdin(stdinReader)
 		if err != nil {
-			return "", fmt.Errorf("reading stdin: %w", err)
+			return "", err
 		}
-		text := strings.TrimSpace(string(data))
 		if text != "" {
 			return text, nil
 		}
 	}
-	if inlineText != "" {
-		return inlineText, nil
-	}
 	return "", fmt.Errorf("no input provided — use -f <file>, pipe to stdin, or pass text as argument")
+}
+
+// readStdin reads everything on stdin, refusing to wait forever for a pipe that
+// never speaks.
+func readStdin(r io.Reader) (string, error) {
+	type result struct {
+		data []byte
+		err  error
+	}
+	// Buffered, so the goroutine can finish and be collected even when this
+	// function has already returned on the timeout.
+	first := make(chan result, 1)
+	go func() {
+		buf := make([]byte, 1)
+		n, err := r.Read(buf)
+		first <- result{data: buf[:n], err: err}
+	}()
+
+	var head result
+	select {
+	case head = <-first:
+	case <-time.After(stdinFirstByteTimeout):
+		return "", fmt.Errorf(
+			"nothing arrived on stdin within %s — pass the text as an argument or use -f <file>",
+			stdinFirstByteTimeout)
+	}
+
+	if head.err != nil && head.err != io.EOF {
+		return "", fmt.Errorf("reading stdin: %w", head.err)
+	}
+	if head.err == io.EOF && len(head.data) == 0 {
+		return "", nil
+	}
+
+	// Something is flowing; read the rest at whatever pace it comes.
+	rest, err := io.ReadAll(r)
+	if err != nil {
+		return "", fmt.Errorf("reading stdin: %w", err)
+	}
+	return strings.TrimSpace(string(head.data) + string(rest)), nil
 }
 
 // stdinIfPiped returns os.Stdin if it is connected to a pipe, nil otherwise.

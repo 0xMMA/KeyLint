@@ -1092,9 +1092,12 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
       selectedModel = '';
     }
 
-    await this.refreshCredentialsBanner();
-    // Not awaited: the page has nothing to show from it yet, and waiting for a
-    // provider round trip here would delay the shortcut subscription below.
+    // Not awaited: for the claude-code provider this probes the CLI, which
+    // spawns processes — and the page has a banner slot for the answer, so it
+    // can paint first and fill it when it arrives. Waiting here was what made
+    // the first paint hang behind a process spawn (#55).
+    void this.refreshCredentialsBanner();
+    // Same reasoning: the page has nothing to show from the model list yet.
     void this.loadModelOptions();
 
     qualityThreshold = await this.wails.getQualityThreshold();

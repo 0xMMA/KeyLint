@@ -3,8 +3,10 @@ package cli
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"keylint/internal/features/pyramidize"
 )
@@ -132,5 +134,93 @@ func TestPyramidizeLogFlag(t *testing.T) {
 	err := runPyramidizeWith([]string{"--log", "debug", "hello"}, &stdout, &stderr, mock)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// #46: stdin used to be consulted before the inline argument, so
+// `KeyLint -fix "some text"` run with anything attached to stdin read that
+// instead — and hung when nothing ever came.
+
+func TestInlineTextBeatsStdin(t *testing.T) {
+	got, err := readInput("", "from the command line", strings.NewReader("from stdin"))
+	if err != nil {
+		t.Fatalf("readInput: %v", err)
+	}
+	if got != "from the command line" {
+		t.Errorf("got %q, want the argument the user typed", got)
+	}
+}
+
+func TestAFileBeatsBoth(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "in.txt")
+	if err := os.WriteFile(path, []byte("from the file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := readInput(path, "from the command line", strings.NewReader("from stdin"))
+	if err != nil {
+		t.Fatalf("readInput: %v", err)
+	}
+	if got != "from the file" {
+		t.Errorf("got %q, want the file's contents", got)
+	}
+}
+
+// TestASilentPipeFailsInsteadOfHanging: an open pipe that never delivers is the
+// shape that made the command look like a slow AI call. os.Pipe gives a real
+// one — nothing is ever written to the write end, and it is deliberately not
+// closed, so the read genuinely blocks.
+func TestASilentPipeFailsInsteadOfHanging(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.Close(); _ = w.Close() })
+
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() {
+		_, err := readInput("", "", r)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a silent pipe produced input")
+		}
+		if !strings.Contains(err.Error(), "stdin") {
+			t.Errorf("error = %q, want it to name stdin so the user knows what to change", err)
+		}
+		if elapsed := time.Since(start); elapsed > 5*time.Second {
+			t.Errorf("took %s — the deadline is meant to be about %s", elapsed, stdinFirstByteTimeout)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("readInput is still blocked on a silent pipe")
+	}
+}
+
+// TestASlowPipeIsStillRead: the deadline is on the first byte, not on the whole
+// read. A producer that takes its time must not be cut off.
+func TestASlowPipeIsStillRead(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.Close() })
+
+	go func() {
+		_, _ = w.Write([]byte("first"))
+		time.Sleep(stdinFirstByteTimeout + 500*time.Millisecond)
+		_, _ = w.Write([]byte(" and the rest"))
+		_ = w.Close()
+	}()
+
+	got, err := readInput("", "", r)
+	if err != nil {
+		t.Fatalf("readInput: %v", err)
+	}
+	if got != "first and the rest" {
+		t.Errorf("got %q, want the whole slow message", got)
 	}
 }

@@ -172,10 +172,14 @@ export class WailsService implements OnDestroy {
   /**
    * Reports whether the Claude Code CLI is installed on this machine and signed
    * in. The backend only looks — signing in happens in the user's own terminal.
+   *
+   * The answer is cached for a minute on the Go side, because the probe spawns
+   * processes and four screens ask for it. Pass force from a re-check button:
+   * a user pressing one has just done something they expect to be noticed.
    */
-  getClaudeCodeStatus(): Promise<ClaudeCodeStatus> {
+  getClaudeCodeStatus(force = false): Promise<ClaudeCodeStatus> {
     try {
-      return SettingsService.GetClaudeCodeStatus().catch(() => ({ ...BROWSER_MODE_CLAUDE_CODE }));
+      return SettingsService.GetClaudeCodeStatus(force).catch(() => ({ ...BROWSER_MODE_CLAUDE_CODE }));
     } catch {
       return Promise.resolve({ ...BROWSER_MODE_CLAUDE_CODE });
     }

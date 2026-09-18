@@ -50,10 +50,15 @@ export function Get() {
  * machine and signed in, so the UI can offer it as a provider that needs no API
  * key. Signing in happens in the user's own terminal through Anthropic's flow —
  * KeyLint only looks, and never reads or stores credentials.
+ * 
+ * force skips the cache. The re-check button passes it, because a user pressing
+ * it has just done something they expect to be noticed; everything else takes
+ * the cached answer.
+ * @param {boolean} force
  * @returns {$CancellablePromise<llm$0.ClaudeCodeStatus>}
  */
-export function GetClaudeCodeStatus() {
-    return $Call.ByID(3561813659).then(/** @type {($result: any) => any} */(($result) => {
+export function GetClaudeCodeStatus(force) {
+    return $Call.ByID(3561813659, force).then(/** @type {($result: any) => any} */(($result) => {
         return $$createType1($result);
     }));
 }

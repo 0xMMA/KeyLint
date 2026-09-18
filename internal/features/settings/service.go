@@ -52,6 +52,15 @@ type Service struct {
 	currentMu sync.RWMutex
 	current   Settings
 
+	// claudeCode caches the CLI probe; see GetClaudeCodeStatus. Spawning
+	// processes on every screen that asks is what #55 was about.
+	claudeCodeMu sync.Mutex
+	claudeCode   llm.ClaudeCodeStatus
+	claudeCodeAt time.Time
+	// probeClaudeCode is the probe itself, swappable so a test can count calls
+	// without spawning anything. nil means the real one.
+	probeClaudeCode func(context.Context) llm.ClaudeCodeStatus
+
 	// models caches per-provider listings; see ListModels.
 	modelsMu sync.Mutex
 	models   map[string]cachedModelList
@@ -417,10 +426,45 @@ const claudeCodeStatusTimeout = 25 * time.Second
 // machine and signed in, so the UI can offer it as a provider that needs no API
 // key. Signing in happens in the user's own terminal through Anthropic's flow —
 // KeyLint only looks, and never reads or stores credentials.
-func (s *Service) GetClaudeCodeStatus() llm.ClaudeCodeStatus {
+// claudeCodeStatusTTL is how long a probe result is reused.
+//
+// The probe spawns processes, and four screens ask for it — the Pyramidize page
+// on load and on every provider change, the settings card, and the welcome
+// wizard. A minute is long enough that opening those in sequence costs one
+// probe, and short enough that someone who signs in elsewhere and comes back
+// sees it without hunting for the re-check button.
+const claudeCodeStatusTTL = 60 * time.Second
+
+// GetClaudeCodeStatus reports whether the Claude Code CLI is installed on this
+// machine and signed in, so the UI can offer it as a provider that needs no API
+// key. Signing in happens in the user's own terminal through Anthropic's flow —
+// KeyLint only looks, and never reads or stores credentials.
+//
+// force skips the cache. The re-check button passes it, because a user pressing
+// it has just done something they expect to be noticed; everything else takes
+// the cached answer.
+func (s *Service) GetClaudeCodeStatus(force bool) llm.ClaudeCodeStatus {
+	if !force {
+		s.claudeCodeMu.Lock()
+		cached, ok := s.claudeCode, s.claudeCodeAt
+		s.claudeCodeMu.Unlock()
+		if !ok.IsZero() && time.Since(ok) < claudeCodeStatusTTL {
+			return cached
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), claudeCodeStatusTimeout)
 	defer cancel()
-	return llm.CheckClaudeCode(ctx, "")
+	probe := s.probeClaudeCode
+	if probe == nil {
+		probe = func(ctx context.Context) llm.ClaudeCodeStatus { return llm.CheckClaudeCode(ctx, "") }
+	}
+	status := probe(ctx)
+
+	s.claudeCodeMu.Lock()
+	s.claudeCode, s.claudeCodeAt = status, time.Now()
+	s.claudeCodeMu.Unlock()
+	return status
 }
 
 // ResetToDefaults resets settings to their default values and saves to disk.
