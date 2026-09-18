@@ -48,76 +48,96 @@ already correct and must come back untouched.
 
 ### The split
 
-The fifteen samples live in two directories: `test-data/fix-samples/tune/` (10)
-and `test-data/fix-samples/holdout/` (5).
+The fifteen samples live in two directories — `test-data/fix-samples/tune/` (10)
+and `holdout/` (5) — with `SPLIT.json` next to them recording how they got there.
 
-This exists because of a measured failure, not a principle. Six prompt variants
-were compared on all fifteen samples and the best one shipped; re-measuring that
-same prompt afterwards came out lower on both counts that mattered —
-deterministic 0.9513 → 0.9465, samples passing 12 → 11 — which turned a
-non-overlapping improvement into an overlap. Picking the best of six draws is
-itself a measurement, and nothing in the suite could see it.
+It exists because of a measured failure. Six prompt variants were compared on
+all fifteen samples and the best shipped; re-measuring that same prompt landed
+between 0.9465 and 0.9537 across three independent triples, and the verdict
+against the baseline flips between "overlap" and "improvement" depending on
+which triple you take. Picking the best of six draws is itself a measurement,
+and nothing in the suite could see it.
 
-**The rule**, in the order it is applied, so that anyone can re-derive the split
-rather than trust the lists:
-
-1. `mixed-code-switching` goes to the **holdout**. It is the only sample in a
-   mixed language, and a holdout that cannot represent a language cannot measure
-   it.
-2. `schon-korrekt` goes to **tune**. It is the only sample whose correct answer
-   is "change nothing", and a half that cannot exercise that during tuning
-   cannot be tuned against safely.
-3. Of the remaining 13 in alphabetical order, **every third** — positions 3, 6,
-   9 and 12 — joins the holdout. The rest is the tuning half.
-
-That yields:
+**The rule.** Order all fifteen samples by the per-sample deterministic spread
+recorded in `test-data/eval-baselines/2026-09-18T09-07-42/baseline.json`,
+descending, ties broken alphabetically. Every third sample joins the holdout.
+The ordering, and the halves it produces, are frozen in `SPLIT.json`, and a test
+re-derives them on every run.
 
 | holdout (5) | tune (10) |
 |---|---|
-| `de-nomen-gross` | `chat-ton` |
-| `en-french-word` | `de-anglizismus-bleibt` |
-| `en-run-on` | `de-tech-terms-bleiben` |
-| `markdown-struktur` | `de-umlaute-ascii` |
-| `mixed-code-switching` | `en-german-word-ersetzen` |
-| | `en-grammar-basics` |
-| | `interpunktion` |
-| | `langer-absatz` |
-| | `produktnamen` |
-| | `schon-korrekt` |
+| `chat-ton`, `de-umlaute-ascii`, `en-grammar-basics`, `en-run-on`, `schon-korrekt` | `de-anglizismus-bleibt`, `de-nomen-gross`, `de-tech-terms-bleiben`, `en-french-word`, `en-german-word-ersetzen`, `interpunktion`, `langer-absatz`, `markdown-struktur`, `mixed-code-switching`, `produktnamen` |
 
-German, English and mixed are all represented in the holdout. The two named
-exceptions are the part to be suspicious of, so they are stated with their
-reasons rather than with their effect — and neither was chosen after looking at
-a score.
+**Ordering by measured difficulty rather than by name is the point**, and the
+first version of this split got it wrong. That version sorted alphabetically and
+carried two hand-written exceptions. A review took it apart:
 
-**Adding or removing a sample re-derives the split**, because positions 3, 6, 9
-and 12 move. That is not a detail: it retires any held-out measurement taken
-before the change, since the half that was held out is no longer the half being
-reported. Re-record rather than carry the old number forward.
+- Renaming one sample rotated four of the five holdout members. Whoever wrote a
+  new sample chose the outcome by choosing where it sorted — anything sorting
+  after position 12 was a no-op, anything early reshuffled almost everything.
+- The two exceptions amounted to exactly one swap against the plain rule, and
+  that swap moved the highest-variance sample in the suite (`mixed-code-switching`,
+  spread 0.1992, 0/3 passing, the open violation on #80) out of the half that
+  may be iterated on, and a zero-variance already-fixed sample in. Whatever the
+  intent, that is the swap that most flatters the tuning half.
+- The resulting holdout had a mean per-sample spread of **0.0602** against
+  **0.0303** for the fifteen samples it replaced. It was noisier than the thing
+  it was supposed to sharpen.
 
-**One consequence worth stating plainly.** There is exactly one mixed-language
-sample, so putting it in the holdout leaves the tuning half with none — and the
-violation still open on #80 is precisely the code-switching one. The next
-attempt at it therefore has nothing to iterate against and gets one measurement
-at the end. That is the honest position rather than a flaw in the split, but it
-is also an argument for writing a second mixed sample so that one can sit on
-each side.
+The exceptions are gone. Spread ordering is blind to names, so a rename cannot
+move a sample between halves, and the current split has a holdout spread of
+**0.0233** against a tune half of 0.0474 — the variance now sits where the
+iteration happens.
+
+**What this holdout can and cannot do.** It can catch a regression: four of its
+five samples score 0.96 or better with almost no run-to-run movement, so a drop
+is real. It **cannot resolve a small improvement**. Its mean moves by about
+0.023 between runs of identical code, and the effect this split was built to
+protect against is 0.005 — an order of magnitude smaller. No five-sample holdout
+drawn from these fifteen does better while keeping a German and an English
+sample: ten of the fifteen sit at a ceiling with zero spread, so a holdout is
+either all-ceiling (blind to improvement) or carries one of the four volatile
+samples (and inherits its noise).
+
+That is a statement about the suite, not about the split: **the Fix suite is
+saturated.** Two thirds of it cannot move upward. Before a holdout number can
+mean "this prompt is better", the suite needs samples with headroom.
+
+**Two constraints were dropped**, and both deserve naming because they were
+asked for:
+
+- *The holdout should contain a mixed-language sample.* There is exactly one,
+  and putting it in the holdout costs both halves: the holdout inherits the
+  worst variance in the suite, and the tuning half loses the only material for
+  the one violation still open on #80. It is in `tune`.
+- *`schon-korrekt` should stay out of the holdout.* It is in the holdout, at
+  position 15 by the rule. It is a ceiling sample, which is exactly what a
+  regression guard wants: it is the sample that caught the trailing-commentary
+  violation, and noticing if that comes back is worth more than keeping it
+  tunable.
+
+**Adding or removing a sample re-derives the split** and retires any held-out
+measurement taken before it — the ordering shifts and the halves change. The
+manifest has to be regenerated from a fresh all-samples baseline, and the test
+fails until it is.
 
 ### The protocol
 
-- **Tune on `tune`.** `./scripts/eval.sh --suite fix --split tune --runs 3`.
+- **Tune on `tune`**: `./scripts/eval.sh --suite fix --split tune --runs 3`.
   Iterate there as much as the question needs.
-- **Measure `holdout` once, at the end**, when the change is otherwise final:
-  `--split holdout --runs 3`. Once. A second look at it makes it a tuning set.
-- **Report both**, with the number of tune-half iterations that preceded them.
-  A holdout number reported without saying how many variants produced the
-  winner says less than it appears to.
-- **Baselines measure `all`**, which is the default, because a baseline is a
-  description of what ships rather than a step in a search.
+- **Measure `holdout` once, at the end**: `--split holdout --runs 3`. Once. A
+  second look makes it a tuning set.
+- **Report both**, with the number of tune-half iterations that produced the
+  winner. A holdout number without that says less than it appears to.
+- **Baselines measure `all`** (the default): a baseline describes what ships
+  rather than a step in a search.
+- Read a holdout result as a **regression check**, not as proof of improvement.
+  See the resolution limit above.
 
 `split` is part of the `configKey`, so `--compare` refuses a tune-half run
-against an all-samples baseline instead of printing a delta between two
-different things.
+against an all-samples baseline. The key records how many samples a run
+measured, never which, so `splitHash` is recorded next to the numbers and a
+comparison says out loud when the two sides measured a different set.
 
 ### The checks
 

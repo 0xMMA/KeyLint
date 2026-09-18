@@ -54,6 +54,8 @@ EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 go test -tags eval ...
 ./scripts/eval-aggregate.sh <run-dir>...               # same maths on recorded runs, no API calls
 ./scripts/eval-aggregate.sh --compare base.json <run-dir>...
 EVAL_VARIANT=2 go test -tags eval ...                  # variant via env var
+EVAL_SPLIT=holdout go test -tags eval ./internal/features/enhance/  # split via env var
+                                                       # eval.sh ignores EVAL_SPLIT from .env unless --split is given
 EVAL_JUDGE_MODEL=... ./scripts/eval.sh                 # override the pinned judge (recorded in summary.json)
 ./scripts/eval-human.sh                                # interactive human review mode
 

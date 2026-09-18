@@ -231,7 +231,12 @@ func TestEvalFix(t *testing.T) {
 		// Which half was measured. A tune-half number and an all-samples number
 		// are different measurements, and the configKey keeps --compare from
 		// mixing them.
-		"split":            string(split),
+		"split": string(split),
+		// Which samples, not just how many. The configKey records the count, so
+		// two five-sample holdouts with one swapped would compare cleanly; this
+		// is the record that says they were not the same five. Enforcement is a
+		// test against SPLIT.json, which fails before anything is measured.
+		"splitHash":        SplitHash(sampleNames(samples)),
 		"provider":         provider,
 		"model":            model,
 		"judge":            judge,
@@ -258,10 +263,19 @@ func TestEvalFix(t *testing.T) {
 	t.Logf("\n=== FIX EVAL SUMMARY ===")
 	t.Logf("Provider: %s | Model: %s | Prompt: %s", provider, model, promptHash())
 	t.Logf("Judge: %s / %s @ temp %.1f", judge.Provider, judge.Model, judge.Temperature)
-	t.Logf("Samples: %d (split %s)", len(samples), split)
+	t.Logf("Samples: %d (split %s, membership %s)", len(samples), split, SplitHash(sampleNames(samples)))
 	t.Logf("Avg deterministic: %.2f (%d of %d samples scored)", totalDet/float64(max(scored, 1)), scored, len(samples))
 	if judgeCount > 0 {
 		t.Logf("Avg judge overall: %.2f (%d samples)", totalJudge/float64(judgeCount), judgeCount)
 	}
 	t.Logf("Results: %s", runDir)
+}
+
+// sampleNames is what SplitHash fingerprints.
+func sampleNames(samples []fixSample) []string {
+	names := make([]string, len(samples))
+	for i, s := range samples {
+		names[i] = s.Name
+	}
+	return names
 }

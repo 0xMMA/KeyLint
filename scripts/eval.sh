@@ -7,6 +7,8 @@ set -euo pipefail
 # Usage:
 #   ./scripts/eval.sh                          # one run of the pyramidize suite
 #   ./scripts/eval.sh --suite fix --runs 3     # the silent grammar fix instead
+#   ./scripts/eval.sh --suite fix --split tune --runs 3   # the 10 tuning samples
+#   ./scripts/eval.sh --suite fix --split holdout --runs 3  # the 5 held back, once
 #   EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 ./scripts/eval.sh
 #   ./scripts/eval.sh --provider openai --model gpt-4o
 #   ./scripts/eval.sh --variant 1              # run with prompt variant v1
@@ -88,6 +90,13 @@ esac
 # all fifteen, which is what a baseline should measure; --split narrows a run to
 # one half. The half is recorded in summary.json and carried into the configKey,
 # so --compare refuses to read a tune-half number against an all-samples one.
+# Only the flag decides the split. Without this the Go side would pick EVAL_SPLIT
+# up out of .env — it fills any EVAL_* key whose environment value is empty —
+# and the header below would print "all" while the run measured the holdout.
+# Same trap the *_API_KEY filter above exists for, one variable further on.
+if (( ! SPLIT_SET )); then
+    unset EVAL_SPLIT
+fi
 case "${EVAL_SPLIT:-all}" in
     all|tune|holdout) ;;
     *) echo "--split takes 'all', 'tune' or 'holdout'" >&2; exit 3 ;;

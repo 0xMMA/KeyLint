@@ -1,6 +1,9 @@
 package enhance
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -51,7 +54,10 @@ func FixSampleDirs(root string) ([]SampleRef, error) {
 	seen := map[Split]bool{}
 	for _, e := range entries {
 		if !e.IsDir() {
-			continue
+			if e.Name() == splitManifestName {
+				continue
+			}
+			return nil, fmt.Errorf("%s: unexpected file %q — this directory holds the two split directories and the manifest", root, e.Name())
 		}
 		split := Split(e.Name())
 		if split != SplitTune && split != SplitHoldout {
@@ -64,11 +70,23 @@ func FixSampleDirs(root string) ([]SampleRef, error) {
 		if err != nil {
 			return nil, err
 		}
-		for _, s := range samples {
-			if !s.IsDir() {
+		n := 0
+		for _, sample := range samples {
+			// Stat rather than trust the dirent: a symlinked sample directory
+			// reports IsDir() false and would have been skipped in silence,
+			// which is a four-sample "holdout" that looks like five.
+			info, err := os.Stat(filepath.Join(dir, sample.Name()))
+			if err != nil {
+				return nil, err
+			}
+			if !info.IsDir() {
 				continue
 			}
-			refs = append(refs, SampleRef{Split: split, Name: s.Name(), Dir: filepath.Join(dir, s.Name())})
+			n++
+			refs = append(refs, SampleRef{Split: split, Name: sample.Name(), Dir: filepath.Join(dir, sample.Name())})
+		}
+		if n == 0 {
+			return nil, fmt.Errorf("%s/%s holds no samples", root, split)
 		}
 	}
 	for _, split := range []Split{SplitTune, SplitHoldout} {
@@ -77,7 +95,71 @@ func FixSampleDirs(root string) ([]SampleRef, error) {
 		}
 	}
 	sort.Slice(refs, func(i, j int) bool { return refs[i].Name < refs[j].Name })
+	for i := 1; i < len(refs); i++ {
+		if refs[i].Name == refs[i-1].Name {
+			return nil, fmt.Errorf("%s: sample %q exists in both halves", root, refs[i].Name)
+		}
+	}
 	return refs, nil
+}
+
+const splitManifestName = "SPLIT.json"
+
+// SplitManifest is the frozen record of how the halves were derived. It is
+// committed so that the split can be checked rather than trusted, and so that a
+// rename or an addition fails a test instead of quietly producing a different
+// holdout.
+type SplitManifest struct {
+	DerivedFrom     string `json:"derivedFrom"`
+	Rule            string `json:"rule"`
+	OrderedBySpread []struct {
+		Name   string  `json:"name"`
+		Spread float64 `json:"spread"`
+	} `json:"orderedBySpread"`
+	Tune    []string `json:"tune"`
+	Holdout []string `json:"holdout"`
+}
+
+// LoadSplitManifest reads the frozen split record next to the samples.
+func LoadSplitManifest(root string) (SplitManifest, error) {
+	var m SplitManifest
+	data, err := os.ReadFile(filepath.Join(root, splitManifestName))
+	if err != nil {
+		return m, err
+	}
+	if err := json.Unmarshal(data, &m); err != nil {
+		return m, fmt.Errorf("%s: %w", splitManifestName, err)
+	}
+	return m, nil
+}
+
+// DeriveSplit applies the rule to a recorded ordering and returns the holdout.
+// Taking the ordering as an argument is the point: the rule is a function of
+// measured difficulty, not of the names on disk, so renaming a sample cannot
+// move it between halves.
+func DeriveSplit(orderedNames []string) (tune, holdout []string) {
+	for i, name := range orderedNames {
+		if (i+1)%3 == 0 {
+			holdout = append(holdout, name)
+		} else {
+			tune = append(tune, name)
+		}
+	}
+	sort.Strings(tune)
+	sort.Strings(holdout)
+	return tune, holdout
+}
+
+// SplitHash fingerprints which samples a run measured. It is recorded next to
+// the numbers and reported by a comparison, but is deliberately NOT part of the
+// configKey: membership is enforced by a test against the manifest, which fails
+// before anything is measured, rather than by a key that only speaks up once
+// two incomparable runs are already in hand.
+func SplitHash(names []string) string {
+	sorted := append([]string(nil), names...)
+	sort.Strings(sorted)
+	sum := sha256.Sum256([]byte(strings.Join(sorted, "\n")))
+	return hex.EncodeToString(sum[:8])
 }
 
 // SplitFromEnv resolves which half to run. Anything but the three names is an
