@@ -7,6 +7,8 @@
     "test-data/eval-runs/2026-09-18T03-59-47/"
   ],
   "config": {
+    "suite": "pyramidize",
+    "promptHash": null,
     "gitSHA": "ab1dc68-dirty",
     "provider": "claude",
     "model": "claude-sonnet-4-6",
@@ -18,9 +20,10 @@
     },
     "schemaEnforcement": false,
     "qualityThreshold": 0.65,
-    "sampleCount": 13
+    "sampleCount": 13,
+    "checksVersion": 1
   },
-  "configKey": "claude|claude-sonnet-4-6|claude|claude-sonnet-4-5-20250929|2|false|0.65|13",
+  "configKey": "pyramidize|claude|claude-sonnet-4-6|claude|claude-sonnet-4-5-20250929|2|false|0.65|13|1",
   "configConsistent": true,
   "judgeCoverage": {
     "min": 13,

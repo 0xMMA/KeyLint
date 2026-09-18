@@ -63,6 +63,15 @@ jobs:
       - name: Run Go tests
         run: go test -race ./internal/...
 
+      # The eval suites are behind `//go:build eval`, so `go test` never
+      # compiles them and a rename in the code they measure breaks nothing
+      # visible until someone spends an API call to find out. Vet compiles them
+      # without running them. Scoped to ./internal/... because the root package
+      # embeds frontend/dist, which makes it depend on a build step rather than
+      # on the Go code this is checking.
+      - name: Check the eval-tagged code still compiles
+        run: go vet -tags eval ./internal/...
+
       # Every exported method of a registered service becomes callable from the
       # webview. The generated bindings are committed, so a new exported method
       # widens that surface while the committed file still shows the old one.

@@ -1,0 +1,344 @@
+{
+  "createdAt": "2026-09-18T08-11-23",
+  "runCount": 3,
+  "runs": [
+    "test-data/eval-runs/2026-09-18T08-11-23/",
+    "test-data/eval-runs/2026-09-18T08-12-32/",
+    "test-data/eval-runs/2026-09-18T08-13-36/"
+  ],
+  "config": {
+    "suite": "fix",
+    "promptHash": "7d7b15a7510f98ae",
+    "checksVersion": 2,
+    "gitSHA": "092c23e-dirty",
+    "provider": "claude",
+    "model": "claude-haiku-4-5-20251001",
+    "promptVariant": 0,
+    "judge": {
+      "provider": "claude",
+      "model": "claude-sonnet-4-5-20250929",
+      "temperature": 0
+    },
+    "schemaEnforcement": false,
+    "qualityThreshold": 0,
+    "sampleCount": 15
+  },
+  "configKey": "fix|claude|claude-haiku-4-5-20251001|claude|claude-sonnet-4-5-20250929|0|false|0|15|2",
+  "configConsistent": true,
+  "judgeCoverage": {
+    "min": 15,
+    "max": 15,
+    "of": 15
+  },
+  "scoredCoverage": {
+    "min": 15,
+    "max": 15,
+    "of": 15
+  },
+  "deterministic": {
+    "mean": 0.9263,
+    "min": 0.9112,
+    "max": 0.9362,
+    "spread": 0.025
+  },
+  "judge": {
+    "mean": 0.852,
+    "min": 0.8353,
+    "max": 0.882,
+    "spread": 0.0467
+  },
+  "samplesPassing": {
+    "mean": 11,
+    "min": 11,
+    "max": 11,
+    "spread": 0
+  },
+  "refineCalls": null,
+  "perSample": [
+    {
+      "name": "chat-ton",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.5432,
+        "min": 0.3241,
+        "max": 0.6667,
+        "spread": 0.3426
+      },
+      "judge": {
+        "mean": 0.25,
+        "min": 0,
+        "max": 0.75,
+        "spread": 0.75
+      },
+      "passed": 0,
+      "refined": 0
+    },
+    {
+      "name": "de-anglizismus-bleibt",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.8771,
+        "min": 0.8569,
+        "max": 0.8872,
+        "spread": 0.0303
+      },
+      "judge": {
+        "mean": 0.9333,
+        "min": 0.9,
+        "max": 0.95,
+        "spread": 0.05
+      },
+      "passed": 0,
+      "refined": 0
+    },
+    {
+      "name": "de-nomen-gross",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9986,
+        "min": 0.9986,
+        "max": 0.9986,
+        "spread": 0
+      },
+      "judge": {
+        "mean": 0.95,
+        "min": 0.95,
+        "max": 0.95,
+        "spread": 0
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "de-tech-terms-bleiben",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9993,
+        "min": 0.9993,
+        "max": 0.9993,
+        "spread": 0
+      },
+      "judge": {
+        "mean": 0.95,
+        "min": 0.95,
+        "max": 0.95,
+        "spread": 0
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "de-umlaute-ascii",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9982,
+        "min": 0.9982,
+        "max": 0.9982,
+        "spread": 0
+      },
+      "judge": {
+        "mean": 0.98,
+        "min": 0.98,
+        "max": 0.98,
+        "spread": 0
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "en-french-word",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "spread": 0
+      },
+      "judge": {
+        "mean": 0.95,
+        "min": 0.95,
+        "max": 0.95,
+        "spread": 0
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "en-german-word-ersetzen",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9874,
+        "min": 0.9841,
+        "max": 0.994,
+        "spread": 0.0099
+      },
+      "judge": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "spread": 0
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "en-grammar-basics",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "spread": 0
+      },
+      "judge": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "spread": 0
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "en-run-on",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9954,
+        "min": 0.9952,
+        "max": 0.9958,
+        "spread": 0.0006
+      },
+      "judge": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "spread": 0
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "interpunktion",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "spread": 0
+      },
+      "judge": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "spread": 0
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "langer-absatz",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9766,
+        "min": 0.9766,
+        "max": 0.9766,
+        "spread": 0
+      },
+      "judge": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "spread": 0
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "markdown-struktur",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9987,
+        "min": 0.9986,
+        "max": 0.999,
+        "spread": 0.0005
+      },
+      "judge": {
+        "mean": 0.95,
+        "min": 0.95,
+        "max": 0.95,
+        "spread": 0
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "mixed-code-switching",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.8613,
+        "min": 0.8487,
+        "max": 0.8693,
+        "spread": 0.0206
+      },
+      "judge": {
+        "mean": 0.5667,
+        "min": 0.5,
+        "max": 0.6,
+        "spread": 0.1
+      },
+      "passed": 0,
+      "refined": 0
+    },
+    {
+      "name": "produktnamen",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9985,
+        "min": 0.998,
+        "max": 0.9993,
+        "spread": 0.0013
+      },
+      "judge": {
+        "mean": 0.95,
+        "min": 0.95,
+        "max": 0.95,
+        "spread": 0
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "schon-korrekt",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.66,
+        "min": 0.66,
+        "max": 0.66,
+        "spread": 0
+      },
+      "judge": {
+        "mean": 0.3,
+        "min": 0.3,
+        "max": 0.3,
+        "spread": 0
+      },
+      "passed": 0,
+      "refined": 0
+    }
+  ]
+}
