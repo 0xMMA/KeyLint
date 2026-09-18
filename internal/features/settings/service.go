@@ -425,6 +425,10 @@ func (s *Service) modelListConfig(provider string) (llm.Config, bool) {
 // the welcome wizard cannot be blocked by a wedged binary.
 const claudeCodeStatusTimeout = 25 * time.Second
 
+// claudeCodeStatusTimeoutForTest lets a test exercise the timeout path without
+// waiting out the real deadline.
+var claudeCodeStatusTimeoutForTest = claudeCodeStatusTimeout
+
 // claudeCodeStatusTTL is how long a probe result is reused.
 //
 // The probe spawns processes, and four screens ask for it — the Pyramidize page
@@ -448,7 +452,7 @@ func (s *Service) GetClaudeCodeStatus(force bool) llm.ClaudeCodeStatus {
 
 		if !force {
 			cached, fetchedAt := s.claudeCode, s.claudeCodeAt
-			if !fetchedAt.IsZero() && time.Since(fetchedAt) < claudeCodeStatusTTL {
+			if !fetchedAt.IsZero() && time.Since(fetchedAt) < claudeCodeTTL(cached) {
 				s.claudeCodeMu.Unlock()
 				return cached
 			}
@@ -456,12 +460,16 @@ func (s *Service) GetClaudeCodeStatus(force bool) llm.ClaudeCodeStatus {
 
 		// Somebody is already probing. Wait for them rather than starting a
 		// second one: four screens opening at once on a cold cache would
-		// otherwise spawn four probes, which is the cost #55 is about. The
-		// waiters loop round and take the fresh cache entry.
+		// otherwise spawn four probes, which is the cost #55 is about.
+		//
+		// force is deliberately NOT cleared here. A waiter that asked for a
+		// fresh answer loops round and starts its own probe, because the one it
+		// waited for may have begun up to claudeCodeStatusTimeout before the
+		// button was pressed — which is exactly the staleness the button exists
+		// to escape.
 		if inFlight := s.claudeCodeProbe; inFlight != nil {
 			s.claudeCodeMu.Unlock()
 			<-inFlight
-			force = false
 			continue
 		}
 
@@ -469,26 +477,58 @@ func (s *Service) GetClaudeCodeStatus(force bool) llm.ClaudeCodeStatus {
 		s.claudeCodeProbe = done
 		s.claudeCodeMu.Unlock()
 
-		status := s.runClaudeCodeProbe()
+		status, timedOut := s.runClaudeCodeProbe()
 
-		s.claudeCodeMu.Lock()
-		s.claudeCode, s.claudeCodeAt = status, time.Now()
-		s.claudeCodeProbe = nil
-		s.claudeCodeMu.Unlock()
-		close(done)
+		// Deferred, so a panic in the probe cannot leave every later caller
+		// waiting on a channel nobody will ever close.
+		func() {
+			s.claudeCodeMu.Lock()
+			defer func() {
+				s.claudeCodeProbe = nil
+				s.claudeCodeMu.Unlock()
+				close(done)
+			}()
+			if timedOut {
+				// A cut-short probe says nothing. Caching it would turn one slow
+				// spawn into a minute of "not signed in", and the welcome wizard
+				// has no re-check button to escape that with.
+				return
+			}
+			s.claudeCode, s.claudeCodeAt = status, time.Now()
+		}()
 		return status
 	}
 }
 
+// claudeCodeNegativeTTL is how long a "not there / not signed in" answer is
+// reused. Short, because it is the answer a user is about to change — they are
+// installing the CLI or signing in, and coming back to a stale no is the one
+// thing this cache must not cause.
+const claudeCodeNegativeTTL = 10 * time.Second
+
+// ttl is how long a cached answer stays good. A working CLI is a settled fact;
+// anything else is a situation in progress.
+func claudeCodeTTL(status llm.ClaudeCodeStatus) time.Duration {
+	if status.Installed && status.LoggedIn {
+		return claudeCodeStatusTTL
+	}
+	return claudeCodeNegativeTTL
+}
+
 // runClaudeCodeProbe is the probe itself, bounded so a wedged binary cannot hold
 // a screen open indefinitely.
-func (s *Service) runClaudeCodeProbe() llm.ClaudeCodeStatus {
-	ctx, cancel := context.WithTimeout(context.Background(), claudeCodeStatusTimeout)
+func (s *Service) runClaudeCodeProbe() (status llm.ClaudeCodeStatus, timedOut bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), claudeCodeStatusTimeoutForTest)
 	defer cancel()
 	if s.probeClaudeCode != nil {
-		return s.probeClaudeCode(ctx)
+		status = s.probeClaudeCode(ctx)
+	} else {
+		status = llm.CheckClaudeCode(ctx, "")
 	}
-	return llm.CheckClaudeCode(ctx, "")
+	// CheckClaudeCode has no error return: a spawn cut short by the deadline
+	// comes back as "installed, not signed in", which is indistinguishable from
+	// the real thing. The context is where that difference survives.
+	return status, ctx.Err() != nil
 }
 
 // ResetToDefaults resets settings to their default values and saves to disk.

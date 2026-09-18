@@ -272,3 +272,54 @@ func shortenStdinIdleTimeout(t *testing.T) {
 	stdinIdleTimeout = 200 * time.Millisecond
 	t.Cleanup(func() { stdinIdleTimeout = original })
 }
+
+// TestALoneHyphenMeansStdin: the conventional spelling. Treating it as literal
+// text sent a single hyphen to the model and ignored the pipe.
+func TestALoneHyphenMeansStdin(t *testing.T) {
+	got, err := readInput("", "-", strings.NewReader("piped text"))
+	if err != nil {
+		t.Fatalf("readInput: %v", err)
+	}
+	if got != "piped text" {
+		t.Errorf("got %q, want what was piped in", got)
+	}
+}
+
+// TestAHyphenInsideRealTextIsStillText: only a lone "-" is the convention.
+func TestAHyphenInsideRealTextIsStillText(t *testing.T) {
+	got, err := readInput("", "fix this - please", strings.NewReader("piped"))
+	if err != nil {
+		t.Fatalf("readInput: %v", err)
+	}
+	if got != "fix this - please" {
+		t.Errorf("got %q, want the argument", got)
+	}
+}
+
+// TestStdinIsCapped: `yes | KeyLint -fix` is one typo away, and the old reader
+// would have grown a slice until the process died.
+func TestStdinIsCapped(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.Close() })
+
+	go func() {
+		chunk := bytes.Repeat([]byte("x"), 1<<20)
+		for i := 0; i < 64; i++ {
+			if _, err := w.Write(chunk); err != nil {
+				break
+			}
+		}
+		_ = w.Close()
+	}()
+
+	_, err = readInput("", "", r)
+	if err == nil {
+		t.Fatal("an endless pipe was read to completion")
+	}
+	if !strings.Contains(err.Error(), "larger than") {
+		t.Errorf("error = %q, want it to name the size limit", err)
+	}
+}

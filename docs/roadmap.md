@@ -189,4 +189,4 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 - [ ] `MicrosoftEdgeWebview2Setup.exe` is curled from a redirector with no checksum or signature check (`release.yml`, `build-linux.yml`) and bundled into the installer users run — the one remaining unverified external binary, and the only one that reaches end users
 - [ ] Branch protection on `main` (required checks incl. `e2e`) — Michael, repo settings
 - [ ] Shortcut robustness under rapid input (#42, #44) after #31 lands
-- [ ] CLI `-fix` hangs on a never-closing stdin pipe (#46)
+- [x] CLI `-fix` hangs on a never-closing stdin pipe (#46) — stdin moved after the inline argument, plus a 15 s idle timeout that also catches a pipe which speaks once and stays open

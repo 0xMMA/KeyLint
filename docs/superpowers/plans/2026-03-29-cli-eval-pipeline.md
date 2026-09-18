@@ -195,6 +195,8 @@ git commit -m "feat(cli): add CLI dispatch skeleton with fix and pyramidize stub
 - Modify: `internal/cli/cli.go`
 - Modify: `internal/cli/cli_test.go`
 
+> **Superseded (#46):** the order below is the original one. Stdin moved after the inline argument, because a pipe attached to the shell was beating the text the user typed — and it now gives up after 15 s of silence instead of hanging. See CLAUDE.md for the current precedence.
+
 The input helper is shared between `-fix` and `-pyramidize`. It reads from file (`-f`), stdin (if piped), or a trailing positional argument.
 
 - [ ] **Step 1: Write the failing tests for input reading**

@@ -364,11 +364,21 @@ describe('SettingsComponent — Claude Code provider card', () => {
   });
 
   it('does not force a probe just because the screen opened', async () => {
-    // The probe spawns processes and is cached for a minute on the Go side.
-    // Forcing on load would defeat that for the caller most likely to be hit
-    // repeatedly: Settings → Pyramidize → Settings is two navigations.
+    // The probe spawns processes and is cached on the Go side. Forcing on load
+    // would defeat that for the caller most likely to be hit repeatedly:
+    // Settings → Pyramidize → Settings is two navigations.
     await render({ installed: true, loggedIn: true });
 
+    // ngOnInit reaches the probe behind five awaits, so asserting straight
+    // after render() finds an empty call list and proves nothing — which is
+    // what an earlier version of this test did.
+    for (let i = 0; i < 10; i++) {
+      await fixture.whenStable();
+    }
+    fixture.detectChanges();
+
+    expect(wailsMock.getClaudeCodeStatus, 'the probe never ran, so this asserts nothing')
+      .toHaveBeenCalled();
     for (const call of wailsMock.getClaudeCodeStatus.mock.calls) {
       expect(call[0] ?? false, 'opening Settings must take the cached answer').toBe(false);
     }

@@ -1174,10 +1174,12 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
    * two failures needs its own wording.
    *
    * Deliberately one async function rather than a helper pair: the claude-code
-   * branch spawns two processes, so a quick second switch can finish first and
-   * a stale answer must not overwrite the current one — and an extra await hop
-   * here delays the shortcut subscription in ngOnInit past what the specs wait
-   * for.
+   * branch can take a while, so a quick second switch may finish first and a
+   * stale answer must not overwrite the current one — hence the provider check
+   * before the assignment below.
+   *
+   * ngOnInit no longer awaits this, so it ends with its own change detection;
+   * the app is zoneless and nothing else would repaint the banner.
    */
   private async refreshCredentialsBanner(): Promise<void> {
     const provider = selectedProvider;
@@ -1185,9 +1187,10 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     let message = MISSING_KEY_MESSAGE;
 
     if (provider === 'claude-code') {
-      // ngOnInit awaits this before subscribing to the shortcut, so a failed
-      // RPC must not abort it. An unanswerable probe means "cannot tell",
-      // which is better shown as the banner than as a dead page.
+      // A failed RPC must not throw out of a call nobody awaits. An unanswerable
+      // probe means "cannot tell", which is better shown as the banner than as
+      // an unhandled rejection. The Go side caches the answer, so this is cheap
+      // on every switch after the first.
       const status = await this.wails.getClaudeCodeStatus().catch(() => null);
       ok = !!status?.installed && !!status.loggedIn;
       message = status?.installed ? CLI_NOT_SIGNED_IN_MESSAGE : CLI_NOT_INSTALLED_MESSAGE;

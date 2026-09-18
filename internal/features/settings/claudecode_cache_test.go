@@ -132,16 +132,105 @@ func TestConcurrentColdCallersShareOneProbe(t *testing.T) {
 	}
 }
 
-// TestAForcedProbeIsNotSharedWithAWaiterThatWantedFresh: force means "ignore
-// what we have", so a forced caller must not be handed another caller's older
-// in-flight answer as if it were its own probe.
-func TestAForcedProbeStillProbes(t *testing.T) {
-	svc, calls := serviceWithCountingProbe()
+// TestForceDoesNotSettleForAnInFlightAnswer is the invariant the Re-check
+// button depends on.
+//
+// A probe can take up to claudeCodeStatusTimeout, so one that is already running
+// may have started long before the button was pressed — handing its result back
+// as though it were fresh is exactly the staleness the button exists to escape.
+// The forced caller has to wait for it and then probe again.
+//
+// The earlier version of this test called the two in sequence, which proves
+// nothing: it never overlapped them.
+func TestForceDoesNotSettleForAnInFlightAnswer(t *testing.T) {
+	var mu sync.Mutex
+	calls := 0
+	started := make(chan struct{})
+	release := make(chan struct{})
+
+	svc := &Service{current: Default()}
+	svc.probeClaudeCode = func(context.Context) llm.ClaudeCodeStatus {
+		mu.Lock()
+		calls++
+		first := calls == 1
+		mu.Unlock()
+		if first {
+			close(started)
+			<-release
+		}
+		return llm.ClaudeCodeStatus{Installed: true, LoggedIn: true}
+	}
+
+	// A background probe, held open.
+	go svc.GetClaudeCodeStatus(false)
+	<-started
+
+	// The button, pressed while that one is still running.
+	done := make(chan struct{})
+	go func() { defer close(done); svc.GetClaudeCodeStatus(true) }()
+
+	// Give the forced caller time to reach the in-flight branch, then let the
+	// first probe finish.
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	<-done
+
+	mu.Lock()
+	defer mu.Unlock()
+	if calls != 2 {
+		t.Errorf("probes = %d, want 2 — the forced caller took the in-flight answer instead of asking again", calls)
+	}
+}
+
+// TestATimedOutProbeIsNotCached: CheckClaudeCode has no error return, so a spawn
+// cut short by the deadline comes back as "installed, not signed in". Caching
+// that turns one slow spawn into a minute of wrong answers, and the welcome
+// wizard has no re-check button to escape it with.
+func TestATimedOutProbeIsNotCached(t *testing.T) {
+	var mu sync.Mutex
+	calls := 0
+
+	svc := &Service{current: Default()}
+	svc.probeClaudeCode = func(ctx context.Context) llm.ClaudeCodeStatus {
+		mu.Lock()
+		calls++
+		n := calls
+		mu.Unlock()
+		if n == 1 {
+			// Behave like a probe whose deadline expired.
+			<-ctx.Done()
+			return llm.ClaudeCodeStatus{Installed: true}
+		}
+		return llm.ClaudeCodeStatus{Installed: true, LoggedIn: true}
+	}
+
+	original := claudeCodeStatusTimeoutForTest
+	claudeCodeStatusTimeoutForTest = 50 * time.Millisecond
+	defer func() { claudeCodeStatusTimeoutForTest = original }()
 
 	svc.GetClaudeCodeStatus(false)
-	svc.GetClaudeCodeStatus(true)
+	if got := svc.GetClaudeCodeStatus(false); !got.LoggedIn {
+		t.Error("the timed-out answer was cached and served again")
+	}
 
-	if calls() != 2 {
-		t.Errorf("probes = %d, want 2", calls())
+	mu.Lock()
+	defer mu.Unlock()
+	if calls != 2 {
+		t.Errorf("probes = %d, want 2", calls)
+	}
+}
+
+// TestANegativeAnswerExpiresQuickly: "not installed" is what a user is about to
+// change, so it must not sit in the cache for a full minute.
+func TestANegativeAnswerExpiresQuickly(t *testing.T) {
+	absent := llm.ClaudeCodeStatus{}
+	present := llm.ClaudeCodeStatus{Installed: true, LoggedIn: true}
+	signedOut := llm.ClaudeCodeStatus{Installed: true}
+
+	if claudeCodeTTL(absent) >= claudeCodeTTL(present) {
+		t.Error("a missing CLI is cached as long as a working one")
+	}
+	if claudeCodeTTL(signedOut) >= claudeCodeTTL(present) {
+		t.Error("a signed-out CLI is cached as long as a signed-in one")
 	}
 }

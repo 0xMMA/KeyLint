@@ -71,10 +71,16 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) error {
 // twice would add half a minute to every CI run.
 var stdinIdleTimeout = 15 * time.Second
 
+// stdinMaxBytes caps what will be read from a pipe. `yes | KeyLint -fix` is a
+// typo away, and the text is going to an AI provider with a token limit long
+// before ten megabytes matter — so the cap is generous enough never to be hit
+// by real input and small enough not to exhaust memory.
+const stdinMaxBytes = 10 << 20
+
 // readInput returns text from the first source the caller actually asked for:
 //
 //  1. -f <file>
-//  2. inline text
+//  2. inline text, unless it is a lone "-" — the usual spelling of "use stdin"
 //  3. stdin, and only when neither of the above was given
 //
 // Stdin comes last on purpose. It used to come second, so `KeyLint -fix "some
@@ -90,7 +96,9 @@ func readInput(filePath, inlineText string, stdinReader io.Reader) (string, erro
 		}
 		return strings.TrimSpace(string(data)), nil
 	}
-	if inlineText != "" {
+	// A lone "-" is the usual way to say "the thing on stdin", and treating it
+	// as literal text sent a single hyphen to the model.
+	if inlineText != "" && inlineText != "-" {
 		return inlineText, nil
 	}
 	if stdinReader != nil {
@@ -154,6 +162,10 @@ func readStdin(r io.Reader) (string, error) {
 				return "", fmt.Errorf("reading stdin: %w", c.err)
 			}
 			collected = append(collected, c.data...)
+			if len(collected) > stdinMaxBytes {
+				return "", fmt.Errorf(
+					"stdin is larger than %d MB — pass a file with -f instead", stdinMaxBytes>>20)
+			}
 			// Progress resets the clock: a slow producer is still a producer.
 			if !idle.Stop() {
 				select {
