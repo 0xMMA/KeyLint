@@ -1043,7 +1043,6 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
 
   /** The provider's models, with a leading entry for the configured default. */
   modelOptions: Array<{ id: string; label: string }> = [DEFAULT_MODEL_OPTION];
-  /** Set when the list is the built-in one because the provider was unreachable. */
   /** Why this list is what it is, or "" when it needs no explaining. */
   modelListNote = '';
 

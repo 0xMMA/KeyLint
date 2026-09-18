@@ -45,9 +45,14 @@ const BROWSER_MODE_CLAUDE_CODE: ClaudeCodeStatus = {
   loggedIn: false,
 };
 
-/** Browser dev / Playwright mode has no backend to ask. */
+/**
+ * Browser dev / Playwright mode has no backend to ask, and neither does a
+ * rejected RPC. "unreachable" is literally true in both cases, and it is a
+ * source the UI has wording for — "static" was retired and would now fall
+ * through every switch to silence.
+ */
 function emptyModelList(): ModelList {
-  return { models: [], source: 'static' };
+  return { models: [], source: 'unreachable' };
 }
 
 @Injectable({ providedIn: 'root' })
@@ -152,9 +157,9 @@ export class WailsService implements OnDestroy {
   }
 
   /**
-   * Lists the models a provider can serve. A provider that cannot be reached
-   * yields the built-in list with source "static" rather than an error, so a
-   * picker always has something in it.
+   * Lists the models a provider can serve. Never rejects: the source on the
+   * returned list says what happened — see internal/llm/models.go and
+   * core/model-source.ts for the wording each case gets.
    */
   listModels(provider: string): Promise<ModelList> {
     try {

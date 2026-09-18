@@ -18,8 +18,10 @@ TabList uses `ResizeObserver` which doesn't exist in jsdom. Add at the top of sp
 ```
 
 PrimeNG's overlay (any `p-select` dropdown that a spec opens) asks `matchMedia`
-whether to go modal. Stub it to "no match" in specs that open one — test-only;
-the app itself must never ask `matchMedia`, see `architecture.md`.
+whether to go modal, and jsdom has none. Stub it to "no match" in specs that
+open one. This is a jsdom gap in a library, not permission to use `matchMedia`
+in app code — KeyLint's own code must not read it for theme detection, see
+`architecture.md`.
 
 ## Go Tests
 

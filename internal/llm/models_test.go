@@ -148,6 +148,63 @@ func TestListModelsSeparatesAnEmptyAnswerFromAFailure(t *testing.T) {
 	}
 }
 
+// TestAProviderThatListsOnlyUncallableModelsIsNotCalledEmpty: an OpenAI project
+// key scoped to Responses-API-only models lists plenty — this app can call none
+// of it. Deciding "empty" on what survived the filter told that user their
+// account lists no models, which is false, and left the picker with nothing in
+// it. The Pyramidize panel's model select is not editable, so there was no way
+// out of that screen.
+func TestAProviderThatListsOnlyUncallableModelsIsNotCalledEmpty(t *testing.T) {
+	srv := newRawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[
+			{"id":"o3-pro"},{"id":"gpt-5.2-pro"},{"id":"o3-deep-research"}
+		]}`))
+	})
+
+	list, err := ListModels(context.Background(), ProviderOpenAI, Config{APIKey: "k", BaseURL: srv})
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	if list.Source != ModelSourceUnusable {
+		t.Errorf("source = %q, want %q — the account listed three models", list.Source, ModelSourceUnusable)
+	}
+	if len(list.Models) == 0 {
+		t.Error("no fallback offered, so the picker is a dead end")
+	}
+}
+
+// TestAnEmptyPayloadIsStillEmpty: the check above must not swallow the case it
+// was split from — a provider that really listed nothing.
+func TestAnEmptyPayloadIsStillEmpty(t *testing.T) {
+	srv := newRawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	})
+
+	list, err := ListModels(context.Background(), ProviderOpenAI, Config{APIKey: "k", BaseURL: srv})
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	if list.Source != ModelSourceEmpty {
+		t.Errorf("source = %q, want %q", list.Source, ModelSourceEmpty)
+	}
+}
+
+// TestEveryDefaultModelSurvivesTheFilter: a default that the filter drops is a
+// model KeyLint uses but no user can see or re-pick in the list.
+func TestEveryDefaultModelSurvivesTheFilter(t *testing.T) {
+	for _, feature := range []string{FeatureFix, FeaturePyramidize} {
+		id := DefaultModel(ProviderOpenAI, feature)
+		if id == "" {
+			t.Fatalf("no OpenAI default for %s", feature)
+		}
+		if !isChatModel(id) {
+			t.Errorf("the %s default %q is filtered out of live listings", feature, id)
+		}
+	}
+}
+
 // TestCuratedModelsCannotBeMutatedByACaller: the list is package state handed
 // out on every fallback, so a caller sorting or appending to it would change
 // what every later fallback shows.
@@ -250,6 +307,9 @@ func TestIsChatModelKeepsOnlyWhatCanAnswerACompletion(t *testing.T) {
 		// /chat/completions call this app makes — so they 400, which is the
 		// same outcome as an embedding model and deserves the same filter.
 		"codex-mini-latest", "gpt-5.2-pro", "o3-deep-research",
+		// The Codex family moved into the gpt-* namespace, where a "codex-"
+		// prefix test cannot see it any more.
+		"gpt-5-codex", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5.1-codex-max",
 	}
 	for _, id := range keep {
 		if !isChatModel(id) {

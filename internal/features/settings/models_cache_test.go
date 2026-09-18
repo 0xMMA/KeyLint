@@ -1,7 +1,10 @@
 package settings
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -113,10 +116,14 @@ func TestTheTTLFollowsTheSituationTheUserIsIn(t *testing.T) {
 		want   time.Duration
 		why    string
 	}{
-		{llm.ModelSourceUnreachable, modelListFailureTTL, "the daemon or the key is about to be fixed"},
+		{llm.ModelSourceUnreachable, modelListFailureTTL, "the daemon or the URL is about to be fixed"},
 		{llm.ModelSourceEmpty, modelListFailureTTL, "a model is about to be pulled"},
+		{llm.ModelSourceNoCredentials, modelListFailureTTL, "a key is about to be pasted"},
+		{llm.ModelSourceUnusable, modelListFailureTTL, "a project scope is about to be widened"},
 		{llm.ModelSourceLive, modelListTTL, "the provider answered; nothing is pending"},
 		{llm.ModelSourceFixed, modelListTTL, "there is no endpoint, so nothing can change"},
+		// A source nobody set yet must not buy itself ten minutes.
+		{"", modelListFailureTTL, "an unknown source errs towards asking again"},
 	} {
 		entry := cachedModelList{list: llm.ModelList{Source: tc.source}}
 		if got := entry.ttl(); got != tc.want {
@@ -145,21 +152,98 @@ func TestNoCredentialIsNotTheSameAsUnreachable(t *testing.T) {
 	}
 }
 
-// TestAnEmptyListIsServedAsEmpty: the built-in list must not be substituted for
-// a provider that answered with nothing — see the Ollama case in llm.ListModels.
+// TestAnEmptyListIsNotRefilledFromTheCuratedOne: a daemon that answered with
+// nothing must reach the caller as nothing. Seeding the cache would prove only
+// that the cache returns what was put in it, so this goes through a real
+// listing against a daemon with no models pulled.
 func TestAnEmptyListIsNotRefilledFromTheCuratedOne(t *testing.T) {
-	svc := serviceWithUnreachableOllama(t, cachedModelList{
-		list:    llm.ModelList{Source: llm.ModelSourceEmpty},
-		fetched: time.Now(),
-	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":[]}`))
+	}))
+	defer srv.Close()
+
+	svc := &Service{current: Default()}
+	svc.current.Providers.OllamaURL = srv.URL
 
 	got := svc.ListModels(llm.ProviderOllama)
 	if got.Source != llm.ModelSourceEmpty {
 		t.Errorf("source = %q, want %q", got.Source, llm.ModelSourceEmpty)
 	}
 	if len(got.Models) != 0 {
-		t.Errorf("models = %v, want none", got.Models)
+		t.Errorf("models = %v, want none — the built-in list is models this daemon cannot serve", got.Models)
 	}
+}
+
+// TestAnInFlightListingCannotUndoAnInvalidation is the flow that made the
+// generation counter necessary: the listing runs outside the lock, so a
+// forgetModelList landing while it is in flight used to be overwritten by the
+// answer that was already on its way — pinning the retired URL's models for a
+// full ten minutes, which is the opposite of what the invalidation asked for.
+func TestAnInFlightListingCannotUndoAnInvalidation(t *testing.T) {
+	// started fires once the listing is under way — after ListModels has read
+	// the generation it will later compare against. Without that ordering the
+	// invalidation could land first and the test would prove nothing.
+	started := make(chan struct{})
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-release
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":[{"name":"old-host-model","model":"old-host-model"}]}`))
+	}))
+	defer srv.Close()
+
+	svc := &Service{current: Default()}
+	svc.current.Providers.OllamaURL = srv.URL
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		svc.ListModels(llm.ProviderOllama)
+	}()
+
+	// The user changes the URL while that listing is still waiting.
+	<-started
+	svc.forgetModelList(llm.ProviderOllama)
+	close(release)
+	<-done
+
+	svc.modelsMu.Lock()
+	cached, ok := svc.models[llm.ProviderOllama]
+	svc.modelsMu.Unlock()
+	if ok {
+		t.Errorf("the retired host's answer was cached anyway: %v", cached.list.Models)
+	}
+}
+
+// TestSavingSettingsWhileAListingRunsIsNotARace: Wails serves every RPC on its
+// own goroutine, so this pairing happens in the app. Run under -race.
+func TestSavingSettingsWhileAListingRunsIsNotARace(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":[{"name":"llama3.2","model":"llama3.2"}]}`))
+	}))
+	defer srv.Close()
+
+	svc := &Service{filePath: filepath.Join(t.TempDir(), "settings.json"), current: Default()}
+	svc.current.Providers.OllamaURL = srv.URL
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if i%2 == 0 {
+				updated := Default()
+				updated.Providers.OllamaURL = srv.URL
+				_ = svc.Save(updated)
+				return
+			}
+			svc.ListModels(llm.ProviderOllama)
+		}(i)
+	}
+	wg.Wait()
 }
 
 // TestOllamaIsAskedWithoutACredential: Ollama needs no key, so the "no

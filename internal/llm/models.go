@@ -31,6 +31,11 @@ const (
 	// list is deliberately NOT offered here — it would be a menu of models this
 	// machine cannot serve, each of which 404s at call time.
 	ModelSourceEmpty = "empty"
+	// ModelSourceUnusable: the provider listed models and this app can call none
+	// of them — an OpenAI project key scoped to Responses-API-only models is the
+	// case. Kept apart from empty because the provider did list something, and
+	// telling the user it listed nothing would be false.
+	ModelSourceUnusable = "unusable"
 	// ModelSourceUnreachable: the provider could not be asked at all — daemon
 	// down, wrong URL, network gone. The built-in list stands in, and the user
 	// has something to act on.
@@ -143,11 +148,6 @@ func CuratedModels(provider, source string) ModelList {
 	return ModelList{Models: slices.Clone(curatedModels[provider]), Source: source}
 }
 
-// IsClaudeCodeAlias reports whether m is one of the three aliases the picker
-// offers. It is not a validity check: the CLI takes a full model ID too, and
-// claudecode.go only notes the difference rather than refusing it. What the
-// aliases buy is that they follow the generation, where a pinned ID freezes it
-// — which is why the picker offers nothing else.
 // ClaudeCodeAliases lists the alias IDs, for messages that name them. Derived
 // from the same list the picker uses, so the two cannot say different things.
 func ClaudeCodeAliases() []string {
@@ -158,6 +158,11 @@ func ClaudeCodeAliases() []string {
 	return ids
 }
 
+// IsClaudeCodeAlias reports whether m is one of the three aliases the picker
+// offers. It is not a validity check: the CLI takes a full model ID too, and
+// claudecode.go only notes the difference rather than refusing it. What the
+// aliases buy is that they follow the generation, where a pinned ID freezes it
+// — which is why the picker offers nothing else.
 func IsClaudeCodeAlias(m string) bool {
 	for _, alias := range claudeCodeAliases {
 		if alias.ID == m {
@@ -177,15 +182,16 @@ func IsClaudeCodeAlias(m string) bool {
 func ListModels(ctx context.Context, provider string, cfg Config) (ModelList, error) {
 	var (
 		models []ModelInfo
+		listed int
 		err    error
 	)
 	switch provider {
 	case ProviderClaude:
-		models, err = listAnthropicModels(ctx, cfg)
+		models, listed, err = listAnthropicModels(ctx, cfg)
 	case ProviderOpenAI:
-		models, err = listOpenAIModels(ctx, cfg)
+		models, listed, err = listOpenAIModels(ctx, cfg)
 	case ProviderOllama:
-		models, err = listOllamaModels(ctx, cfg)
+		models, listed, err = listOllamaModels(ctx, cfg)
 	case ProviderClaudeCode:
 		// The CLI has no model endpoint, and these three are the whole story.
 		return ModelList{Models: slices.Clone(claudeCodeAliases), Source: ModelSourceFixed}, nil
@@ -200,13 +206,24 @@ func ListModels(ctx context.Context, provider string, cfg Config) (ModelList, er
 	// and nothing for the user to fix except pulling a model — so it must not
 	// be folded into the unreachable case, which would both claim the provider
 	// is down and offer models it cannot serve.
-	if len(models) == 0 {
+	if listed == 0 {
 		return ModelList{Source: ModelSourceEmpty}, nil
+	}
+	// The provider listed models and the filter kept none of them. Saying "this
+	// account lists no models" here would be false, and leaving the picker empty
+	// would leave the user with nothing to choose, so the built-in list stands
+	// in — the same trade as the unreachable case, for a different reason.
+	if len(models) == 0 {
+		return CuratedModels(provider, ModelSourceUnusable), nil
 	}
 	return ModelList{Models: models, Source: ModelSourceLive}, nil
 }
 
-func listAnthropicModels(ctx context.Context, cfg Config) ([]ModelInfo, error) {
+// The listers return the models this app can use and, separately, how many the
+// provider actually listed. The two differ only for OpenAI, whose account
+// listing carries far more than chat models — and the difference matters:
+// "listed nothing" and "listed nothing we can call" are different sentences.
+func listAnthropicModels(ctx context.Context, cfg Config) ([]ModelInfo, int, error) {
 	attempts := &httpAttempts{cfg: cfg, provider: anthropicProvider}
 	client := (&anthropicClient{cfg: cfg}).client(attempts)
 
@@ -215,7 +232,7 @@ func listAnthropicModels(ctx context.Context, cfg Config) ([]ModelInfo, error) {
 	// which are exactly the pinned IDs people configure.
 	page, err := client.Models.List(ctx, anthropic.ModelListParams{Limit: anthropic.Int(1000)})
 	if err != nil {
-		return nil, mapAnthropicError(attempts, "", err)
+		return nil, 0, mapAnthropicError(attempts, "", err)
 	}
 	var models []ModelInfo
 	for _, entry := range page.Data {
@@ -225,16 +242,16 @@ func listAnthropicModels(ctx context.Context, cfg Config) ([]ModelInfo, error) {
 		}
 		models = append(models, ModelInfo{ID: entry.ID, Label: label})
 	}
-	return models, nil
+	return models, len(models), nil
 }
 
-func listOpenAIModels(ctx context.Context, cfg Config) ([]ModelInfo, error) {
+func listOpenAIModels(ctx context.Context, cfg Config) ([]ModelInfo, int, error) {
 	attempts := &httpAttempts{cfg: cfg, provider: openAIProvider}
 	client := openAISDKClient(cfg, resolveBaseURL(cfg.BaseURL, defaultOpenAIBaseURL), attempts)
 
 	page, err := client.Models.List(ctx)
 	if err != nil {
-		return nil, mapOpenAIError(openAIProvider, attempts, "", err)
+		return nil, 0, mapOpenAIError(openAIProvider, attempts, "", err)
 	}
 	var models []ModelInfo
 	for _, entry := range page.Data {
@@ -243,7 +260,7 @@ func listOpenAIModels(ctx context.Context, cfg Config) ([]ModelInfo, error) {
 		}
 		models = append(models, ModelInfo{ID: entry.ID, Label: entry.ID})
 	}
-	return models, nil
+	return models, len(page.Data), nil
 }
 
 // isChatModel filters an OpenAI account listing down to what this app can use.
@@ -271,8 +288,10 @@ func isChatModel(id string) bool {
 	}
 	for _, marker := range []string{
 		"-audio", "-realtime", "-transcribe", "-tts", "-image", "-search", "-instruct", "-moderation",
-		// Responses-API only: reachable, but not at /chat/completions.
-		"-pro", "-deep-research",
+		// Responses-API only: reachable, but not at /chat/completions. "-codex"
+		// is a marker rather than a prefix because the family moved into the
+		// gpt-* namespace (gpt-5.1-codex-max), where a prefix test cannot see it.
+		"-pro", "-deep-research", "-codex",
 	} {
 		if strings.Contains(id, marker) {
 			return false
@@ -285,11 +304,11 @@ func isChatModel(id string) bool {
 // native endpoint rather than the OpenAI-compatible one, which is why it is
 // hand-rolled: /v1/models exists but reports less, and this is a listing call,
 // not a completion.
-func listOllamaModels(ctx context.Context, cfg Config) ([]ModelInfo, error) {
+func listOllamaModels(ctx context.Context, cfg Config) ([]ModelInfo, int, error) {
 	base := strings.TrimSuffix(resolveBaseURL(cfg.BaseURL, defaultOllamaBaseURL), "/v1")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/api/tags", nil)
 	if err != nil {
-		return nil, transportError(ollamaProvider, err)
+		return nil, 0, transportError(ollamaProvider, err)
 	}
 	// Same reason as every completion call: net/http would otherwise send
 	// "Go-http-client/1.1", which some gateways in front of an Ollama host treat
@@ -298,11 +317,11 @@ func listOllamaModels(ctx context.Context, cfg Config) ([]ModelInfo, error) {
 
 	resp, err := cfg.httpClient().Do(req)
 	if err != nil {
-		return nil, transportError(ollamaProvider, err)
+		return nil, 0, transportError(ollamaProvider, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, apiError(ollamaProvider, resp.StatusCode, "")
+		return nil, 0, apiError(ollamaProvider, resp.StatusCode, "")
 	}
 
 	var payload struct {
@@ -312,7 +331,7 @@ func listOllamaModels(ctx context.Context, cfg Config) ([]ModelInfo, error) {
 		} `json:"models"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, fmt.Errorf("%s unexpected response listing models: %w", ollamaProvider.name, err)
+		return nil, 0, fmt.Errorf("%s unexpected response listing models: %w", ollamaProvider.name, err)
 	}
 
 	var models []ModelInfo
@@ -326,5 +345,5 @@ func listOllamaModels(ctx context.Context, cfg Config) ([]ModelInfo, error) {
 		}
 		models = append(models, ModelInfo{ID: id, Label: id})
 	}
-	return models, nil
+	return models, len(models), nil
 }

@@ -75,10 +75,13 @@ export function GetKeyStatus(provider) {
 }
 
 /**
- * ListModels returns the models a provider can serve, cached for modelListTTL.
- * A provider that cannot be reached yields the built-in list with
- * source "static" rather than an error: a picker with the usual entries is more
- * use than an empty one, and the source says which it is.
+ * ListModels returns the models a provider can serve, cached per provider.
+ * 
+ * It never returns an error: a provider that cannot be reached, one with no key
+ * and one whose listing this app cannot use all yield the built-in list, and a
+ * provider that listed nothing yields an empty one. ModelList.Source says which
+ * happened, so the picker can explain itself; ttl decides how long that answer
+ * is worth keeping.
  * @param {string} provider
  * @returns {$CancellablePromise<llm$0.ModelList>}
  */

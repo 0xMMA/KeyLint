@@ -19,16 +19,27 @@ function emptyNote(provider: string): string {
 /**
  * What to tell the user about this list, or "" when it needs no explaining.
  *
- * `hasList` says whether there is anything to show: a fallback with nothing in
- * it is no fallback, and claiming one for an unknown provider would be an alarm
- * about a list that never existed.
+ * `hasList` says whether there is anything to show. It changes the wording
+ * rather than silencing the note: a provider with no curated entries still owes
+ * the user an explanation for the empty picker, and promising a "built-in list"
+ * that is not on screen would be its own small lie.
  */
 export function noteForModelSource(source: string, provider: string, hasList: boolean): string {
   switch (source) {
     case 'unreachable':
-      return hasList ? "Showing KeyLint's built-in list — the provider could not be reached." : '';
+      return hasList
+        ? "Showing KeyLint's built-in list — the provider could not be reached."
+        : 'The provider could not be reached.';
     case 'no-credentials':
-      return hasList ? "Showing KeyLint's built-in list — add a key to load the provider's own." : '';
+      return hasList
+        ? "Showing KeyLint's built-in list — add a key to load the provider's own."
+        : 'Add a key to load this provider\'s models.';
+    case 'unusable':
+      // The provider did list models; this app just cannot call any of them.
+      // Saying "lists no models" here would be false.
+      return hasList
+        ? "Showing KeyLint's built-in list — none of this account's models can be used here."
+        : "None of this account's models can be used here.";
     case 'empty':
       return emptyNote(provider);
     default:

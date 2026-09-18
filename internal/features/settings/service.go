@@ -27,11 +27,22 @@ var envVars = map[string]string{
 // Service handles loading and saving application settings.
 type Service struct {
 	filePath string
-	current  Settings
+
+	// currentMu guards current. Wails serves every RPC on its own goroutine, so
+	// saving settings and loading a model list genuinely run at the same time —
+	// the listing path reads the Ollama URL out of current while Save replaces
+	// it. The copy Get hands out is shallow: the maps inside are replaced
+	// wholesale by Save and never mutated in place, so a reader keeps a
+	// consistent snapshot.
+	currentMu sync.RWMutex
+	current   Settings
 
 	// models caches per-provider listings; see ListModels.
 	modelsMu sync.Mutex
 	models   map[string]cachedModelList
+	// modelGeneration counts invalidations. A listing that started before one
+	// must not write its result afterwards; see ListModels and forgetModelList.
+	modelGeneration uint64
 }
 
 // NewService creates a new SettingsService, loading existing settings from disk.
@@ -95,16 +106,22 @@ func (s *Service) load() error {
 
 // Get returns a copy of the current settings.
 func (s *Service) Get() Settings {
+	s.currentMu.RLock()
+	defer s.currentMu.RUnlock()
 	return s.current
 }
 
 // Save persists the provided settings to disk.
 func (s *Service) Save(updated Settings) error {
+	s.currentMu.Lock()
+	ollamaMoved := updated.Providers.OllamaURL != s.current.Providers.OllamaURL
+	s.current = updated
+	s.currentMu.Unlock()
+
 	// Ollama's list comes from whatever URL is configured.
-	if updated.Providers.OllamaURL != s.current.Providers.OllamaURL {
+	if ollamaMoved {
 		s.forgetModelList(llm.ProviderOllama)
 	}
-	s.current = updated
 	data, err := json.MarshalIndent(updated, "", "  ")
 	if err != nil {
 		return err
@@ -189,13 +206,17 @@ type cachedModelList struct {
 	fetched time.Time
 }
 
-// ListModels returns the models a provider can serve, cached for modelListTTL.
-// A provider that cannot be reached yields the built-in list with
-// source "static" rather than an error: a picker with the usual entries is more
-// use than an empty one, and the source says which it is.
+// ListModels returns the models a provider can serve, cached per provider.
+//
+// It never returns an error: a provider that cannot be reached, one with no key
+// and one whose listing this app cannot use all yield the built-in list, and a
+// provider that listed nothing yields an empty one. ModelList.Source says which
+// happened, so the picker can explain itself; ttl decides how long that answer
+// is worth keeping.
 func (s *Service) ListModels(provider string) llm.ModelList {
 	s.modelsMu.Lock()
 	cached, ok := s.models[provider]
+	generation := s.modelGeneration
 	s.modelsMu.Unlock()
 	if ok && time.Since(cached.fetched) < cached.ttl() {
 		return cached.list
@@ -218,6 +239,14 @@ func (s *Service) ListModels(provider string) llm.ModelList {
 	}
 
 	s.modelsMu.Lock()
+	// An invalidation arrived while this listing was in flight, so what came
+	// back describes the old key or the old URL. Writing it now would undo the
+	// invalidation and pin the wrong host's models for a full TTL — which is
+	// exactly the flow forgetModelList exists to protect.
+	if s.modelGeneration != generation {
+		s.modelsMu.Unlock()
+		return list
+	}
 	if s.models == nil {
 		s.models = map[string]cachedModelList{}
 	}
@@ -229,16 +258,20 @@ func (s *Service) ListModels(provider string) llm.ModelList {
 // ttl is how long this entry stays valid.
 //
 // Read off the source rather than stored alongside it, so the two cannot drift
-// apart. A provider that was down and one that had nothing pulled are both
-// states the user is about to change — a daemon started, a model pulled — and
-// ten minutes of a stale answer after that is ten minutes of the picker being
-// wrong.
+// apart. Only a settled answer earns the long lifetime: the provider listed its
+// models, or there is no endpoint to ask and nothing can change. Everything
+// else describes something the user is in the middle of fixing — starting a
+// daemon, pulling a model, pasting a key, widening a project scope — and ten
+// minutes of the old answer after that is ten minutes of a wrong picker.
+//
+// The default is deliberately the short one, so a source added later errs
+// towards asking again rather than towards a stale picker.
 func (c cachedModelList) ttl() time.Duration {
 	switch c.list.Source {
-	case llm.ModelSourceUnreachable, llm.ModelSourceEmpty:
-		return modelListFailureTTL
-	default:
+	case llm.ModelSourceLive, llm.ModelSourceFixed:
 		return modelListTTL
+	default:
+		return modelListFailureTTL
 	}
 }
 
@@ -248,6 +281,10 @@ func (c cachedModelList) ttl() time.Duration {
 func (s *Service) forgetModelList(provider string) {
 	s.modelsMu.Lock()
 	delete(s.models, provider)
+	// A listing that is already in flight asked with the credentials or the URL
+	// this invalidation just retired. Moving the generation on makes it drop its
+	// answer instead of writing it back over the deletion.
+	s.modelGeneration++
 	s.modelsMu.Unlock()
 }
 
