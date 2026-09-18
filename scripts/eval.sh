@@ -44,13 +44,15 @@ WRITE_BASELINE=0
 # reads either — but a baseline from one is not comparable with the other, and
 # the configKey carries the model and variant that say so.
 SUITE=pyramidize
+VARIANT_SET=0
+SCHEMA_SET=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --provider) export EVAL_PROVIDER="$2"; shift 2 ;;
         --model)    export EVAL_MODEL="$2"; shift 2 ;;
-        --variant)  export EVAL_VARIANT="$2"; shift 2 ;;
-        --schema)   export KEYLINT_PYRAMIDIZE_SCHEMA=1; shift ;;
+        --variant)  export EVAL_VARIANT="$2"; VARIANT_SET=1; shift 2 ;;
+        --schema)   export KEYLINT_PYRAMIDIZE_SCHEMA=1; SCHEMA_SET=1; shift ;;
         --runs)     RUNS="$2"; WRITE_BASELINE=1; shift 2 ;;
         --suite)    SUITE="$2"; shift 2 ;;
         --compare)  COMPARE="$2"; shift 2 ;;
@@ -80,10 +82,26 @@ case "$SUITE" in
     *)          echo "--suite takes 'pyramidize' or 'fix'" >&2; exit 3 ;;
 esac
 
+# Both of these configure the Pyramidize pipeline and nothing else. Accepting
+# them under --suite fix printed "Variant: 2" in the header and measured variant
+# 0 — a run that says it tested something it did not.
+if [[ "$SUITE" == "fix" ]]; then
+    if (( VARIANT_SET )); then
+        echo "--variant applies to the pyramidize prompts; the Fix prompt has no variants" >&2
+        exit 3
+    fi
+    if (( SCHEMA_SET )); then
+        echo "--schema enforces the pyramidize JSON schemas; the Fix suite returns text" >&2
+        exit 3
+    fi
+fi
+
 echo "=== KeyLint Eval: $SUITE ==="
 echo "Provider: ${EVAL_PROVIDER:-<eval default: claude>}"
 echo "Model:    ${EVAL_MODEL:-<provider default>}"
-echo "Variant:  ${EVAL_VARIANT:-0 (latest)}"
+if [[ "$SUITE" != "fix" ]]; then
+    echo "Variant:  ${EVAL_VARIANT:-0 (latest)}"
+fi
 echo "Judge:    ${EVAL_JUDGE_PROVIDER:-claude} / ${EVAL_JUDGE_MODEL:-<pinned>} @ temp 0"
 echo "Runs:     $RUNS"
 echo ""

@@ -1,15 +1,16 @@
 {
-  "createdAt": "2026-09-18T07-40-00",
+  "createdAt": "2026-09-18T08-11-23",
   "runCount": 3,
   "runs": [
-    "test-data/eval-runs/2026-09-18T07-40-00/",
-    "test-data/eval-runs/2026-09-18T07-40-58/",
-    "test-data/eval-runs/2026-09-18T07-41-58/"
+    "test-data/eval-runs/2026-09-18T08-11-23/",
+    "test-data/eval-runs/2026-09-18T08-12-32/",
+    "test-data/eval-runs/2026-09-18T08-13-36/"
   ],
   "config": {
     "suite": "fix",
     "promptHash": "7d7b15a7510f98ae",
-    "gitSHA": "049d3e4-dirty",
+    "checksVersion": 2,
+    "gitSHA": "092c23e-dirty",
     "provider": "claude",
     "model": "claude-haiku-4-5-20251001",
     "promptVariant": 0,
@@ -20,33 +21,37 @@
     },
     "schemaEnforcement": false,
     "qualityThreshold": 0,
-    "sampleCount": 15,
-    "checksVersion": 1
+    "sampleCount": 15
   },
-  "configKey": "fix|claude|claude-haiku-4-5-20251001|claude|claude-sonnet-4-5-20250929|0|false|0|15|1",
+  "configKey": "fix|claude|claude-haiku-4-5-20251001|claude|claude-sonnet-4-5-20250929|0|false|0|15|2",
   "configConsistent": true,
   "judgeCoverage": {
     "min": 15,
     "max": 15,
     "of": 15
   },
+  "scoredCoverage": {
+    "min": 15,
+    "max": 15,
+    "of": 15
+  },
   "deterministic": {
-    "mean": 0.9426,
-    "min": 0.9226,
-    "max": 0.9563,
-    "spread": 0.0336
+    "mean": 0.9263,
+    "min": 0.9112,
+    "max": 0.9362,
+    "spread": 0.025
   },
   "judge": {
-    "mean": 0.8789,
-    "min": 0.8433,
-    "max": 0.9,
-    "spread": 0.0567
+    "mean": 0.852,
+    "min": 0.8353,
+    "max": 0.882,
+    "spread": 0.0467
   },
   "samplesPassing": {
-    "mean": 11.6667,
+    "mean": 11,
     "min": 11,
-    "max": 12,
-    "spread": 1
+    "max": 11,
+    "spread": 0
   },
   "refineCalls": null,
   "perSample": [
@@ -55,18 +60,18 @@
       "runs": 3,
       "errors": 0,
       "deterministic": {
-        "mean": 0.793,
-        "min": 0.4506,
-        "max": 1,
-        "spread": 0.5494
+        "mean": 0.5432,
+        "min": 0.3241,
+        "max": 0.6667,
+        "spread": 0.3426
       },
       "judge": {
-        "mean": 0.65,
+        "mean": 0.25,
         "min": 0,
-        "max": 1,
-        "spread": 1
+        "max": 0.75,
+        "spread": 0.75
       },
-      "passed": 1,
+      "passed": 0,
       "refined": 0
     },
     {
@@ -74,18 +79,18 @@
       "runs": 3,
       "errors": 0,
       "deterministic": {
-        "mean": 0.9777,
-        "min": 0.9649,
-        "max": 1,
-        "spread": 0.0351
+        "mean": 0.8771,
+        "min": 0.8569,
+        "max": 0.8872,
+        "spread": 0.0303
       },
       "judge": {
-        "mean": 0.9667,
-        "min": 0.95,
-        "max": 1,
+        "mean": 0.9333,
+        "min": 0.9,
+        "max": 0.95,
         "spread": 0.05
       },
-      "passed": 1,
+      "passed": 0,
       "refined": 0
     },
     {
@@ -93,9 +98,9 @@
       "runs": 3,
       "errors": 0,
       "deterministic": {
-        "mean": 1,
-        "min": 1,
-        "max": 1,
+        "mean": 0.9986,
+        "min": 0.9986,
+        "max": 0.9986,
         "spread": 0
       },
       "judge": {
@@ -112,15 +117,15 @@
       "runs": 3,
       "errors": 0,
       "deterministic": {
-        "mean": 1,
-        "min": 1,
-        "max": 1,
+        "mean": 0.9993,
+        "min": 0.9993,
+        "max": 0.9993,
         "spread": 0
       },
       "judge": {
-        "mean": 1,
-        "min": 1,
-        "max": 1,
+        "mean": 0.95,
+        "min": 0.95,
+        "max": 0.95,
         "spread": 0
       },
       "passed": 3,
@@ -128,6 +133,25 @@
     },
     {
       "name": "de-umlaute-ascii",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9982,
+        "min": 0.9982,
+        "max": 0.9982,
+        "spread": 0
+      },
+      "judge": {
+        "mean": 0.98,
+        "min": 0.98,
+        "max": 0.98,
+        "spread": 0
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "en-french-word",
       "runs": 3,
       "errors": 0,
       "deterministic": {
@@ -146,39 +170,20 @@
       "refined": 0
     },
     {
-      "name": "en-french-word",
-      "runs": 3,
-      "errors": 0,
-      "deterministic": {
-        "mean": 1,
-        "min": 1,
-        "max": 1,
-        "spread": 0
-      },
-      "judge": {
-        "mean": 1,
-        "min": 1,
-        "max": 1,
-        "spread": 0
-      },
-      "passed": 3,
-      "refined": 0
-    },
-    {
       "name": "en-german-word-ersetzen",
       "runs": 3,
       "errors": 0,
       "deterministic": {
-        "mean": 0.9882,
-        "min": 0.9796,
-        "max": 0.9925,
-        "spread": 0.0129
+        "mean": 0.9874,
+        "min": 0.9841,
+        "max": 0.994,
+        "spread": 0.0099
       },
       "judge": {
-        "mean": 0.9833,
-        "min": 0.95,
+        "mean": 1,
+        "min": 1,
         "max": 1,
-        "spread": 0.05
+        "spread": 0
       },
       "passed": 3,
       "refined": 0
@@ -207,15 +212,15 @@
       "runs": 3,
       "errors": 0,
       "deterministic": {
-        "mean": 0.9963,
-        "min": 0.9963,
-        "max": 0.9963,
-        "spread": 0
+        "mean": 0.9954,
+        "min": 0.9952,
+        "max": 0.9958,
+        "spread": 0.0006
       },
       "judge": {
-        "mean": 0.95,
-        "min": 0.95,
-        "max": 0.95,
+        "mean": 1,
+        "min": 1,
+        "max": 1,
         "spread": 0
       },
       "passed": 3,
@@ -245,9 +250,9 @@
       "runs": 3,
       "errors": 0,
       "deterministic": {
-        "mean": 0.9971,
-        "min": 0.9971,
-        "max": 0.9971,
+        "mean": 0.9766,
+        "min": 0.9766,
+        "max": 0.9766,
         "spread": 0
       },
       "judge": {
@@ -264,15 +269,15 @@
       "runs": 3,
       "errors": 0,
       "deterministic": {
-        "mean": 0.9861,
-        "min": 0.9861,
-        "max": 0.9861,
-        "spread": 0
+        "mean": 0.9987,
+        "min": 0.9986,
+        "max": 0.999,
+        "spread": 0.0005
       },
       "judge": {
-        "mean": 0.9,
-        "min": 0.9,
-        "max": 0.9,
+        "mean": 0.95,
+        "min": 0.95,
+        "max": 0.95,
         "spread": 0
       },
       "passed": 3,
@@ -283,16 +288,16 @@
       "runs": 3,
       "errors": 0,
       "deterministic": {
-        "mean": 0.8018,
-        "min": 0.7697,
-        "max": 0.8179,
-        "spread": 0.0482
+        "mean": 0.8613,
+        "min": 0.8487,
+        "max": 0.8693,
+        "spread": 0.0206
       },
       "judge": {
         "mean": 0.5667,
         "min": 0.5,
-        "max": 0.7,
-        "spread": 0.2
+        "max": 0.6,
+        "spread": 0.1
       },
       "passed": 0,
       "refined": 0
@@ -302,16 +307,16 @@
       "runs": 3,
       "errors": 0,
       "deterministic": {
-        "mean": 1,
-        "min": 1,
-        "max": 1,
-        "spread": 0
+        "mean": 0.9985,
+        "min": 0.998,
+        "max": 0.9993,
+        "spread": 0.0013
       },
       "judge": {
-        "mean": 0.9667,
-        "min": 0.9,
-        "max": 1,
-        "spread": 0.1
+        "mean": 0.95,
+        "min": 0.95,
+        "max": 0.95,
+        "spread": 0
       },
       "passed": 3,
       "refined": 0
@@ -321,9 +326,9 @@
       "runs": 3,
       "errors": 0,
       "deterministic": {
-        "mean": 0.599,
-        "min": 0.599,
-        "max": 0.599,
+        "mean": 0.66,
+        "min": 0.66,
+        "max": 0.66,
         "spread": 0
       },
       "judge": {

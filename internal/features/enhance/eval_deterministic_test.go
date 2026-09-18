@@ -160,8 +160,11 @@ func TestEverySampleIsUsable(t *testing.T) {
 			}
 
 			// And the input must NOT already pass, or the sample asks nothing.
+			// Scored against its real reference: passing the input as its own
+			// reference made resembles_reference compare a text with itself,
+			// which is not the question the suite asks of a model.
 			if !notes.Unchanged {
-				if RunDeterministicChecks(input, input, input, notes).AllPassed {
+				if RunDeterministicChecks(input, reference, input, notes).AllPassed {
 					t.Error("the unedited input passes every check, so this sample tests nothing")
 				}
 			}
@@ -179,25 +182,6 @@ func readTrimmed(t *testing.T, path string) string {
 		t.Fatalf("%s: %v", path, err)
 	}
 	return strings.TrimSpace(string(data))
-}
-
-// TestFencedJudgeRepliesParse: the judge is told to answer with JSON only and
-// the request asks for JSON mode, and it still wraps the object in a markdown
-// fence. The first baseline run lost every judge score to this, so the shapes
-// below are the ones actually observed plus the plain case.
-func TestFencedJudgeRepliesParse(t *testing.T) {
-	const obj = `{"correctness":0.9,"meaningPreserved":1,"tonePreserved":1,"noOverEditing":0.8,"overall":0.9,"rationale":"ok"}`
-
-	for name, raw := range map[string]string{
-		"plain":            obj,
-		"json fence":       "```json\n" + obj + "\n```",
-		"bare fence":       "```\n" + obj + "\n```",
-		"fence with space": "  ```json\n" + obj + "\n```  ",
-	} {
-		if got := stripCodeFence(raw); got != obj {
-			t.Errorf("%s: got %q", name, got)
-		}
-	}
 }
 
 // TestACorrectionCountsHoweverItIsCapitalised: `ausserdem->außerdem` used to
@@ -366,4 +350,334 @@ func TestForbiddenWordsMatchOnBoundaries(t *testing.T) {
 	if c := checkLanguagePreserved("Der Dienst läuft wieder.", notes); c.Pass {
 		t.Error("the actual translation passed")
 	}
+}
+
+// TestTheUnfixedInputFailsEverySample is the third entry in the evasion table,
+// next to word salad and a padded truncation — and the one that was missing.
+//
+// It is the cheapest wrong answer of all, and `resembles_reference` was blind to
+// it: token F1 lowercases and strips punctuation, so on a sample whose
+// corrections are capitals or commas the input and the reference had identical
+// token bags. Measured before the fix, the raw input cleared the 0.70 floor on
+// 14 of the 15 samples and scored a flat 1.000 on five of them.
+func TestTheUnfixedInputFailsEverySample(t *testing.T) {
+	forEachSample(t, func(t *testing.T, name, input, reference string, n SampleNotes) {
+		card := RunDeterministicChecks(input, reference, input, n)
+		if len(n.RequiredFixes) == 0 {
+			// schon-korrekt: returning the input IS the answer here.
+			if !card.AllPassed {
+				t.Errorf("the already-correct sample rejected its own input: %+v", card.Checks)
+			}
+			return
+		}
+		if card.AllPassed {
+			t.Error("the unfixed input passed every check")
+		}
+		for _, c := range card.Checks {
+			if c.Name == "resembles_reference" && c.Pass {
+				t.Errorf("resembles_reference passed the unfixed input: %s", c.Detail)
+			}
+		}
+	})
+}
+
+// TestResemblanceIsRelativeToTheInput states the property directly: a
+// correction is closer to the corrected text than to the text it corrects.
+// An absolute floor cannot express that — on a caps-only fix the unfixed input
+// scores 0.97 against the reference, which is a fine number and the wrong
+// answer.
+func TestResemblanceIsRelativeToTheInput(t *testing.T) {
+	const (
+		input     = "der termin steht, das protokoll folgt."
+		reference = "Der Termin steht, das Protokoll folgt."
+	)
+	notes := SampleNotes{RequiredFixes: []fixPair{{From: "termin", To: "Termin"}}}
+
+	if c := checkResemblesReference(input, reference, reference, notes); !c.Pass {
+		t.Errorf("the reference itself failed: %s", c.Detail)
+	}
+	if c := checkResemblesReference(input, reference, input, notes); c.Pass || c.Score != 0 {
+		t.Errorf("the unfixed input scored %.3f (pass=%v): %s", c.Score, c.Pass, c.Detail)
+	}
+	// A correction that differs from the reference in wording is still a
+	// correction, and must not be punished for it.
+	other := "Der Termin steht; das Protokoll folgt."
+	if c := checkResemblesReference(input, reference, other, notes); !c.Pass {
+		t.Errorf("a differently-worded correction failed: %s", c.Detail)
+	}
+}
+
+// TestLeadingCommentaryIsCaught: the trailing pattern anchored on `$` without
+// (?m). In Go that means end of TEXT — and, unlike Perl, not before a final
+// newline. So a remark with anything after it escaped, and so did the exact
+// shape the baseline documents as happening in every run, as soon as the output
+// ended with a newline.
+func TestLeadingCommentaryIsCaught(t *testing.T) {
+	for _, out := range []string{
+		"(No corrections needed.)\nThe figures are final.",
+		"No corrections needed — the text is already correct.\n\nThe figures are final.",
+		"Keine Korrekturen nötig.\n\nDie Zahlen stehen.",
+		"The figures are final. (No corrections needed.)\n",
+		"The figures are final. (No corrections needed.)\n\n",
+		"Die Zahlen stehen. (Keine Änderungen notwendig.)\n",
+		"The figures are final. (No changes necessary.)",
+		"Der Satz ist schon korrekt.",
+	} {
+		if c := checkNoCommentary(out); c.Pass {
+			t.Errorf("commentary slipped through: %q", out)
+		}
+	}
+
+	// A trailing newline on clean text is not commentary.
+	for _, out := range []string{
+		"The figures are final.\n",
+		"Die Änderungen am Vertrag sind durch.\n\n",
+	} {
+		if c := checkNoCommentary(out); !c.Pass {
+			t.Errorf("clean text was read as commentary: %q — %s", out, c.Detail)
+		}
+	}
+}
+
+// TestACasingFixNeedsTheWrongCasingGone: presence alone accepted an output that
+// capitalised the second occurrence and left the first as it was.
+func TestACasingFixNeedsTheWrongCasingGone(t *testing.T) {
+	notes := SampleNotes{RequiredFixes: []fixPair{{From: "standup", To: "Standup"}}}
+
+	if c := checkRequiredFixes("Das Standup bleibt, wie es ist.", notes); !c.Pass {
+		t.Errorf("a fully corrected output was rejected: %s", c.Detail)
+	}
+	if c := checkRequiredFixes("Das standup bleibt; das Standup ist kurz.", notes); c.Pass {
+		t.Error("an output still carrying the lowercase form passed")
+	}
+}
+
+// TestAnInflectedWordIsNotLostContent: a correction changes endings, and
+// content_retained compared exact word forms. An output that correctly wrote
+// "schicke" for the author's "schick" was scored as having dropped a word.
+func TestAnInflectedWordIsNotLostContent(t *testing.T) {
+	input := "ich schick nachher noch die agenda rum, das meeting bleibt"
+	notes := SampleNotes{RequiredFixes: []fixPair{{From: "das meeting", To: "Das Meeting"}}}
+
+	out := "Ich schicke nachher noch die Agenda rum, das Meeting bleibt"
+	c := checkContentRetained(input, out, notes)
+	if !c.Pass || c.Score != 1 {
+		t.Errorf("an inflected correction was scored as content loss: %.3f — %s", c.Score, c.Detail)
+	}
+
+	// The tolerance is two runes of ending, not a free pass: a different word
+	// is still a different word.
+	if c := checkContentRetained(input, "Ich verschicke nachher nichts, das Meeting bleibt", notes); c.Pass {
+		t.Errorf("an output that dropped content passed: %s", c.Detail)
+	}
+}
+
+// TestForbiddenWordsMatchInflections: the anglicism samples forbid the German
+// translation, and a model that wrote "Besprechungen" walked past the check
+// because only the exact form was searched for. The endings are a closed list,
+// not a prefix test — "Dienstag" must still not read as "Dienst".
+func TestForbiddenWordsMatchInflections(t *testing.T) {
+	notes := SampleNotes{
+		LanguageAnchors: []string{"Meeting"},
+		Forbidden:       []string{"Besprechung", "Dienst"},
+	}
+
+	for _, out := range []string{
+		"Wir verschieben die Besprechung.",
+		"Wir verschieben die Besprechungen.",
+		"Die Dienste laufen wieder.",
+	} {
+		notes.LanguageAnchors = nil // the anchor is not the point here
+		if c := checkLanguagePreserved(out, notes); c.Pass {
+			t.Errorf("a translation passed: %q", out)
+		}
+	}
+
+	notes.LanguageAnchors = []string{"Meeting"}
+	for _, out := range []string{
+		"Das Meeting ist am Dienstag.",
+		"Das Meeting läuft seit Dienstagmorgen.",
+	} {
+		if c := checkLanguagePreserved(out, notes); !c.Pass {
+			t.Errorf("a weekday was read as a translation: %q — %s", out, c.Detail)
+		}
+	}
+}
+
+// TestOrdinaryProseIsNotCommentary: `here( is)?` matched "Here is the report you
+// asked for." — a sentence a user might type and want corrected, scored as if
+// the model had narrated its own work. What makes the phrase commentary is what
+// comes after it.
+func TestOrdinaryProseIsNotCommentary(t *testing.T) {
+	for _, out := range []string{
+		"Here is the report you asked for.",
+		"Here are the numbers for the third quarter.",
+		"Here's the link to the dashboard, let me know if it loads.",
+	} {
+		if c := checkNoCommentary(out); !c.Pass {
+			t.Errorf("ordinary prose was read as commentary: %q — %s", out, c.Detail)
+		}
+	}
+
+	for _, out := range []string{
+		"Here's the corrected text:\nThe report is done.",
+		"Here is the corrected version:\nThe report is done.",
+		"The figures are final.\n\n(Everything looks good.)",
+		"Die Zahlen stehen. (Keine Änderungen vorgenommen.)",
+	} {
+		if c := checkNoCommentary(out); c.Pass {
+			t.Errorf("commentary slipped through: %q", out)
+		}
+	}
+}
+
+// TestPunctuationIsCounted: the deterministic layer was blind to it. Applying
+// only the must-change replacements to the raw input passed every check on 8 of
+// the 15 samples, and the sample whose entire purpose is punctuation scored
+// 1.000 with none in it — the word-level checks strip punctuation and 15
+// characters barely move an edit distance over 120.
+func TestPunctuationIsCounted(t *testing.T) {
+	const (
+		input     = "wenn der kunde nicht antwortet rufen wir an ansonsten warten wir"
+		reference = "Wenn der Kunde nicht antwortet, rufen wir an. Ansonsten warten wir."
+	)
+
+	if c := checkPunctuationRestored(input, reference, reference); !c.Pass {
+		t.Errorf("the reference failed its own check: %s", c.Detail)
+	}
+	if c := checkPunctuationRestored(input, reference, "Wenn der Kunde nicht antwortet rufen wir an ansonsten warten wir"); c.Pass {
+		t.Error("an unpunctuated output passed")
+	}
+	// Where a boundary goes is a judgement call: one sentence where the
+	// reference wrote two still restored the boundary that was missing.
+	if c := checkPunctuationRestored(input, reference, "Wenn der Kunde nicht antwortet, rufen wir an, ansonsten warten wir."); !c.Pass {
+		t.Errorf("a differently-segmented correction failed: %s", c.Detail)
+	}
+	// A full stop where the reference used a comma is the same boundary. The
+	// first version of this check counted the two separately and called this
+	// correct German a lost comma — measured, in all three baseline runs of
+	// de-umlaute-ascii.
+	if c := checkPunctuationRestored(
+		"fuer die dateien, ausserdem waere es gut wenn wir die pruefung vorziehen koennten.",
+		"Für die Dateien, außerdem wäre es gut, wenn wir die Prüfung vorziehen könnten.",
+		"Für die Dateien. Außerdem wäre es gut, wenn wir die Prüfung vorziehen könnten.",
+	); !c.Pass {
+		t.Errorf("a full stop in place of the reference's comma was scored as missing punctuation: %s", c.Detail)
+	}
+	// A sample whose input is already punctuated asks nothing here.
+	if c := checkPunctuationRestored(reference, reference, reference); !c.Pass || c.Detail != "nothing to restore" {
+		t.Errorf("an already-punctuated sample was scored: %s", c.Detail)
+	}
+}
+
+// TestSentenceCapitalsAreCounted covers the correction that `must-change` can no
+// longer name: a pair like `das meeting->Das Meeting` bundled the noun's capital
+// with the article's, and failed an output that wrote "Wir verschieben das
+// Meeting" — correct German, rejected for not repeating the reference's sentence
+// structure.
+func TestSentenceCapitalsAreCounted(t *testing.T) {
+	const reference = "Der Termin steht. Das Protokoll folgt."
+
+	if c := checkSentenceCapitals(reference, reference); !c.Pass {
+		t.Errorf("the reference failed: %s", c.Detail)
+	}
+	if c := checkSentenceCapitals(reference, "Der Termin steht. das Protokoll folgt."); c.Pass {
+		t.Error("a lower-case sentence start passed")
+	}
+	// Counted against the reference, not against zero: an abbreviation or a
+	// deliberately lower-case opening costs nothing when both sides have it.
+	if c := checkSentenceCapitals("z.B. dies hier.", "z.B. dies hier."); !c.Pass {
+		t.Errorf("an abbreviation was read as a missing capital: %s", c.Detail)
+	}
+	// A filename is not a sentence boundary.
+	if c := checkSentenceCapitals("See `docs/upgrade.md` for details.", "See `docs/upgrade.md` for details."); !c.Pass {
+		t.Errorf("a filename was read as a sentence boundary: %s", c.Detail)
+	}
+}
+
+// TestARewriteIsNotACorrection: over-editing was invisible outside the
+// already-correct sample. A chat message rewritten into different words keeps
+// the facts and can stay near the reference; what gives it away is the distance
+// from what the author actually wrote.
+func TestARewriteIsNotACorrection(t *testing.T) {
+	const (
+		input     = "hey, kannst du kurz draufschauen? hab da was gebastelt aber bin mir nicht sicher ob das so passt."
+		reference = "Hey, kannst du kurz draufschauen? Hab da was gebastelt, aber bin mir nicht sicher, ob das so passt."
+	)
+	notes := SampleNotes{RequiredFixes: []fixPair{{From: "hey,", To: "Hey,"}}}
+
+	if c := checkResemblesReference(input, reference, reference, notes); !c.Pass {
+		t.Errorf("the reference failed: %s", c.Detail)
+	}
+	// Both of these are far enough from the reference to fail the floor as
+	// well. The drift cap is what names them: "rewritten rather than
+	// corrected" is a different diagnosis from "does not look like the
+	// reference", and it is the one that is true.
+	for _, rewrite := range []string{
+		"Hallo, könntest du bitte kurz einen Blick darauf werfen? Ich habe etwas vorbereitet, bin mir aber nicht sicher, ob es passt.",
+		"Hallo, könnten Sie bitte kurz darauf schauen? Ich habe etwas erstellt, bin mir aber nicht sicher, ob es so passt.",
+	} {
+		c := checkResemblesReference(input, reference, rewrite, notes)
+		if c.Pass {
+			t.Errorf("a rewrite passed as a correction: %s", c.Detail)
+		}
+		if !strings.Contains(c.Detail, "rewritten rather than corrected") {
+			t.Errorf("a rewrite was diagnosed as %q", c.Detail)
+		}
+	}
+}
+
+// TestNotesRejectWhatCannotBeChecked: a typo in a key used to disable the check
+// it configures in silence, and a casing fix spanning several words bakes the
+// reference's sentence structure into a pair about one word's capital.
+func TestNotesRejectWhatCannotBeChecked(t *testing.T) {
+	dir := t.TempDir()
+	write := func(body string) string {
+		path := filepath.Join(dir, strings.ReplaceAll(body[:12], " ", "_")+".md")
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+
+	if _, err := parseNotes(write("forbiden: Besprechung\nmust-change: a->b\n")); err == nil {
+		t.Error("a misspelled key was accepted")
+	}
+	if _, err := parseNotes(write("must-change: das meeting->Das Meeting\n")); err == nil {
+		t.Error("a multi-word casing fix was accepted")
+	}
+	if _, err := parseNotes(write("language: de\nmust-change: meeting->Meeting\nwhy: prose\n")); err != nil {
+		t.Errorf("a valid notes file was rejected: %v", err)
+	}
+}
+
+// TestTheMinimalReplacementFailsEverySample is the fourth entry in the evasion
+// table, and the one that found the most: apply ONLY the `must-change`
+// replacements to the raw input, change nothing else.
+//
+// Measured before this round, that passed every check on 8 of the 15 samples —
+// including `interpunktion`, which scored a flat 1.000 with no punctuation in
+// it at all. A suite whose samples can be satisfied by a search-and-replace over
+// its own answer key is measuring the answer key.
+//
+// It is also the test that keeps the checks WIRED IN: unlike the per-function
+// tests above, this one scores through RunDeterministicChecks, so a check that
+// is dropped from the scorecard shows up here.
+func TestTheMinimalReplacementFailsEverySample(t *testing.T) {
+	forEachSample(t, func(t *testing.T, name, input, reference string, n SampleNotes) {
+		out := input
+		for _, f := range n.RequiredFixes {
+			out = strings.ReplaceAll(out, f.From, f.To)
+		}
+		card := RunDeterministicChecks(input, reference, out, n)
+		if len(n.RequiredFixes) == 0 {
+			if !card.AllPassed {
+				t.Errorf("the already-correct sample rejected its own input: %+v", card.Checks)
+			}
+			return
+		}
+		if card.AllPassed {
+			t.Error("a search-and-replace over the input passed every check")
+		}
+	})
 }

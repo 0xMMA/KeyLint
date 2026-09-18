@@ -20,6 +20,24 @@ import (
 // fakeRun writes one eval-run directory with the given averages.
 func fakeRun(t *testing.T, dir, model string, det, judge float64) string {
 	t.Helper()
+	return fakeRunWith(t, dir, model, det, judge, "")
+}
+
+// fakeRunWith is fakeRun with a recorded prompt hash. An empty hash writes the
+// field as null, which is what a pyramidize run still does.
+func fakeRunWith(t *testing.T, dir, model string, det, judge float64, promptHash string) string {
+	t.Helper()
+	return fakeRunFull(t, dir, model, det, judge, promptHash, 0)
+}
+
+// fakeRunWithChecks is a run scored by a named version of the checks.
+func fakeRunWithChecks(t *testing.T, dir, model string, det, judge float64, checksVersion int) string {
+	t.Helper()
+	return fakeRunFull(t, dir, model, det, judge, "", checksVersion)
+}
+
+func fakeRunFull(t *testing.T, dir, model string, det, judge float64, promptHash string, checksVersion int) string {
+	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -36,6 +54,12 @@ func fakeRun(t *testing.T, dir, model string, det, judge float64) string {
 		"avgDeterministic":  det,
 		"avgJudge":          judge,
 		"judgeCount":        2,
+	}
+	if promptHash != "" {
+		summary["promptHash"] = promptHash
+	}
+	if checksVersion > 0 {
+		summary["checksVersion"] = checksVersion
 	}
 	data, _ := json.MarshalIndent(summary, "", "  ")
 	if err := os.WriteFile(filepath.Join(dir, "summary.json"), data, 0o644); err != nil {
@@ -314,5 +338,156 @@ func writeBaseline(t *testing.T, root, out string) {
 	data, _ := json.Marshal(doc)
 	if err := os.WriteFile(out, data, 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestARunRecordedBeforeTheSuiteFieldStillKeys: summary.json gained `suite` when
+// the Fix suite arrived, and `checksVersion` a round later. Runs recorded before
+// those have neither, and the key has to name them anyway — as `pyramidize`,
+// which is what they were, and checks version 1, which is what scored them.
+func TestARunRecordedBeforeTheSuiteFieldStillKeys(t *testing.T) {
+	root := t.TempDir()
+	runs := []string{
+		fakeRun(t, filepath.Join(root, "r1"), "claude-sonnet-4-6", 0.80, 0.88),
+		fakeRun(t, filepath.Join(root, "r2"), "claude-sonnet-4-6", 0.76, 0.90),
+	}
+	got, code := aggregate(t, runs...)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	const want = "pyramidize|claude|claude-sonnet-4-6|claude|claude-sonnet-4-5-20250929|2|false|0.65|2|1"
+	if got["configKey"] != want {
+		t.Errorf("configKey = %v\nwant       %v", got["configKey"], want)
+	}
+}
+
+// TestAnOldBaselineIsStillComparable: the three pyramidize baselines in
+// test-data were written when the key had eight fields. Adding `suite` and
+// `promptHash` to it made every one of them "not comparable" against anything
+// measured afterwards — which would have thrown away the only recorded history
+// this project has, for a key format change that says nothing about the runs.
+func TestAnOldBaselineIsStillComparable(t *testing.T) {
+	root := t.TempDir()
+	base := filepath.Join(root, "baseline.json")
+	writeBaseline(t, root, base)
+	downgradeKey(t, base)
+
+	now := []string{
+		fakeRun(t, filepath.Join(root, "n1"), "claude-sonnet-4-6", 0.79, 0.88),
+		fakeRun(t, filepath.Join(root, "n2"), "claude-sonnet-4-6", 0.77, 0.89),
+	}
+	got, code := aggregate(t, append([]string{"--compare", base}, now...)...)
+
+	if code == 2 {
+		t.Fatalf("exit = 2: %v", got["verdict"])
+	}
+	if v, _ := got["verdict"].(string); strings.HasPrefix(v, "not comparable") {
+		t.Errorf("verdict = %v", v)
+	}
+	// And the comparison must report the upgraded key, not the stored one: a
+	// reader comparing the two `config` lines should see the same string on
+	// both sides when the configuration really is the same.
+	baseline := got["baseline"].(map[string]any)
+	if baseline["config"] != got["now"].(map[string]any)["config"] {
+		t.Errorf("baseline config %v != now config %v", baseline["config"], got["now"].(map[string]any)["config"])
+	}
+}
+
+// downgradeKey rewrites a baseline the way the script wrote them before `suite`
+// and `promptHash` joined the key: eight fields, and a config block with
+// neither of the two new names in it.
+func downgradeKey(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	parts := strings.Split(doc["configKey"].(string), "|")
+	if len(parts) != 10 {
+		t.Fatalf("configKey has %d fields, expected the current 10: %v", len(parts), doc["configKey"])
+	}
+	doc["configKey"] = strings.Join(parts[1:len(parts)-1], "|")
+	cfg := doc["config"].(map[string]any)
+	delete(cfg, "suite")
+	delete(cfg, "promptHash")
+	delete(cfg, "checksVersion")
+
+	out, _ := json.Marshal(doc)
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestAPromptChangeIsReportedNotRefused: the hash was in configKey for one
+// revision, which made every prompt change read "not comparable" — the suite
+// refusing the only comparison it exists to make. It belongs next to the
+// verdict, where it tells the reader what else moved.
+func TestAPromptChangeIsReportedNotRefused(t *testing.T) {
+	root := t.TempDir()
+	base := filepath.Join(root, "baseline.json")
+	writeBaseline(t, root, base)
+	setPromptHash(t, base, "aaaa1111")
+
+	now := []string{
+		fakeRunWith(t, filepath.Join(root, "n1"), "claude-sonnet-4-6", 0.79, 0.88, "bbbb2222"),
+		fakeRunWith(t, filepath.Join(root, "n2"), "claude-sonnet-4-6", 0.77, 0.89, "bbbb2222"),
+	}
+	got, code := aggregate(t, append([]string{"--compare", base}, now...)...)
+
+	if code == 2 {
+		t.Fatalf("a prompt change was refused as a different configuration: %v", got["verdict"])
+	}
+	hash, ok := got["promptHash"].(map[string]any)
+	if !ok {
+		t.Fatal("the comparison does not report the prompt hash")
+	}
+	if hash["changed"] != true {
+		t.Errorf("promptHash.changed = %v, want true (%v -> %v)", hash["changed"], hash["baseline"], hash["now"])
+	}
+}
+
+// setPromptHash rewrites a baseline's recorded prompt hash.
+func setPromptHash(t *testing.T, path, hash string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	doc["config"].(map[string]any)["promptHash"] = hash
+	out, _ := json.Marshal(doc)
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestAChangedInstrumentIsNotComparable: the checks themselves are part of the
+// measurement. When a round of review changed what the Fix suite's checks
+// accept, the recorded baseline kept a configKey that said "same configuration"
+// — so the next comparison would have reported the instrument's move as the
+// model's, in the exact voice of a regression.
+func TestAChangedInstrumentIsNotComparable(t *testing.T) {
+	root := t.TempDir()
+	base := filepath.Join(root, "baseline.json")
+	writeBaseline(t, root, base) // checks version 1, by omission
+
+	now := []string{
+		fakeRunWithChecks(t, filepath.Join(root, "n1"), "claude-sonnet-4-6", 0.79, 0.88, 2),
+		fakeRunWithChecks(t, filepath.Join(root, "n2"), "claude-sonnet-4-6", 0.77, 0.89, 2),
+	}
+	got, code := aggregate(t, append([]string{"--compare", base}, now...)...)
+
+	if code != 2 {
+		t.Errorf("exit = %d, want 2 — these runs were scored by different checks", code)
+	}
+	if got["verdict"] != "not comparable: different configuration" {
+		t.Errorf("verdict = %v", got["verdict"])
 	}
 }

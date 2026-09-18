@@ -1,4 +1,4 @@
-## Release Notes
+## Release notes
 
 - Fixed the login bug that happened on mobile
 - Improved the error message when an upload fails

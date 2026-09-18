@@ -70,7 +70,37 @@ done
 # whether one sample is carrying the whole difference.
 # r4 keeps the stored numbers readable: float sums print as 0.7799999999999999,
 # and a baseline a human has to read is worth four decimals.
-JQ_ROUND='def r4: (. * 10000 | round) / 10000;'
+# Shared jq prelude. keyFrom is the one definition of what makes two runs the
+# same measurement, so the aggregate and the comparison cannot drift apart.
+#
+# A run recorded before the suite field existed WAS a pyramidize run — there was
+# no other suite — so defaulting it is a fact about those files, not a guess.
+#
+# checksVersion IS in the key, for the opposite reason: the checks are what the
+# suite measures WITH, and a run scored by a different instrument is a different
+# measurement however similar the prompt was.
+#
+# promptHash is deliberately NOT in the key. It was, for one revision, and that
+# made the suite refuse the comparison it exists to make: change the prompt, and
+# every before/after pair reads "not comparable: different configuration". The
+# hash answers a different question — "did the prompt move, or did the model?" —
+# so it is reported next to the verdict instead, where it informs the reader
+# without silencing the number.
+JQ_ROUND='def r4: (. * 10000 | round) / 10000;
+def keyFrom(c): [(c.suite // "pyramidize"), c.provider, c.model,
+                 (c.judge.provider // "none"), (c.judge.model // "none"),
+                 (c.promptVariant|tostring), (c.schemaEnforcement|tostring),
+                 (c.qualityThreshold|tostring), (c.sampleCount|tostring),
+                 ((c.checksVersion // 1)|tostring)] | join("|");
+# A baseline written before the suite name joined the key stored eight fields.
+# Upgrading it on READ is what keeps the baselines recorded so far usable;
+# refusing them would have made a key format change quietly discard every
+# measurement the project has.
+def upgradeKey(k): (k | split("|")) as $p
+                 | if ($p|length) == 8 then ((["pyramidize"] + $p + ["1"]) | join("|"))
+                   elif ($p|length) == 9 then (($p + ["1"]) | join("|"))
+                   else k end;
+def baselineKey(b): if (b.config|type) == "object" then keyFrom(b.config) else upgradeKey(b.configKey // "unknown") end;'
 
 PER_SAMPLE=$(cat "${RESULTS[@]}" | jq -s "$JQ_ROUND"'
     group_by(.name) | map({
@@ -112,6 +142,7 @@ AGGREGATE=$(jq -s --argjson perSample "$PER_SAMPLE" --argjson runs "$RUNS_JSON" 
         config: {
             suite: (.[0].suite // "pyramidize"),
             promptHash: (.[0].promptHash // null),
+            checksVersion: (.[0].checksVersion // 1),
             gitSHA: .[0].gitSHA,
             provider: .[0].provider,
             model: .[0].model,
@@ -129,18 +160,14 @@ AGGREGATE=$(jq -s --argjson perSample "$PER_SAMPLE" --argjson runs "$RUNS_JSON" 
         # differ; without promptHash, a comparison cannot tell "the prompt
         # changed" from "the model did", which is the whole reason the hash is
         # recorded.
-        configKey: (.[0] | [(.suite // "pyramidize"), .provider, .model,
-                            (.judge.provider // "none"), (.judge.model // "none"),
-                            (.promptVariant|tostring), (.schemaEnforcement|tostring),
-                            (.qualityThreshold|tostring), (.sampleCount|tostring),
-                            (.promptHash // "none")] | join("|")),
-        configConsistent: (map([(.suite // "pyramidize"), .provider, .model,
-                                (.judge.provider // "none"), (.judge.model // "none"),
-                                (.promptVariant|tostring), (.schemaEnforcement|tostring),
-                                (.qualityThreshold|tostring), (.sampleCount|tostring),
-                                (.promptHash // "none")] | join("|")) | unique | length == 1),
+        configKey: keyFrom(.[0]),
+        configConsistent: (map(keyFrom(.)) | unique | length == 1),
         # A judge that failed on some samples leaves a mean over a smaller set.
         judgeCoverage: {min: (map(.judgeCount // 0) | min), max: (map(.judgeCount // 0) | max), of: (.[0].sampleCount)},
+        # Same question for the deterministic half: a run whose API calls failed
+        # measured fewer samples than it set out to, and its average describes
+        # the ones that answered.
+        scoredCoverage: {min: (map(.scoredCount // .sampleCount) | min), max: (map(.scoredCount // .sampleCount) | max), of: (.[0].sampleCount)},
         deterministic: (map(.avgDeterministic) | {mean: ((add / length) | r4), min: (min | r4), max: (max | r4), spread: ((max - min) | r4)}),
         judge: (map(select(.avgJudge != null) | .avgJudge) |
                 if length == 0 then null
@@ -181,6 +208,7 @@ fi
 VERDICT=$(printf '%s\n' "$AGGREGATE" | jq --slurpfile base "$COMPARE" "$JQ_ROUND"'
     . as $now
     | $base[0] as $was
+    | baselineKey($was) as $wasKey
     # Each metric judged on its own: does the new interval clear the old one?
     | (if $now.deterministic.max < $was.deterministic.min then "regression"
        elif $now.deterministic.min > $was.deterministic.max then "improvement"
@@ -192,7 +220,9 @@ VERDICT=$(printf '%s\n' "$AGGREGATE" | jq --slurpfile base "$COMPARE" "$JQ_ROUND
     | ("deterministic " + $detVerdict) as $detLabel
     | ("judge " + $judgeVerdict) as $judgeLabel
     | {
-        baseline: {config: ($was.configKey // "unknown"), runs: $was.runCount, gitSHA: $was.config.gitSHA,
+        promptHash: {baseline: ($was.config.promptHash // null), now: ($now.config.promptHash // null),
+                     changed: (($was.config.promptHash // null) != ($now.config.promptHash // null))},
+        baseline: {config: $wasKey, runs: $was.runCount, gitSHA: $was.config.gitSHA,
                    deterministic: $was.deterministic, judge: $was.judge, samplesPassing: $was.samplesPassing},
         now:      {config: $now.configKey, runs: $now.runCount, gitSHA: $now.config.gitSHA,
                    deterministic: $now.deterministic, judge: $now.judge, samplesPassing: $now.samplesPassing},
@@ -201,10 +231,12 @@ VERDICT=$(printf '%s\n' "$AGGREGATE" | jq --slurpfile base "$COMPARE" "$JQ_ROUND
         deterministicDelta: (($now.deterministic.mean - $was.deterministic.mean) | r4),
         judgeDelta: ((($now.judge.mean // 0) - ($was.judge.mean // 0)) | r4),
         verdict: (
-            if ($was.configKey // "unknown") != $now.configKey then
+            if $wasKey != $now.configKey then
                 "not comparable: different configuration"
             elif ($now.judgeCoverage.min < $now.judgeCoverage.of) or (($was.judgeCoverage.min // $was.config.sampleCount) < ($was.config.sampleCount)) then
                 "not comparable: the judge did not score every sample"
+            elif ($now.scoredCoverage.min < $now.scoredCoverage.of) or (($was.scoredCoverage.min // $was.config.sampleCount) < ($was.config.sampleCount)) then
+                "not comparable: a run failed to score every sample"
             elif ($was.runCount < 2) or ($now.runCount < 2) then
                 "indicative only: one run has no range to compare"
             else
@@ -226,6 +258,14 @@ VERDICT=$(printf '%s\n' "$AGGREGATE" | jq --slurpfile base "$COMPARE" "$JQ_ROUND
       }')
 
 printf '%s\n' "$VERDICT"
+
+# The hash is not in the key, so it cannot silence a comparison — but a reader
+# who does not know the prompt moved will attribute the move to the model.
+if [[ "$(printf '%s' "$VERDICT" | jq -r '.promptHash.changed')" == "true" ]]; then
+    printf 'The prompt changed between these two sides (%s -> %s). Whatever moved, the prompt is a candidate.\n' \
+        "$(printf '%s' "$VERDICT" | jq -r '.promptHash.baseline // "unrecorded"')" \
+        "$(printf '%s' "$VERDICT" | jq -r '.promptHash.now // "unrecorded"')" >&2
+fi
 
 case "$(printf '%s' "$VERDICT" | jq -r .verdict)" in
     regression*)

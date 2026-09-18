@@ -155,6 +155,7 @@ func TestEvalFix(t *testing.T) {
 		Deterministic Scorecard   `json:"deterministic"`
 		Judge         *JudgeScore `json:"judge,omitempty"`
 		Error         string      `json:"error,omitempty"`
+		JudgeError    string      `json:"judgeError,omitempty"`
 	}
 
 	resultsFile, err := os.Create(filepath.Join(runDir, "results.jsonl"))
@@ -163,7 +164,7 @@ func TestEvalFix(t *testing.T) {
 	}
 	defer resultsFile.Close()
 
-	totalDet, totalJudge, judgeCount := 0.0, 0.0, 0
+	totalDet, totalJudge, judgeCount, scored := 0.0, 0.0, 0, 0
 
 	for _, sample := range samples {
 		t.Run(sample.Name, func(t *testing.T) {
@@ -179,6 +180,7 @@ func TestEvalFix(t *testing.T) {
 
 				sr.Deterministic = RunDeterministicChecks(sample.Input, sample.Reference, output, sample.Notes)
 				totalDet += sr.Deterministic.OverallScore
+				scored++
 
 				t.Logf("deterministic: %.2f (pass=%v)", sr.Deterministic.OverallScore, sr.Deterministic.AllPassed)
 				for _, c := range sr.Deterministic.Checks {
@@ -187,6 +189,10 @@ func TestEvalFix(t *testing.T) {
 
 				score, jErr := RunJudge(settingsSvc, judge, sample.Input, sample.Reference, output)
 				if jErr != nil {
+					// Recorded, not just logged: a judge that dropped an answer
+					// leaves judgeCount below sampleCount, and the run folder
+					// has to say why once the log is gone.
+					sr.JudgeError = jErr.Error()
 					t.Logf("judge failed: %v", jErr)
 				} else {
 					sr.Judge = &score
@@ -209,6 +215,7 @@ func TestEvalFix(t *testing.T) {
 		"timestamp":        timestamp,
 		"gitSHA":           gitSHA(),
 		"promptHash":       promptHash(),
+		"checksVersion":    ChecksVersion,
 		"provider":         provider,
 		"model":            model,
 		"judge":            judge,
@@ -218,7 +225,12 @@ func TestEvalFix(t *testing.T) {
 		// what lets scripts/eval-aggregate.sh read both.
 		"schemaEnforcement": false,
 		"sampleCount":       len(samples),
-		"avgDeterministic":  totalDet / float64(len(samples)),
+		// Divided by what was actually scored, not by what was attempted. A
+		// sample whose API call failed used to be averaged in as a zero, which
+		// is a measurement of the network rather than of the prompt.
+		"avgDeterministic": totalDet / float64(max(scored, 1)),
+		"scoredCount":      scored,
+		"errorCount":       len(samples) - scored,
 	}
 	if judgeCount > 0 {
 		summary["avgJudge"] = totalJudge / float64(judgeCount)
@@ -231,7 +243,7 @@ func TestEvalFix(t *testing.T) {
 	t.Logf("Provider: %s | Model: %s | Prompt: %s", provider, model, promptHash())
 	t.Logf("Judge: %s / %s @ temp %.1f", judge.Provider, judge.Model, judge.Temperature)
 	t.Logf("Samples: %d", len(samples))
-	t.Logf("Avg deterministic: %.2f", totalDet/float64(len(samples)))
+	t.Logf("Avg deterministic: %.2f (%d of %d samples scored)", totalDet/float64(max(scored, 1)), scored, len(samples))
 	if judgeCount > 0 {
 		t.Logf("Avg judge overall: %.2f (%d samples)", totalJudge/float64(judgeCount), judgeCount)
 	}

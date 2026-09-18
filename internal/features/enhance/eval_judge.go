@@ -4,7 +4,6 @@ package enhance
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -44,16 +43,6 @@ Respond with ONLY a JSON object:
 {"correctness":0.0,"meaningPreserved":0.0,"tonePreserved":0.0,"noOverEditing":0.0,"overall":0.0,"rationale":"one or two sentences"}
 
 overall is your holistic judgement, not the mean.`
-
-// JudgeScore is one sample's judged result.
-type JudgeScore struct {
-	Correctness      float64 `json:"correctness"`
-	MeaningPreserved float64 `json:"meaningPreserved"`
-	TonePreserved    float64 `json:"tonePreserved"`
-	NoOverEditing    float64 `json:"noOverEditing"`
-	Overall          float64 `json:"overall"`
-	Rationale        string  `json:"rationale"`
-}
 
 // JudgeConfig pins the instrument, exactly as the Pyramidize eval does — a
 // judge that moves with what it measures reports nothing. Same dated snapshot,
@@ -100,16 +89,16 @@ func RunJudge(settingsSvc *settings.Service, judge JudgeConfig, original, refere
 		User:        user,
 		Model:       judge.Model,
 		MaxTokens:   1024,
-		JSONMode:    true,
+		JSONSchema:  fixJudgeSchema,
 		Temperature: llm.Temp(judge.Temperature),
 	})
 	if err != nil {
 		return JudgeScore{}, fmt.Errorf("judge call failed: %w", err)
 	}
 
-	var score JudgeScore
-	if err := json.Unmarshal([]byte(stripCodeFence(resp.Text)), &score); err != nil {
-		return JudgeScore{}, fmt.Errorf("judge parse error: %w (raw: %s)", err, resp.Text)
+	score, err := parseJudgeScore(resp.Text)
+	if err != nil {
+		return JudgeScore{}, fmt.Errorf("%w (raw: %s)", err, resp.Text)
 	}
 	return score, nil
 }

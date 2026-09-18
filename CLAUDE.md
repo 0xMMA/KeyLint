@@ -42,6 +42,7 @@ EVAL_PROVIDER=claude go test -tags eval ./internal/features/pyramidize/ -v -time
 EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 go test -tags eval ...
 ./scripts/eval.sh                                      # one run of the pyramidize suite
 ./scripts/eval.sh --suite fix --runs 3                 # the silent grammar fix instead (15 samples)
+                                                       # --variant and --schema are pyramidize-only and are rejected here
 ./scripts/eval.sh --provider claude --model claude-sonnet-4-6
 ./scripts/eval.sh --variant 1                          # compare v1 vs v2 prompts
 ./scripts/eval.sh --schema                             # enforce the JSON schemas (default off, see pyramidize/schemas.go)
@@ -65,6 +66,13 @@ EVAL_JUDGE_MODEL=... ./scripts/eval.sh                 # override the pinned jud
 # environment only, so ~/.config/KeyLint/settings.json and the OS keyring cannot
 # move a number. The judge is pinned to a dated snapshot; the pipeline is not,
 # because users get the alias.
+# The configKey names the instrument, not the thing measured: suite, provider,
+# model, judge, variant, schema, threshold, sample count and checksVersion. A
+# prompt change is recorded (promptHash) and reported next to the verdict, but
+# is NOT in the key — a suite that refuses to compare across a prompt change
+# cannot answer the question it exists for. Changing the deterministic checks
+# DOES bump checksVersion (enhance.ChecksVersion), which makes older runs read
+# "not comparable" rather than reporting the instrument's move as the model's.
 ```
 
 ## Why (The Context)
