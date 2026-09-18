@@ -15,6 +15,23 @@ function makeActivatedRoute(tab?: string): Partial<ActivatedRoute> {
   };
 }
 
+// PrimeNG's overlay asks matchMedia whether it should go modal, and jsdom has
+// no such function. Answering "no match" keeps the dropdown inline, which is
+// what a desktop window does anyway. Test-only: the app itself must never ask
+// matchMedia — see .claude/rules/architecture.md on dark mode.
+if (!window.matchMedia) {
+  window.matchMedia = ((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener() {},
+    removeListener() {},
+    addEventListener() {},
+    removeEventListener() {},
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+}
+
 // PrimeNG TabList uses ResizeObserver which is not available in jsdom
 (globalThis as Record<string, unknown>)['ResizeObserver'] = class {
   observe() {}
@@ -388,7 +405,7 @@ describe('SettingsComponent — model selection', () => {
   let wailsMock: ReturnType<typeof createWailsMock>;
 
   async function render(
-    source: 'live' | 'static' = 'live',
+    source: string = 'live',
     models: Record<string, { fix: string; pyramidize: string }> = {},
   ): Promise<void> {
     wailsMock = createWailsMock();
@@ -419,6 +436,18 @@ describe('SettingsComponent — model selection', () => {
     TestBed.resetTestingModule();
   });
 
+  /** Opens a PrimeNG select so its options are in the DOM. */
+  function openDropdown(testid: string): void {
+    el.querySelector<HTMLElement>(`[data-testid="${testid}"]`)!.click();
+    fixture.detectChanges();
+  }
+
+  /** The option rows of whichever select is open. */
+  function optionTexts(): string[] {
+    return Array.from(document.querySelectorAll('.p-select-option'))
+      .map(o => o.textContent?.trim() ?? '');
+  }
+
   it('offers a fix and a Pyramidize model for every provider that has one', async () => {
     await render();
 
@@ -438,16 +467,61 @@ describe('SettingsComponent — model selection', () => {
     }
   });
 
-  it('says when a list is the built-in one because the provider was unreachable', async () => {
-    await render('static');
+  // Four situations, four sentences. "Not live" as one word would send a user
+  // hunting for a network problem when the real answer is an unpasted key, or a
+  // daemon that is running fine with nothing pulled.
+  it('says the provider could not be reached', async () => {
+    await render('unreachable');
 
-    expect(el.querySelector('[data-testid="models-static-openai"]')).not.toBeNull();
+    expect(el.querySelector('[data-testid="models-note-openai"]')?.textContent)
+      .toContain('could not be reached');
   });
 
-  it('hides that hint when the list came from the provider', async () => {
+  it('says a key is missing rather than blaming the network', async () => {
+    await render('no-credentials');
+
+    const note = el.querySelector('[data-testid="models-note-openai"]')?.textContent ?? '';
+    expect(note).toContain('add a key');
+    expect(note).not.toContain('could not be reached');
+  });
+
+  it('says an Ollama daemon has nothing pulled rather than calling it unreachable', async () => {
+    wailsMock = createWailsMock();
+    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, models: {} });
+    wailsMock.getKeyStatus.mockResolvedValue({ ...defaultKeyStatus });
+    wailsMock.listModels.mockImplementation(async (provider: string) =>
+      provider === 'ollama'
+        ? { models: [], source: 'empty' }
+        : { ...defaultModelList, source: 'live' });
+
+    await TestBed.configureTestingModule({
+      imports: [SettingsComponent],
+      providers: [
+        provideAnimationsAsync(),
+        { provide: WailsService, useValue: wailsMock },
+        { provide: ActivatedRoute, useValue: makeActivatedRoute('providers') },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(SettingsComponent);
+    component = fixture.componentInstance;
+    component.settings = { ...defaultSettings };
+    el = fixture.nativeElement;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const note = el.querySelector('[data-testid="models-note-ollama"]')?.textContent ?? '';
+    expect(note).toContain('No models pulled yet');
+    expect(note).not.toContain('could not be reached');
+    // A provider that answered gets no note at all.
+    expect(el.querySelector('[data-testid="models-note-openai"]')).toBeNull();
+  });
+
+  it('hides the note when the list came from the provider', async () => {
     await render('live');
 
-    expect(el.querySelector('[data-testid="models-static-openai"]')).toBeNull();
+    expect(el.querySelector('[data-testid="models-note-openai"]')).toBeNull();
   });
 
   it('lets a model be typed for the API providers but not for the CLI', async () => {
@@ -455,16 +529,35 @@ describe('SettingsComponent — model selection', () => {
 
     // An editable PrimeNG select renders a text input; a closed one does not.
     expect(el.querySelector('[data-testid="model-fix-openai"] input')).not.toBeNull();
-    // The CLI's three aliases are the whole list: a pinned API model ID there
-    // freezes the generation the alias would follow.
+    // The CLI's three aliases are the whole list the picker offers: an alias
+    // follows the generation where a pinned API model ID freezes it.
     expect(el.querySelector('[data-testid="model-fix-claude-code"] input')).toBeNull();
-    expect(component.allowsFreeText('claude-code')).toBe(false);
   });
 
   it('offers KeyLint\'s default as a selectable entry rather than a placeholder', async () => {
     await render();
 
-    expect(component.optionsFor('openai')[0]).toEqual({ id: '', label: '', display: "KeyLint's default" });
+    // PrimeNG only renders a placeholder while the value is null, and this
+    // component writes "" — so the default has to be a real option to be
+    // reachable at all. It is the first one a user sees when the list opens.
+    openDropdown('model-fix-openai');
+    expect(optionTexts()[0]).toContain("KeyLint's default");
+  });
+
+  it('leaves the editable field empty for the default, so typing is not appended to a word', async () => {
+    await render();
+
+    // The field is prefilled with whatever label the selected option carries.
+    // A readable one here would mean typing "gpt-4.1" without select-all
+    // persists "KeyLint's defaultgpt-4.1".
+    const input = el.querySelector<HTMLInputElement>('[data-testid="model-fix-openai"] input')!;
+    expect(input.value).toBe('');
+
+    input.value = input.value + 'gpt-4.1';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    expect(component.modelFor('openai', 'fix')).toBe('gpt-4.1');
   });
 
   it('shows the model ID in the editable field, not the display name', async () => {
@@ -478,19 +571,15 @@ describe('SettingsComponent — model selection', () => {
     expect(input?.value).toBe('claude-sonnet-4-6');
   });
 
-  it('labels every listed entry with its ID, so typing and picking share one value space', async () => {
+  it('shows the readable name and the ID together in the dropdown', async () => {
     await render();
 
-    for (const option of component.optionsFor('claude').slice(1)) {
-      expect(option.label, option.display).toBe(option.id);
-    }
-  });
-
-  it('still shows the readable name in the dropdown', async () => {
-    await render();
-
-    expect(component.optionsFor('claude').map(o => o.display))
-      .toContain('Sonnet 4.6');
+    // The editable field carries the ID, so the dropdown is the only place the
+    // readable name can appear — losing it would leave a user reading raw IDs.
+    openDropdown('model-fix-claude');
+    const listed = optionTexts().join(' ');
+    expect(listed).toContain('Sonnet 4.6');
+    expect(listed).toContain('claude-sonnet-4-6');
   });
 
   it('never calls a provider list "built-in" when there is no endpoint to ask', async () => {
@@ -516,7 +605,7 @@ describe('SettingsComponent — model selection', () => {
     await fixture.whenStable();
     fixture.detectChanges();
 
-    expect(el.querySelector('[data-testid="models-static-claude-code"]')).toBeNull();
+    expect(el.querySelector('[data-testid="models-note-claude-code"]')).toBeNull();
   });
 
   it('uses the same provider labels as the Active Provider list', async () => {
@@ -531,9 +620,11 @@ describe('SettingsComponent — model selection', () => {
   it('keeps a model the provider does not list, so an unlisted one can be typed', async () => {
     await render();
 
-    component.setModel('openai', 'fix', 'gpt-not-in-any-list');
+    const input = el.querySelector<HTMLInputElement>('[data-testid="model-fix-openai"] input')!;
+    input.value = 'gpt-not-in-any-list';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
 
-    expect(component.modelFor('openai', 'fix')).toBe('gpt-not-in-any-list');
     expect(component.settings!.models!['openai']?.fix).toBe('gpt-not-in-any-list');
   });
 
@@ -566,6 +657,16 @@ describe('SettingsComponent — model selection', () => {
     await fixture.whenStable();
 
     expect(wailsMock.listModels.mock.calls.length).toBe(before);
+  });
+
+  it('re-asks after a reset, which puts the Ollama URL back to its default', async () => {
+    await render();
+    const before = wailsMock.listModels.mock.calls.length;
+
+    await component.resetToDefaults();
+    await fixture.whenStable();
+
+    expect(wailsMock.listModels.mock.calls.length).toBeGreaterThan(before);
   });
 
   it('keeps the two features apart', async () => {

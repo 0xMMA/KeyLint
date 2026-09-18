@@ -92,8 +92,10 @@ func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response,
 	// not a rejection: a pinned ID is a deliberate choice, it just freezes the
 	// generation where an alias follows it. The picker offers only aliases.
 	if !IsClaudeCodeAlias(req.Model) {
-		logger.Info("llm: claude code model is not one of the aliases",
-			"feature", c.cfg.Feature, "model", req.Model, "aliases", "opus, sonnet, haiku")
+		// Debug, not Info: this fires on every completion for a user who pinned
+		// an ID on purpose, and nothing is wrong.
+		logger.Debug("llm: claude code model is not one of the aliases",
+			"feature", c.cfg.Feature, "model", req.Model, "aliases", strings.Join(ClaudeCodeAliases(), ", "))
 	}
 
 	path := c.cfg.CLIPath

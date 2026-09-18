@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -17,14 +18,32 @@ const (
 	FeaturePyramidize = "pyramidize"
 )
 
-// Where a model list came from, so a picker can say when it is showing the
-// built-in list because the provider could not be reached.
+// Where a model list came from. Each value is a different situation for the
+// user, so the picker can say which one it is and the cache can decide how long
+// to keep it. "Not live" alone is not enough: a daemon with nothing pulled, a
+// daemon that is not running and a provider with no key yet need three
+// different sentences and two different lifetimes.
 const (
-	// ModelSourceLive: the provider was asked and answered.
+	// ModelSourceLive: the provider was asked and listed models.
 	ModelSourceLive = "live"
-	// ModelSourceStatic: the provider could not be reached, so this is the
-	// built-in list — something a user can act on by fixing the key or the URL.
-	ModelSourceStatic = "static"
+	// ModelSourceEmpty: the provider answered and listed nothing. A fresh
+	// `ollama serve` with nothing pulled is the case that matters. The built-in
+	// list is deliberately NOT offered here — it would be a menu of models this
+	// machine cannot serve, each of which 404s at call time.
+	ModelSourceEmpty = "empty"
+	// ModelSourceUnusable: the provider listed models and this app can call none
+	// of them — an OpenAI project key scoped to Responses-API-only models is the
+	// case. Kept apart from empty because the provider did list something, and
+	// telling the user it listed nothing would be false.
+	ModelSourceUnusable = "unusable"
+	// ModelSourceUnreachable: the provider could not be asked at all — daemon
+	// down, wrong URL, network gone. The built-in list stands in, and the user
+	// has something to act on.
+	ModelSourceUnreachable = "unreachable"
+	// ModelSourceNoCredentials: there is no key to ask with, so nothing was
+	// asked. The built-in list stands in. Kept apart from unreachable because
+	// the fix is a different one and the wording has to say so.
+	ModelSourceNoCredentials = "no-credentials"
 	// ModelSourceFixed: there is nothing to ask. The Claude Code CLI has no
 	// model endpoint and its three aliases are the whole story, so flagging it
 	// as "built-in" would be an alarm nobody can clear.
@@ -88,7 +107,8 @@ var curatedModels = map[string][]ModelInfo{
 	},
 	ProviderOpenAI: {
 		{ID: "gpt-5.2", Label: "GPT-5.2"},
-		{ID: "gpt-5.2-pro", Label: "GPT-5.2 Pro"},
+		// No -pro entry: those are Responses-API only and would 400 at the
+		// /chat/completions call this app makes. See isChatModel.
 		{ID: "gpt-4.1", Label: "GPT-4.1"},
 		{ID: "gpt-4.1-mini", Label: "GPT-4.1 Mini"},
 		{ID: "gpt-4o-mini", Label: "GPT-4o Mini"},
@@ -119,9 +139,23 @@ func DefaultModel(provider, feature string) string {
 }
 
 // CuratedModels is the built-in list for a provider, for when it cannot be
-// asked. The source is always static.
-func CuratedModels(provider string) ModelList {
-	return ModelList{Models: curatedModels[provider], Source: ModelSourceStatic}
+// asked. The caller passes the reason, because that is what the picker has to
+// say and what decides how long the list is worth keeping.
+//
+// The slice is copied: the package-level list would otherwise be handed out for
+// a caller to sort or append to.
+func CuratedModels(provider, source string) ModelList {
+	return ModelList{Models: slices.Clone(curatedModels[provider]), Source: source}
+}
+
+// ClaudeCodeAliases lists the alias IDs, for messages that name them. Derived
+// from the same list the picker uses, so the two cannot say different things.
+func ClaudeCodeAliases() []string {
+	ids := make([]string, 0, len(claudeCodeAliases))
+	for _, alias := range claudeCodeAliases {
+		ids = append(ids, alias.ID)
+	}
+	return ids
 }
 
 // IsClaudeCodeAlias reports whether m is one of the three aliases the picker
@@ -138,35 +172,58 @@ func IsClaudeCodeAlias(m string) bool {
 	return false
 }
 
-// ListModels asks a provider what it can serve. On any failure it returns the
-// curated list with source "static" and the error, so a caller can show the
-// list and mention why it is the built-in one.
+// ListModels asks a provider what it can serve.
+//
+// It never fails the caller: a provider that cannot be reached yields the
+// built-in list, and one that lists nothing yields an empty list. The Source
+// says which of those happened, so the picker can explain itself and the cache
+// can decide how long to trust the answer. The error is returned alongside for
+// logging, not as a reason to show nothing.
 func ListModels(ctx context.Context, provider string, cfg Config) (ModelList, error) {
 	var (
 		models []ModelInfo
+		listed int
 		err    error
 	)
 	switch provider {
 	case ProviderClaude:
-		models, err = listAnthropicModels(ctx, cfg)
+		models, listed, err = listAnthropicModels(ctx, cfg)
 	case ProviderOpenAI:
-		models, err = listOpenAIModels(ctx, cfg)
+		models, listed, err = listOpenAIModels(ctx, cfg)
 	case ProviderOllama:
-		models, err = listOllamaModels(ctx, cfg)
+		models, listed, err = listOllamaModels(ctx, cfg)
 	case ProviderClaudeCode:
 		// The CLI has no model endpoint, and these three are the whole story.
-		return ModelList{Models: claudeCodeAliases, Source: ModelSourceFixed}, nil
+		return ModelList{Models: slices.Clone(claudeCodeAliases), Source: ModelSourceFixed}, nil
 	default:
-		return CuratedModels(provider), fmt.Errorf("unsupported provider: %q", provider)
+		return CuratedModels(provider, ModelSourceUnreachable), fmt.Errorf("unsupported provider: %q", provider)
 	}
 
-	if err != nil || len(models) == 0 {
-		return CuratedModels(provider), err
+	if err != nil {
+		return CuratedModels(provider, ModelSourceUnreachable), err
+	}
+	// Answered, but with nothing. Not a failure — there is no error to report
+	// and nothing for the user to fix except pulling a model — so it must not
+	// be folded into the unreachable case, which would both claim the provider
+	// is down and offer models it cannot serve.
+	if listed == 0 {
+		return ModelList{Source: ModelSourceEmpty}, nil
+	}
+	// The provider listed models and the filter kept none of them. Saying "this
+	// account lists no models" here would be false, and leaving the picker empty
+	// would leave the user with nothing to choose, so the built-in list stands
+	// in — the same trade as the unreachable case, for a different reason.
+	if len(models) == 0 {
+		return CuratedModels(provider, ModelSourceUnusable), nil
 	}
 	return ModelList{Models: models, Source: ModelSourceLive}, nil
 }
 
-func listAnthropicModels(ctx context.Context, cfg Config) ([]ModelInfo, error) {
+// The listers return the models this app can use and, separately, how many the
+// provider actually listed. The two differ only for OpenAI, whose account
+// listing carries far more than chat models — and the difference matters:
+// "listed nothing" and "listed nothing we can call" are different sentences.
+func listAnthropicModels(ctx context.Context, cfg Config) ([]ModelInfo, int, error) {
 	attempts := &httpAttempts{cfg: cfg, provider: anthropicProvider}
 	client := (&anthropicClient{cfg: cfg}).client(attempts)
 
@@ -175,7 +232,7 @@ func listAnthropicModels(ctx context.Context, cfg Config) ([]ModelInfo, error) {
 	// which are exactly the pinned IDs people configure.
 	page, err := client.Models.List(ctx, anthropic.ModelListParams{Limit: anthropic.Int(1000)})
 	if err != nil {
-		return nil, mapAnthropicError(attempts, "", err)
+		return nil, 0, mapAnthropicError(attempts, "", err)
 	}
 	var models []ModelInfo
 	for _, entry := range page.Data {
@@ -185,16 +242,16 @@ func listAnthropicModels(ctx context.Context, cfg Config) ([]ModelInfo, error) {
 		}
 		models = append(models, ModelInfo{ID: entry.ID, Label: label})
 	}
-	return models, nil
+	return models, len(models), nil
 }
 
-func listOpenAIModels(ctx context.Context, cfg Config) ([]ModelInfo, error) {
+func listOpenAIModels(ctx context.Context, cfg Config) ([]ModelInfo, int, error) {
 	attempts := &httpAttempts{cfg: cfg, provider: openAIProvider}
 	client := openAISDKClient(cfg, resolveBaseURL(cfg.BaseURL, defaultOpenAIBaseURL), attempts)
 
 	page, err := client.Models.List(ctx)
 	if err != nil {
-		return nil, mapOpenAIError(openAIProvider, attempts, "", err)
+		return nil, 0, mapOpenAIError(openAIProvider, attempts, "", err)
 	}
 	var models []ModelInfo
 	for _, entry := range page.Data {
@@ -203,17 +260,24 @@ func listOpenAIModels(ctx context.Context, cfg Config) ([]ModelInfo, error) {
 		}
 		models = append(models, ModelInfo{ID: entry.ID, Label: entry.ID})
 	}
-	return models, nil
+	return models, len(page.Data), nil
 }
 
 // isChatModel filters an OpenAI account listing down to what this app can use.
-// An account lists embeddings, speech, image and realtime models alongside the
-// chat ones, and offering a model that 400s at call time is worse than omitting
-// it. The prefix test alone is not enough: several gpt-* families are not chat
-// models either.
+//
+// KeyLint calls /chat/completions. An account lists far more than that —
+// embeddings, speech, image and realtime models — and it also lists models that
+// are reachable only through the Responses API. Both groups 400 at call time,
+// which is worse than never offering them, so both are filtered out here.
+//
+// Unverified against a live account: there is no OPENAI_API_KEY in this
+// project's environment, so the families below come from OpenAI's
+// documentation rather than from a listing this code has seen. Anyone with a
+// key should check it — a wrongly excluded family is a model a user cannot
+// pick, which is quieter than a 400 but not harmless.
 func isChatModel(id string) bool {
 	family := false
-	for _, prefix := range []string{"gpt-", "o1", "o3", "o4", "chatgpt-", "codex-"} {
+	for _, prefix := range []string{"gpt-", "o1", "o3", "o4", "chatgpt-"} {
 		if strings.HasPrefix(id, prefix) {
 			family = true
 			break
@@ -223,7 +287,16 @@ func isChatModel(id string) bool {
 		return false
 	}
 	for _, marker := range []string{
-		"-audio", "-realtime", "-transcribe", "-tts", "-image", "-search", "-instruct", "-moderation",
+		"-audio", "-realtime", "-transcribe", "-tts", "-image", "-instruct", "-moderation",
+		// "-search" may be too broad: gpt-4o-search-preview does answer
+		// /chat/completions, it just always searches. Pinned as an exclusion
+		// because a model that silently web-searches is not what a grammar fix
+		// or a restructure asks for — unverified against a live account.
+		"-search",
+		// Responses-API only: reachable, but not at /chat/completions. "-codex"
+		// is a marker rather than a prefix because the family moved into the
+		// gpt-* namespace (gpt-5.1-codex-max), where a prefix test cannot see it.
+		"-pro", "-deep-research", "-codex",
 	} {
 		if strings.Contains(id, marker) {
 			return false
@@ -236,11 +309,11 @@ func isChatModel(id string) bool {
 // native endpoint rather than the OpenAI-compatible one, which is why it is
 // hand-rolled: /v1/models exists but reports less, and this is a listing call,
 // not a completion.
-func listOllamaModels(ctx context.Context, cfg Config) ([]ModelInfo, error) {
+func listOllamaModels(ctx context.Context, cfg Config) ([]ModelInfo, int, error) {
 	base := strings.TrimSuffix(resolveBaseURL(cfg.BaseURL, defaultOllamaBaseURL), "/v1")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/api/tags", nil)
 	if err != nil {
-		return nil, transportError(ollamaProvider, err)
+		return nil, 0, transportError(ollamaProvider, err)
 	}
 	// Same reason as every completion call: net/http would otherwise send
 	// "Go-http-client/1.1", which some gateways in front of an Ollama host treat
@@ -249,11 +322,11 @@ func listOllamaModels(ctx context.Context, cfg Config) ([]ModelInfo, error) {
 
 	resp, err := cfg.httpClient().Do(req)
 	if err != nil {
-		return nil, transportError(ollamaProvider, err)
+		return nil, 0, transportError(ollamaProvider, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, apiError(ollamaProvider, resp.StatusCode, "")
+		return nil, 0, apiError(ollamaProvider, resp.StatusCode, "")
 	}
 
 	var payload struct {
@@ -263,7 +336,7 @@ func listOllamaModels(ctx context.Context, cfg Config) ([]ModelInfo, error) {
 		} `json:"models"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, fmt.Errorf("%s unexpected response listing models: %w", ollamaProvider.name, err)
+		return nil, 0, fmt.Errorf("%s unexpected response listing models: %w", ollamaProvider.name, err)
 	}
 
 	var models []ModelInfo
@@ -277,5 +350,5 @@ func listOllamaModels(ctx context.Context, cfg Config) ([]ModelInfo, error) {
 		}
 		models = append(models, ModelInfo{ID: id, Label: id})
 	}
-	return models, nil
+	return models, len(models), nil
 }

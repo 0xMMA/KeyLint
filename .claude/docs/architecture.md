@@ -31,7 +31,7 @@ Env var mapping (`internal/features/settings/service.go`):
 
 Keys are NOT stored in `settings.json`. `GetKey(provider)` / `SetKey` / `DeleteKey` / `GetKeyStatus` are the API surface.
 
-**Model selection:** `settings.json` carries `models` — per provider, a model for `fix` and one for `pyramidize`. An absent key or an empty string means the built-in default from `internal/llm/models.go`, so an older file needs no migration. Resolution order is request override (Pyramidize's panel) → settings → default. `SettingsService.ListModels(provider)` returns what a provider can serve, cached for 10 minutes; a provider that cannot be reached yields the curated list with `source: "static"` rather than an error, so a picker is never empty.
+**Model selection:** `settings.json` carries `models` — per provider, a model for `fix` and one for `pyramidize`. An absent key or an empty string means the built-in default from `internal/llm/models.go`, so an older file needs no migration. Resolution order is request override (Pyramidize's panel) → settings → default. `SettingsService.ListModels(provider)` returns what a provider can serve and never fails the caller — `ModelList.Source` says what happened instead: `live`, `empty` (answered with nothing, e.g. a fresh `ollama serve`), `unusable` (listed models, none callable at `/chat/completions`), `unreachable` and `no-credentials` (these three fall back to the curated list), or `fixed` (the Claude Code CLI, which has no endpoint to ask). The UI has a sentence per case, and the cache TTL follows the source — 10 minutes for `live` and `fixed`, 30 seconds for everything else, which all describe something the user is in the middle of fixing.
 
 ## Platform Differences
 

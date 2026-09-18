@@ -3,8 +3,10 @@ package settings
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -27,11 +29,23 @@ var envVars = map[string]string{
 // Service handles loading and saving application settings.
 type Service struct {
 	filePath string
-	current  Settings
+
+	// currentMu guards current. Wails serves every RPC on its own goroutine, so
+	// saving settings and loading a model list genuinely run at the same time —
+	// the listing path reads the Ollama URL out of current while Save replaces
+	// it. Get copies the reference fields too, because callers do write into
+	// them: SetAppPreset edits AppPresets[i] in the value it was handed.
+	currentMu sync.RWMutex
+	current   Settings
 
 	// models caches per-provider listings; see ListModels.
 	modelsMu sync.Mutex
 	models   map[string]cachedModelList
+	// modelGeneration counts invalidations per provider. A listing that started
+	// before one must not write its result afterwards; see ListModels and
+	// forgetModelList. Per provider rather than global, so pasting an OpenAI key
+	// does not throw away an Anthropic listing that is already on its way back.
+	modelGeneration map[string]uint64
 }
 
 // NewService creates a new SettingsService, loading existing settings from disk.
@@ -94,17 +108,44 @@ func (s *Service) load() error {
 }
 
 // Get returns a copy of the current settings.
+//
+// The copy reaches into the reference fields: a struct copy would share the
+// AppPresets array and the Models map with every other caller and with the
+// service's own state, and callers do edit what they are given — SetAppPreset
+// assigns into AppPresets[i] before handing the result back to Save. Sharing
+// them means that edit lands in this service's settings without a Save, and
+// races with any concurrent read.
 func (s *Service) Get() Settings {
-	return s.current
+	s.currentMu.RLock()
+	defer s.currentMu.RUnlock()
+	return s.current.clone()
+}
+
+// clone deep-copies the fields that are references. Every other field is a
+// value and is copied by the struct assignment itself; a new reference field
+// added to Settings belongs here too.
+func (s Settings) clone() Settings {
+	out := s
+	out.AppPresets = slices.Clone(s.AppPresets)
+	if s.Models != nil {
+		out.Models = maps.Clone(s.Models)
+	}
+	return out
 }
 
 // Save persists the provided settings to disk.
 func (s *Service) Save(updated Settings) error {
+	s.currentMu.Lock()
+	ollamaMoved := updated.Providers.OllamaURL != s.current.Providers.OllamaURL
+	// Cloned on the way in as well: the caller still holds `updated` and may
+	// edit its presets afterwards, which would otherwise mutate live settings.
+	s.current = updated.clone()
+	s.currentMu.Unlock()
+
 	// Ollama's list comes from whatever URL is configured.
-	if updated.Providers.OllamaURL != s.current.Providers.OllamaURL {
+	if ollamaMoved {
 		s.forgetModelList(llm.ProviderOllama)
 	}
-	s.current = updated
 	data, err := json.MarshalIndent(updated, "", "  ")
 	if err != nil {
 		return err
@@ -182,58 +223,90 @@ const modelListTTL = 10 * time.Minute
 // settings screen.
 const modelListTimeout = 20 * time.Second
 
-// cachedModelList is one provider's list and when it was fetched.
+// cachedModelList is one provider's list and when it was fetched. How long it
+// stays valid follows from the list's own Source; see ttl.
 type cachedModelList struct {
 	list    llm.ModelList
 	fetched time.Time
-	// failed marks a listing that fell back to the built-in list, so it expires
-	// sooner than a good one.
-	failed bool
 }
 
-// ListModels returns the models a provider can serve, cached for modelListTTL.
-// A provider that cannot be reached yields the built-in list with
-// source "static" rather than an error: a picker with the usual entries is more
-// use than an empty one, and the source says which it is.
+// ListModels returns the models a provider can serve, cached per provider.
+//
+// It never returns an error: a provider that cannot be reached, one with no key
+// and one whose listing this app cannot use all yield the built-in list, and a
+// provider that listed nothing yields an empty one. ModelList.Source says which
+// happened, so the picker can explain itself; ttl decides how long that answer
+// is worth keeping.
 func (s *Service) ListModels(provider string) llm.ModelList {
-	s.modelsMu.Lock()
-	cached, ok := s.models[provider]
-	s.modelsMu.Unlock()
-	if ok && time.Since(cached.fetched) < cached.ttl() {
-		return cached.list
+	// Two attempts, because an invalidation that lands mid-listing retires the
+	// answer on its way back: the key or the URL it asked with is gone. Asking
+	// once more with what replaced it is the only way to return a list that
+	// describes the current settings rather than the previous ones. Bounded, so
+	// a user holding down Save cannot keep this call alive.
+	for attempt := 0; attempt < 2; attempt++ {
+		s.modelsMu.Lock()
+		cached, ok := s.models[provider]
+		generation := s.modelGeneration[provider]
+		s.modelsMu.Unlock()
+		if ok && time.Since(cached.fetched) < cached.ttl() {
+			return cached.list
+		}
+
+		cfg, ok := s.modelListConfig(provider)
+		if !ok {
+			// No credential yet: the request would only earn a 401, and caching
+			// that would keep the built-in list on screen after the user pastes
+			// a key.
+			return llm.CuratedModels(provider, llm.ModelSourceNoCredentials)
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), modelListTimeout)
+		list, err := llm.ListModels(ctx, provider, cfg)
+		cancel()
+		if err != nil {
+			logger.Info("settings: model list unavailable, using the built-in one",
+				"provider", provider, "err", err)
+		}
+
+		s.modelsMu.Lock()
+		if s.modelGeneration[provider] != generation {
+			// Retired mid-flight. Neither cache it nor hand it back — it answers
+			// a question about settings the user has already replaced.
+			s.modelsMu.Unlock()
+			continue
+		}
+		if s.models == nil {
+			s.models = map[string]cachedModelList{}
+		}
+		s.models[provider] = cachedModelList{list: list, fetched: time.Now()}
+		s.modelsMu.Unlock()
+		return list
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), modelListTimeout)
-	defer cancel()
-
-	cfg, ok := s.modelListConfig(provider)
-	if !ok {
-		// No credential yet: the request would only earn a 401, and caching that
-		// would keep the built-in list on screen after the user pastes a key.
-		return llm.CuratedModels(provider)
-	}
-
-	list, err := llm.ListModels(ctx, provider, cfg)
-	if err != nil {
-		logger.Info("settings: model list unavailable, using the built-in one",
-			"provider", provider, "err", err)
-	}
-
-	s.modelsMu.Lock()
-	if s.models == nil {
-		s.models = map[string]cachedModelList{}
-	}
-	s.models[provider] = cachedModelList{list: list, fetched: time.Now(), failed: err != nil}
-	s.modelsMu.Unlock()
-	return list
+	// Invalidated twice while listing — the user is mid-edit. The built-in list
+	// keeps the picker usable and expires in 30 seconds, by which time whatever
+	// they are typing has settled.
+	return llm.CuratedModels(provider, llm.ModelSourceUnreachable)
 }
 
 // ttl is how long this entry stays valid.
+//
+// Read off the source rather than stored alongside it, so the two cannot drift
+// apart. Only a settled answer earns the long lifetime: the provider listed its
+// models, or there is no endpoint to ask and nothing can change. Everything
+// else describes something the user is in the middle of fixing — starting a
+// daemon, pulling a model, pasting a key, widening a project scope — and ten
+// minutes of the old answer after that is ten minutes of a wrong picker.
+//
+// The default is deliberately the short one, so a source added later errs
+// towards asking again rather than towards a stale picker.
 func (c cachedModelList) ttl() time.Duration {
-	if c.failed {
+	switch c.list.Source {
+	case llm.ModelSourceLive, llm.ModelSourceFixed:
+		return modelListTTL
+	default:
 		return modelListFailureTTL
 	}
-	return modelListTTL
 }
 
 // forgetModelList drops a provider's cached listing, so the next ask goes to the
@@ -242,6 +315,13 @@ func (c cachedModelList) ttl() time.Duration {
 func (s *Service) forgetModelList(provider string) {
 	s.modelsMu.Lock()
 	delete(s.models, provider)
+	// A listing that is already in flight asked with the credentials or the URL
+	// this invalidation just retired. Moving this provider's generation on makes
+	// it drop its answer instead of writing it back over the deletion.
+	if s.modelGeneration == nil {
+		s.modelGeneration = map[string]uint64{}
+	}
+	s.modelGeneration[provider]++
 	s.modelsMu.Unlock()
 }
 

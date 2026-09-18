@@ -16,7 +16,7 @@ AI requests must go through the Go backend. Every provider HTTP call lives in `i
 
 ## Dark Mode
 
-Dark-first: `<body class="app-dark">` in `index.html`. Only explicit `'light'` preference removes it. Never use `window.matchMedia` — returns light in jsdom.
+Dark-first: `<body class="app-dark">` in `index.html`. Only explicit `'light'` preference removes it. Never use `window.matchMedia` for theme detection — jsdom does not define it at all, so a spec that reaches it throws rather than returning light. (Specs that open a PrimeNG overlay stub it; see `testing.md`.)
 
 ## PrimeNG v21
 

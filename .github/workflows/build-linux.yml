@@ -56,8 +56,12 @@ jobs:
         working-directory: frontend
         run: npm test
 
+      # -race, because the concurrency this app has is real: Wails serves every
+      # RPC on its own goroutine, so settings writes and provider listings run
+      # at the same time. Two such races have already shipped; the detector only
+      # sees them on a run like this one.
       - name: Run Go tests
-        run: go test ./internal/...
+        run: go test -race ./internal/...
 
   # Playwright runs against `ng serve` only — no Go, no Wails, no system deps.
   # It still waits for `test` so a runner is not spent on UI checks while the
