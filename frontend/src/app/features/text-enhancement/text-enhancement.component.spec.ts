@@ -388,37 +388,51 @@ describe('TextEnhancementComponent — Claude Code provider', () => {
     expect(component.modelView).toBe('');
   });
 
-  it('tells the user when the list is the built-in one because the provider was unreachable', async () => {
-    wailsMock.listModels.mockResolvedValue({ models: [{ id: 'llama3.2', label: 'llama3.2' }], source: 'static' });
+  /** Switches provider and returns whatever note the panel then shows. */
+  async function noteFor(provider: string, list: { models: Array<{ id: string; label: string }>; source: string }): Promise<string> {
+    wailsMock.listModels.mockResolvedValue(list);
 
-    component.providerView = 'ollama';
+    component.providerView = provider;
     await component.onProviderChange();
     fixture.detectChanges();
 
-    expect(el.querySelector('[data-testid="model-list-static"]')?.textContent)
-      .toContain('could not be reached');
+    return el.querySelector('[data-testid="model-list-note"]')?.textContent?.trim() ?? '';
+  }
+
+  it('tells the user when the list is the built-in one because the provider was unreachable', async () => {
+    const note = await noteFor('ollama', { models: [{ id: 'llama3.2', label: 'llama3.2' }], source: 'unreachable' });
+
+    expect(note).toContain('could not be reached');
+  });
+
+  it('tells a user without a key to add one instead of blaming the network', async () => {
+    const note = await noteFor('openai', { models: [{ id: 'gpt-4.1', label: 'gpt-4.1' }], source: 'no-credentials' });
+
+    expect(note).toContain('add a key');
+    expect(note).not.toContain('could not be reached');
+  });
+
+  it('tells an Ollama user with nothing pulled what is actually wrong', async () => {
+    // A running daemon with no models is not an unreachable one, and saying so
+    // would send the user after a problem that is not there.
+    const note = await noteFor('ollama', { models: [], source: 'empty' });
+
+    expect(note).toContain('No models pulled yet');
+    expect(note).not.toContain('could not be reached');
   });
 
   it('stays quiet when the provider answered', async () => {
-    wailsMock.listModels.mockResolvedValue({ models: [{ id: 'llama3.2', label: 'llama3.2' }], source: 'live' });
+    const note = await noteFor('ollama', { models: [{ id: 'llama3.2', label: 'llama3.2' }], source: 'live' });
 
-    component.providerView = 'ollama';
-    await component.onProviderChange();
-    fixture.detectChanges();
-
-    expect(el.querySelector('[data-testid="model-list-static"]')).toBeNull();
+    expect(note).toBe('');
   });
 
   it('stays quiet for a provider that has no endpoint to ask', async () => {
     // The CLI's three aliases are the whole list by design, so "built-in" would
     // be an alarm nobody can clear.
-    wailsMock.listModels.mockResolvedValue({ models: [{ id: 'sonnet', label: 'Sonnet' }], source: 'fixed' });
+    const note = await noteFor('claude-code', { models: [{ id: 'sonnet', label: 'Sonnet' }], source: 'fixed' });
 
-    component.providerView = 'claude-code';
-    await component.onProviderChange();
-    fixture.detectChanges();
-
-    expect(el.querySelector('[data-testid="model-list-static"]')).toBeNull();
+    expect(note).toBe('');
   });
 
   it('warns when the CLI is installed but signed out, instead of failing at call time', async () => {

@@ -182,13 +182,11 @@ const modelListTTL = 10 * time.Minute
 // settings screen.
 const modelListTimeout = 20 * time.Second
 
-// cachedModelList is one provider's list and when it was fetched.
+// cachedModelList is one provider's list and when it was fetched. How long it
+// stays valid follows from the list's own Source; see ttl.
 type cachedModelList struct {
 	list    llm.ModelList
 	fetched time.Time
-	// failed marks a listing that fell back to the built-in list, so it expires
-	// sooner than a good one.
-	failed bool
 }
 
 // ListModels returns the models a provider can serve, cached for modelListTTL.
@@ -210,7 +208,7 @@ func (s *Service) ListModels(provider string) llm.ModelList {
 	if !ok {
 		// No credential yet: the request would only earn a 401, and caching that
 		// would keep the built-in list on screen after the user pastes a key.
-		return llm.CuratedModels(provider)
+		return llm.CuratedModels(provider, llm.ModelSourceNoCredentials)
 	}
 
 	list, err := llm.ListModels(ctx, provider, cfg)
@@ -223,17 +221,25 @@ func (s *Service) ListModels(provider string) llm.ModelList {
 	if s.models == nil {
 		s.models = map[string]cachedModelList{}
 	}
-	s.models[provider] = cachedModelList{list: list, fetched: time.Now(), failed: err != nil}
+	s.models[provider] = cachedModelList{list: list, fetched: time.Now()}
 	s.modelsMu.Unlock()
 	return list
 }
 
 // ttl is how long this entry stays valid.
+//
+// Read off the source rather than stored alongside it, so the two cannot drift
+// apart. A provider that was down and one that had nothing pulled are both
+// states the user is about to change — a daemon started, a model pulled — and
+// ten minutes of a stale answer after that is ten minutes of the picker being
+// wrong.
 func (c cachedModelList) ttl() time.Duration {
-	if c.failed {
+	switch c.list.Source {
+	case llm.ModelSourceUnreachable, llm.ModelSourceEmpty:
 		return modelListFailureTTL
+	default:
+		return modelListTTL
 	}
-	return modelListTTL
 }
 
 // forgetModelList drops a provider's cached listing, so the next ask goes to the

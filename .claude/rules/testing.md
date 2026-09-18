@@ -9,13 +9,17 @@
 - After `fixture.detectChanges()`, always `await fixture.whenStable()` before querying async-loaded DOM
 - NG0100 fix: call `fixture.detectChanges()` twice, or pre-set async state before the first call
 
-## ResizeObserver Polyfill
+## jsdom Polyfills
 
 TabList uses `ResizeObserver` which doesn't exist in jsdom. Add at the top of specs that import tab components:
 
 ```typescript
 (globalThis as any)['ResizeObserver'] = class { observe() {} unobserve() {} disconnect() {} };
 ```
+
+PrimeNG's overlay (any `p-select` dropdown that a spec opens) asks `matchMedia`
+whether to go modal. Stub it to "no match" in specs that open one — test-only;
+the app itself must never ask `matchMedia`, see `architecture.md`.
 
 ## Go Tests
 

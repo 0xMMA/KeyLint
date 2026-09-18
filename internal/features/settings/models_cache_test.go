@@ -45,8 +45,8 @@ func TestListModelsRefetchesAfterTheTTL(t *testing.T) {
 			t.Fatal("an expired entry was served instead of being refreshed")
 		}
 	}
-	if got.Source != llm.ModelSourceStatic {
-		t.Errorf("source = %q, want %q after a failed refetch", got.Source, llm.ModelSourceStatic)
+	if got.Source != llm.ModelSourceUnreachable {
+		t.Errorf("source = %q, want %q after a failed refetch", got.Source, llm.ModelSourceUnreachable)
 	}
 }
 
@@ -60,8 +60,8 @@ func TestListModelsRefetchesAfterTheTTL(t *testing.T) {
 func TestForgettingAModelListCoversTheFlowThisFeatureExistsFor(t *testing.T) {
 	svc := &Service{
 		models: map[string]cachedModelList{
-			llm.ProviderClaude: {list: llm.CuratedModels(llm.ProviderClaude), fetched: time.Now(), failed: true},
-			llm.ProviderOpenAI: {list: llm.CuratedModels(llm.ProviderOpenAI), fetched: time.Now()},
+			llm.ProviderClaude: {list: llm.CuratedModels(llm.ProviderClaude, llm.ModelSourceUnreachable), fetched: time.Now()},
+			llm.ProviderOpenAI: {list: llm.CuratedModels(llm.ProviderOpenAI, llm.ModelSourceLive), fetched: time.Now()},
 		},
 	}
 
@@ -83,8 +83,8 @@ func TestSaveForgetsTheOllamaListWhenTheURLChanges(t *testing.T) {
 		filePath: filepath.Join(t.TempDir(), "settings.json"),
 		current:  Default(),
 		models: map[string]cachedModelList{
-			llm.ProviderOllama: {list: llm.CuratedModels(llm.ProviderOllama), fetched: time.Now()},
-			llm.ProviderClaude: {list: llm.CuratedModels(llm.ProviderClaude), fetched: time.Now()},
+			llm.ProviderOllama: {list: llm.CuratedModels(llm.ProviderOllama, llm.ModelSourceLive), fetched: time.Now()},
+			llm.ProviderClaude: {list: llm.CuratedModels(llm.ProviderClaude, llm.ModelSourceLive), fetched: time.Now()},
 		},
 	}
 
@@ -102,11 +102,63 @@ func TestSaveForgetsTheOllamaListWhenTheURLChanges(t *testing.T) {
 	}
 }
 
-// TestFailedListingsExpireSooner: the usual cause is something the user is about
-// to fix.
-func TestFailedListingsExpireSooner(t *testing.T) {
-	if (cachedModelList{failed: true}).ttl() >= (cachedModelList{}).ttl() {
-		t.Error("a failed listing must expire sooner than a good one")
+// TestTheTTLFollowsTheSituationTheUserIsIn covers the whole point of splitting
+// the sources: a provider that was down and one with nothing pulled are both
+// states the user is about to change — a daemon started, a model pulled — and
+// ten minutes of the old answer after that is ten minutes of a wrong picker.
+// A live listing has no such event coming, so it is kept.
+func TestTheTTLFollowsTheSituationTheUserIsIn(t *testing.T) {
+	for _, tc := range []struct {
+		source string
+		want   time.Duration
+		why    string
+	}{
+		{llm.ModelSourceUnreachable, modelListFailureTTL, "the daemon or the key is about to be fixed"},
+		{llm.ModelSourceEmpty, modelListFailureTTL, "a model is about to be pulled"},
+		{llm.ModelSourceLive, modelListTTL, "the provider answered; nothing is pending"},
+		{llm.ModelSourceFixed, modelListTTL, "there is no endpoint, so nothing can change"},
+	} {
+		entry := cachedModelList{list: llm.ModelList{Source: tc.source}}
+		if got := entry.ttl(); got != tc.want {
+			t.Errorf("ttl(%s) = %v, want %v — %s", tc.source, got, tc.want, tc.why)
+		}
+	}
+}
+
+// TestNoCredentialYieldsItsOwnSource: "add a key" and "the daemon is down" are
+// different sentences for the user, so they must not arrive as one source.
+//
+// Ollama is used because it needs no key and would therefore be asked; the
+// provider under test here is one that does need a key. Reading the keyring is
+// what modelListConfig does, so this asserts the config decision rather than
+// calling ListModels, which would hang on a machine with no secret service.
+func TestNoCredentialIsNotTheSameAsUnreachable(t *testing.T) {
+	if llm.ModelSourceNoCredentials == llm.ModelSourceUnreachable {
+		t.Fatal("the two states collapsed into one value")
+	}
+	list := llm.CuratedModels(llm.ProviderOpenAI, llm.ModelSourceNoCredentials)
+	if list.Source != llm.ModelSourceNoCredentials {
+		t.Errorf("source = %q, want %q", list.Source, llm.ModelSourceNoCredentials)
+	}
+	if len(list.Models) == 0 {
+		t.Error("a user without a key still gets a picker to look at")
+	}
+}
+
+// TestAnEmptyListIsServedAsEmpty: the built-in list must not be substituted for
+// a provider that answered with nothing — see the Ollama case in llm.ListModels.
+func TestAnEmptyListIsNotRefilledFromTheCuratedOne(t *testing.T) {
+	svc := serviceWithUnreachableOllama(t, cachedModelList{
+		list:    llm.ModelList{Source: llm.ModelSourceEmpty},
+		fetched: time.Now(),
+	})
+
+	got := svc.ListModels(llm.ProviderOllama)
+	if got.Source != llm.ModelSourceEmpty {
+		t.Errorf("source = %q, want %q", got.Source, llm.ModelSourceEmpty)
+	}
+	if len(got.Models) != 0 {
+		t.Errorf("models = %v, want none", got.Models)
 	}
 }
 

@@ -10,6 +10,9 @@ import (
 func TestDefaultModelPerFeature(t *testing.T) {
 	// The fix flow wants something fast; Pyramidize restructures a document and
 	// wants something stronger. They must not collapse into one value.
+	//
+	// Ollama is absent on purpose and covered by its own test below — see
+	// TestOllamaDeliberatelyUsesOneModelForBothFeatures.
 	for _, provider := range []string{ProviderClaude, ProviderOpenAI, ProviderClaudeCode} {
 		fix := DefaultModel(provider, FeatureFix)
 		pyramidize := DefaultModel(provider, FeaturePyramidize)
@@ -22,6 +25,28 @@ func TestDefaultModelPerFeature(t *testing.T) {
 	}
 	if DefaultModel("nonexistent", FeatureFix) != "" {
 		t.Error("an unknown provider must have no default rather than a wrong one")
+	}
+}
+
+// TestOllamaDeliberatelyUsesOneModelForBothFeatures states the one exception to
+// the rule above, rather than leaving Ollama quietly out of the loop.
+//
+// Every other provider splits the two features, and for Ollama that split would
+// have to name a second local model. Which one is a quality question, and there
+// is no Ollama eval to answer it — the eval suite runs against Anthropic and
+// OpenAI. Picking a heavier default on a guess would slow down every fix on a
+// machine that may not even have that model pulled. So both features stay on
+// llama3.2 until an eval says otherwise, and this test holds that decision
+// still: changing it should take an argument, not a typo.
+func TestOllamaDeliberatelyUsesOneModelForBothFeatures(t *testing.T) {
+	fix := DefaultModel(ProviderOllama, FeatureFix)
+	pyramidize := DefaultModel(ProviderOllama, FeaturePyramidize)
+
+	if fix == "" {
+		t.Fatal("Ollama has no default at all")
+	}
+	if fix != pyramidize {
+		t.Errorf("fix=%q pyramidize=%q — if this split is now wanted, it needs an eval behind it", fix, pyramidize)
 	}
 }
 
@@ -79,10 +104,10 @@ func TestTransportErrorsDropCredentialsFromTheURL(t *testing.T) {
 	}
 }
 
-// TestListModelsFallsBackToTheCuratedList covers the case a user actually hits:
-// the daemon is not running, or the key is not set yet. An empty picker is
-// useless; the built-in list with a source of "static" is not.
-func TestListModelsFallsBackToTheCuratedList(t *testing.T) {
+// TestListModelsFallsBackWhenTheProviderCannotBeReached: the daemon is not
+// running, or the URL is wrong. An empty picker is useless; the built-in list
+// with a source that names the problem is not.
+func TestListModelsFallsBackWhenTheProviderCannotBeReached(t *testing.T) {
 	srv := newRawServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
@@ -91,11 +116,78 @@ func TestListModelsFallsBackToTheCuratedList(t *testing.T) {
 	if err == nil {
 		t.Error("expected the failure to be reported alongside the fallback")
 	}
-	if list.Source != ModelSourceStatic {
-		t.Errorf("source = %q, want %q", list.Source, ModelSourceStatic)
+	if list.Source != ModelSourceUnreachable {
+		t.Errorf("source = %q, want %q", list.Source, ModelSourceUnreachable)
 	}
 	if len(list.Models) == 0 {
 		t.Error("the fallback list is empty, which is worse than no picker at all")
+	}
+}
+
+// TestListModelsSeparatesAnEmptyAnswerFromAFailure is the fresh-`ollama serve`
+// case: the daemon is up and has nothing pulled.
+//
+// Folding this into the unreachable case got two things wrong at once — it told
+// the user a running daemon could not be reached, and it offered five models
+// that machine cannot serve, each of which 404s at call time.
+func TestListModelsSeparatesAnEmptyAnswerFromAFailure(t *testing.T) {
+	srv := newRawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":[]}`))
+	})
+
+	list, err := ListModels(context.Background(), ProviderOllama, Config{BaseURL: srv})
+	if err != nil {
+		t.Errorf("err = %v, want none: the daemon answered", err)
+	}
+	if list.Source != ModelSourceEmpty {
+		t.Errorf("source = %q, want %q", list.Source, ModelSourceEmpty)
+	}
+	if len(list.Models) != 0 {
+		t.Errorf("models = %v, want none — the built-in list would be models this machine cannot serve", list.Models)
+	}
+}
+
+// TestCuratedModelsCannotBeMutatedByACaller: the list is package state handed
+// out on every fallback, so a caller sorting or appending to it would change
+// what every later fallback shows.
+func TestCuratedModelsCannotBeMutatedByACaller(t *testing.T) {
+	first := CuratedModels(ProviderOpenAI, ModelSourceUnreachable)
+	if len(first.Models) == 0 {
+		t.Fatal("no curated OpenAI models to test with")
+	}
+	first.Models[0] = ModelInfo{ID: "clobbered", Label: "clobbered"}
+
+	if second := CuratedModels(ProviderOpenAI, ModelSourceUnreachable); second.Models[0].ID == "clobbered" {
+		t.Error("the curated list is handed out by reference")
+	}
+}
+
+// TestClaudeCodeAliasesAreCopiedToo: same reason, different list.
+func TestClaudeCodeAliasesAreCopiedToo(t *testing.T) {
+	first, _ := ListModels(context.Background(), ProviderClaudeCode, Config{})
+	first.Models[0] = ModelInfo{ID: "clobbered"}
+
+	second, _ := ListModels(context.Background(), ProviderClaudeCode, Config{})
+	if second.Models[0].ID == "clobbered" {
+		t.Error("the alias list is handed out by reference")
+	}
+}
+
+// TestClaudeCodeAliasesMatchThePicker: the message naming the aliases is built
+// from the list the picker offers, so the two cannot drift apart.
+func TestClaudeCodeAliasesMatchThePicker(t *testing.T) {
+	names := ClaudeCodeAliases()
+	if len(names) != len(claudeCodeAliases) {
+		t.Fatalf("ClaudeCodeAliases() = %v, want one entry per alias", names)
+	}
+	for i, name := range names {
+		if name != claudeCodeAliases[i].ID {
+			t.Errorf("alias %d = %q, want %q", i, name, claudeCodeAliases[i].ID)
+		}
+		if !IsClaudeCodeAlias(name) {
+			t.Errorf("%q is named in messages but not accepted as an alias", name)
+		}
 	}
 }
 
@@ -144,13 +236,20 @@ func TestNotFoundNamesTheModel(t *testing.T) {
 // TestIsChatModelKeepsOnlyWhatCanAnswerACompletion: an OpenAI account lists
 // embeddings, speech, image and realtime models next to the chat ones, and
 // offering one that 400s at call time is worse than omitting it.
+//
+// The IDs below come from OpenAI's documentation, not from a listing this
+// project has seen — there is no OPENAI_API_KEY here to check against.
 func TestIsChatModelKeepsOnlyWhatCanAnswerACompletion(t *testing.T) {
-	keep := []string{"gpt-5.2", "gpt-4o-mini", "gpt-4.1", "o3", "o4-mini", "chatgpt-4o-latest", "codex-mini-latest"}
+	keep := []string{"gpt-5.2", "gpt-4o-mini", "gpt-4.1", "o3", "o4-mini", "chatgpt-4o-latest"}
 	drop := []string{
 		"text-embedding-3-large", "whisper-1", "dall-e-3", "tts-1",
 		"gpt-image-1", "gpt-4o-transcribe", "gpt-4o-mini-tts",
 		"gpt-4o-audio-preview", "gpt-4o-realtime-preview",
 		"gpt-4o-mini-search-preview", "gpt-3.5-turbo-instruct", "omni-moderation-latest",
+		// Reachable through the Responses API, not through the
+		// /chat/completions call this app makes — so they 400, which is the
+		// same outcome as an embedding model and deserves the same filter.
+		"codex-mini-latest", "gpt-5.2-pro", "o3-deep-research",
 	}
 	for _, id := range keep {
 		if !isChatModel(id) {
@@ -167,6 +266,17 @@ func TestIsChatModelKeepsOnlyWhatCanAnswerACompletion(t *testing.T) {
 // TestListModelsOpenAIFiltersAndKeepsProviderOrder pins both halves: the
 // account's non-chat models do not reach the picker, and the order the provider
 // returned is preserved rather than re-sorted.
+// TestCuratedOpenAIModelsSurviveTheFilter: the curated list is what a user sees
+// when the account cannot be reached, so shipping an ID there that the filter
+// would drop as uncallable would be offering a model that 400s.
+func TestCuratedOpenAIModelsSurviveTheFilter(t *testing.T) {
+	for _, model := range curatedModels[ProviderOpenAI] {
+		if !isChatModel(model.ID) {
+			t.Errorf("curated %q is filtered out of live listings as uncallable", model.ID)
+		}
+	}
+}
+
 func TestListModelsOpenAIFiltersAndKeepsProviderOrder(t *testing.T) {
 	srv := newRawServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

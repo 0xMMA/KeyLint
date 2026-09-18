@@ -11,6 +11,7 @@ import { CardModule } from 'primeng/card';
 import { TagModule } from 'primeng/tag';
 import { ActivatedRoute } from '@angular/router';
 import { WailsService, Settings as AppSettings, KeyStatus, UpdateInfo, AppPreset, ClaudeCodeStatus, ModelInfo } from '../../core/wails.service';
+import { noteForModelSource } from '../../core/model-source';
 import { DOCUMENT_TYPE_OPTIONS } from '../../core/constants';
 import { LogService } from '../../core/log.service';
 
@@ -260,14 +261,10 @@ interface ProviderKey {
                   <div class="key-row" [attr.data-testid]="'models-' + mp.id">
                     <div class="key-header">
                       <span class="key-label">{{ mp.label }}</span>
-                      @if (showsBuiltInHint(mp.id)) {
-                        <p-tag
-                          [attr.data-testid]="'models-static-' + mp.id"
-                          value="built-in list"
-                          severity="secondary"
-                        />
-                      }
                     </div>
+                    @if (modelListNote(mp.id); as note) {
+                      <small class="hint-text" [attr.data-testid]="'models-note-' + mp.id">{{ note }}</small>
+                    }
                     <div class="form-group">
                       <label>Fix model</label>
                       <p-select
@@ -678,23 +675,40 @@ export class SettingsComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * "Built-in list" means the provider could not be reached, which is something
-   * the user can fix. It is not shown for a provider that has no endpoint to
-   * ask, nor when there is nothing to show at all.
+   * What to say about where this picker's list came from, or null when the list
+   * needs no explaining.
+   *
+   * Each case is a different thing for the user to do, so each gets its own
+   * sentence. "Not live" as one word would send someone hunting for a network
+   * problem when the real answer is that they have not pasted a key, or that
+   * the daemon is running fine and has nothing pulled.
    */
-  showsBuiltInHint(provider: string): boolean {
-    return this.modelSource[provider] === 'static' && (this.modelOptions[provider]?.length ?? 0) > 0;
+  modelListNote(provider: string): string {
+    return noteForModelSource(
+      this.modelSource[provider],
+      provider,
+      (this.modelOptions[provider]?.length ?? 0) > 0,
+    );
   }
+
+  /**
+   * Counts reload rounds. Saving a key, clearing one and changing the Ollama URL
+   * each start a round, and a user doing two of those in a row would otherwise
+   * have the slower round land last and overwrite the newer answer.
+   */
+  private modelLoadRound = 0;
 
   /** Fetches every provider's model list in parallel; failures fall back. */
   private async loadModelOptions(): Promise<void> {
+    const round = ++this.modelLoadRound;
     // Rendered as each provider answers: one that is wedged would otherwise
     // leave all four pickers empty for as long as its timeout.
     await Promise.all(this.modelProviders.map(async mp => {
       const list = await this.wails.listModels(mp.id).catch(() => null);
+      if (round !== this.modelLoadRound) return;
       this.modelOptions[mp.id] = list?.models ?? [];
       this.modelSelectOptions[mp.id] = [DEFAULT_MODEL_OPTION, ...(list?.models ?? []).map(toModelOption)];
-      this.modelSource[mp.id] = list?.source ?? 'static';
+      this.modelSource[mp.id] = list?.source ?? 'unreachable';
       if (!this.destroyed) {
         this.cdr.detectChanges();
       }

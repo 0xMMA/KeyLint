@@ -28,7 +28,7 @@ export const defaultModelList: ModelList = {
     { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
     { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
   ],
-  source: 'static',
+  source: 'unreachable',
 };
 
 /** Default: no Claude Code CLI on the machine, so tests exercise the BYOK path. */

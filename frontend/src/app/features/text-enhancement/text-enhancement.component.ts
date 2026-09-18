@@ -13,6 +13,7 @@ import { MessageModule } from 'primeng/message';
 import { Tabs, TabList, Tab, TabPanels, TabPanel } from 'primeng/tabs';
 import { TooltipModule } from 'primeng/tooltip';
 import { WailsService } from '../../core/wails.service';
+import { noteForModelSource } from '../../core/model-source';
 import { DOCUMENT_TYPE_OPTIONS } from '../../core/constants';
 import { TextEnhancementService } from './text-enhancement.service';
 import { MarkdownPipe } from './markdown.pipe';
@@ -132,10 +133,8 @@ function addTrace(label: string, snapshot: string): void {
 
         <div class="form-group">
           <label>Model</label>
-          @if (modelListIsStatic) {
-            <small class="hint-text" data-testid="model-list-static">
-              Showing KeyLint's built-in list — the provider could not be reached.
-            </small>
+          @if (modelListNote) {
+            <small class="hint-text" data-testid="model-list-note">{{ modelListNote }}</small>
           }
           <p-select
             data-testid="model-select"
@@ -1045,7 +1044,8 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   /** The provider's models, with a leading entry for the configured default. */
   modelOptions: Array<{ id: string; label: string }> = [DEFAULT_MODEL_OPTION];
   /** Set when the list is the built-in one because the provider was unreachable. */
-  modelListIsStatic = false;
+  /** Why this list is what it is, or "" when it needs no explaining. */
+  modelListNote = '';
 
   get currentModelOptions(): Array<{ id: string; label: string }> {
     return this.modelOptions;
@@ -1157,11 +1157,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     const list = await this.wails.listModels(provider);
     if (provider !== selectedProvider) return;
     this.modelOptions = [DEFAULT_MODEL_OPTION, ...(list.models ?? [])];
-    // "fixed" means the provider has no endpoint to ask, which is not a problem
-    // to report; "static" means it could not be reached, which is. With nothing
-    // to show either way there is no fallback to explain, so an unknown or
-    // empty provider must not raise an alarm about a list it never had.
-    this.modelListIsStatic = list.source === 'static' && (list.models?.length ?? 0) > 0;
+    this.modelListNote = noteForModelSource(list.source, provider, (list.models?.length ?? 0) > 0);
     if (!this.destroyed) {
       this.cdr.detectChanges();
     }

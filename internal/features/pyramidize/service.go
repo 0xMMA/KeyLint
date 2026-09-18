@@ -481,9 +481,9 @@ func (svc *Service) callAISync(ctx context.Context, cfg settings.Settings, opts 
 	return resp.Text, nil
 }
 
-// providerConfig resolves endpoint and model ID for a provider. The model
-// override wins over the per-provider default; both stay here until model
-// selection moves into settings (#33 step 4).
+// providerConfig resolves endpoint and model ID for a provider. A request-level
+// override wins over the model in settings, which in turn wins over KeyLint's
+// default — see Settings.ModelFor.
 func (svc *Service) providerConfig(provider string, cfg settings.Settings, apiKey, modelOverride string) (llm.Config, string, error) {
 	// A request-level override wins — the Pyramidize panel lets a user pick a
 	// model for one run without changing their settings.
