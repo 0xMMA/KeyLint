@@ -64,9 +64,9 @@ describe('MessageBusService', () => {
     const received: string[] = [];
     svc.events$.subscribe(e => received.push(e.type));
 
-    svc.emit({ type: 'shortcut:triggered', source: 'test' });
+    svc.emit({ type: 'shortcut:fix', source: 'test' });
     svc.emit({ type: 'enhancement:complete', text: 'done' });
 
-    expect(received).toEqual(['shortcut:triggered', 'enhancement:complete']);
+    expect(received).toEqual(['shortcut:fix', 'enhancement:complete']);
   });
 });

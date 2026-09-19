@@ -5,6 +5,7 @@ import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
+import { SliderModule } from 'primeng/slider';
 import { Tabs, TabList, Tab, TabPanels, TabPanel } from 'primeng/tabs';
 import { MessageModule } from 'primeng/message';
 import { CardModule } from 'primeng/card';
@@ -14,6 +15,7 @@ import { WailsService, Settings as AppSettings, KeyStatus, UpdateInfo, AppPreset
 import { noteForModelSource } from '../../core/model-source';
 import { DOCUMENT_TYPE_OPTIONS } from '../../core/constants';
 import { LogService } from '../../core/log.service';
+import { ShortcutRecorderComponent } from './shortcut-recorder/shortcut-recorder.component';
 
 /**
  * Lets a user defer to KeyLint's default without knowing a model name.
@@ -57,8 +59,9 @@ interface ProviderKey {
   standalone: true,
   imports: [
     CommonModule, FormsModule,
-    ButtonModule, InputTextModule, SelectModule, ToggleSwitchModule,
+    ButtonModule, InputTextModule, SelectModule, ToggleSwitchModule, SliderModule,
     Tabs, TabList, Tab, TabPanels, TabPanel, MessageModule, CardModule, TagModule,
+    ShortcutRecorderComponent,
   ],
   template: `
     <div class="settings-page">
@@ -84,10 +87,63 @@ interface ProviderKey {
                     optionValue="value"
                   />
                 </div>
-                <div class="form-group">
-                  <label>Shortcut Key</label>
-                  <input data-testid="shortcut-input" pInputText [(ngModel)]="settings.shortcut_key" placeholder="ctrl+g" />
+                <!-- Shortcuts section -->
+                <div class="form-group" data-testid="shortcut-mode-section">
+                  <div class="toggle-row">
+                    <div class="toggle-label-group">
+                      <label>Double-tap mode</label>
+                      <small class="hint-text">
+                        @if (settings.shortcut_mode === 'double_tap') {
+                          Hold your modifier keys, tap the trigger key once for Fix, twice for Pyramidize.
+                        } @else {
+                          Assign separate shortcuts for each action.
+                        }
+                      </small>
+                    </div>
+                    <p-toggle-switch
+                      [ngModel]="settings.shortcut_mode === 'double_tap'"
+                      (ngModelChange)="settings.shortcut_mode = $event ? 'double_tap' : 'independent'"
+                    />
+                  </div>
                 </div>
+
+                @if (settings.shortcut_mode === 'double_tap') {
+                  <div class="form-group" data-testid="shortcut-fix-section">
+                    <label>Shortcut</label>
+                    <app-shortcut-recorder
+                      [value]="settings.shortcut_fix"
+                      (valueChange)="settings.shortcut_fix = $event"
+                    />
+                    <small class="hint-text">Single tap → Fix · Double tap → Pyramidize</small>
+                  </div>
+                  <div class="form-group" data-testid="shortcut-delay-section">
+                    <label>Double-tap delay: {{ settings.shortcut_double_tap_delay }}ms</label>
+                    <p-slider
+                      [(ngModel)]="settings.shortcut_double_tap_delay"
+                      [min]="100"
+                      [max]="500"
+                      [step]="25"
+                    />
+                    <small class="hint-text">How long to wait for a second tap. Lower = faster but harder to trigger.</small>
+                  </div>
+                } @else {
+                  <div class="form-group" data-testid="shortcut-fix-section">
+                    <label>Fix shortcut</label>
+                    <app-shortcut-recorder
+                      [value]="settings.shortcut_fix"
+                      (valueChange)="settings.shortcut_fix = $event"
+                    />
+                    <small class="hint-text">Silently fixes clipboard text.</small>
+                  </div>
+                  <div class="form-group" data-testid="shortcut-pyramidize-section">
+                    <label>Pyramidize shortcut</label>
+                    <app-shortcut-recorder
+                      [value]="settings.shortcut_pyramidize"
+                      (valueChange)="settings.shortcut_pyramidize = $event"
+                    />
+                    <small class="hint-text">Opens the Pyramidize editor with clipboard text.</small>
+                  </div>
+                }
                 <div class="form-group" data-testid="start-on-boot-section">
                   <div class="toggle-row">
                     <label>Start on Boot</label>

@@ -4,6 +4,7 @@ import { isDevMode } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { TooltipModule } from 'primeng/tooltip';
 import { WailsService } from '../core/wails.service';
+import { LogService } from '../core/log.service';
 
 // Persists across navigation
 let sidebarCollapsed = false;
@@ -99,7 +100,10 @@ export class ShellComponent implements OnInit, OnDestroy {
   readonly dev = isDevMode();
   appVersion = '';
   updateAvailable = false;
-  private sub?: Subscription;
+  private subs: Subscription[] = [];
+  private silentFixInFlight = false;
+  /** Safety net for a hung enhance call; overridable so tests need not wait. */
+  protected silentFixTimeoutMs = 120_000;
 
   get collapsedView(): boolean  { return sidebarCollapsed; }
   get hoverExpanded(): boolean  { return sidebarCollapsed && sidebarHovered; }
@@ -108,12 +112,21 @@ export class ShellComponent implements OnInit, OnDestroy {
     private readonly wails: WailsService,
     private readonly router: Router,
     private readonly cdr: ChangeDetectorRef,
+    private readonly log: LogService,
   ) {}
 
   ngOnInit(): void {
     void this.applyTheme();
     void this.loadVersionInfo();
-    this.sub = this.wails.settingsChanged$.subscribe(() => void this.applyTheme());
+    this.subs.push(
+      this.wails.settingsChanged$.subscribe(() => void this.applyTheme()),
+      this.wails.shortcutFix$.subscribe(() => {
+        void this.silentFix();
+      }),
+      this.wails.shortcutPyramidize$.subscribe(() => {
+        void this.router.navigate(['/enhance']);
+      }),
+    );
   }
 
   goToAbout(): void {
@@ -151,7 +164,37 @@ export class ShellComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.sub?.unsubscribe();
+    this.subs.forEach(s => s.unsubscribe());
+  }
+
+  private async silentFix(): Promise<void> {
+    // A second shortcut while the read -> enhance -> write -> paste cycle is still
+    // running would paste on top of the first result. Drop it instead.
+    if (this.silentFixInFlight) {
+      this.log.warn('shell: silent fix already running, ignoring shortcut');
+      return;
+    }
+    this.silentFixInFlight = true;
+    // The backend has no HTTP timeout yet (#32), so enhance can hang forever.
+    // Without this the guard would swallow every later shortcut for good.
+    const safetyTimer = setTimeout(() => {
+      this.silentFixInFlight = false;
+      this.log.warn('shell: silent fix timed out, releasing guard');
+    }, this.silentFixTimeoutMs);
+    this.log.info('shell: silent fix started');
+    try {
+      const text = await this.wails.readClipboard();
+      if (!text.trim()) return;
+      const result = await this.wails.enhance(text);
+      await this.wails.writeClipboard(result);
+      await this.wails.pasteToForeground();
+      this.log.info('shell: silent fix done');
+    } catch (e: unknown) {
+      this.log.error('shell: silent fix failed: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      clearTimeout(safetyTimer);
+      this.silentFixInFlight = false;
+    }
   }
 
   private async applyTheme(): Promise<void> {

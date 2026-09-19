@@ -78,14 +78,28 @@ test.describe('Dark mode — visual verification', () => {
     await screenshot(page, '05-settings-card-bg');
   });
 
-  test('shortcut input shows ctrl+g (settings data loaded)', async ({ page }) => {
+  test('the shortcut recorder shows ctrl+g (settings data loaded)', async ({ page }) => {
     await page.goto('/settings');
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1000);
 
-    const inputVal = await page.locator('[data-testid="shortcut-input"]').inputValue();
-    console.log(`Shortcut input value: ${inputVal}`);
-    expect(inputVal).toBe('ctrl+g');
+    // What this test is really for: settings reached the UI at all. It used to
+    // read a plain text input that no longer exists — #30 replaced it with the
+    // mode toggle and the recorder component — so it sat on inputValue() for
+    // the full 60s timeout.
+    await expect(page.locator('[data-testid="shortcut-mode-section"]')).toBeVisible();
+
+    // Browser mode defaults to double_tap (wails.service.ts BROWSER_MODE_DEFAULTS).
+    // Asserted rather than assumed, because the next assertion is vacuous if the
+    // mode is something else: the delay slider exists only in double-tap mode.
+    await expect(page.locator('[data-testid="shortcut-delay-section"]')).toBeVisible();
+
+    // ctrl+g, as the recorder formats it for display.
+    const fixCombo = page.locator('[data-testid="shortcut-fix-section"] [data-testid="combo-display"]');
+    await expect(fixCombo).toHaveText('Ctrl + G');
+
+    // One shortcut in double-tap mode: single tap fixes, double tap pyramidizes.
+    await expect(page.locator('[data-testid="shortcut-pyramidize-section"]')).toHaveCount(0);
+
     await screenshot(page, '06-settings-shortcut-value');
   });
 
