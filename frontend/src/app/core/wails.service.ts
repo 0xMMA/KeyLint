@@ -14,14 +14,16 @@ import * as PyramidizeService from '../../../bindings/keylint/internal/features/
 import { Settings, KeyStatus } from '../../../bindings/keylint/internal/features/settings/models.js';
 import { UpdateInfo, InstallResult } from '../../../bindings/keylint/internal/features/updater/models.js';
 import type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset } from '../../../bindings/keylint/internal/features/pyramidize/models.js';
+import type { ClaudeCodeStatus, ModelList, ModelInfo } from '../../../bindings/keylint/internal/llm/models.js';
 
-export type { Settings, KeyStatus, UpdateInfo, InstallResult };
+export type { Settings, KeyStatus, UpdateInfo, InstallResult, ClaudeCodeStatus, ModelList, ModelInfo };
 export type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset };
 
 
 // Default settings used when the Wails backend is unavailable (browser dev / Playwright mode).
 const BROWSER_MODE_DEFAULTS: Settings = {
   active_provider: 'claude',
+  models: {},
   providers: { ollama_url: '', aws_region: '' },
   shortcut_key: 'ctrl+g',
   shortcut_mode: 'double_tap',
@@ -37,6 +39,25 @@ const BROWSER_MODE_DEFAULTS: Settings = {
   app_presets: [],
   pyramidize_quality_threshold: 0.65,
 };
+
+// In browser dev / Playwright mode there is no machine to inspect, so the CLI
+// counts as absent and the UI falls back to the BYOK path.
+const BROWSER_MODE_CLAUDE_CODE: ClaudeCodeStatus = {
+  installed: false,
+  path: '',
+  version: '',
+  loggedIn: false,
+};
+
+/**
+ * Browser dev / Playwright mode has no backend to ask, and neither does a
+ * rejected RPC. "unreachable" is literally true in both cases, and it is a
+ * source the UI has wording for — "static" was retired and would now fall
+ * through every switch to silence.
+ */
+function emptyModelList(): ModelList {
+  return { models: [], source: 'unreachable' };
+}
 
 @Injectable({ providedIn: 'root' })
 export class WailsService implements OnDestroy {
@@ -142,6 +163,35 @@ export class WailsService implements OnDestroy {
       return SettingsService.DeleteKey(provider).catch(() => {});
     } catch {
       return Promise.resolve();
+    }
+  }
+
+  /**
+   * Lists the models a provider can serve. Never rejects: the source on the
+   * returned list says what happened — see internal/llm/models.go and
+   * core/model-source.ts for the wording each case gets.
+   */
+  listModels(provider: string): Promise<ModelList> {
+    try {
+      return SettingsService.ListModels(provider).catch(() => emptyModelList());
+    } catch {
+      return Promise.resolve(emptyModelList());
+    }
+  }
+
+  /**
+   * Reports whether the Claude Code CLI is installed on this machine and signed
+   * in. The backend only looks — signing in happens in the user's own terminal.
+   *
+   * The answer is cached for a minute on the Go side, because the probe spawns
+   * processes and four screens ask for it. Pass force from a re-check button:
+   * a user pressing one has just done something they expect to be noticed.
+   */
+  getClaudeCodeStatus(force = false): Promise<ClaudeCodeStatus> {
+    try {
+      return SettingsService.GetClaudeCodeStatus(force).catch(() => ({ ...BROWSER_MODE_CLAUDE_CODE }));
+    } catch {
+      return Promise.resolve({ ...BROWSER_MODE_CLAUDE_CODE });
     }
   }
 

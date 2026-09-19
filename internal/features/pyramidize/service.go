@@ -2,6 +2,7 @@ package pyramidize
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,8 +11,20 @@ import (
 
 	"keylint/internal/features/clipboard"
 	"keylint/internal/features/settings"
+	"keylint/internal/llm"
 	"keylint/internal/logger"
 )
+
+// maxTokens caps a Pyramidize reply. Model IDs live in settings (#33 step 4).
+const maxTokens = 4096
+
+// logFeature tags this feature's provider calls in the log.
+const logFeature = "pyramidize"
+
+// callTimeout bounds a single AI call. The HTTP client carries its own timeout,
+// but a local CLI provider has none — and the -pyramidize CLI has no cancel
+// button to fall back on.
+const callTimeout = 120 * time.Second
 
 // Service implements the Pyramidize RPC methods exposed to the frontend.
 type Service struct {
@@ -25,6 +38,9 @@ type Service struct {
 	// Captured source app from hotkey trigger (set before clipboard grab)
 	sourceAppName  string
 	sourceWindowID string
+
+	// newClient builds the provider client. Tests replace it with a fake.
+	newClient func(provider string, cfg llm.Config) (llm.Client, error)
 }
 
 // NewService creates a new PyramidizeService.
@@ -33,6 +49,7 @@ func NewService(s *settings.Service, c *clipboard.Service) *Service {
 		settings:  s,
 		clipboard: c,
 		client:    &http.Client{Timeout: 90 * time.Second},
+		newClient: llm.New,
 	}
 }
 
@@ -150,6 +167,11 @@ func (svc *Service) Pyramidize(req PyramidizeRequest) (PyramidizeResult, error) 
 		logger.Info("pyramidize: quality below threshold, refining",
 			"score", foundation.QualityScore, "flags", foundation.QualityFlags, "threshold", threshold)
 
+		// Recorded before the call is judged: this flag says a second model call
+		// was made, which is what it costs and what an eval needs to count. A
+		// refine that fails still spent the money.
+		result.AppliedRefinement = true
+
 		refined, err := svc.refine(ctx, cfg, opts, req.Text, foundation.FullDocument, foundation.QualityFlags)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -162,7 +184,6 @@ func (svc *Service) Pyramidize(req PyramidizeRequest) (PyramidizeResult, error) 
 			result.Headers = refined.Headers
 			result.QualityScore = refined.QualityScore
 			result.QualityFlags = refined.QualityFlags
-			result.AppliedRefinement = true
 			if result.QualityFlags == nil {
 				result.QualityFlags = []string{}
 			}
@@ -175,7 +196,7 @@ func (svc *Service) Pyramidize(req PyramidizeRequest) (PyramidizeResult, error) 
 
 	logger.Info("pyramidize: done",
 		"docType", result.DocumentType, "score", result.QualityScore,
-		"refined", result.AppliedRefinement)
+		"refineCalled", result.AppliedRefinement)
 	return result, nil
 }
 
@@ -194,7 +215,7 @@ func (svc *Service) RefineGlobal(req RefineGlobalRequest) (RefineGlobalResult, e
 		req.DocumentType, req.CommunicationStyle, req.RelationshipLevel,
 	)
 
-	raw, err := svc.callAIWithContext(ctx, cfg, opts, systemPrompt, userMessage)
+	raw, err := svc.callAIWithContext(ctx, cfg, opts, systemPrompt, userMessage, canvasSchema)
 	if err != nil {
 		if ctx.Err() != nil {
 			return RefineGlobalResult{}, fmt.Errorf("cancelled")
@@ -223,7 +244,7 @@ func (svc *Service) Splice(req SpliceRequest) (SpliceResult, error) {
 		req.FullCanvas, req.OriginalText, req.SelectedText, req.Instruction,
 	)
 
-	raw, err := svc.callAIWithContext(ctx, cfg, opts, systemPrompt, userMessage)
+	raw, err := svc.callAIWithContext(ctx, cfg, opts, systemPrompt, userMessage, spliceSchema)
 	if err != nil {
 		if ctx.Err() != nil {
 			return SpliceResult{}, fmt.Errorf("cancelled")
@@ -312,12 +333,15 @@ func (svc *Service) SetQualityThreshold(v float64) error {
 type aiOpts struct {
 	provider string // if empty, uses cfg.ActiveProvider
 	model    string // if empty, uses provider built-in default
+	// temperature pins sampling. nil leaves it to the provider, which is what
+	// the product does; the eval judge sets it so its scores are repeatable.
+	temperature *float64
 }
 
 // --- internal pipeline helpers ---
 
 func (svc *Service) detect(ctx context.Context, cfg settings.Settings, opts aiOpts, text string) (detectResult, error) {
-	raw, err := svc.callAIWithContext(ctx, cfg, opts, detectPromptTemplate, text)
+	raw, err := svc.callAIWithContext(ctx, cfg, opts, detectPromptTemplate, text, detectSchema)
 	if err != nil {
 		return detectResult{}, err
 	}
@@ -329,8 +353,8 @@ func (svc *Service) detect(ctx context.Context, cfg settings.Settings, opts aiOp
 }
 
 func (svc *Service) foundation(ctx context.Context, cfg settings.Settings, opts aiOpts, req PyramidizeRequest, docType string) (foundationResult, error) {
-	systemPrompt, userMessage := buildDocTypePrompt(docType, req.PromptVariant, req.CommunicationStyle, req.RelationshipLevel, req.CustomInstructions, req.Text)
-	raw, err := svc.callAIWithContext(ctx, cfg, opts, systemPrompt, userMessage)
+	systemPrompt, userMessage, schema := buildDocTypePrompt(docType, req.PromptVariant, req.CommunicationStyle, req.RelationshipLevel, req.CustomInstructions, req.Text)
+	raw, err := svc.callAIWithContext(ctx, cfg, opts, systemPrompt, userMessage, schema)
 	if err != nil {
 		return foundationResult{}, err
 	}
@@ -343,7 +367,7 @@ func (svc *Service) foundation(ctx context.Context, cfg settings.Settings, opts 
 
 func (svc *Service) refine(ctx context.Context, cfg settings.Settings, opts aiOpts, originalText, failedOutput string, flags []string) (refineResult, error) {
 	systemPrompt, userMessage := buildRefinePrompt(originalText, failedOutput, flags)
-	raw, err := svc.callAIWithContext(ctx, cfg, opts, systemPrompt, userMessage)
+	raw, err := svc.callAIWithContext(ctx, cfg, opts, systemPrompt, userMessage, documentSchema)
 	if err != nil {
 		return refineResult{}, err
 	}
@@ -356,22 +380,38 @@ func (svc *Service) refine(ctx context.Context, cfg settings.Settings, opts aiOp
 
 // buildDocTypePrompt dispatches to the correct prompt builder based on document type.
 // variant is only used for doc types that have multiple prompt versions (currently email).
-func buildDocTypePrompt(docType string, variant int, style, relationship, customInstructions, text string) (systemPrompt, userMessage string) {
+func buildDocTypePrompt(docType string, variant int, style, relationship, customInstructions, text string) (systemPrompt, userMessage string, schema json.RawMessage) {
 	switch docType {
 	case "wiki":
-		return buildWikiPrompt(style, relationship, customInstructions, text)
+		system, user := buildWikiPrompt(style, relationship, customInstructions, text)
+		return system, user, documentSchema
 	case "memo":
-		return buildMemoPrompt(style, relationship, customInstructions, text)
+		system, user := buildMemoPrompt(style, relationship, customInstructions, text)
+		return system, user, documentSchema
 	case "powerpoint":
-		return buildPPTPrompt(style, relationship, customInstructions, text)
+		system, user := buildPPTPrompt(style, relationship, customInstructions, text)
+		return system, user, documentSchema
 	default: // "email" and any unrecognised type
-		return buildEmailPrompt(variant, style, relationship, customInstructions, text)
+		system, user := buildEmailPrompt(variant, style, relationship, customInstructions, text)
+		return system, user, emailSchema(variant)
 	}
 }
 
-// callAIWithContext resolves the API key, then runs an AI call in a goroutine
-// and returns when the call completes or the context is cancelled.
-func (svc *Service) callAIWithContext(ctx context.Context, cfg settings.Settings, opts aiOpts, systemPrompt, userMessage string) (string, error) {
+// emailSchema picks the shape the chosen email prompt actually produces: v2
+// returns three fields, v1 five. See documentSchemaV2.
+func emailSchema(variant int) json.RawMessage {
+	if variant <= 0 {
+		variant = LatestEmailVariant
+	}
+	if variant == 2 {
+		return documentSchemaV2
+	}
+	return documentSchema
+}
+
+// callAIWithContext resolves the API key and runs an AI call. The context is
+// passed through to the HTTP request, so cancelling it aborts the call in flight.
+func (svc *Service) callAIWithContext(ctx context.Context, cfg settings.Settings, opts aiOpts, systemPrompt, userMessage string, schema json.RawMessage) (string, error) {
 	provider := opts.provider
 	if provider == "" {
 		provider = cfg.ActiveProvider
@@ -381,23 +421,11 @@ func (svc *Service) callAIWithContext(ctx context.Context, cfg settings.Settings
 		return "", err
 	}
 
-	type result struct {
-		out string
-		err error
-	}
-	ch := make(chan result, 1)
-
-	go func() {
-		out, err := svc.callAISync(cfg, opts, apiKey, systemPrompt, userMessage)
-		ch <- result{out, err}
-	}()
-
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	case r := <-ch:
-		return r.out, r.err
-	}
+	callCtx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	// One gate for every step: the callers still choose the right schema, so the
+	// mapping stays tested even while enforcement is off.
+	return svc.callAISync(callCtx, cfg, opts, apiKey, systemPrompt, userMessage, enforcedSchema(schema))
 }
 
 // resolveAPIKey fetches the API key for the given provider from the keyring.
@@ -421,24 +449,74 @@ func (svc *Service) resolveAPIKey(provider string) (string, error) {
 	}
 }
 
-// callAISync dispatches to the configured (or overridden) provider synchronously.
+// callAISync dispatches to the configured (or overridden) provider.
 // The apiKey is resolved by the caller — this function has no keyring dependency.
-func (svc *Service) callAISync(cfg settings.Settings, opts aiOpts, apiKey, systemPrompt, userMessage string) (string, error) {
+func (svc *Service) callAISync(ctx context.Context, cfg settings.Settings, opts aiOpts, apiKey, systemPrompt, userMessage string, schema json.RawMessage) (string, error) {
 	provider := opts.provider
 	if provider == "" {
 		provider = cfg.ActiveProvider
 	}
-	model := opts.model
+
+	clientCfg, model, err := svc.providerConfig(provider, cfg, apiKey, opts.model)
+	if err != nil {
+		return "", err
+	}
+
+	newClient := svc.newClient
+	if newClient == nil {
+		newClient = llm.New
+	}
+	client, err := newClient(provider, clientCfg)
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := client.Complete(ctx, llm.Request{
+		System:    systemPrompt,
+		User:      userMessage,
+		Model:     model,
+		MaxTokens: maxTokens,
+		// Every step here parses JSON, so ask for an object even when schema
+		// enforcement is off — that is what this pipeline did before schemas
+		// existed, and losing it would leave OpenAI and Ollama unconstrained.
+		JSONMode:    true,
+		JSONSchema:  schema,
+		Temperature: opts.temperature,
+	})
+	if err != nil {
+		return "", err
+	}
+	return resp.Text, nil
+}
+
+// providerConfig resolves endpoint and model ID for a provider. A request-level
+// override wins over the model in settings, which in turn wins over KeyLint's
+// default — see Settings.ModelFor.
+func (svc *Service) providerConfig(provider string, cfg settings.Settings, apiKey, modelOverride string) (llm.Config, string, error) {
+	// A request-level override wins — the Pyramidize panel lets a user pick a
+	// model for one run without changing their settings.
+	model := strings.TrimSpace(modelOverride)
+	if model == "" {
+		model = cfg.ModelFor(provider, llm.FeaturePyramidize)
+	}
 
 	switch provider {
-	case "openai":
-		return callOpenAI(svc.client, systemPrompt, userMessage, apiKey, model)
-	case "claude":
-		return callClaude(svc.client, systemPrompt, userMessage, apiKey, model)
-	case "ollama":
-		return callOllama(svc.client, systemPrompt, userMessage, cfg.Providers.OllamaURL, model)
+	case llm.ProviderOpenAI:
+		return llm.Config{APIKey: apiKey, HTTPClient: svc.client, Feature: logFeature}, model, nil
+	case llm.ProviderClaude:
+		return llm.Config{APIKey: apiKey, HTTPClient: svc.client, Feature: logFeature}, model, nil
+	case llm.ProviderClaudeCode:
+		// The user signed in to the CLI themselves; KeyLint needs no key and
+		// never touches their credentials.
+		return llm.Config{Feature: logFeature}, model, nil
+	case llm.ProviderOllama:
+		return llm.Config{
+			BaseURL:    cfg.Providers.OllamaURL,
+			HTTPClient: svc.client,
+			Feature:    logFeature,
+		}, model, nil
 	default:
-		return "", fmt.Errorf("unsupported provider: %q", provider)
+		return llm.Config{}, "", fmt.Errorf("unsupported provider: %q", provider)
 	}
 }
 

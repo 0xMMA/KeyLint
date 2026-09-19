@@ -113,8 +113,25 @@ tasks:
     deps:
       - task: build
     cmds:
-      # Create the Microsoft WebView2 bootstrapper if it doesn't exist
+      # wails3 embeds the bootstrapper rather than downloading it, so this keeps
+      # working offline and on Windows, where the shell script below cannot run.
       - wails3 generate webview2bootstrapper -dir "{{.ROOT_DIR}}/build/windows/nsis"
+      # …and then say something about what is about to be bundled. Warning only,
+      # for two reasons: go-task cannot execute a .sh on Windows, and the copy
+      # wails3 embeds was signed in 2021 with a certificate that expired in
+      # December of that year — it is timestamped, but osslsigncode does not
+      # validate the countersignature, so it reads as expired today.
+      #
+      # The gate that has to hold is in CI, which downloads the current
+      # bootstrapper and refuses to build if it is not signed by Microsoft. This
+      # step exists so a local installer does not quietly differ from the
+      # released one without anyone noticing.
+      - |
+        {{if ne OS "windows"}}
+        "{{.ROOT_DIR}}/scripts/fetch-webview2.sh" --verify-only "{{.ROOT_DIR}}/build/windows/nsis/MicrosoftEdgeWebview2Setup.exe" \
+          || echo "warning: the bundled WebView2 bootstrapper did not verify — local installers are not the release artefact, see .claude/docs/versioning.md"
+        {{end}}
+
       - | 
         {{if eq OS "windows"}}
         makensis -DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}\{{.BIN_DIR}}\{{.APP_NAME}}.exe" project.nsi

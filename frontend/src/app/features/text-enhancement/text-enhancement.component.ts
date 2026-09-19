@@ -13,6 +13,7 @@ import { MessageModule } from 'primeng/message';
 import { Tabs, TabList, Tab, TabPanels, TabPanel } from 'primeng/tabs';
 import { TooltipModule } from 'primeng/tooltip';
 import { WailsService } from '../../core/wails.service';
+import { noteForModelSource } from '../../core/model-source';
 import { DOCUMENT_TYPE_OPTIONS } from '../../core/constants';
 import { TextEnhancementService } from './text-enhancement.service';
 import { MarkdownPipe } from './markdown.pipe';
@@ -27,37 +28,24 @@ interface TraceEntry {
 
 const PROVIDER_OPTIONS = [
   { label: 'Anthropic', value: 'claude' },
+  { label: 'Claude Code (installed CLI)', value: 'claude-code' },
   { label: 'OpenAI', value: 'openai' },
   { label: 'Ollama', value: 'ollama' },
 ];
 
-const PROVIDER_MODELS: Record<string, Array<{ label: string; value: string }>> = {
-  claude: [
-    { label: 'Sonnet 4.6', value: 'claude-sonnet-4-6' },
-    { label: 'Opus 4.6', value: 'claude-opus-4-6' },
-    { label: 'Haiku 4.5', value: 'claude-haiku-4-5' },
-  ],
-  openai: [
-    { label: 'GPT-5.2', value: 'gpt-5.2' },
-    { label: 'GPT-5.2 Pro', value: 'gpt-5.2-pro' },
-    { label: 'GPT-4.1', value: 'gpt-4.1' },
-    { label: 'GPT-4.1 Mini', value: 'gpt-4.1-mini' },
-    { label: 'o3', value: 'o3' },
-  ],
-  ollama: [
-    { label: 'llama3.2', value: 'llama3.2' },
-    { label: 'mistral', value: 'mistral' },
-    { label: 'gemma3', value: 'gemma3' },
-    { label: 'phi4', value: 'phi4' },
-    { label: 'qwen2.5', value: 'qwen2.5' },
-  ],
-};
+/** Lets a user say "use what Settings says" without knowing the model name. */
+const DEFAULT_MODEL_OPTION = { id: '', label: 'KeyLint default' };
 
-const DEFAULT_MODELS: Record<string, string> = {
-  claude: 'claude-sonnet-4-6',
-  openai: 'gpt-5.2',
-  ollama: 'llama3.2',
-};
+/** Providers that need no credential at all. */
+const KEYLESS_PROVIDERS = new Set(['ollama']);
+
+// The banner used to say "No AI API key configured" whatever was wrong, which
+// is the one thing that is never wrong with the Claude Code CLI. These match
+// the welcome wizard's wording for the same two states.
+const MISSING_KEY_MESSAGE = 'No AI API key configured.';
+const CLI_NOT_INSTALLED_MESSAGE = 'Claude Code CLI not found on this machine.';
+const CLI_NOT_SIGNED_IN_MESSAGE =
+  'Claude Code is installed but not signed in. Open a terminal, run `claude`, and sign in.';
 
 let originalText = '';
 let pyramidizedText = '';   // snapshot of most recent foundation call
@@ -72,8 +60,12 @@ let isPreviewMode = false;
 let traceLogOpen = false;
 let wasCancelled = false;
 let bannerDismissed = false; // session-only
-let selectedProvider = 'claude';
-let selectedModel = 'claude-sonnet-4-6';
+// Empty until ngOnInit reads the active provider from settings. Initialising
+// it to a provider here made that branch unreachable, so the panel always
+// opened on Claude whatever the user had configured.
+let selectedProvider = '';
+// Empty means "whatever settings say for this provider" — the backend resolves it.
+let selectedModel = '';
 let qualityThreshold = 0.65;
 let advancedOpen = false;
 
@@ -113,7 +105,7 @@ function addTrace(label: string, snapshot: string): void {
 
         @if (!bannerDismissedView && !apiKeySet) {
           <div class="api-key-banner" data-testid="api-key-banner">
-            <span>⚠ No AI API key configured.</span>
+            <span data-testid="api-key-banner-message">⚠ {{ credentialsMessage }}</span>
             <p-button
               icon="pi pi-times"
               size="small"
@@ -141,12 +133,15 @@ function addTrace(label: string, snapshot: string): void {
 
         <div class="form-group">
           <label>Model</label>
+          @if (modelListNote) {
+            <small class="hint-text" data-testid="model-list-note">{{ modelListNote }}</small>
+          }
           <p-select
             data-testid="model-select"
             [(ngModel)]="modelView"
             [options]="currentModelOptions"
             optionLabel="label"
-            optionValue="value"
+            optionValue="id"
           />
         </div>
 
@@ -1015,6 +1010,10 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   errorMessage = '';
   refinementWarning = '';
   apiKeySet = true;
+  /** Set on destroy so a late model list does not refresh a dead view. */
+  private destroyed = false;
+  /** What the banner says — the reason depends on the provider. */
+  credentialsMessage = MISSING_KEY_MESSAGE;
   customInstructions = '';
   globalInstruction = '';
   detectedTypeView = '';
@@ -1042,9 +1041,15 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
 
   readonly providerOptions = PROVIDER_OPTIONS;
 
-  get currentModelOptions(): Array<{ label: string; value: string }> {
-    return PROVIDER_MODELS[selectedProvider] ?? PROVIDER_MODELS['claude'];
+  /** The provider's models, with a leading entry for the configured default. */
+  modelOptions: Array<{ id: string; label: string }> = [DEFAULT_MODEL_OPTION];
+  /** Why this list is what it is, or "" when it needs no explaining. */
+  modelListNote = '';
+
+  get currentModelOptions(): Array<{ id: string; label: string }> {
+    return this.modelOptions;
   }
+
 
   readonly docTypeOptions = [
     { label: 'AUTO (detect)', value: 'auto' },
@@ -1083,11 +1088,17 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     // Initialise provider from settings if not already set this session
     if (!selectedProvider && settings.active_provider) {
       selectedProvider = settings.active_provider;
-      selectedModel = DEFAULT_MODELS[selectedProvider] ?? 'claude-sonnet-4-6';
+      // Empty means "whatever Settings says for this provider".
+      selectedModel = '';
     }
 
-    const keyStatus = await this.wails.getKeyStatus(selectedProvider);
-    this.apiKeySet = keyStatus.is_set;
+    // Not awaited: for the claude-code provider this probes the CLI, which
+    // spawns processes — and the page has a banner slot for the answer, so it
+    // can paint first and fill it when it arrives. Waiting here was what made
+    // the first paint hang behind a process spawn (#55).
+    void this.refreshCredentialsBanner();
+    // Same reasoning: the page has nothing to show from the model list yet.
+    void this.loadModelOptions();
 
     qualityThreshold = await this.wails.getQualityThreshold();
 
@@ -1132,9 +1143,74 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     }
   }
 
-  onProviderChange(): void {
-    // Reset model to default for new provider
-    selectedModel = DEFAULT_MODELS[selectedProvider] ?? '';
+  async onProviderChange(): Promise<void> {
+    // Back to "whatever settings say": a model from the previous provider would
+    // not exist on this one.
+    selectedModel = '';
+    await this.loadModelOptions();
+    // The "no API key" banner belongs to the provider, so re-evaluate it here.
+    await this.refreshCredentialsBanner();
+    this.cdr.detectChanges();
+  }
+
+  /** Loads the current provider's models; the list is shared with Settings. */
+  private async loadModelOptions(): Promise<void> {
+    const provider = selectedProvider;
+    const list = await this.wails.listModels(provider);
+    if (provider !== selectedProvider) return;
+    this.modelOptions = [DEFAULT_MODEL_OPTION, ...(list.models ?? [])];
+    this.modelListNote = noteForModelSource(list.source, provider, (list.models?.length ?? 0) > 0);
+    if (!this.destroyed) {
+      this.cdr.detectChanges();
+    }
+  }
+
+  /**
+   * Refreshes the banner for the provider selected right now.
+   *
+   * Ollama carries no credential, so asking the keyring about it would always
+   * answer "not set" and show a banner the user cannot act on. The Claude Code
+   * CLI does have a usable answer — installed and signed in — and each of its
+   * two failures needs its own wording.
+   *
+   * Deliberately one async function rather than a helper pair: the claude-code
+   * branch can take a while, so a quick second switch may finish first and a
+   * stale answer must not overwrite the current one — hence the provider check
+   * before the assignment below.
+   *
+   * ngOnInit no longer awaits this, so it ends with its own change detection;
+   * the app is zoneless and nothing else would repaint the banner.
+   */
+  private async refreshCredentialsBanner(): Promise<void> {
+    const provider = selectedProvider;
+    let ok: boolean;
+    let message = MISSING_KEY_MESSAGE;
+
+    if (provider === 'claude-code') {
+      // A failed RPC must not throw out of a call nobody awaits. An unanswerable
+      // probe means "cannot tell", which is better shown as the banner than as
+      // an unhandled rejection. The Go side caches the answer, so this is cheap
+      // on every switch after the first.
+      const status = await this.wails.getClaudeCodeStatus().catch(() => null);
+      ok = !!status?.installed && !!status.loggedIn;
+      message = status?.installed ? CLI_NOT_SIGNED_IN_MESSAGE : CLI_NOT_INSTALLED_MESSAGE;
+    } else if (KEYLESS_PROVIDERS.has(provider)) {
+      ok = true;
+    } else {
+      const keyStatus = await this.wails.getKeyStatus(provider);
+      ok = keyStatus.is_set;
+    }
+
+    // A newer switch already answered; this result is stale.
+    if (provider !== selectedProvider) return;
+    this.apiKeySet = ok;
+    this.credentialsMessage = message;
+    // The app is zoneless, and ngOnInit no longer awaits this — so without an
+    // explicit refresh the banner's state changes and nothing repaints. Same
+    // reason loadModelOptions ends this way.
+    if (!this.destroyed) {
+      this.cdr.detectChanges();
+    }
   }
 
   onTabChange(value: unknown): void {
@@ -1455,6 +1531,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.destroyed = true;
     this.sub?.unsubscribe();
   }
 }

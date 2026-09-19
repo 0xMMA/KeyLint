@@ -1,9 +1,10 @@
 import { Subject } from 'rxjs';
 import { vi } from 'vitest';
-import type { Settings, KeyStatus, UpdateInfo, InstallResult } from '../app/core/wails.service';
+import type { Settings, KeyStatus, UpdateInfo, InstallResult, ClaudeCodeStatus, ModelList } from '../app/core/wails.service';
 
 export const defaultSettings: Settings = {
   active_provider: 'openai',
+  models: {},
   providers: {
     ollama_url: '',
     aws_region: '',
@@ -24,6 +25,23 @@ export const defaultSettings: Settings = {
 };
 
 export const defaultKeyStatus: KeyStatus = { is_set: false, source: 'none' };
+
+/** Default: the built-in list, which is what a picker shows offline. */
+export const defaultModelList: ModelList = {
+  models: [
+    { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+    { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
+  ],
+  source: 'unreachable',
+};
+
+/** Default: no Claude Code CLI on the machine, so tests exercise the BYOK path. */
+export const defaultClaudeCodeStatus: ClaudeCodeStatus = {
+  installed: false,
+  path: '',
+  version: '',
+  loggedIn: false,
+};
 
 export const defaultUpdateInfo: UpdateInfo = {
   is_available: false,
@@ -62,6 +80,8 @@ export function createWailsMock() {
     setKey: vi.fn().mockResolvedValue(undefined),
     deleteKey: vi.fn().mockResolvedValue(undefined),
     resetSettings: vi.fn().mockResolvedValue(undefined),
+    getClaudeCodeStatus: vi.fn().mockResolvedValue({ ...defaultClaudeCodeStatus }),
+    listModels: vi.fn().mockResolvedValue({ ...defaultModelList }),
     getVersion: vi.fn().mockResolvedValue('3.6.0'),
     checkForUpdate: vi.fn().mockResolvedValue({ ...defaultUpdateInfo }),
     downloadAndInstall: vi.fn().mockResolvedValue({ restart_required: false }),

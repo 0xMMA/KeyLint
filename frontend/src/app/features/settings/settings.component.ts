@@ -1,4 +1,4 @@
-import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
@@ -11,10 +11,39 @@ import { MessageModule } from 'primeng/message';
 import { CardModule } from 'primeng/card';
 import { TagModule } from 'primeng/tag';
 import { ActivatedRoute } from '@angular/router';
-import { WailsService, Settings as AppSettings, KeyStatus, UpdateInfo, AppPreset } from '../../core/wails.service';
+import { WailsService, Settings as AppSettings, KeyStatus, UpdateInfo, AppPreset, ClaudeCodeStatus, ModelInfo } from '../../core/wails.service';
+import { noteForModelSource } from '../../core/model-source';
 import { DOCUMENT_TYPE_OPTIONS } from '../../core/constants';
 import { LogService } from '../../core/log.service';
 import { ShortcutRecorderComponent } from './shortcut-recorder/shortcut-recorder.component';
+
+/**
+ * Lets a user defer to KeyLint's default without knowing a model name.
+ * PrimeNG only renders a placeholder while the value is null or undefined and
+ * this component writes "", so an explicit option is what makes it visible.
+ */
+/**
+ * One entry in a model picker.
+ *
+ * `label` is deliberately the model ID, not the display name: PrimeNG writes
+ * optionLabel into the editable input and submits whatever stands there as the
+ * value, so a display name there would be saved as a model ID that no provider
+ * knows. The readable name lives in `display` and is rendered by the option
+ * template instead.
+ */
+interface ModelOption {
+  id: string;
+  label: string;
+  display: string;
+}
+
+const DEFAULT_MODEL_OPTION: ModelOption = { id: '', label: '', display: "KeyLint's default" };
+const DEFAULT_MODEL_ONLY: ModelOption[] = [DEFAULT_MODEL_OPTION];
+
+/** Picker entry for one model the provider reported. */
+function toModelOption(model: ModelInfo): ModelOption {
+  return { id: model.id, label: model.id, display: model.label || model.id };
+}
 
 interface ProviderKey {
   id: string;
@@ -158,6 +187,58 @@ interface ProviderKey {
                   Environment variables (<code>OPENAI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>) take priority and cannot be overridden here.
                 </p>
 
+                <!-- Claude Code CLI needs no key: the user signs in themselves. -->
+                <div class="key-row" data-testid="claude-code-card">
+                  <div class="key-header">
+                    <span class="key-label">Claude Code (installed CLI)</span>
+                    @if (claudeCodeStatus) {
+                      @if (claudeCodeStatus.installed && claudeCodeStatus.loggedIn) {
+                        <p-tag data-testid="claude-code-status-tag" value="● signed in" severity="success" />
+                      } @else if (claudeCodeStatus.installed) {
+                        <p-tag data-testid="claude-code-status-tag" value="not signed in" severity="warn" />
+                      } @else {
+                        <p-tag data-testid="claude-code-status-tag" value="not installed" severity="secondary" />
+                      }
+                    }
+                  </div>
+
+                  @if (claudeCodeStatus?.installed) {
+                    <p class="hint-text" data-testid="claude-code-detected">
+                      Detected at <code>{{ claudeCodeStatus!.path }}</code>
+                      @if (claudeCodeStatus!.version) {
+                        <span> · version {{ claudeCodeStatus!.version }}</span>
+                      }
+                    </p>
+                    <p class="hint-text" data-testid="claude-code-env-hint">
+                      KeyLint runs the CLI with your subscription login. API-key variables in your
+                      environment (<code>ANTHROPIC_API_KEY</code> and friends) are not passed through,
+                      so the CLI uses the account you signed in with.
+                    </p>
+
+                    @if (!claudeCodeStatus!.loggedIn) {
+                      <p class="hint-text" data-testid="claude-code-signin-hint">
+                        Open a terminal, run <code>claude</code>, and sign in. KeyLint never reads or stores your credentials.
+                      </p>
+                    }
+                  } @else if (claudeCodeStatus) {
+                    <p class="hint-text" data-testid="claude-code-missing">
+                      No Claude Code CLI found on this machine. Install it to use your own subscription instead of an API key.
+                    </p>
+                  }
+
+                  <div class="key-actions">
+                    <p-button
+                      data-testid="claude-code-recheck"
+                      label="Re-check"
+                      icon="pi pi-refresh"
+                      severity="secondary"
+                      size="small"
+                      (onClick)="recheckClaudeCode(true)"
+                      [loading]="claudeCodeChecking"
+                    />
+                  </div>
+                </div>
+
                 @for (pk of providerKeys; track pk.id) {
                   <div class="key-row">
                     <div class="key-header">
@@ -220,6 +301,70 @@ interface ProviderKey {
                         }
                       </div>
                     }
+                  </div>
+                }
+
+                <!-- Model selection per provider (#33 step 4) -->
+                <div class="form-group mt-4">
+                  <label>Models</label>
+                  <small class="hint-text">
+                    Which model each feature uses. Leave a field empty for KeyLint's default.
+                    The lists come from the provider; type a name to use one that is not listed.
+                  </small>
+                </div>
+
+                @for (mp of modelProviders; track mp.id) {
+                  <div class="key-row" [attr.data-testid]="'models-' + mp.id">
+                    <div class="key-header">
+                      <span class="key-label">{{ mp.label }}</span>
+                    </div>
+                    @if (modelListNote(mp.id); as note) {
+                      <small class="hint-text" [attr.data-testid]="'models-note-' + mp.id">{{ note }}</small>
+                    }
+                    <div class="form-group">
+                      <label>Fix model</label>
+                      <p-select
+                        [attr.data-testid]="'model-fix-' + mp.id"
+                        [editable]="allowsFreeText(mp.id)"
+                        [options]="optionsFor(mp.id)"
+                        optionLabel="label"
+                        optionValue="id"
+                        [ngModel]="modelFor(mp.id, 'fix')"
+                        (ngModelChange)="setModel(mp.id, 'fix', $event)"
+                      >
+                        <ng-template #item let-option>
+                          <span class="model-option-name">{{ option.display }}</span>
+                          @if (option.id && option.id !== option.display) {
+                            <small class="model-option-id">{{ option.id }}</small>
+                          }
+                        </ng-template>
+                        <ng-template #selectedItem let-option>
+                          {{ option?.display || option?.id }}
+                        </ng-template>
+                      </p-select>
+                    </div>
+                    <div class="form-group">
+                      <label>Pyramidize model</label>
+                      <p-select
+                        [attr.data-testid]="'model-pyramidize-' + mp.id"
+                        [editable]="allowsFreeText(mp.id)"
+                        [options]="optionsFor(mp.id)"
+                        optionLabel="label"
+                        optionValue="id"
+                        [ngModel]="modelFor(mp.id, 'pyramidize')"
+                        (ngModelChange)="setModel(mp.id, 'pyramidize', $event)"
+                      >
+                        <ng-template #item let-option>
+                          <span class="model-option-name">{{ option.display }}</span>
+                          @if (option.id && option.id !== option.display) {
+                            <small class="model-option-id">{{ option.id }}</small>
+                          }
+                        </ng-template>
+                        <ng-template #selectedItem let-option>
+                          {{ option?.display || option?.id }}
+                        </ng-template>
+                      </p-select>
+                    </div>
                   </div>
                 }
 
@@ -407,6 +552,11 @@ interface ProviderKey {
       color: var(--p-text-muted-color);
       margin-bottom: 1rem;
     }
+    .model-option-id {
+      display: block;
+      font-size: 0.75rem;
+      color: var(--p-text-muted-color);
+    }
     code {
       background: var(--p-content-hover-background);
       padding: 1px 4px;
@@ -429,7 +579,7 @@ interface ProviderKey {
     }
   `],
 })
-export class SettingsComponent implements OnInit {
+export class SettingsComponent implements OnInit, OnDestroy {
   settings: AppSettings | null = null;
   saved = false;
   keyError = '';
@@ -454,6 +604,7 @@ export class SettingsComponent implements OnInit {
   readonly providers = [
     { label: 'OpenAI', value: 'openai' },
     { label: 'Anthropic Claude', value: 'claude' },
+    { label: 'Claude Code (installed CLI)', value: 'claude-code' },
     { label: 'Ollama (local)', value: 'ollama' },
     { label: 'AWS Bedrock', value: 'bedrock' },
   ];
@@ -481,6 +632,34 @@ export class SettingsComponent implements OnInit {
 
   readonly docTypeOptions = DOCUMENT_TYPE_OPTIONS;
 
+  /**
+   * Providers whose model can be chosen. Derived from the Active Provider list
+   * rather than repeated, so the two cannot drift apart; Bedrock is excluded
+   * because it is still a stub with nothing to choose.
+   *
+   * Computed once: a getter would hand the template a new array on every
+   * change-detection pass.
+   */
+  readonly modelProviders = this.providers
+    .filter(p => p.value !== 'bedrock')
+    .map(p => ({ id: p.value, label: p.label }));
+
+  /** Picker contents including the leading default entry; see optionsFor. */
+  modelSelectOptions: Record<string, ModelOption[]> = {};
+
+  /** Picker contents per provider, and whether they are live or built-in. */
+  modelOptions: Record<string, ModelInfo[]> = {};
+  modelSource: Record<string, string> = {};
+
+  /** The Ollama URL as last persisted; see save(). */
+  private savedOllamaURL = '';
+
+  /** Null until the first detection run finishes. */
+  claudeCodeStatus: ClaudeCodeStatus | null = null;
+  claudeCodeChecking = false;
+  /** Detection can take seconds; the user may navigate away meanwhile. */
+  private destroyed = false;
+
   providerKeys: ProviderKey[] = [
     { id: 'openai',  label: 'OpenAI API Key',      status: null, editing: false, draftKey: '', saving: false },
     { id: 'claude',  label: 'Anthropic API Key',    status: null, editing: false, draftKey: '', saving: false },
@@ -497,12 +676,125 @@ export class SettingsComponent implements OnInit {
   async ngOnInit(): Promise<void> {
     this.activeTab = this.route.snapshot.queryParamMap.get('tab') ?? 'general';
     this.settings = await this.wails.loadSettings();
+    this.savedOllamaURL = this.settings?.providers?.ollama_url ?? '';
     this.log.info('settings: loaded');
     await this.refreshKeyStatuses();
     this.appVersion = await this.wails.getVersion();
     this.presets = await this.wails.getAppPresets();
     this.qualityThreshold = await this.wails.getQualityThreshold();
     this.cdr.detectChanges();
+
+    // Detection spawns processes, so the rest of the screen must not wait for it.
+    void this.recheckClaudeCode();
+    // Same for the model lists: four providers, each a round trip.
+    void this.loadModelOptions();
+  }
+
+  ngOnDestroy(): void {
+    this.destroyed = true;
+  }
+
+  /** Reads the configured model, or "" when the default applies. */
+  modelFor(provider: string, feature: 'fix' | 'pyramidize'): string {
+    return this.settings?.models?.[provider]?.[feature] ?? '';
+  }
+
+  /** Stores a model choice; an empty value means "use KeyLint's default". */
+  setModel(provider: string, feature: 'fix' | 'pyramidize', model: string): void {
+    if (!this.settings) return;
+    const models = { ...(this.settings.models ?? {}) };
+    const entry = { fix: '', pyramidize: '', ...(models[provider] ?? {}) };
+    entry[feature] = (model ?? '').trim();
+    models[provider] = entry;
+    this.settings.models = models;
+  }
+
+  /**
+   * The provider's models, with a leading entry for KeyLint's own default.
+   * PrimeNG only renders a placeholder while the value is null or undefined,
+   * and this component writes "" — so an explicit option is what makes the
+   * default visible and selectable.
+   */
+  optionsFor(provider: string): ModelOption[] {
+    return this.modelSelectOptions[provider] ?? DEFAULT_MODEL_ONLY;
+  }
+
+  /**
+   * Whether a model outside the list can be typed. The Claude Code CLI's three
+   * aliases are the whole list the picker offers, because an alias follows the
+   * generation where a pinned API model ID freezes it. The backend still
+   * accepts a pinned ID from a hand-edited settings.json and only logs it —
+   * this is the picker steering the choice, not a rejection.
+   */
+  allowsFreeText(provider: string): boolean {
+    return provider !== 'claude-code';
+  }
+
+  /**
+   * What to say about where this picker's list came from, or null when the list
+   * needs no explaining.
+   *
+   * Each case is a different thing for the user to do, so each gets its own
+   * sentence. "Not live" as one word would send someone hunting for a network
+   * problem when the real answer is that they have not pasted a key, or that
+   * the daemon is running fine and has nothing pulled.
+   */
+  modelListNote(provider: string): string {
+    return noteForModelSource(
+      this.modelSource[provider],
+      provider,
+      (this.modelOptions[provider]?.length ?? 0) > 0,
+    );
+  }
+
+  /**
+   * Counts reload rounds. Saving a key, clearing one and changing the Ollama URL
+   * each start a round, and a user doing two of those in a row would otherwise
+   * have the slower round land last and overwrite the newer answer.
+   */
+  private modelLoadRound = 0;
+
+  /** Fetches every provider's model list in parallel; failures fall back. */
+  private async loadModelOptions(): Promise<void> {
+    const round = ++this.modelLoadRound;
+    // Rendered as each provider answers: one that is wedged would otherwise
+    // leave all four pickers empty for as long as its timeout.
+    await Promise.all(this.modelProviders.map(async mp => {
+      const list = await this.wails.listModels(mp.id).catch(() => null);
+      if (round !== this.modelLoadRound) return;
+      this.modelOptions[mp.id] = list?.models ?? [];
+      this.modelSelectOptions[mp.id] = [DEFAULT_MODEL_OPTION, ...(list?.models ?? []).map(toModelOption)];
+      this.modelSource[mp.id] = list?.source ?? 'unreachable';
+      if (!this.destroyed) {
+        this.cdr.detectChanges();
+      }
+    }));
+  }
+
+  /**
+   * Loads the Claude Code status, or re-probes it.
+   *
+   * force belongs to the button, not to the screen opening: a settings visit
+   * that always forced a probe would defeat the cache for the caller most
+   * likely to be hit repeatedly — Settings → Pyramidize → Settings inside a
+   * minute is two navigations and four process spawns.
+   */
+  async recheckClaudeCode(force = false): Promise<void> {
+    this.claudeCodeChecking = true;
+    this.cdr.detectChanges();
+    try {
+      this.claudeCodeStatus = await this.wails.getClaudeCodeStatus(force);
+    } finally {
+      this.claudeCodeChecking = false;
+      // Detection can outlive the screen. Refreshing a destroyed view does NOT
+      // throw on this Angular version — measured, see shell-routing.spec.ts —
+      // so this guard is about not doing pointless work, not about safety. The
+      // comment it replaces claimed the opposite and sent #38's investigation
+      // after a phantom.
+      if (!this.destroyed) {
+        this.cdr.detectChanges();
+      }
+    }
   }
 
   private async refreshKeyStatuses(): Promise<void> {
@@ -547,6 +839,8 @@ export class SettingsComponent implements OnInit {
     } finally {
       pk.saving = false;
     }
+    // The model list depends on this key.
+    void this.loadModelOptions();
   }
 
   async clearKey(pk: ProviderKey): Promise<void> {
@@ -561,6 +855,8 @@ export class SettingsComponent implements OnInit {
     } finally {
       pk.saving = false;
     }
+    // The model list depends on this key.
+    void this.loadModelOptions();
   }
 
   async checkForUpdate(): Promise<void> {
@@ -600,8 +896,15 @@ export class SettingsComponent implements OnInit {
 
   async save(): Promise<void> {
     if (!this.settings) return;
+    const ollamaURLChanged = this.settings.providers?.ollama_url !== this.savedOllamaURL;
     await this.wails.saveSettings(this.settings);
+    this.savedOllamaURL = this.settings.providers?.ollama_url ?? '';
     this.log.info('settings: saved');
+    if (ollamaURLChanged) {
+      // A daemon at another address has other models pulled, so the picker
+      // would otherwise keep showing the old machine's list.
+      void this.loadModelOptions();
+    }
     this.saved = true;
     this.cdr.detectChanges();
     setTimeout(() => { this.saved = false; this.cdr.detectChanges(); }, 3000);
@@ -610,6 +913,10 @@ export class SettingsComponent implements OnInit {
   async resetToDefaults(): Promise<void> {
     await this.wails.resetSettings();
     this.settings = await this.wails.loadSettings();
+    this.savedOllamaURL = this.settings?.providers?.ollama_url ?? '';
+    // A reset puts the Ollama URL back to its default, so the pickers are now
+    // showing whatever the previous address had pulled.
+    void this.loadModelOptions();
     this.saved = true;
     this.cdr.detectChanges();
     setTimeout(() => { this.saved = false; this.cdr.detectChanges(); }, 3000);

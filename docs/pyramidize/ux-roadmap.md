@@ -63,10 +63,8 @@ Model      [claude-sonnet-4-6 ▼]
 
 **Go changes:**
 - `types.go`: add `Provider string` and `Model string` to `PyramidizeRequest`, `RefineGlobalRequest`, `SpliceRequest`
-- `service.go`: pass `req.Provider`/`req.Model` to the api_*.go call instead of reading from settings; fall back to settings provider if `req.Provider` is empty
-- `api_claude.go`: accept model as parameter, default `claude-sonnet-4-6`
-- `api_openai.go`: accept model as parameter, default `gpt-5.2`
-- `api_ollama.go`: accept model as parameter, default `llama3.2`
+- `service.go`: pass `req.Provider`/`req.Model` into the `internal/llm` client instead of reading from settings; fall back to settings provider if `req.Provider` is empty
+- Model defaults now live in `internal/llm/models.go` (#33 step 4), per provider and per feature, with the user's choice in `settings.json` under `models`. A request-level override still wins over both.
 
 **Angular changes:**
 - `wails.service.ts`: update `BROWSER_MODE_DEFAULTS` to reflect new fields
@@ -255,11 +253,9 @@ Also ensure the PrimeNG `<p-tabs>` component itself is `flex: 1; overflow: hidde
 ## Files to Change
 
 ### Go
-- `internal/features/pyramidize/api_claude.go` — model param, default `claude-sonnet-4-6`
-- `internal/features/pyramidize/api_openai.go` — model param, default `gpt-4o`
-- `internal/features/pyramidize/api_ollama.go` — model param, default `llama3.2`
+- `internal/llm/` — provider clients behind `Client.Complete`; no per-provider files in the feature package any more
 - `internal/features/pyramidize/types.go` — add `Provider`, `Model` to request types
-- `internal/features/pyramidize/service.go` — route to correct api_*.go based on `req.Provider`
+- `internal/features/pyramidize/service.go` — pick the provider client via `llm.New(req.Provider, …)`; the model comes from the request override, then settings, then `llm.DefaultModel`
 - `internal/features/enhance/service.go` — add `EnhanceWithModel(provider, model, text)` RPC
 
 ### Angular

@@ -14,17 +14,20 @@ type PyramidizeRequest struct {
 
 // PyramidizeResult is the RPC response from the main Pyramidize call.
 type PyramidizeResult struct {
-	DocumentType       string   `json:"documentType"`
-	Language           string   `json:"language"`
-	FullDocument       string   `json:"fullDocument"`      // first line = subject/title
-	Headers            []string `json:"headers"`
-	QualityScore       float64  `json:"qualityScore"`
-	QualityFlags       []string `json:"qualityFlags"`
-	AppliedRefinement  bool     `json:"appliedRefinement"`
-	RefinementWarning  string   `json:"refinementWarning"` // non-empty if still below threshold after retry
-	DetectedType       string   `json:"detectedType"`      // only set when AUTO was used
-	DetectedLang       string   `json:"detectedLang"`
-	DetectedConfidence float64  `json:"detectedConfidence"`
+	DocumentType string   `json:"documentType"`
+	Language     string   `json:"language"`
+	FullDocument string   `json:"fullDocument"` // first line = subject/title
+	Headers      []string `json:"headers"`
+	QualityScore float64  `json:"qualityScore"`
+	QualityFlags []string `json:"qualityFlags"`
+	// AppliedRefinement reports that a second model call was made, not that it
+	// succeeded — a refine that failed still cost a call, and an eval counting
+	// calls has to see it. On failure the document below is the foundation's.
+	AppliedRefinement  bool    `json:"appliedRefinement"`
+	RefinementWarning  string  `json:"refinementWarning"` // non-empty if still below threshold after retry
+	DetectedType       string  `json:"detectedType"`      // only set when AUTO was used
+	DetectedLang       string  `json:"detectedLang"`
+	DetectedConfidence float64 `json:"detectedConfidence"`
 }
 
 // RefineGlobalRequest is the RPC request for a full-canvas AI revision.

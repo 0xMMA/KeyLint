@@ -30,6 +30,7 @@ Perfect for professional emails, chat messages, documents, and social media post
 
 - **OpenAI** (GPT-4o, GPT-4, etc.)
 - **Anthropic** (Claude)
+- **Claude Code** — uses the Claude Code CLI you already installed and signed in to, with your own subscription. No API key to enter. KeyLint runs the unmodified binary and never reads or stores your credentials; you sign in in your own terminal.
 - **Ollama** (local, fully offline)
 - **AWS Bedrock** (Claude, Titan, etc.)
 
@@ -37,7 +38,7 @@ Perfect for professional emails, chat messages, documents, and social media post
 
 1. Download the latest release from [keylint.io](https://keylint.io) or the [Releases](https://github.com/0xMMA/KeyLint/releases/latest) page
 2. Run the installer
-3. Launch KeyLint — the welcome wizard walks you through choosing a provider and entering your API key
+3. Launch KeyLint — the welcome wizard walks you through choosing a provider. If you already have the Claude Code CLI installed and signed in, it offers that in one click and skips the API key step entirely.
 4. Press **Ctrl+G** on any selected text
 
 ## Contributing

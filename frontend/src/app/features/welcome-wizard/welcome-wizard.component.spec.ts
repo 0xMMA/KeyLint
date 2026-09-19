@@ -5,8 +5,8 @@ import { Router } from '@angular/router';
 import { provideRouter } from '@angular/router';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { WelcomeWizardComponent } from './welcome-wizard.component';
-import { WailsService } from '../../core/wails.service';
-import { createWailsMock, defaultSettings } from '../../../testing/wails-mock';
+import { WailsService, ClaudeCodeStatus } from '../../core/wails.service';
+import { createWailsMock, defaultSettings, defaultClaudeCodeStatus } from '../../../testing/wails-mock';
 
 describe('WelcomeWizardComponent', () => {
   let fixture: ComponentFixture<WelcomeWizardComponent>;
@@ -170,5 +170,237 @@ describe('WelcomeWizardComponent', () => {
     vi.spyOn(router, 'navigate').mockResolvedValue(true);
     await component.finish();
     expect(component.finishing).toBe(false);
+  });
+});
+
+describe('WelcomeWizardComponent — Claude Code fast path', () => {
+  let fixture: ComponentFixture<WelcomeWizardComponent>;
+  let component: WelcomeWizardComponent;
+  let el: HTMLElement;
+  let wailsMock: ReturnType<typeof createWailsMock>;
+
+  // Renders the wizard on the provider step with a given detection result.
+  async function renderStep2(status: Partial<ClaudeCodeStatus>): Promise<void> {
+    wailsMock = createWailsMock();
+    wailsMock.isFirstRun.mockResolvedValue(true);
+    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings });
+    wailsMock.getClaudeCodeStatus.mockResolvedValue({ ...defaultClaudeCodeStatus, ...status });
+
+    await TestBed.configureTestingModule({
+      imports: [WelcomeWizardComponent],
+      providers: [
+        provideRouter([{ path: 'enhance', component: WelcomeWizardComponent }]),
+        provideAnimationsAsync(),
+        { provide: WailsService, useValue: wailsMock },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(WelcomeWizardComponent);
+    component = fixture.componentInstance;
+    // Pre-set async state: letting it land mid-render trips NG0100.
+    component.claudeCode = { ...defaultClaudeCodeStatus, ...status };
+    component.step = 2;
+    el = fixture.nativeElement;
+    fixture.detectChanges();
+    await fixture.whenStable();
+  }
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  function cliOption(): HTMLButtonElement {
+    const btn = el.querySelector<HTMLButtonElement>('[data-testid="wizard-claude-code"]');
+    if (!btn) throw new Error('Claude Code option not rendered');
+    return btn;
+  }
+
+  function hint(): string {
+    return el.querySelector('[data-testid="wizard-claude-code-hint"]')?.textContent?.trim() ?? '';
+  }
+
+  it('offers a signed-in CLI as a one-click option', async () => {
+    await renderStep2({ installed: true, loggedIn: true, path: '/usr/local/bin/claude', version: '2.1.274' });
+
+    expect(cliOption().disabled).toBe(false);
+    expect(cliOption().textContent).toContain('Use Claude Code (installed CLI)');
+    expect(hint()).toContain('no API key needed');
+  });
+
+  it('skips the API key step when the CLI is chosen', async () => {
+    await renderStep2({ installed: true, loggedIn: true, path: '/usr/local/bin/claude' });
+
+    cliOption().click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(el.querySelector('[data-testid="step-4-content"]')).not.toBeNull();
+    expect(el.querySelector('[data-testid="step-3-content"]')).toBeNull();
+    expect(component.selectedProvider).toBe('claude-code');
+  });
+
+  it('saves the CLI as the provider without storing any key', async () => {
+    await renderStep2({ installed: true, loggedIn: true, path: '/usr/local/bin/claude' });
+
+    cliOption().click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    await component.finish();
+
+    expect(wailsMock.saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ active_provider: 'claude-code' }),
+    );
+    // The user signed in through Anthropic's own flow; KeyLint holds no credential.
+    expect(wailsMock.setKey).not.toHaveBeenCalled();
+    expect(wailsMock.completeSetup).toHaveBeenCalled();
+  });
+
+  it('disables the option when the CLI is installed but signed out', async () => {
+    await renderStep2({ installed: true, loggedIn: false, path: '/usr/local/bin/claude' });
+
+    expect(cliOption().disabled).toBe(true);
+    expect(hint()).toContain('not signed in');
+    expect(hint()).toContain('sign in');
+  });
+
+  it('disables the option when the CLI is not installed', async () => {
+    await renderStep2({ installed: false });
+
+    expect(cliOption().disabled).toBe(true);
+    expect(hint()).toContain('Not found on this machine');
+  });
+
+  it('keeps the API key providers available alongside the CLI', async () => {
+    await renderStep2({ installed: true, loggedIn: true });
+
+    expect(el.querySelector('p-select')).not.toBeNull();
+    expect(component.providers.map(p => p.value)).toContain('openai');
+  });
+
+  it('goes back to the provider step from the finish step on the CLI path', async () => {
+    await renderStep2({ installed: true, loggedIn: true });
+
+    cliOption().click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const back = el.querySelector<HTMLButtonElement>('[data-testid="wizard-back"] button');
+    back!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(el.querySelector('[data-testid="step-2-content"]')).not.toBeNull();
+  });
+});
+
+describe('WelcomeWizardComponent — Claude Code detection reaches the screen', () => {
+  let fixture: ComponentFixture<WelcomeWizardComponent>;
+  let el: HTMLElement;
+  let wailsMock: ReturnType<typeof createWailsMock>;
+
+  // Renders from step 1 and lets ngOnInit do the detection itself — no
+  // pre-setting, because the point is whether the option ever becomes visible.
+  // The app is zoneless, so a component that assigns after an await without
+  // asking for change detection renders nothing.
+  async function renderFromStart(status: Partial<ClaudeCodeStatus>): Promise<void> {
+    wailsMock = createWailsMock();
+    wailsMock.isFirstRun.mockResolvedValue(true);
+    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings });
+    wailsMock.getClaudeCodeStatus.mockResolvedValue({ ...defaultClaudeCodeStatus, ...status });
+
+    await TestBed.configureTestingModule({
+      imports: [WelcomeWizardComponent],
+      providers: [
+        provideRouter([{ path: 'enhance', component: WelcomeWizardComponent }]),
+        provideAnimationsAsync(),
+        { provide: WailsService, useValue: wailsMock },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(WelcomeWizardComponent);
+    el = fixture.nativeElement;
+    fixture.detectChanges();
+    await fixture.whenStable();
+  }
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('asks the backend whether the CLI is available', async () => {
+    await renderFromStart({ installed: true, loggedIn: true });
+
+    expect(wailsMock.getClaudeCodeStatus).toHaveBeenCalled();
+  });
+
+  it('shows the option when detection finishes after the user moved on', async () => {
+    // The realistic Windows case: detection goes through the claude.cmd shim
+    // and takes seconds, so it lands after the user clicked past step 1.
+    //
+    // This pins the behaviour, not the mechanism: TestBed's whenStable() runs a
+    // change-detection pass that production does not, so the test still passes
+    // if the component drops its own detectChanges(). The app is zoneless, so
+    // in the real app that assignment would render nothing until the user
+    // happened to click something else.
+    let resolveStatus: (s: ClaudeCodeStatus) => void = () => {};
+    wailsMock = createWailsMock();
+    wailsMock.isFirstRun.mockResolvedValue(true);
+    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings });
+    wailsMock.getClaudeCodeStatus.mockReturnValue(
+      new Promise<ClaudeCodeStatus>(resolve => { resolveStatus = resolve; }),
+    );
+
+    await TestBed.configureTestingModule({
+      imports: [WelcomeWizardComponent],
+      providers: [
+        provideRouter([{ path: 'enhance', component: WelcomeWizardComponent }]),
+        provideAnimationsAsync(),
+        { provide: WailsService, useValue: wailsMock },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(WelcomeWizardComponent);
+    el = fixture.nativeElement;
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    el.querySelector<HTMLButtonElement>('[data-testid="wizard-next"] button')!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid="wizard-claude-code"]')).toBeNull();
+
+    resolveStatus({ ...defaultClaudeCodeStatus, installed: true, loggedIn: true, path: '/usr/local/bin/claude' });
+    await fixture.whenStable();
+
+    const option = el.querySelector<HTMLButtonElement>('[data-testid="wizard-claude-code"]');
+    expect(option).not.toBeNull();
+    expect(option!.disabled).toBe(false);
+  });
+
+  it('leaves no dead end: Next after choosing the CLI skips the key step', async () => {
+    await renderFromStart({ installed: true, loggedIn: true, path: '/usr/local/bin/claude' });
+
+    // Step 1 → 2, pick the CLI, then Back to 2 and forward again with Next.
+    el.querySelector<HTMLButtonElement>('[data-testid="wizard-next"] button')!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    el.querySelector<HTMLButtonElement>('[data-testid="wizard-claude-code"]')!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    el.querySelector<HTMLButtonElement>('[data-testid="wizard-back"] button')!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid="step-2-content"]')).not.toBeNull();
+
+    el.querySelector<HTMLButtonElement>('[data-testid="wizard-next"] button')!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // Step 3 would ask for an API key the CLI does not need, with Next disabled.
+    expect(el.querySelector('[data-testid="step-3-content"]')).toBeNull();
+    expect(el.querySelector('[data-testid="step-4-content"]')).not.toBeNull();
   });
 });

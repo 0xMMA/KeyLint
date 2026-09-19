@@ -7,6 +7,7 @@
 **Key directories:**
 - `main.go` — Wails entry point, service registration, event loop
 - `internal/features/` — vertical slices: settings, shortcut, clipboard, tray, enhance, welcome, logger, updater, pyramidize
+- `internal/llm/` — provider layer: `Client` interface, registry, and the only place with provider HTTP calls or spawned provider CLIs
 - `internal/cli/` — headless CLI commands (`-fix`, `-pyramidize`), dispatched from `main.go` before Wails boots
 - `internal/app/wire.go` + `wire_gen.go` — Wire DI (never edit `wire_gen.go` manually)
 - `frontend/src/app/core/wails.service.ts` — sole RPC bridge; all Go calls go through here
@@ -21,6 +22,9 @@
 ./bin/KeyLint -fix "text to fix"                       # silent grammar fix
 ./bin/KeyLint -fix -f input.txt                        # fix from file
 cat input.txt | ./bin/KeyLint -fix                     # fix from stdin
+# Input precedence: -f wins, then the inline argument, then stdin. Stdin is only
+# read when neither of the others is given, and gives up after 15 s of silence
+# rather than hanging on a pipe that never speaks.
 ./bin/KeyLint -pyramidize -type email -f input.md      # pyramidize from file
 ./bin/KeyLint -pyramidize --json -f input.md           # JSON output with quality score
 ./bin/KeyLint -pyramidize --provider claude --model claude-sonnet-4-6 -f input.md
@@ -33,25 +37,59 @@ cat input.txt | ./bin/KeyLint -fix                     # fix from stdin
 # Requires .env with ANTHROPIC_API_KEY (or OPENAI_API_KEY) in project root.
 # Uses //go:build eval tag — never included in normal `go test` runs.
 # Results are logged to test-data/eval-runs/<timestamp>/ with summary.json.
-go test -tags eval ./internal/features/pyramidize/ -v -timeout 300s
-EVAL_PROVIDER=claude go test -tags eval ./internal/features/pyramidize/ -v -timeout 600s
+go test -tags eval ./internal/features/pyramidize/ -v -timeout 900s
+EVAL_PROVIDER=claude go test -tags eval ./internal/features/pyramidize/ -v -timeout 900s
 EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 go test -tags eval ...
-./scripts/eval.sh                                      # automated eval with summary
+./scripts/eval.sh                                      # one run of the pyramidize suite
+./scripts/eval.sh --suite fix --runs 3                 # the silent grammar fix instead (15 samples)
+                                                       # --variant and --schema are pyramidize-only and are rejected here
+./scripts/eval.sh --suite fix --split tune --runs 3    # the 10 tuning samples; --split holdout is the other 5
+                                                       # default is all 15. Tune on tune, measure holdout ONCE at the end.
+                                                       # split is in the configKey, so --compare refuses to mix halves.
 ./scripts/eval.sh --provider claude --model claude-sonnet-4-6
 ./scripts/eval.sh --variant 1                          # compare v1 vs v2 prompts
+./scripts/eval.sh --schema                             # enforce the JSON schemas (default off, see pyramidize/schemas.go)
+./scripts/eval.sh --runs 3                             # n runs → test-data/eval-baselines/<ts>/baseline.json (needs n≥2)
+./scripts/eval.sh --runs 3 --compare path/to/baseline.json   # verdict vs a baseline
+./scripts/eval-aggregate.sh <run-dir>...               # same maths on recorded runs, no API calls
+./scripts/eval-aggregate.sh --compare base.json <run-dir>...
 EVAL_VARIANT=2 go test -tags eval ...                  # variant via env var
+EVAL_SPLIT=holdout go test -tags eval ./internal/features/enhance/  # split via env var
+                                                       # eval.sh ignores EVAL_SPLIT from .env unless --split is given
+EVAL_JUDGE_MODEL=... ./scripts/eval.sh                 # override the pinned judge (recorded in summary.json)
 ./scripts/eval-human.sh                                # interactive human review mode
+
+# One run is a sample, not a measurement: the same commit and model move by a few
+# points between runs. Use --runs 3 for anything you intend to quote, on BOTH
+# sides of a comparison — a single run has no range, and --compare answers
+# "indicative only" rather than pretending otherwise.
+# --compare asks whether the two observed intervals overlap, not whether a mean
+# moved. Exit codes: 0 nothing to report, 1 regression (new range entirely below
+# the old), 2 not comparable (different configuration, or the judge skipped
+# samples), 3 usage or unusable input.
+# Runs are isolated: settings come from an explicit config and keys from the
+# environment only, so ~/.config/KeyLint/settings.json and the OS keyring cannot
+# move a number. The judge is pinned to a dated snapshot; the pipeline is not,
+# because users get the alias.
+# The configKey names the instrument, not the thing measured: suite, provider,
+# model, judge, variant, schema, threshold, sample count and checksVersion. A
+# prompt change is recorded (promptHash) and reported next to the verdict, but
+# is NOT in the key — a suite that refuses to compare across a prompt change
+# cannot answer the question it exists for. Changing the deterministic checks
+# DOES bump checksVersion (enhance.ChecksVersion), which makes older runs read
+# "not comparable" rather than reporting the instrument's move as the model's.
 ```
 
 ## Why (The Context)
 
-KeyLint is a desktop app that fixes/enhances clipboard text via AI (OpenAI, Anthropic, Ollama, Bedrock). A global hotkey silently grabs clipboard text, enhances it, and writes it back. The main UI provides manual fix and advanced enhancement modes.
+KeyLint is a desktop app that fixes/enhances clipboard text via AI (OpenAI, Anthropic, the installed Claude Code CLI, Ollama, Bedrock). A global hotkey silently grabs clipboard text, enhances it, and writes it back. The main UI provides manual fix and advanced enhancement modes.
 
 **Architecture decisions:**
 - AI API calls go through the Go backend (`internal/features/enhance/service.go:1`) — WebKit2GTK on Linux blocks external HTTPS fetch from the webview
 - API keys stored in OS keyring (`github.com/zalando/go-keyring`); env vars take priority over keyring — see `internal/features/settings/service.go`
 - PrimeNG Stepper was replaced with a custom `@switch`-based wizard (`welcome-wizard.component.ts`) because PrimeNG v21 StepPanel animations broke DOM visibility
 - CLI mode (`-fix`, `-pyramidize`) dispatches before Wails boots in `main.go`, uses the same service layer with manual wiring (no Wire/Wails). Prompts are identical between CLI and GUI — output formatting is the caller's concern.
+- The `claude-code` provider spawns the user's installed Claude Code CLI (`internal/llm/claudecode.go`) instead of calling an HTTP API. Anthropic's terms allow running the unmodified binary the user installed and signed in to themselves — so KeyLint never reads, stores or forwards credentials, never offers a login, and never uses the Claude Code or Anthropic name as part of a KeyLint feature name. Never pass `--bare`: it skips credential reads and makes a signed-in user look signed out.
 - Evaluation tests use `//go:build eval` build tag to isolate from normal `go test` runs. They make real API calls and write results to `test-data/eval-runs/<timestamp>/`.
 
 **Component flow:** `main.go` → Wire DI initializes services → Wails registers them → `wails3 generate bindings` generates JS → `wails.service.ts` wraps bindings → Angular components call `WailsService`
@@ -83,8 +121,12 @@ KeyLint is a desktop app that fixes/enhances clipboard text via AI (OpenAI, Anth
 
 **Rules (active steering):** `.claude/rules/architecture.md`, `.claude/rules/testing.md`, `.claude/rules/workflows.md`
 
+**Roadmap (priorities, epics, release train):** `docs/roadmap.md` — read before proposing new work.
+
 **Reference docs:** `.claude/docs/architecture.md` (service wiring, RPC bridge, platform differences), `.claude/docs/testing.md` (detailed patterns), `.claude/docs/versioning.md` (release pipeline, CI)
 
 **Logging conventions:** `docs/logging.md` (levels, Redact() usage, source tagging, CLI flags)
 
 **Pyramidize docs:** `docs/pyramidize/` (requirements, ADR, quality status, NLP/LangChain research, UX roadmap)
+
+**Fix docs:** `docs/fix/quality-status.md` (eval suite, baseline, what it found). Two eval suites exist — `--suite pyramidize` (default) and `--suite fix`; their baselines are not comparable with each other.

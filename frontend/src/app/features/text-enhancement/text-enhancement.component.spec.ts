@@ -330,3 +330,199 @@ describe('TextEnhancementComponent (Pyramidize)', () => {
     expect((wailsMock.readClipboard as ReturnType<typeof vi.fn>).mock.calls.length).toBe(prevReadCount);
   });
 });
+
+describe('TextEnhancementComponent — Claude Code provider', () => {
+  let fixture: ComponentFixture<TextEnhancementComponent>;
+  let component: TextEnhancementComponent;
+  let el: HTMLElement;
+  let wailsMock: ReturnType<typeof createWailsMock>;
+
+  beforeEach(async () => {
+    TestBed.resetTestingModule();
+    wailsMock = createWailsMock();
+    wailsMock.getKeyStatus.mockResolvedValue({ is_set: false, source: 'none' });
+
+    await TestBed.configureTestingModule({
+      imports: [TextEnhancementComponent],
+      providers: [
+        provideRouter([]),
+        provideAnimationsAsync(),
+        { provide: WailsService, useValue: wailsMock },
+        { provide: TextEnhancementService, useValue: makeEnhancementServiceMock() },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(TextEnhancementComponent);
+    component = fixture.componentInstance;
+    el = fixture.nativeElement;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  });
+
+  afterEach(async () => {
+    // Provider choice lives in module-level state that outlives the fixture.
+    component.providerView = 'claude';
+    await component.onProviderChange();
+  });
+
+  it('offers the CLI as a provider', () => {
+    expect(component.providerOptions.map(p => p.value)).toContain('claude-code');
+  });
+
+  it('reads the model list from the backend rather than a hardcoded table', async () => {
+    wailsMock.listModels.mockResolvedValue({
+      models: [{ id: 'opus', label: 'Opus' }, { id: 'sonnet', label: 'Sonnet' }],
+      source: 'live',
+    });
+
+    component.providerView = 'claude-code';
+    await component.onProviderChange();
+    fixture.detectChanges();
+
+    expect(wailsMock.listModels).toHaveBeenCalledWith('claude-code');
+    // A leading entry lets the user say "whatever Settings says" without
+    // knowing a model name; the rest come from the provider.
+    expect(component.currentModelOptions.map(m => m.id)).toEqual(['', 'opus', 'sonnet']);
+    // Switching provider must not carry a model from the previous one.
+    expect(component.modelView).toBe('');
+  });
+
+  /** Switches provider and returns whatever note the panel then shows. */
+  async function noteFor(provider: string, list: { models: Array<{ id: string; label: string }>; source: string }): Promise<string> {
+    wailsMock.listModels.mockResolvedValue(list);
+
+    component.providerView = provider;
+    await component.onProviderChange();
+    fixture.detectChanges();
+
+    return el.querySelector('[data-testid="model-list-note"]')?.textContent?.trim() ?? '';
+  }
+
+  it('tells the user when the list is the built-in one because the provider was unreachable', async () => {
+    const note = await noteFor('ollama', { models: [{ id: 'llama3.2', label: 'llama3.2' }], source: 'unreachable' });
+
+    expect(note).toContain('could not be reached');
+  });
+
+  it('tells a user without a key to add one instead of blaming the network', async () => {
+    const note = await noteFor('openai', { models: [{ id: 'gpt-4.1', label: 'gpt-4.1' }], source: 'no-credentials' });
+
+    expect(note).toContain('add a key');
+    expect(note).not.toContain('could not be reached');
+  });
+
+  it('tells an Ollama user with nothing pulled what is actually wrong', async () => {
+    // A running daemon with no models is not an unreachable one, and saying so
+    // would send the user after a problem that is not there.
+    const note = await noteFor('ollama', { models: [], source: 'empty' });
+
+    expect(note).toContain('No models pulled yet');
+    expect(note).not.toContain('could not be reached');
+  });
+
+  it('stays quiet when the provider answered', async () => {
+    const note = await noteFor('ollama', { models: [{ id: 'llama3.2', label: 'llama3.2' }], source: 'live' });
+
+    expect(note).toBe('');
+  });
+
+  it('stays quiet for a provider that has no endpoint to ask', async () => {
+    // The CLI's three aliases are the whole list by design, so "built-in" would
+    // be an alarm nobody can clear.
+    const note = await noteFor('claude-code', { models: [{ id: 'sonnet', label: 'Sonnet' }], source: 'fixed' });
+
+    expect(note).toBe('');
+  });
+
+  it('warns when the CLI is installed but signed out, instead of failing at call time', async () => {
+    wailsMock.getClaudeCodeStatus.mockResolvedValue({
+      installed: true, loggedIn: false, path: '/usr/local/bin/claude', version: '2.1.274',
+    });
+
+    component.providerView = 'claude-code';
+    await component.onProviderChange();
+    fixture.detectChanges();
+
+    expect(component.apiKeySet).toBe(false);
+    expect(el.querySelector('[data-testid="api-key-banner"]')).not.toBeNull();
+    // "No AI API key configured" is the one thing that is never wrong here.
+    const message = el.querySelector('[data-testid="api-key-banner-message"]')!.textContent!;
+    expect(message).toContain('not signed in');
+    expect(message).toContain('sign in');
+    expect(message).not.toContain('API key');
+  });
+
+  it('warns when the CLI is not installed at all', async () => {
+    wailsMock.getClaudeCodeStatus.mockResolvedValue({
+      installed: false, loggedIn: false, path: '', version: '',
+    });
+
+    component.providerView = 'claude-code';
+    await component.onProviderChange();
+    fixture.detectChanges();
+
+    // Without this the test also passes when only half the branch is reverted.
+    expect(component.apiKeySet).toBe(false);
+    expect(el.querySelector('[data-testid="api-key-banner"]')).not.toBeNull();
+    const message = el.querySelector('[data-testid="api-key-banner-message"]')!.textContent!;
+    expect(message).toContain('not found on this machine');
+    expect(message).not.toContain('API key');
+  });
+
+  it('keeps saying "API key" for the providers that actually need one', async () => {
+    component.providerView = 'openai';
+    await component.onProviderChange();
+    fixture.detectChanges();
+
+    expect(el.querySelector('[data-testid="api-key-banner-message"]')!.textContent)
+      .toContain('No AI API key configured');
+  });
+
+  it('ignores a stale probe when the user switches provider again', async () => {
+    // claude-code costs two process spawns, so a quick second switch can
+    // finish first; the slower answer must not overwrite it.
+    let resolveSlow: (v: unknown) => void = () => {};
+    wailsMock.getClaudeCodeStatus.mockReturnValueOnce(new Promise(resolve => { resolveSlow = resolve; }));
+
+    component.providerView = 'claude-code';
+    const slowSwitch = component.onProviderChange();
+
+    component.providerView = 'openai';
+    await component.onProviderChange();
+
+    resolveSlow({ installed: false, loggedIn: false, path: '', version: '' });
+    await slowSwitch;
+    fixture.detectChanges();
+
+    expect(el.querySelector('[data-testid="api-key-banner-message"]')!.textContent)
+      .toContain('No AI API key configured');
+  });
+
+  it('stays quiet when the CLI is installed and signed in', async () => {
+    wailsMock.getClaudeCodeStatus.mockResolvedValue({
+      installed: true, loggedIn: true, path: '/usr/local/bin/claude', version: '2.1.274',
+    });
+
+    component.providerView = 'claude-code';
+    await component.onProviderChange();
+    fixture.detectChanges();
+
+    expect(component.apiKeySet).toBe(true);
+    expect(el.querySelector('[data-testid="api-key-banner"]')).toBeNull();
+    // The keyring has no answer for this provider and must not be asked.
+    expect(wailsMock.getKeyStatus).not.toHaveBeenCalledWith('claude-code');
+  });
+
+  it('shows no missing-key warning for Ollama, which needs no credential at all', async () => {
+    expect(el.querySelector('[data-testid="api-key-banner"]')).not.toBeNull();
+
+    component.providerView = 'ollama';
+    await component.onProviderChange();
+    fixture.detectChanges();
+
+    expect(component.apiKeySet).toBe(true);
+    expect(el.querySelector('[data-testid="api-key-banner"]')).toBeNull();
+    expect(wailsMock.getKeyStatus).not.toHaveBeenCalledWith('ollama');
+  });
+});

@@ -9,4 +9,6 @@ test-data/eval-runs/
 .superpowers/
 .claude/settings.local.json
 frontend/test-results
+frontend/playwright-report
+frontend/e2e/screenshots/
 .worktrees/

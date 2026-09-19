@@ -13,6 +13,10 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as llm$0 from "../../llm/models.js";
+
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
 /**
@@ -26,11 +30,36 @@ export function DeleteKey(provider) {
 
 /**
  * Get returns a copy of the current settings.
+ * 
+ * The copy reaches into the reference fields: a struct copy would share the
+ * AppPresets array and the Models map with every other caller and with the
+ * service's own state, and callers do edit what they are given — SetAppPreset
+ * assigns into AppPresets[i] before handing the result back to Save. Sharing
+ * them means that edit lands in this service's settings without a Save, and
+ * races with any concurrent read.
  * @returns {$CancellablePromise<$models.Settings>}
  */
 export function Get() {
     return $Call.ByID(2040733582).then(/** @type {($result: any) => any} */(($result) => {
         return $$createType0($result);
+    }));
+}
+
+/**
+ * GetClaudeCodeStatus reports whether the Claude Code CLI is installed on this
+ * machine and signed in, so the UI can offer it as a provider that needs no API
+ * key. Signing in happens in the user's own terminal through Anthropic's flow —
+ * KeyLint only looks, and never reads or stores credentials.
+ * 
+ * force skips the cache. The re-check button passes it, because a user pressing
+ * it has just done something they expect to be noticed; everything else takes
+ * the cached answer.
+ * @param {boolean} force
+ * @returns {$CancellablePromise<llm$0.ClaudeCodeStatus>}
+ */
+export function GetClaudeCodeStatus(force) {
+    return $Call.ByID(3561813659, force).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType1($result);
     }));
 }
 
@@ -53,7 +82,24 @@ export function GetKey(provider) {
  */
 export function GetKeyStatus(provider) {
     return $Call.ByID(1645967871, provider).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType1($result);
+        return $$createType2($result);
+    }));
+}
+
+/**
+ * ListModels returns the models a provider can serve, cached per provider.
+ * 
+ * It never returns an error: a provider that cannot be reached, one with no key
+ * and one whose listing this app cannot use all yield the built-in list, and a
+ * provider that listed nothing yields an empty one. ModelList.Source says which
+ * happened, so the picker can explain itself; ttl decides how long that answer
+ * is worth keeping.
+ * @param {string} provider
+ * @returns {$CancellablePromise<llm$0.ModelList>}
+ */
+export function ListModels(provider) {
+    return $Call.ByID(3734180264, provider).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType3($result);
     }));
 }
 
@@ -87,4 +133,6 @@ export function SetKey(provider, key) {
 
 // Private type creation functions
 const $$createType0 = $models.Settings.createFrom;
-const $$createType1 = $models.KeyStatus.createFrom;
+const $$createType1 = llm$0.ClaudeCodeStatus.createFrom;
+const $$createType2 = $models.KeyStatus.createFrom;
+const $$createType3 = llm$0.ModelList.createFrom;
