@@ -1,6 +1,6 @@
 # Pyramidize Output Quality — Status & Open Issues
 
-> Last updated: 2026-09-18
+> Last updated: 2026-09-25
 
 > The Fix prompt has its own suite and baseline: [`docs/fix/quality-status.md`](../fix/quality-status.md).
 
@@ -51,11 +51,13 @@ of the thirteen samples hit `stop_reason: max_tokens` against the shared
 `maxTokens = 4096` in every run. A zeroed sample costs a 13-sample mean about
 0.065. Scored over what it produced, v1 sits at 0.8611 (0.8444–0.8730); v2 over
 the same samples is 0.8707 (0.8618–0.8775). Overlapping, therefore inconclusive.
-Why v1 runs away on the two largest inputs while v2 does not is **unexplained** —
-the self-QA payload is about fifteen tokens and the largest document any run
-produced is well under a quarter of the budget. Note also that the v1 row mixes
-denominators: its deterministic mean is over all 13 with zeros, its judge mean
-over the 11–12 that completed.
+Note also that the v1 row mixes denominators: its deterministic mean is over all
+13 with zeros, its judge mean over the 11–12 that completed. What filled the
+budget was thinking, not the document: Sonnet 5 thinks by default when a request
+says nothing about thinking, every thinking token counts against `max_tokens`,
+and the thinking block comes back empty, so a response showed a small document
+and hid the rest. This stood here as unexplained until 2026-09-25 — see
+[Why Sonnet 5 hit the output limit](#why-sonnet-5-hit-the-output-limit).
 
 **Sonnet 5 is not simply better than 4.6 on the shipped prompt.** Deterministic
 is clearly up — the intervals do not overlap. The judge is inconclusive, its mean
@@ -68,6 +70,72 @@ because the work that measured it was asked for a stricter bar; see
 **These rows measure the explicitly typed email path.** The shipped default is
 `auto`, which spends a detect call first — two calls, or three if detection
 picks a document type that still runs self-QA.
+
+### Why Sonnet 5 hit the output limit
+
+**Single API calls, not an eval run.** Each row below is one request, made on
+2026-09-24/25 with the exact foundation-step request the eval sends (email, v1 or
+v2, `professional`/`professional`, no schema), captured from `Pyramidize` and
+replayed through the SDK so `stop_reason` and `usage` could be read. There are
+no scores here and none of these numbers is comparable with the tables above.
+"Visible" is the returned text measured with `count_tokens` (a few tokens of
+message framing included); "thinking" is output minus visible. Every Sonnet 5
+response carried a thinking block with empty text.
+
+| Sample | Prompt | Model | `max_tokens` | `stop_reason` | Output | Visible ≈ | Thinking ≈ |
+|---|:---:|---|:---:|---|:---:|:---:|:---:|
+| reply-to-feedback | v1 | Sonnet 5 | 4096 | end_turn | 3672 | 774 | 2898 |
+| reply-to-feedback | v1 | Sonnet 5 | 4096 | end_turn | 2352 | 709 | 1643 |
+| project-status | v1 | Sonnet 5 | 4096 | end_turn | 3526 | 1219 | 2307 |
+| project-status | v1 | Sonnet 5 | 4096 | end_turn | 3808 | 1257 | 2551 |
+| reply-to-feedback | v1 | Sonnet 5 | 16000 | end_turn | 2794 | 673 | 2121 |
+| reply-to-feedback | v1 | Sonnet 5 | 16000 | end_turn | 3421 | 707 | 2714 |
+| project-status | v1 | Sonnet 5 | 16000 | end_turn | 3584 | 1148 | 2436 |
+| project-status | v1 | Sonnet 5 | 16000 | end_turn | 3974 | 1230 | 2744 |
+| reply-to-feedback | v2 | Sonnet 5 | 4096 | end_turn | 3082 | 820 | 2262 |
+| project-status | v2 | Sonnet 5 | 4096 | end_turn | 3822 | 904 | 2918 |
+| reply-to-feedback | v1 | Opus 5 | 4096 | end_turn | 1460 | 725 | 735 |
+| reply-to-feedback | v1 | Sonnet 5 | 2048 | **max_tokens** | 2048 | 0 | 2048 |
+| project-status | v2 | Sonnet 5 | 2048 | **max_tokens** | 2048 | ~305, cut off | ~1743 |
+
+What this shows:
+
+- **Thinking is 60–80 % of a Sonnet 5 Pyramidize reply** on the two largest
+  samples. The document itself is 700–1250 tokens, which is why every produced
+  document looked far under budget.
+- **At 4096 the call runs a few hundred tokens from the ceiling.** The highest
+  total seen was 3974. How long the model thinks varies from call to call, so a
+  share of calls going over is what the eval's "ordinary document, or a runaway
+  past 4096" pattern looks like — no loop in the generation needed. At 2048 the
+  cut-off is reproduced outright, with not one visible character on v1.
+- **v2 is exposed as well.** Its two calls here spent 3082 and 3822. v2 lost no
+  document in six eval runs; with two calls it cannot be said whether v2 thinks
+  less than v1 or had more luck. ADR-002 lists this ("a prompt property that v2
+  shares latently") as something that would weaken its reliability argument.
+- **None of the eight v1 calls at 4096 or higher went over**, where the
+  2026-09-18 runs lost 4 of 6 attempts on these two samples. Eight calls are too
+  few to say whether today's thinking is shorter or 09-18 was unlucky; the
+  mechanism does not depend on which.
+- **Opus 5 thought far less on the same request** (735 against 1643–2898) —
+  one call, indicative only.
+
+The self-QA *instruction* that ADR-002 named as a candidate is therefore not
+needed to explain the failures. Whether it adds to the thinking is not tested
+here.
+
+**What changed:** `max_tokens` is now 16000 for both features
+(`llm.OutputTokenCeiling`), up from 4096 (Pyramidize) and 2048 (Fix). It is a
+ceiling, not a spend, and the model does not see it: the four v1 calls at 16000
+above spent about what those at 4096 did (2794–3974 against 2352–3808). Thinking and effort were left at the
+model's default on purpose — turning them down changes output quality and
+belongs to an eval-gated decision (E3, #34). A cut-off that happens anyway now
+says the model used the output limit reasoning before answering, rather than the
+generic "try a shorter selection", so a failed eval run records the cause.
+
+The same trap hit Fix harder: Sonnet 5 on a 3.7 KB selection spent all of the
+old 2048 on thinking twice out of two, and finished at 5361 output tokens once
+the limit was 16000. A user who picked Sonnet 5 or Opus 5 for Fix got "try a
+shorter selection" on text of ordinary length.
 
 ### The noise floor
 

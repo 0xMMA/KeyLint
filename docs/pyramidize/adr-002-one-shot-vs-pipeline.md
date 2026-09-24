@@ -135,6 +135,16 @@ reproducible — four failures across three runs, concentrated on two samples �
 it is the strongest argument against v1, but what is recorded here is a
 description, not a diagnosis.
 
+> **Addendum 2026-09-25 — explained.** The budget went on thinking. Sonnet 5
+> thinks by default, thinking counts against `max_tokens`, and the thinking block
+> comes back empty, so only the small document was visible. Single calls on the
+> two failing samples spent 2352–3974 output tokens against a visible document of
+> about 700–1250; at 2048 the cut-off reproduces with no visible text. v2 spent
+> 3082 and 3822 on the same two samples, so it shares the exposure, which
+> weakens the reliability argument (see "What would change these decisions") —
+> it is a property of the model's default, not of v1's prompt. The limit is now
+> 16000; thinking and effort are unchanged. Evidence and caveats: [quality-status.md](quality-status.md#why-sonnet-5-hit-the-output-limit).
+
 ### Whether the pipeline arm ever made a second call is unrecorded
 
 `AppliedRefinement` was not written into the run records, so this comparison
