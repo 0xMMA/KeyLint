@@ -10,9 +10,10 @@ import { MessageModule } from 'primeng/message';
 import { CardModule } from 'primeng/card';
 import { TagModule } from 'primeng/tag';
 import { ActivatedRoute } from '@angular/router';
+import { versionLabel } from '../../core/version-label';
 import { WailsService, Settings as AppSettings, KeyStatus, UpdateInfo, AppPreset, ClaudeCodeStatus, ModelInfo } from '../../core/wails.service';
 import { noteForModelSource } from '../../core/model-source';
-import { DOCUMENT_TYPE_OPTIONS } from '../../core/constants';
+import { DOCUMENT_TYPE_OPTIONS, unavailableProviderName } from '../../core/constants';
 import { LogService } from '../../core/log.service';
 
 /**
@@ -78,11 +79,18 @@ interface ProviderKey {
                 <div class="form-group">
                   <label>Active Provider</label>
                   <p-select
+                    data-testid="active-provider-select"
                     [(ngModel)]="settings.active_provider"
                     [options]="providers"
                     optionLabel="label"
                     optionValue="value"
+                    placeholder="Choose a provider"
                   />
+                  @if (unavailableProvider; as name) {
+                    <p-message data-testid="provider-unavailable" severity="warn" size="small">
+                      {{ name }} is not available yet, so KeyLint has no provider to use. Choose another one and save.
+                    </p-message>
+                  }
                 </div>
                 <div class="form-group">
                   <label>Shortcut Key</label>
@@ -93,15 +101,6 @@ interface ProviderKey {
                     <label>Start on Boot</label>
                     <p-toggle-switch [(ngModel)]="settings.start_on_boot" />
                   </div>
-                </div>
-                <div class="form-group">
-                  <label>Theme</label>
-                  <p-select
-                    [(ngModel)]="settings.theme_preference"
-                    [options]="themes"
-                    optionLabel="label"
-                    optionValue="value"
-                  />
                 </div>
                 <div class="form-group" data-testid="log-level-section">
                   <label>Log Level</label>
@@ -362,7 +361,7 @@ interface ProviderKey {
               <p-tabpanel value="about">
                 <p>KeyLint — Wails v3 + Angular v21</p>
                 <p>Built with Go, Angular, and PrimeNG.</p>
-                <p data-testid="app-version">Version: {{ appVersion }}</p>
+                <p data-testid="app-version">Version: {{ versionLabel(appVersion) }}</p>
 
                 <div class="form-group mt-3" data-testid="update-channel-section">
                   <label>Update Channel</label>
@@ -462,6 +461,9 @@ interface ProviderKey {
       gap: 0.25rem;
     }
     .toggle-label-group .hint-text { margin-bottom: 0; }
+    /* A long hint beside the switch would otherwise squeeze it narrower than
+       its track, and the knob slides out past the edge (#26). */
+    .toggle-row p-toggle-switch { flex-shrink: 0; }
     label { font-size: 0.875rem; color: var(--p-text-muted-color); }
     input { width: 100%; }
 
@@ -530,6 +532,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   activeTab = 'general';
 
   appVersion = '';
+  readonly versionLabel = versionLabel;
   updateInfo: UpdateInfo | null = null;
   updateChecking = false;
   updateInstalling = false;
@@ -550,13 +553,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
     { label: 'Anthropic Claude', value: 'claude' },
     { label: 'Claude Code (installed CLI)', value: 'claude-code' },
     { label: 'Ollama (local)', value: 'ollama' },
-    { label: 'AWS Bedrock', value: 'bedrock' },
-  ];
-
-  readonly themes = [
-    { label: 'Dark', value: 'dark' },
-    { label: 'Light', value: 'light' },
-    { label: 'System', value: 'system' },
+    // AWS Bedrock stays out until it works (#22, #23). A settings file that
+    // still names it is explained, not broken — see unavailableProvider.
   ];
 
   readonly updateChannels = [
@@ -578,14 +576,12 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   /**
    * Providers whose model can be chosen. Derived from the Active Provider list
-   * rather than repeated, so the two cannot drift apart; Bedrock is excluded
-   * because it is still a stub with nothing to choose.
+   * rather than repeated, so the two cannot drift apart.
    *
    * Computed once: a getter would hand the template a new array on every
    * change-detection pass.
    */
   readonly modelProviders = this.providers
-    .filter(p => p.value !== 'bedrock')
     .map(p => ({ id: p.value, label: p.label }));
 
   /** Picker contents including the leading default entry; see optionsFor. */
@@ -607,7 +603,6 @@ export class SettingsComponent implements OnInit, OnDestroy {
   providerKeys: ProviderKey[] = [
     { id: 'openai',  label: 'OpenAI API Key',      status: null, editing: false, draftKey: '', saving: false },
     { id: 'claude',  label: 'Anthropic API Key',    status: null, editing: false, draftKey: '', saving: false },
-    { id: 'bedrock', label: 'AWS Secret Access Key', status: null, editing: false, draftKey: '', saving: false },
   ];
 
   constructor(
@@ -636,6 +631,11 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.destroyed = true;
+  }
+
+  /** See UNAVAILABLE_PROVIDERS: the saved value is explained, not switched. */
+  get unavailableProvider(): string | null {
+    return unavailableProviderName(this.settings?.active_provider);
   }
 
   /** Reads the configured model, or "" when the default applies. */
@@ -753,7 +753,6 @@ export class SettingsComponent implements OnInit, OnDestroy {
     switch (provider) {
       case 'openai':  return 'sk-…';
       case 'claude':  return 'sk-ant-…';
-      case 'bedrock': return 'AWS secret access key';
       default:        return 'API key';
     }
   }

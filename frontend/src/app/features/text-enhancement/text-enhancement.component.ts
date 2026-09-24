@@ -14,7 +14,7 @@ import { Tabs, TabList, Tab, TabPanels, TabPanel } from 'primeng/tabs';
 import { TooltipModule } from 'primeng/tooltip';
 import { WailsService } from '../../core/wails.service';
 import { noteForModelSource } from '../../core/model-source';
-import { DOCUMENT_TYPE_OPTIONS } from '../../core/constants';
+import { DOCUMENT_TYPE_OPTIONS, unavailableProviderName } from '../../core/constants';
 import { TextEnhancementService } from './text-enhancement.service';
 import { MarkdownPipe } from './markdown.pipe';
 
@@ -127,8 +127,14 @@ function addTrace(label: string, snapshot: string): void {
             [options]="providerOptions"
             optionLabel="label"
             optionValue="value"
+            placeholder="Choose a provider"
             (onChange)="onProviderChange()"
           />
+          @if (unavailableProviderView; as name) {
+            <p-message data-testid="provider-unavailable" severity="warn" size="small">
+              {{ name }} is not available yet. Choose another provider here, or in Settings to keep it.
+            </p-message>
+          }
         </div>
 
         <div class="form-group">
@@ -198,7 +204,7 @@ function addTrace(label: string, snapshot: string): void {
           data-testid="pyramidize-btn"
           label="Pyramidize"
           icon="pi pi-sparkles"
-          [disabled]="!originalTextView.trim() || isLoading"
+          [disabled]="!originalTextView.trim() || isLoading || !!unavailableProviderView"
           (onClick)="pyramidize()"
           [loading]="isLoading"
           class="pyramidize-btn-full"
@@ -345,7 +351,7 @@ function addTrace(label: string, snapshot: string): void {
                           icon="pi pi-sparkles"
                           label="Apply"
                           size="small"
-                          [disabled]="!selectionInstruction.trim()"
+                          [disabled]="!selectionInstruction.trim() || !!unavailableProviderView"
                           (onClick)="applySelectionInstruction()"
                         />
                         <p-button
@@ -410,7 +416,8 @@ function addTrace(label: string, snapshot: string): void {
             label="Apply"
             icon="pi pi-play"
             size="small"
-            [disabled]="!globalInstruction.trim() || !canvasTextView.trim() || isLoading"
+            [severity]="globalInstruction.trim() && !unavailableProviderView ? 'primary' : 'secondary'"
+            [disabled]="!globalInstruction.trim() || !canvasTextView.trim() || isLoading || !!unavailableProviderView"
             (onClick)="applyGlobalInstruction()"
           >
             <ng-template #content>
@@ -994,6 +1001,8 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   get bannerDismissedView(): boolean { return bannerDismissed; }
 
   get providerView(): string { return selectedProvider; }
+  /** Name of a provider settings still names but nothing can use yet (#22). */
+  get unavailableProviderView(): string | null { return unavailableProviderName(selectedProvider); }
   set providerView(v: string) { selectedProvider = v; }
 
   get modelView(): string { return selectedModel; }
@@ -1156,6 +1165,12 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   /** Loads the current provider's models; the list is shared with Settings. */
   private async loadModelOptions(): Promise<void> {
     const provider = selectedProvider;
+    if (unavailableProviderName(provider)) {
+      // Nothing to list, and asking would only produce "could not be reached".
+      this.modelOptions = [DEFAULT_MODEL_OPTION];
+      this.modelListNote = '';
+      return;
+    }
     const list = await this.wails.listModels(provider);
     if (provider !== selectedProvider) return;
     this.modelOptions = [DEFAULT_MODEL_OPTION, ...(list.models ?? [])];
@@ -1194,7 +1209,8 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
       const status = await this.wails.getClaudeCodeStatus().catch(() => null);
       ok = !!status?.installed && !!status.loggedIn;
       message = status?.installed ? CLI_NOT_SIGNED_IN_MESSAGE : CLI_NOT_INSTALLED_MESSAGE;
-    } else if (KEYLESS_PROVIDERS.has(provider)) {
+    } else if (KEYLESS_PROVIDERS.has(provider) || unavailableProviderName(provider)) {
+      // An unavailable provider has its own note; a key banner would mislead.
       ok = true;
     } else {
       const keyStatus = await this.wails.getKeyStatus(provider);
@@ -1266,7 +1282,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   }
 
   async pyramidize(): Promise<void> {
-    if (!originalText.trim()) return;
+    if (!originalText.trim() || unavailableProviderName(selectedProvider)) return;
 
     if (canvasText.trim()) {
       if (!confirm('Re-pyramidize? The current editor content will be saved to the trace log.')) {
@@ -1348,6 +1364,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
 
   async applyGlobalInstruction(): Promise<void> {
     if (!this.globalInstruction.trim() || !canvasText.trim()) return;
+    if (unavailableProviderName(selectedProvider)) return; // the note explains why (#22)
 
     const instruction = this.globalInstruction;
     this.lastRequest = () => this.applyGlobalInstruction();
@@ -1409,6 +1426,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
 
   async applySelectionInstruction(): Promise<void> {
     if (!this.selectionInstruction.trim()) return;
+    if (unavailableProviderName(selectedProvider)) return; // the note explains why (#22)
 
     const textarea = this.canvasTextareaRef?.nativeElement;
     const start = textarea ? textarea.selectionStart : this.selectionStart;

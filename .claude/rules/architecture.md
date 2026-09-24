@@ -18,7 +18,7 @@ The frontend has no exception to this and no longer has a browser-mode fallback:
 
 ## Dark Mode
 
-Dark-first: `<body class="app-dark">` in `index.html`. Only explicit `'light'` preference removes it. Never use `window.matchMedia` for theme detection — jsdom does not define it at all, so a spec that reaches it throws rather than returning light. (Specs that open a PrimeNG overlay stub it; see `testing.md`.)
+Dark only, for now: `<html class="app-dark">` in `index.html`, and `ShellComponent.applyTheme()` keeps it whatever `theme_preference` says — only the dark theme is styled (#24). The class goes on `<html>`, never `<body>`: PrimeNG's component tokens are `:root` aliases that resolve where declared, so a class below the root leaves them light (#28). The field stays in the settings model for the light theme (#25), which is where reading it comes back. Never use `window.matchMedia` for theme detection — jsdom does not define it at all, so a spec that reaches it throws rather than returning light. (Specs that open a PrimeNG overlay stub it; see `testing.md`.)
 
 ## PrimeNG v21
 

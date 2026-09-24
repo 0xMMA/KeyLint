@@ -1,5 +1,13 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="app-dark">
+<!--
+  .app-dark belongs on <html>, not <body>. PrimeNG declares each component's
+  tokens on :root as aliases of the theme tokens (e.g. the select panel's
+  background = var(overlay background)), and an alias resolves on the element
+  that declares it. With the class on <body>, <html> never saw the dark theme,
+  so every aliased token came out light: select panels, tab bars, disabled
+  fields (#28). ShellComponent.applyTheme() keeps it there.
+-->
 <head>
   <meta charset="utf-8">
   <title>KeyLint</title>
@@ -7,7 +15,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
-<body class="app-dark">
+<body>
   <app-root></app-root>
 </body>
 </html>
