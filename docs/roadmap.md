@@ -158,7 +158,7 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 
 #### E5 · UI modernization and fixes
 - **Fix page redesign** (#36) — low-mid prio per Michael. Intent: it should feel like a tool, not two grey boxes. Direction to explore with `frontend-design`: input/result as one surface with a visible diff of what changed, provider/model chip, character count, keyboard hints (Ctrl+Enter), clear empty state, result actions (copy / paste back / undo).
-- **Input border glitch** (#37) — **fixed (#40)**: the `.app-dark` override gave `.p-select-label` an opaque background that painted over the parent's rounded corners. Underlying cause (Aura dark tokens not propagated to components) goes with #35.
+- **Input border glitch** (#37) — **fixed (#40)**: the `.app-dark` override gave `.p-select-label` an opaque background that painted over the parent's rounded corners. Underlying cause found and fixed with #28: `.app-dark` sat on `<body>`, but PrimeNG's component tokens are `:root` aliases that resolve on `<html>`, so they stayed light. The class now sits on `<html>`.
 - **Settings stays rendered after version click** (#38) — new, repro in the issue.
 - Existing April triage: #21 `vv` version prefix, #24 hide unimplemented themes, #26 toggle knob clipping, #28 global-instruction input light background, #29 Apply button focus, #27 side-by-side on wide screens.
 

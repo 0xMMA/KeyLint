@@ -11,14 +11,14 @@ async function screenshot(page: Page, name: string): Promise<void> {
 }
 
 test.describe('Dark mode — visual verification', () => {
-  test('body has app-dark class on enhance page', async ({ page }) => {
+  test('<html> has the app-dark class on enhance page', async ({ page }) => {
     await page.goto('/enhance');
     await page.waitForLoadState('networkidle');
 
     const hasAppDark = await page.evaluate(() =>
-      document.body.classList.contains('app-dark'),
+      document.documentElement.classList.contains('app-dark'),
     );
-    expect(hasAppDark, 'body must have .app-dark class').toBe(true);
+    expect(hasAppDark, '<html> must have .app-dark class').toBe(true);
     await screenshot(page, '01-enhance-dark-mode');
   });
 
@@ -96,8 +96,8 @@ test.describe('Dark mode — visual verification', () => {
 
     // Without this the test is vacuous: in light mode the label would be
     // transparent over a white page and every assertion below would pass.
-    const isDark = await page.evaluate(() => document.body.classList.contains('app-dark'));
-    expect(isDark, 'body must have .app-dark on /settings').toBe(true);
+    const isDark = await page.evaluate(() => document.documentElement.classList.contains('app-dark'));
+    expect(isDark, '<html> must have .app-dark on /settings').toBe(true);
 
     const colors = await page.evaluate(() => {
       const select = document.querySelector('.p-select') as HTMLElement | null;
@@ -136,13 +136,54 @@ test.describe('Dark mode — visual verification', () => {
     // below is not vacuous: Log Level comes from the same stubbed response.
     await expect(page.locator('[data-testid="log-level-section"] .p-select-label')).toHaveText('Debug');
 
-    const hasAppDark = await page.evaluate(() => document.body.classList.contains('app-dark'));
+    const hasAppDark = await page.evaluate(() => document.documentElement.classList.contains('app-dark'));
     expect(hasAppDark, 'stored "light" must not remove .app-dark').toBe(true);
     const bgColor = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
     expect(bgColor).toBe('rgb(9, 9, 11)');
 
     await expect(page.locator('label', { hasText: /^Theme$/ })).toHaveCount(0);
     await screenshot(page, '08-stored-light-stays-dark');
+  });
+
+  // With .app-dark on <body>, PrimeNG's :root component tokens stayed light, and
+  // a disabled input came out slate-200 on the near-black page (#28). The
+  // Pyramidize instruction input is disabled until the canvas has text.
+  test('a disabled input keeps a dark surface', async ({ page }) => {
+    await page.goto('/enhance');
+    await page.waitForLoadState('networkidle');
+
+    const input = page.locator('[data-testid="global-instruction-input"]');
+    await expect(input).toBeDisabled();
+    const bg = await input.evaluate((el) => getComputedStyle(el).backgroundColor);
+    console.log(`disabled instruction input bg: ${bg}`);
+    // zinc-900 (#18181b): the dark surface one step up from enabled fields.
+    expect(bg, `Disabled input background: ${bg}`).toBe('rgb(24, 24, 27)');
+
+    // The colour above comes from KeyLint's own override and would hold with
+    // .app-dark on <body> too. What regressed was PrimeNG's token, which only
+    // resolves dark when the class sits on <html>: on <body> it reads #e2e8f0.
+    const onRoot = await page.evaluate(() => document.documentElement.classList.contains('app-dark'));
+    expect(onRoot, '.app-dark must sit on <html>').toBe(true);
+    const token = await input.evaluate((el) =>
+      getComputedStyle(el).getPropertyValue('--p-inputtext-disabled-background').trim());
+    expect(token, `--p-inputtext-disabled-background: ${token}`).toBe('#3f3f46');
+    await screenshot(page, '09-disabled-input-dark');
+  });
+
+  // Same root cause as above: the dropdown panel's background is a :root alias
+  // of the overlay token and used to resolve to white.
+  test('an open select panel is dark', async ({ page }) => {
+    await page.goto('/enhance');
+    await page.waitForLoadState('networkidle');
+
+    await page.locator('[data-testid="provider-select"]').click();
+    const panel = page.locator('.p-select-overlay');
+    await expect(panel).toBeVisible();
+    const bg = await panel.evaluate((el) => getComputedStyle(el).backgroundColor);
+    console.log(`select panel bg: ${bg}`);
+    // zinc-900 (#18181b), Aura's dark overlay background.
+    expect(bg, `Select panel background: ${bg}`).toBe('rgb(24, 24, 27)');
+    await screenshot(page, '10-select-panel-dark');
   });
 });
 

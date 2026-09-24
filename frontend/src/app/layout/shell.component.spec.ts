@@ -10,7 +10,7 @@ describe('ShellComponent — theme / body class', () => {
   let wailsMock: ReturnType<typeof createWailsMock>;
 
   beforeEach(async () => {
-    document.body.classList.remove('app-dark');
+    document.documentElement.classList.remove('app-dark');
 
     wailsMock = createWailsMock();
 
@@ -24,7 +24,7 @@ describe('ShellComponent — theme / body class', () => {
   });
 
   afterEach(() => {
-    document.body.classList.remove('app-dark');
+    document.documentElement.classList.remove('app-dark');
   });
 
   async function createAndWait(theme_preference: string): Promise<ComponentFixture<ShellComponent>> {
@@ -35,9 +35,9 @@ describe('ShellComponent — theme / body class', () => {
     return fixture;
   }
 
-  it('adds app-dark to body for dark theme', async () => {
+  it('adds app-dark to the root element for dark theme', async () => {
     await createAndWait('dark');
-    expect(document.body.classList.contains('app-dark')).toBe(true);
+    expect(document.documentElement.classList.contains('app-dark')).toBe(true);
   });
 
   // Only the dark theme is styled (#24). A value saved by an older version, or
@@ -45,19 +45,19 @@ describe('ShellComponent — theme / body class', () => {
   for (const stored of ['light', 'system', '', 'something-else']) {
     it(`stays dark when theme_preference is "${stored}"`, async () => {
       await createAndWait(stored);
-      expect(document.body.classList.contains('app-dark')).toBe(true);
+      expect(document.documentElement.classList.contains('app-dark')).toBe(true);
     });
   }
 
   it('stays dark when settingsChanged$ brings a light preference', async () => {
     const fixture = await createAndWait('dark');
-    expect(document.body.classList.contains('app-dark')).toBe(true);
+    expect(document.documentElement.classList.contains('app-dark')).toBe(true);
 
     wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, theme_preference: 'light' });
     wailsMock._settingsChanged$.next();
     await fixture.whenStable();
 
-    expect(document.body.classList.contains('app-dark')).toBe(true);
+    expect(document.documentElement.classList.contains('app-dark')).toBe(true);
   });
 
   it('renders the sidebar nav', async () => {
