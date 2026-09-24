@@ -28,6 +28,11 @@ tasks:
           OUTPUT: '{{.OUTPUT}}'
           EXTRA_TAGS: '{{.EXTRA_TAGS}}'
     vars:
+      # gtk3: KeyLint stays on the GTK3 + WebKit2GTK 4.1 stack (Wails' default
+      # became GTK4 + WebKitGTK 6.0 in alpha.93). WebKitGTK 6.0 forces a bwrap
+      # sandbox that stock Ubuntu 23.10+ refuses, so a GTK4 build aborts at start
+      # there. Upstream removes gtk3 in v3.1; the choice has to be made before then.
+      EXTRA_TAGS: '{{.EXTRA_TAGS | default "gtk3"}}'
       DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}'
       OUTPUT: '{{ .OUTPUT | default .DEFAULT_OUTPUT }}'
       # Determine target architecture (defaults to host ARCH if not specified)

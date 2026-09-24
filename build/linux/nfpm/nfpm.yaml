@@ -24,25 +24,24 @@ contents:
   - src: "./build/linux/keylint.desktop"
     dst: "/usr/share/applications/keylint.desktop"
 
-# Default dependencies for the GTK4 + WebKitGTK 6.0 stack, which Wails v3
-# builds against by default since alpha.93 (Ubuntu 24.04+ / Debian 13+).
+# Default dependencies for Debian 12/Ubuntu 22.04+ with WebKit 4.1
 depends:
-  - libgtk-4-1
-  - libwebkitgtk-6.0-4
+  - libgtk-3-0
+  - libwebkit2gtk-4.1-0
 
-# Distribution-specific overrides for different package formats
+# Distribution-specific overrides for different package formats and WebKit versions
 overrides:
-  # RPM packages for Fedora / RHEL / AlmaLinux / Rocky Linux
+  # RPM packages for RHEL/CentOS/AlmaLinux/Rocky Linux (WebKit 4.0)
   rpm:
     depends:
-      - gtk4
-      - webkitgtk6.0
-
-  # Arch Linux packages
+      - gtk3
+      - webkit2gtk4.1
+  
+  # Arch Linux packages (WebKit 4.1)  
   archlinux:
     depends:
-      - gtk4
-      - webkitgtk-6.0
+      - gtk3
+      - webkit2gtk-4.1
 
 # scripts section to ensure desktop database is updated after install
 scripts:

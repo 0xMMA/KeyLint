@@ -45,16 +45,16 @@ jobs:
       - name: Install system deps
         uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
         with:
-          packages: pkg-config libgtk-4-dev libwebkitgtk-6.0-dev gcc
+          packages: pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev gcc
           version: 1.0
 
       # The action above caches whatever it managed to install, including nothing.
       # Fail here, at the cause, rather than later at the first cgo package.
-      - name: Check GTK4 headers are present
-        run: pkg-config --exists --print-errors gtk4 webkitgtk-6.0
+      - name: Check GTK3 headers are present
+        run: pkg-config --exists --print-errors gtk+-3.0 webkit2gtk-4.1
 
       - name: Install Wails v3 CLI
-        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.25
+        run: go install -tags gtk3 github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.25
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -73,7 +73,7 @@ jobs:
       # at the same time. Two such races have already shipped; the detector only
       # sees them on a run like this one.
       - name: Run Go tests
-        run: go test -race ./internal/...
+        run: go test -race -tags gtk3 ./internal/...
 
       # The eval suites are behind `//go:build eval`, so `go test` never
       # compiles them and a rename in the code they measure breaks nothing
@@ -82,14 +82,14 @@ jobs:
       # embeds frontend/dist, which makes it depend on a build step rather than
       # on the Go code this is checking.
       - name: Check the eval-tagged code still compiles
-        run: go vet -tags eval ./internal/...
+        run: go vet -tags eval,gtk3 ./internal/...
 
       # Every exported method of a registered service becomes callable from the
       # webview. The generated bindings are committed, so a new exported method
       # widens that surface while the committed file still shows the old one.
       - name: Check generated bindings are current
         run: |
-          wails3 generate bindings
+          wails3 generate bindings -f '-tags gtk3'
           git diff --exit-code frontend/bindings || {
             echo "::error::frontend/bindings is stale. Run 'wails3 generate bindings' and commit, or unexport the new method."
             exit 1
@@ -203,16 +203,16 @@ jobs:
       - name: Install system deps
         uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
         with:
-          packages: pkg-config libgtk-4-dev libwebkitgtk-6.0-dev gcc
+          packages: pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev gcc
           version: 1.0
 
       # The action above caches whatever it managed to install, including nothing.
       # Fail here, at the cause, rather than later at the first cgo package.
-      - name: Check GTK4 headers are present
-        run: pkg-config --exists --print-errors gtk4 webkitgtk-6.0
+      - name: Check GTK3 headers are present
+        run: pkg-config --exists --print-errors gtk+-3.0 webkit2gtk-4.1
 
       - name: Install Wails v3 CLI
-        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.25
+        run: go install -tags gtk3 github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.25
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -226,7 +226,7 @@ jobs:
         run: |
           export PATH=$PATH:$HOME/go/bin
           VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -tags production -trimpath -ldflags="-w -s -X main.AppVersion=${VERSION}" -o bin/KeyLint .
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -tags production,gtk3 -trimpath -ldflags="-w -s -X main.AppVersion=${VERSION}" -o bin/KeyLint .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -266,16 +266,16 @@ jobs:
       - name: Install system deps
         uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
         with:
-          packages: pkg-config libgtk-4-dev libwebkitgtk-6.0-dev gcc gcc-mingw-w64
+          packages: pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev gcc gcc-mingw-w64
           version: 1.0
 
       # The action above caches whatever it managed to install, including nothing.
       # Fail here, at the cause, rather than later at the first cgo package.
-      - name: Check GTK4 headers are present
-        run: pkg-config --exists --print-errors gtk4 webkitgtk-6.0
+      - name: Check GTK3 headers are present
+        run: pkg-config --exists --print-errors gtk+-3.0 webkit2gtk-4.1
 
       - name: Install Wails v3 CLI
-        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.25
+        run: go install -tags gtk3 github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.25
 
       - name: Install frontend dependencies
         working-directory: frontend
