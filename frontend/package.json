@@ -13,13 +13,13 @@
   "private": true,
   "packageManager": "npm@11.9.0",
   "dependencies": {
-    "@angular/animations": "^21.2.24",
-    "@angular/common": "^21.2.24",
-    "@angular/compiler": "^21.2.24",
-    "@angular/core": "^21.2.24",
-    "@angular/forms": "^21.2.24",
-    "@angular/platform-browser": "^21.2.24",
-    "@angular/router": "^21.2.24",
+    "@angular/animations": "^21.2.23",
+    "@angular/common": "^21.2.23",
+    "@angular/compiler": "^21.2.23",
+    "@angular/core": "^21.2.23",
+    "@angular/forms": "^21.2.23",
+    "@angular/platform-browser": "^21.2.23",
+    "@angular/router": "^21.2.23",
     "@primeuix/themes": "^2.0.3",
     "@wailsio/runtime": "3.0.0-alpha.79",
     "dotenv": "^17.4.2",
@@ -30,12 +30,12 @@
     "tslib": "^2.3.0"
   },
   "devDependencies": {
-    "@angular/build": "^21.2.24",
-    "@angular/cli": "^21.2.24",
-    "@angular/compiler-cli": "^21.2.24",
+    "@angular/build": "^21.2.23",
+    "@angular/cli": "^21.2.23",
+    "@angular/compiler-cli": "^21.2.23",
     "@playwright/test": "^1.63.0",
-    "jsdom": "^30.1.1",
-    "prettier": "^3.9.9",
+    "jsdom": "^30.1.0",
+    "prettier": "^3.9.8",
     "typescript": "~5.9.2",
     "vitest": "^4.1.11"
   }
