@@ -43,6 +43,20 @@ exactly those fields. See [ADR-002](adr-002-one-shot-vs-pipeline.md).
 | Sonnet 5 + v2 (one-shot, shipped prompt) | 0.8651 (0.8606–0.8683) | 0.8251 (0.8000–0.8477) | 13 of 13 | 8–10 |
 | Sonnet 5 + v1 (pipeline, self-QA + refine) | 0.7726 (0.7326–0.8058) | 0.8290 (0.8125–0.8417) | 11–12 of 13 | 9–10 |
 | Sonnet 5 + v1, completed documents only | 0.8611 (0.8444–0.8730) | — | — | — |
+| Opus 5 + v2 (2026-09-25, Pyramidize limit 16000 — see note) | 0.8878 (0.8848–0.8895) | 0.8197 (0.8123–0.8238) | 13 of 13 | 10 |
+
+**Opus 5** (`test-data/eval-baselines/2026-09-25T00-47-48/`, gitSHA `df1ed3d`, three runs):
+deterministic is clearly above both Sonnet rows — its range overlaps neither. The
+judge is **below Sonnet 4.6 with disjoint ranges** and overlaps Sonnet 5, so
+against 4.6 this is "improvement: deterministic, regression: judge" — the same
+split Sonnet 5 showed, sharper. The judge's rationales repeatedly mark down the
+same thing on the low-scoring samples: a subject line that packs several
+messages instead of leading with one. Read that as a hint about where the
+disagreement lies, not as a finding: it is one judge model's taste, and the
+deterministic checks reward informative subjects. Opus 5 ran with the
+Pyramidize output limit at 16000 (the other rows ran at 4096); v2 produced all
+13 documents in every run, so the limit did not decide any sample here, but
+`--compare` cannot see that difference — `max_tokens` is not in `summary.json`.
 
 Two readings that are easy to get wrong here:
 

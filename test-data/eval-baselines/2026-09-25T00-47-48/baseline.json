@@ -1,0 +1,312 @@
+{
+  "createdAt": "2026-09-25T00-34-41",
+  "runCount": 3,
+  "runs": [
+    "test-data/eval-runs/2026-09-25T00-34-41/",
+    "test-data/eval-runs/2026-09-25T00-39-03/",
+    "test-data/eval-runs/2026-09-25T00-43-22/"
+  ],
+  "config": {
+    "suite": "pyramidize",
+    "promptHash": null,
+    "checksVersion": 1,
+    "split": "all",
+    "splitHash": null,
+    "gitSHA": "df1ed3d",
+    "provider": "claude",
+    "model": "claude-opus-5",
+    "promptVariant": 2,
+    "judge": {
+      "provider": "claude",
+      "model": "claude-sonnet-4-5-20250929",
+      "temperature": 0
+    },
+    "schemaEnforcement": false,
+    "qualityThreshold": 0.65,
+    "sampleCount": 13
+  },
+  "configKey": "pyramidize|claude|claude-opus-5|claude|claude-sonnet-4-5-20250929|2|false|0.65|13|1|all",
+  "configConsistent": true,
+  "judgeCoverage": {
+    "min": 13,
+    "max": 13,
+    "of": 13
+  },
+  "scoredCoverage": {
+    "min": 13,
+    "max": 13,
+    "of": 13
+  },
+  "deterministic": {
+    "mean": 0.8878,
+    "min": 0.8848,
+    "max": 0.8895,
+    "spread": 0.0047
+  },
+  "judge": {
+    "mean": 0.8197,
+    "min": 0.8123,
+    "max": 0.8238,
+    "spread": 0.0115
+  },
+  "samplesPassing": {
+    "mean": 10,
+    "min": 10,
+    "max": 10,
+    "spread": 0
+  },
+  "refineCalls": {
+    "mean": 0,
+    "min": 0,
+    "max": 0
+  },
+  "perSample": [
+    {
+      "name": "email-adverity-field-structuring",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.8976,
+        "min": 0.8889,
+        "max": 0.9091,
+        "spread": 0.0202
+      },
+      "judge": {
+        "mean": 0.7167,
+        "min": 0.7,
+        "max": 0.75,
+        "spread": 0.05
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "email-airbyte-escalation",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9485,
+        "min": 0.9377,
+        "max": 0.959,
+        "spread": 0.0212
+      },
+      "judge": {
+        "mean": 0.8533,
+        "min": 0.8,
+        "max": 0.88,
+        "spread": 0.08
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "email-answer-info-update",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.8655,
+        "min": 0.8513,
+        "max": 0.878,
+        "spread": 0.0267
+      },
+      "judge": {
+        "mean": 0.7933,
+        "min": 0.75,
+        "max": 0.88,
+        "spread": 0.13
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "email-dataquality",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9342,
+        "min": 0.906,
+        "max": 0.954,
+        "spread": 0.048
+      },
+      "judge": {
+        "mean": 0.7933,
+        "min": 0.7,
+        "max": 0.88,
+        "spread": 0.18
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "email-dataquality-followup",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9509,
+        "min": 0.9449,
+        "max": 0.9539,
+        "spread": 0.0091
+      },
+      "judge": {
+        "mean": 0.8533,
+        "min": 0.8,
+        "max": 0.88,
+        "spread": 0.08
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "email-dataquality-reply-to-feedback",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.7722,
+        "min": 0.76,
+        "max": 0.7912,
+        "spread": 0.0313
+      },
+      "judge": {
+        "mean": 0.6833,
+        "min": 0.55,
+        "max": 0.75,
+        "spread": 0.2
+      },
+      "passed": 0,
+      "refined": 0
+    },
+    {
+      "name": "email-diagnose-update",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.7333,
+        "min": 0.714,
+        "max": 0.7482,
+        "spread": 0.0342
+      },
+      "judge": {
+        "mean": 0.88,
+        "min": 0.88,
+        "max": 0.88,
+        "spread": 0
+      },
+      "passed": 0,
+      "refined": 0
+    },
+    {
+      "name": "email-kpi-request",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9429,
+        "min": 0.9213,
+        "max": 0.963,
+        "spread": 0.0417
+      },
+      "judge": {
+        "mean": 0.88,
+        "min": 0.88,
+        "max": 0.88,
+        "spread": 0
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "email-meeting-request",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.7931,
+        "min": 0.7508,
+        "max": 0.8286,
+        "spread": 0.0777
+      },
+      "judge": {
+        "mean": 0.6833,
+        "min": 0.65,
+        "max": 0.75,
+        "spread": 0.1
+      },
+      "passed": 0,
+      "refined": 0
+    },
+    {
+      "name": "email-onboarding-erfolgreich",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9368,
+        "min": 0.9291,
+        "max": 0.9407,
+        "spread": 0.0116
+      },
+      "judge": {
+        "mean": 0.88,
+        "min": 0.88,
+        "max": 0.88,
+        "spread": 0
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "email-passwort erhalten",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.8712,
+        "min": 0.869,
+        "max": 0.8755,
+        "spread": 0.0064
+      },
+      "judge": {
+        "mean": 0.88,
+        "min": 0.88,
+        "max": 0.88,
+        "spread": 0
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "email-project-status",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9373,
+        "min": 0.9273,
+        "max": 0.9458,
+        "spread": 0.0184
+      },
+      "judge": {
+        "mean": 0.88,
+        "min": 0.88,
+        "max": 0.88,
+        "spread": 0
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "email-software-deployment",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9576,
+        "min": 0.9403,
+        "max": 0.9899,
+        "spread": 0.0496
+      },
+      "judge": {
+        "mean": 0.88,
+        "min": 0.88,
+        "max": 0.88,
+        "spread": 0
+      },
+      "passed": 3,
+      "refined": 0
+    }
+  ]
+}
