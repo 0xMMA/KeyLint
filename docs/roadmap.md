@@ -1,21 +1,23 @@
 # KeyLint Roadmap
 
-> Last updated: 2026-09-18 (evening) · Owner: Michael · Source of truth for priorities.
+> Last updated: 2026-09-24 · Owner: Michael · Source of truth for priorities.
 > Tracking: each epic links to a GitHub issue. This file holds the *why* and the order; issues hold the *what*.
 
 ---
 
 ## 1. Where we are (September 2026)
 
+> **2026-09-24:** no code since 2026-09-18. This pass reconciles the file with the repo: #47 and #55 closed, WebView2 verification shipped (#66/#74), E4 step 3 partly done (#84).
+>
 > **Progress log 2026-09-17/18:** E1 shipped (Claude Code provider, #45/#49/#54/#72), E2 complete (#39/#52/#57/#60), E3 measured (ADR-002 #63; Fix eval #79/#82/#88 — suite saturated, harder samples needed before more prompt work), eval instrument hardened (#62), CI: e2e + race detector + bindings drift + pinned actions + WebView2 signature check (#50/#65/#73/#74/#81/#84/#87). Waiting on Michael: #31 Windows retest, ADR-002 decisions (Sonnet 5 default, AUTO cost, dead threshold slider, `--json` score), #38 DevTools check, #61 refresh feel.
 
 | Item | State |
 |---|---|
 | Latest release | `v4.4.3-beta` (2026-04-05) |
-| Last commit on `main` | 2026-04-06 — ~5 months idle |
-| Build / tests | `go build` ✅ · `go test ./internal/...` ✅ · Vitest 131/131 ✅ |
-| Open PR | #31 shortcut single/double press (26 commits, CI green, mergeable, 0 behind main, **not merged**) |
-| Open issues | #21–#30 (April triage: UI bugs, Bedrock, light theme, shortcut) |
+| Last commit on `main` | 2026-09-18 — restart sprint (#39–#88) |
+| Build / tests | `go build` ✅ · `go test ./internal/...` ✅ · Vitest 198/198 ✅ (2026-09-24) |
+| Open PR | #31 shortcut single/double press — branch frozen, waiting on the Windows retest |
+| Open issues | April triage #21–#30 · shortcut robustness #42 #44 · #34 E3 · #35 E4 · #36 Fix page · #38 shell · #56 shell specs · #61 model-list refresh · #80 #83 Fix prompt |
 | Stale remote branches | `feat/pyramidize`, `fix/updater-platform-aware-install` (both already merged, safe to delete) |
 
 **Stack drift since April:**
@@ -27,7 +29,7 @@
 | Angular | 21.2.0 | 22.1.x | |
 | PrimeNG / `@primeuix/themes` | 21.1.3 / 2.0.3 | 22.1.x / 3.0.x | move together |
 | TypeScript | 5.9 | 7.0 | TS 7 = Go-native compiler; only when Angular CLI supports it |
-| Vitest / Playwright / jsdom | 4.0 / 1.58 / 28 | 5.0 / 1.63 / 30 | |
+| Vitest / Playwright / jsdom | 4.1 / 1.63 / 30 | 5.0 / 1.63 / 30 | #84; Vitest 5 blocked by the `@angular/build` peer range (`^4.0.8`), see `.claude/rules/testing.md` |
 
 **Provider code today:** one `internal/llm` package behind a `Client` interface — the vendor SDKs for Claude, OpenAI and Ollama, plus the spawned Claude Code CLI — with contexts, timeouts, SDK retries and tests on every path (#39, #45, #33 step 3). Model IDs are still constants at the two call sites; that is step 4. Bedrock is still a stub that returns an error (#23).
 
@@ -58,7 +60,7 @@ The branch went further than the PR body says: `RegisterHotKey` was replaced by 
 Why first: it touches `main.go`, settings model, `wails.service.ts`, and every component that subscribes to shortcuts. Everything below conflicts with it if it sits longer.
 
 #### E1 · Claude Code as a first-class provider (`claude -p`) — **shipped 2026-09-18** (#45, #49)
-Issue: #32 (closed). The #48 follow-ups shipped. Structured output via `--json-schema` is wired but **off by default** — #47 stays open, see E2 step 3b. Discovery and completion must run in the same stripped environment (#49) — the probe once reported an `ANTHROPIC_API_KEY` session that completions could not use.
+Issue: #32 (closed). The #48 follow-ups shipped. Structured output via `--json-schema` is wired but **off by default** — #47 closed as parked, see E2 step 3b. Discovery and completion must run in the same stripped environment (#49) — the probe once reported an `ANTHROPIC_API_KEY` session that completions could not use.
 
 **User story.** Welcome wizard detects an installed `claude` binary → one click "Use Claude Code" → done. No API key, no console account. Fix and Pyramidize run through the user's own subscription. Same for the `-fix` CLI.
 
@@ -103,7 +105,7 @@ echo "<text>" | claude -p --model haiku --output-format json \
 ### P1 — foundation
 
 #### E2 · Provider layer on vendor SDKs — **complete 2026-09-18** (#39, #45, #52, #57, #60)
-Issue: #33 (closed). Follow-ups: #47 schema enforcement (parked, default off), #55 status caching, #61 list refresh UX.
+Issue: #33 (closed). Follow-ups: #47 schema enforcement (closed, parked default-off), #55 status caching (done, #72), #61 list refresh UX.
 
 **Decision:** two vendor SDKs plus a 30-line interface. Evaluated and rejected: `langchaingo` (dead), `cloudwego/eino` (agent framework, overkill), unified wrappers (`omnillm`, `go-llm`, `any-llm-go`, `goai`, `pgedge-go-llm-lib`) — all small, young, and a third party between us and the vendors, i.e. the same maintenance risk we are trying to leave.
 
@@ -120,7 +122,7 @@ Issue: #33 (closed). Follow-ups: #47 schema enforcement (parked, default off), #
 1. **Done (#39).** Introduce `internal/llm`: `Client` interface (`Complete(ctx, Request) (Response, error)`, `Request{System, User, Model, JSONSchema, MaxTokens}`), a registry keyed by provider ID, and move the six existing functions behind it **unchanged** (mechanical). Add `httptest`-based tests. `enhance` and `pyramidize` stop knowing about providers.
 2. **Done (#45).** E1 plugs in here.
 3. **Done (#33 step 3).** Replaced hand-rolled Anthropic/OpenAI/Ollama implementations with the two SDKs; also closes #41 (unredacted error bodies). Timeouts, retries and error types come from the SDK. Ollama moved to its OpenAI-compatible `/v1` endpoint, so the system prompt is a real system message and `Config.PromptSeparator` is gone — note that the delimiters went with it (`enhance` no longer sends its `Text: ` label, `pyramidize` no longer its `---` fence), which is a prompt change for a small local model and was **not** eval'd; JSON mode now also reaches Ollama, where the native endpoint ignored it. **Costs 15.3 MB of shipped binary** (12.0 → 27.3 MB with release flags) — the two SDKs weigh roughly 9 MB and 11 MB standalone, and there is no build tag to trim the generated type surface. Accepted: 27 MB is fine for a desktop installer, and the size is the price of not owning provider clients. The SDKs no longer take configuration from the environment: Anthropic through `WithoutEnvironmentDefaults`, OpenAI — which has no such option — by always passing the base URL explicitly and deleting the headers `OPENAI_ORG_ID`, `OPENAI_PROJECT_ID` and `OPENAI_CUSTOM_HEADERS` would set. That covers the variables those SDK versions document; a future one could add another, so the tests assert on the wire rather than on the option list. Machine-fingerprint headers (`X-Stainless-*`, SDK `User-Agent`) are stripped too. Bedrock stayed out: it needs a region field, a model-ID default per call site, and the AWS SDK — that is #23.
-3b. **Wired, default off (#47 stays open).** `Request` gained `JSONSchema json.RawMessage` alongside `JSONMode`. Pyramidize has a schema per pipeline step (`pyramidize/schemas.go`, mirroring `types.go`) and every provider *can* enforce it in its own dialect — `response_format: json_schema` for OpenAI and the Ollama `/v1` endpoint, `output_config.format` for Anthropic, `--json-schema` for the Claude Code CLI, which also returns the parsed object in `structured_output`. `unmarshalRobust` stays as the fallback. Enforcement is behind `KEYLINT_PYRAMIDIZE_SCHEMA=1` / `./scripts/eval.sh --schema`: two eval runs showed it fixing one reproducible parse failure and collapsing a different sample to 0.1 with a document cut off mid-sentence, so it waits for E3 (#34) evidence on a reworked prompt.
+3b. **Wired, default off (#47 closed as parked).** `Request` gained `JSONSchema json.RawMessage` alongside `JSONMode`. Pyramidize has a schema per pipeline step (`pyramidize/schemas.go`, mirroring `types.go`) and every provider *can* enforce it in its own dialect — `response_format: json_schema` for OpenAI and the Ollama `/v1` endpoint, `output_config.format` for Anthropic, `--json-schema` for the Claude Code CLI, which also returns the parsed object in `structured_output`. `unmarshalRobust` stays as the fallback. Enforcement is behind `KEYLINT_PYRAMIDIZE_SCHEMA=1` / `./scripts/eval.sh --schema`: two eval runs showed it fixing one reproducible parse failure and collapsing a different sample to 0.1 with a document cut off mid-sentence, so it waits for E3 (#34) evidence on a reworked prompt.
 4. **Done (#33 step 4).** Model IDs are settings data: `internal/llm/models.go` holds a default per provider *and per feature* (the silent fix wants a fast model, Pyramidize a stronger one) plus a curated fallback list, and `settings.json` carries the user's choice under `models`. Resolution is request override → settings → default. `ListModels` asks Anthropic and OpenAI through the SDKs and Ollama through `/api/tags`. `ModelList.Source` names what happened — `live`, `empty`, `unusable`, `unreachable`, `no-credentials`, `fixed` — because each is a different thing for the user to do; the UI has a sentence per case and the cache keeps a settled answer for 10 minutes and everything else for 30 seconds. Defaults are unchanged — moving them is E3's call and needs an eval.
 
 #### E3 · Prompt and core-logic overhaul: back to one-shot
@@ -131,7 +133,7 @@ Hypothesis: with Opus 5 / Sonnet 5 a single well-structured call matches the det
 - [x] **Prerequisite done (#53, #59):** the eval is trustworthy enough to compare against. Runs are isolated from the developer's settings and keyring, the judge is pinned to a dated snapshot at temperature 0, `summary.json` records the full effective config, and `--runs n` produces a baseline with a spread. The current default (`claude-sonnet-4-6`, schema off) is re-baselined in `quality-status.md` with its noise floor.
 - [ ] Re-baseline on **Opus 5** — Sonnet 5 is done (`quality-status.md`, three runs: deterministic clearly up, judge inconclusive and noisier), Opus 5 is not
 - [x] ~~Prompt variant `v3`: single call, no self-QA JSON~~ — **not built, see [ADR-002](pyramidize/adr-002-one-shot-vs-pipeline.md).** The typed email path has been a single call since v2, so a v3 would have compared two one-shot prompts. The pipeline-vs-one-shot question was answered with the existing v1 (pipeline) against v2 (one-shot): quality inconclusive, reliability clearly one-shot.
-- [ ] Still open from that line: **structured output** (`--json-schema` / `output_config.format`). All three baselines ran with `schemaEnforcement: false`, so enforcement remains unmeasured (#47)
+- [ ] Still open from that line: **structured output** (`--json-schema` / `output_config.format`). All three baselines ran with `schemaEnforcement: false`, so enforcement remains unmeasured (#47 is closed; turning it on is this epic's call)
 - [ ] Still open: the **AUTO default costs two calls** (detect + foundation) and is what ships; changing it needs detection-accuracy evidence that does not exist yet
 - [ ] Compare via eval; keep whichever wins, delete the loser. Rules from `feedback_no_overfitting`: general principles only
 - [x] Fix prompt eval: 15 samples in `test-data/fix-samples/`, deterministic checks plus the same pinned judge, baselined on the shipped default — see [`docs/fix/quality-status.md`](fix/quality-status.md). It found three reproducible rule violations (trailing commentary on correct text, translating deliberate code-switching, and answering a chat-style message instead of correcting it); no prompt change in that PR, by the no-overfitting rule
@@ -146,7 +148,7 @@ Issue: #35.
 Order matters:
 1. Wails: bump Go module to `v3.0.0-beta.23` **and** `@wailsio/runtime` to the same version; regenerate bindings; smoke test tray, window hide/show, events, Windows build.
 2. Angular 22 + PrimeNG 22 + `@primeuix/themes` 3 together (`ng update`); re-check the custom wizard (`@switch`) and dark-mode CSS overrides in `styles.scss`, which patch PrimeNG gaps that may be fixed or moved.
-3. Vitest 5, Playwright 1.63, jsdom 30, Prettier.
+3. ~~Playwright 1.63, jsdom 30, Prettier~~ **done (#84)**, Vitest to 4.1. Vitest 5 waits until `@angular/build` declares `^5` — then handle the `clearMocks` default flip and the reporter change in the same PR (`.claude/rules/testing.md`).
 4. TypeScript 7: only once `@angular/build` lists it as supported.
 5. Node 24 LTS stays.
 
@@ -160,7 +162,7 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 - **Settings stays rendered after version click** (#38) — new, repro in the issue.
 - Existing April triage: #21 `vv` version prefix, #24 hide unimplemented themes, #26 toggle knob clipping, #28 global-instruction input light background, #29 Apply button focus, #27 side-by-side on wide screens.
 
-#### E6 · Bedrock end-to-end UI (#23) — after E2 step 3, mostly settings UI work.
+#### E6 · Bedrock end-to-end UI (#23) — unblocked (E2 step 3 done), mostly settings UI work plus the region field and AWS SDK noted in E2 step 3. Closes #22.
 #### E7 · Light theme (#25) — after E4 (PrimeNG 22 may change token layout).
 #### E8 · Feature parity leftovers (moved from the old `TODO.md`)
 - Linux global hotkey (currently a stub) — low, Linux is dev-only
@@ -173,8 +175,8 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 
 | Release | Contents |
 |---|---|
-| `v4.5.0-beta` | E0 (PR #31) · E2 step 1 · E1 Claude Code provider · quick UI bugs #21 #24 #26 #28 |
-| `v4.6.0-beta` | E2 steps 3–4 (vendor SDKs, data-driven models) · E3 one-shot overhaul with eval |
+| `v4.5.0-beta` | E0 (PR #31) · ~~E2 step 1~~ ✅ · ~~E1 Claude Code provider~~ ✅ · quick UI bugs #21 #24 #26 #28 — waiting on E0 and the UI bugs |
+| `v4.6.0-beta` | ~~E2 steps 3–4 (vendor SDKs, data-driven models)~~ ✅ · E3 one-shot overhaul with eval |
 | `v4.7.0-beta` | E4 upgrade wave · Fix page redesign · border glitch |
 | `v5.0.0` | Bedrock UI · light theme · HTML clipboard · Codex/Gemini CLI providers |
 
@@ -184,7 +186,7 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 
 - [x] PR #31 description is stale vs. branch content
 - [x] `frontend/e2e/shell-menu-deep{,2,3,4,5}.spec.ts` are exploratory layout probes from a debugging session — consolidate into one spec or delete (#43: hover-expand, two-tone logo and active-icon colour folded into `shell-menu.spec.ts`, the rest deleted)
-- [ ] `GetClaudeCodeStatus` spawns two processes per call and is called from four uncached places (Pyramidize init and provider change, the settings card, the welcome wizard) — 0.13s on a native binary here, materially slower through a Windows `claude.cmd` shim, and the Pyramidize page's first paint waits on it. Cache it in the Go service with a bypass for the Re-check button.
+- [x] `GetClaudeCodeStatus` spawns two processes per call and is called from four uncached places (Pyramidize init and provider change, the settings card, the welcome wizard) — 0.13s on a native binary here, materially slower through a Windows `claude.cmd` shim, and the Pyramidize page's first paint waits on it. Cache it in the Go service with a bypass for the Re-check button. Done (#55, #72).
 - [x] `awalsh128/cache-apt-pkgs-action@latest` (`build-linux.yml` ×**4**, `release.yml` ×3 — the count here was stale) pinned to `553a35bb` (v1.6.3). Upstream has since deprecated its own `latest` tag and tells consumers to pin
 - [ ] `.claude/rules/angular-components.md` exists but is not referenced from `CLAUDE.md`
 - [x] `internal/features/enhance` has no tests — fixed in #39
@@ -192,7 +194,7 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 - [x] Pin third-party GitHub Actions to commit SHAs, add Dependabot for actions (#51, #65, #73, #81). `actions/*` stay on floating major tags by design — GitHub's own org, and Dependabot is configured to ignore majors since #81 — so the workflows are hardened, not fully SHA-pinned
 - [ ] Quarterly CI hygiene: Dependabot blocks majors, so check `gh api repos/actions/<name>/releases/latest` for every `actions/*` in `.github/workflows/` and bump paired actions together (artifact upload/download, pages upload/deploy). Next due: 2026-12.
 - [ ] Add `gomod` and `npm` to Dependabot: the dependency drift recorded at the top of this file (Wails alpha.72 vs beta.23, `@wailsio/runtime` mismatched, Angular 21.2 vs 22.1) is exactly what those ecosystems would surface
-- [ ] `MicrosoftEdgeWebview2Setup.exe` is curled from a redirector with no checksum or signature check (`release.yml`, `build-linux.yml`) and bundled into the installer users run — the one remaining unverified external binary, and the only one that reaches end users
+- [x] `MicrosoftEdgeWebview2Setup.exe` was curled from a redirector with no checksum or signature check and bundled into the installer users run — now `scripts/fetch-webview2.sh` refuses any file without a valid Microsoft signature, in both `release.yml` and `build-linux.yml` (#66, #74)
 - [ ] Branch protection on `main` (required checks incl. `e2e`, `test` with race detector, bindings drift) — Michael, repo settings
 - [ ] Shortcut robustness under rapid input (#42, #44) after #31 lands
 - [x] CLI `-fix` hangs on a never-closing stdin pipe (#46) — stdin moved after the inline argument, plus a 15 s idle timeout that also catches a pipe which speaks once and stays open
