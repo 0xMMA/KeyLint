@@ -68,9 +68,9 @@ MIT + Commons Clause — see [LICENSE](LICENSE) for details.
 
 - Go 1.27+
 - Node.js 24 LTS
-- Wails v3 CLI, the same version as the module in `go.mod` (CI's bindings-drift check uses it): `go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.72`
+- Wails v3 CLI, the same version as the module in `go.mod` (CI's bindings-drift check uses it): `go install -tags gtk3 github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.25` (the tag matters on Linux only)
 - Install `wails3` and `wire` with Go 1.27 or newer. `go install` builds a tool with the Go version the *tool* declares, so on an older base Go they refuse this module ("package requires newer Go version go1.27"). If your default `go` is older: `GOTOOLCHAIN=go1.27.1 go install …`
-- Linux: `sudo apt install libgtk-3-dev libwebkit2gtk-4.1-dev`
+- Linux: `sudo apt install libgtk-3-dev libwebkit2gtk-4.1-dev`, and build/test with `-tags gtk3` (Wails v3 beta defaults to GTK4; KeyLint stays on GTK3 for now).
 - Windows cross-compilation from Linux: `sudo apt install gcc-mingw-w64`
 
 ### Build & Run
@@ -83,7 +83,7 @@ wails3 dev
 cd frontend && npm run build
 
 # Build production binary (Linux)
-go build -tags production -o bin/KeyLint .
+go build -tags production,gtk3 -o bin/KeyLint .
 
 # Windows cross-compilation
 GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc \
@@ -97,7 +97,7 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc \
 cd frontend && npm test
 
 # Go unit tests
-go test ./internal/...
+go test -tags gtk3 ./internal/...
 
 # E2E tests (requires ng serve on :4200)
 npx playwright test

@@ -149,8 +149,9 @@ this?") and keeps answering it when the file changes.
 which **embeds** a copy rather than downloading one — so local builds keep
 working offline and on Windows, where go-task cannot execute a shell script.
 
-Be aware of what that copy is. In `wails/v3@v3.0.0-alpha.72` it was signed in
-April 2021 with a certificate that **expired in December 2021**. It is
+Be aware of what that copy is. In `wails/v3@v3.0.0-alpha.72` — and still,
+byte-identical, in `v3.0.0-beta.25` — it was signed in April 2021 with a
+certificate that **expired in December 2021**. It is
 timestamped, and `osslsigncode` does not validate the countersignature, so it
 reads as expired today and the local verification step prints a warning rather
 than failing.

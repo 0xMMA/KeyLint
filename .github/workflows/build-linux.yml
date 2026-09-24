@@ -35,14 +35,26 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
+      # cache-apt-pkgs never refreshes the package lists on GitHub runners, and
+      # the image's lists go stale: on a cache miss apt then 404s on superseded
+      # debs, the action carries on, and caches an empty result under the final
+      # key. Refreshing first costs a few seconds and keeps the cache honest.
+      - name: Refresh apt package lists
+        run: sudo apt-get update
+
       - name: Install system deps
         uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
         with:
           packages: pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev gcc
           version: 1.0
 
+      # The action above caches whatever it managed to install, including nothing.
+      # Fail here, at the cause, rather than later at the first cgo package.
+      - name: Check GTK3 headers are present
+        run: pkg-config --exists --print-errors gtk+-3.0 webkit2gtk-4.1
+
       - name: Install Wails v3 CLI
-        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.72
+        run: go install -tags gtk3 github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.25
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -61,7 +73,7 @@ jobs:
       # at the same time. Two such races have already shipped; the detector only
       # sees them on a run like this one.
       - name: Run Go tests
-        run: go test -race ./internal/...
+        run: go test -race -tags gtk3 ./internal/...
 
       # The eval suites are behind `//go:build eval`, so `go test` never
       # compiles them and a rename in the code they measure breaks nothing
@@ -70,18 +82,21 @@ jobs:
       # embeds frontend/dist, which makes it depend on a build step rather than
       # on the Go code this is checking.
       - name: Check the eval-tagged code still compiles
-        run: go vet -tags eval ./internal/...
+        run: go vet -tags eval,gtk3 ./internal/...
 
       # Every exported method of a registered service becomes callable from the
       # webview. The generated bindings are committed, so a new exported method
       # widens that surface while the committed file still shows the old one.
       - name: Check generated bindings are current
         run: |
-          wails3 generate bindings
-          git diff --exit-code frontend/bindings || {
+          wails3 generate bindings -f '-tags gtk3'
+          # status, not diff: a newly registered service produces new, untracked
+          # files, which `git diff` does not see.
+          if [ -n "$(git status --porcelain frontend/bindings)" ]; then
+            git status --porcelain frontend/bindings
             echo "::error::frontend/bindings is stale. Run 'wails3 generate bindings' and commit, or unexport the new method."
             exit 1
-          }
+          fi
 
   # Playwright runs against `ng serve` only — no Go, no Wails, no system deps.
   # It still waits for `test` so a runner is not spent on UI checks while the
@@ -181,14 +196,26 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
+      # cache-apt-pkgs never refreshes the package lists on GitHub runners, and
+      # the image's lists go stale: on a cache miss apt then 404s on superseded
+      # debs, the action carries on, and caches an empty result under the final
+      # key. Refreshing first costs a few seconds and keeps the cache honest.
+      - name: Refresh apt package lists
+        run: sudo apt-get update
+
       - name: Install system deps
         uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
         with:
           packages: pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev gcc
           version: 1.0
 
+      # The action above caches whatever it managed to install, including nothing.
+      # Fail here, at the cause, rather than later at the first cgo package.
+      - name: Check GTK3 headers are present
+        run: pkg-config --exists --print-errors gtk+-3.0 webkit2gtk-4.1
+
       - name: Install Wails v3 CLI
-        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.72
+        run: go install -tags gtk3 github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.25
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -202,7 +229,20 @@ jobs:
         run: |
           export PATH=$PATH:$HOME/go/bin
           VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -tags production -trimpath -ldflags="-w -s -X main.AppVersion=${VERSION}" -o bin/KeyLint .
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -tags production,gtk3 -trimpath -ldflags="-w -s -X main.AppVersion=${VERSION}" -o bin/KeyLint .
+
+      # The gtk3 tag is the only thing keeping Linux off GTK4 + WebKitGTK 6.0,
+      # which aborts at start on stock Ubuntu 23.10+. Fail if it ever slips.
+      - name: Check the Linux binary links GTK3
+        run: |
+          needed=$(readelf -d bin/KeyLint | grep NEEDED)
+          case "$needed" in *libgtk-3.so*) ;; *) bad=1;; esac
+          case "$needed" in *libwebkit2gtk-4.1.so*) ;; *) bad=1;; esac
+          if [ -n "${bad:-}" ]; then
+            echo "$needed"
+            echo "::error::bin/KeyLint does not link GTK3 / WebKit2GTK 4.1 - was -tags gtk3 dropped?"
+            exit 1
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -232,14 +272,26 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
+      # cache-apt-pkgs never refreshes the package lists on GitHub runners, and
+      # the image's lists go stale: on a cache miss apt then 404s on superseded
+      # debs, the action carries on, and caches an empty result under the final
+      # key. Refreshing first costs a few seconds and keeps the cache honest.
+      - name: Refresh apt package lists
+        run: sudo apt-get update
+
       - name: Install system deps
         uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
         with:
           packages: pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev gcc gcc-mingw-w64
           version: 1.0
 
+      # The action above caches whatever it managed to install, including nothing.
+      # Fail here, at the cause, rather than later at the first cgo package.
+      - name: Check GTK3 headers are present
+        run: pkg-config --exists --print-errors gtk+-3.0 webkit2gtk-4.1
+
       - name: Install Wails v3 CLI
-        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.72
+        run: go install -tags gtk3 github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.25
 
       - name: Install frontend dependencies
         working-directory: frontend

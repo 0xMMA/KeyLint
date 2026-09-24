@@ -26,7 +26,7 @@ Runner: `@angular/build:unit-test` with `runner: vitest` (configured in `angular
 
 ## Backend (Go)
 
-Run: `go test ./internal/...`
+Run: `go test -tags gtk3 ./internal/...` (the tag keeps Linux on GTK3; ignored on Windows)
 
 Settings tests use `XDG_CONFIG_HOME` env override to redirect file I/O to a temp dir — see `internal/features/settings/service_test.go`.
 

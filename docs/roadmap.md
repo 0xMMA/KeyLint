@@ -15,7 +15,7 @@
 |---|---|
 | Latest release | `v4.4.3-beta` (2026-04-05) |
 | Last commit on `main` | 2026-09-18 — restart sprint (#39–#88) |
-| Build / tests | `go build` ✅ · `go test ./internal/...` ✅ · Vitest 198/198 ✅ (2026-09-24) |
+| Build / tests | `go build -tags gtk3` ✅ · `go test -tags gtk3 ./internal/...` ✅ · Vitest 198/198 ✅ (2026-09-24) |
 | Open PR | #31 shortcut single/double press — branch frozen, waiting on the Windows retest |
 | Open issues | April triage #21–#30 · shortcut robustness #42 #44 · #34 E3 · #35 E4 · #36 Fix page · #38 shell · #56 shell specs · #61 model-list refresh · #80 #83 Fix prompt |
 | Stale remote branches | `feat/pyramidize`, `fix/updater-platform-aware-install` (both already merged, safe to delete) |
@@ -24,8 +24,8 @@
 
 | Dependency | Pinned | Latest | Note |
 |---|---|---|---|
-| `wailsapp/wails/v3` (Go) | `v3.0.0-alpha.72` | `v3.0.0-beta.23` | v3 Beta shipped Aug 2026; community reports alpha→beta is a version bump, no known breaking changes |
-| `@wailsio/runtime` (npm) | `3.0.0-alpha.79` | `3.0.0-beta.23` | already **mismatched** with the Go side (alpha.72 vs alpha.79) |
+| `wailsapp/wails/v3` (Go) | `v3.0.0-beta.25` | `v3.0.0-beta.25` | E4 step 1 (PR #95), waiting on the Windows smoke test. No Go API break for KeyLint; Linux stays on GTK3 via `-tags gtk3` (decision below) |
+| `@wailsio/runtime` (npm) | `3.0.0-beta.25` | `3.0.0-beta.25` | pinned exactly, same version as the Go side (was alpha.79 vs alpha.72) |
 | Angular | 21.2.0 | 22.1.x | |
 | PrimeNG / `@primeuix/themes` | 21.1.3 / 2.0.3 | 22.1.x / 3.0.x | move together |
 | TypeScript | 5.9 | 7.0 | TS 7 = Go-native compiler; only when Angular CLI supports it |
@@ -146,7 +146,8 @@ Hypothesis: with Opus 5 / Sonnet 5 a single well-structured call matches the det
 Issue: #35.
 
 Order matters:
-1. Wails: bump Go module to `v3.0.0-beta.23` **and** `@wailsio/runtime` to the same version; regenerate bindings; smoke test tray, window hide/show, events, Windows build.
+1. Wails: bump Go module to `v3.0.0-beta.25` **and** `@wailsio/runtime` to the same version; regenerate bindings; smoke test tray, window hide/show, events, Windows build. **PR #95** — bindings unchanged, clears the 8 go-git/go-billy govulncheck findings; Linux builds with `-tags gtk3` to keep the status quo; waiting on the Windows smoke test in the PR body.
+   - [ ] **Decision for Michael, due before the Wails v3.1 bump (v3.1 removes `gtk3`):** Wails' default Linux stack is GTK4 + WebKitGTK 6.0, which always sandboxes with bubblewrap; stock Ubuntu 23.10+ blocks that (`kernel.apparmor_restrict_unprivileged_userns=1`) and the app aborts at start. Options: ship an AppArmor profile in the deb (as Ubuntu does for GNOME Web), declare Linux dev-only and stop publishing Linux binaries/updates, or stay on GTK3 until forced. Whatever is chosen, the Linux self-updater must not replace a working GTK3 binary with a GTK4 one that cannot start.
 2. Angular 22 + PrimeNG 22 + `@primeuix/themes` 3 together (`ng update`); re-check the custom wizard (`@switch`) and dark-mode CSS overrides in `styles.scss`, which patch PrimeNG gaps that may be fixed or moved.
 3. ~~Playwright 1.63, jsdom 30, Prettier~~ **done (#84)**, Vitest to 4.1. Vitest 5 waits until `@angular/build` declares `^5` — then handle the `clearMocks` default flip and the reporter change in the same PR (`.claude/rules/testing.md`).
 4. TypeScript 7: only once `@angular/build` lists it as supported.
