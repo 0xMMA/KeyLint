@@ -794,6 +794,9 @@ describe('SettingsComponent — AWS Bedrock is not offered yet', () => {
   it('has no AWS key field on the AI Providers tab', async () => {
     await render('openai', 'providers');
 
+    // Positive first, so an unrendered tab cannot pass the absence checks.
+    expect(el.textContent).toContain('OpenAI API Key');
+    expect(el.textContent).toContain('Anthropic API Key');
     expect(el.textContent).not.toMatch(/AWS/);
     expect(wailsMock.getKeyStatus).not.toHaveBeenCalledWith('bedrock');
   });

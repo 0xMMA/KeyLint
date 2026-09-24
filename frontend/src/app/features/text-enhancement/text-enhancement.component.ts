@@ -132,7 +132,7 @@ function addTrace(label: string, snapshot: string): void {
           />
           @if (unavailableProviderView; as name) {
             <p-message data-testid="provider-unavailable" severity="warn" size="small">
-              {{ name }} is not available yet. Choose another provider.
+              {{ name }} is not available yet. Choose another provider here, or in Settings to keep it.
             </p-message>
           }
         </div>
@@ -351,7 +351,7 @@ function addTrace(label: string, snapshot: string): void {
                           icon="pi pi-sparkles"
                           label="Apply"
                           size="small"
-                          [disabled]="!selectionInstruction.trim()"
+                          [disabled]="!selectionInstruction.trim() || !!unavailableProviderView"
                           (onClick)="applySelectionInstruction()"
                         />
                         <p-button
@@ -416,8 +416,8 @@ function addTrace(label: string, snapshot: string): void {
             label="Apply"
             icon="pi pi-play"
             size="small"
-            [severity]="globalInstruction.trim() ? 'primary' : 'secondary'"
-            [disabled]="!globalInstruction.trim() || !canvasTextView.trim() || isLoading"
+            [severity]="globalInstruction.trim() && !unavailableProviderView ? 'primary' : 'secondary'"
+            [disabled]="!globalInstruction.trim() || !canvasTextView.trim() || isLoading || !!unavailableProviderView"
             (onClick)="applyGlobalInstruction()"
           >
             <ng-template #content>
@@ -1364,6 +1364,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
 
   async applyGlobalInstruction(): Promise<void> {
     if (!this.globalInstruction.trim() || !canvasText.trim()) return;
+    if (unavailableProviderName(selectedProvider)) return; // the note explains why (#22)
 
     const instruction = this.globalInstruction;
     this.lastRequest = () => this.applyGlobalInstruction();
@@ -1425,6 +1426,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
 
   async applySelectionInstruction(): Promise<void> {
     if (!this.selectionInstruction.trim()) return;
+    if (unavailableProviderName(selectedProvider)) return; // the note explains why (#22)
 
     const textarea = this.canvasTextareaRef?.nativeElement;
     const start = textarea ? textarea.selectionStart : this.selectionStart;

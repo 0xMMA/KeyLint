@@ -71,10 +71,11 @@ describe('TextEnhancementComponent — saved provider that is not available yet'
     fixture.detectChanges();
   });
 
-  afterEach(async () => {
+  afterEach(() => {
+    // Module-level state outlives the fixture; put it back to a fresh page.
     component.originalTextView = '';
-    component.providerView = 'claude';
-    await component.onProviderChange();
+    component.canvasTextView = '';
+    component.providerView = '';
   });
 
   function pyramidizeButton(): HTMLButtonElement {
@@ -84,6 +85,8 @@ describe('TextEnhancementComponent — saved provider that is not available yet'
   it('says why the provider field is empty, and shows no key banner', () => {
     const note = el.querySelector('[data-testid="provider-unavailable"]');
     expect(note?.textContent).toContain('AWS Bedrock is not available yet');
+    // A choice here lasts for the session only; Settings is where it sticks.
+    expect(note?.textContent).toContain('Settings');
     expect(el.querySelector('[data-testid="api-key-banner"]')).toBeNull();
   });
 
@@ -97,6 +100,30 @@ describe('TextEnhancementComponent — saved provider that is not available yet'
 
     await component.pyramidize();
     expect(svcMock.pyramidize).not.toHaveBeenCalled();
+  });
+
+  // The canvas is editable before any Pyramidize, so the refine paths need the
+  // same guard: otherwise they end in a raw "unsupported provider" error.
+  it('keeps the canvas refinements from reaching the backend', async () => {
+    component.canvasTextView = 'Some canvas text';
+    fixture.detectChanges();
+    const input = el.querySelector<HTMLInputElement>('[data-testid="global-instruction-input"]')!;
+    input.value = 'make it shorter';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const apply = el.querySelector<HTMLButtonElement>('[data-testid="apply-instruction-btn"] button')!;
+    expect(apply.disabled).toBe(true);
+    expect(apply.classList).toContain('p-button-secondary');
+
+    await component.applyGlobalInstruction();
+    component.selectionInstruction = 'rephrase';
+    await component.applySelectionInstruction();
+    expect(svcMock.refineGlobal).not.toHaveBeenCalled();
+    expect(svcMock.splice).not.toHaveBeenCalled();
+    expect(component.errorMessage).toBe('');
   });
 
   it('clears the note and enables Pyramidize once the user picks a provider', async () => {

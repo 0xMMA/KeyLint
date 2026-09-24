@@ -19,5 +19,6 @@ export const UNAVAILABLE_PROVIDERS: Readonly<Record<string, string>> = {
 
 /** The display name when `provider` is known but not usable yet, else null. */
 export function unavailableProviderName(provider: string | null | undefined): string | null {
-  return UNAVAILABLE_PROVIDERS[provider ?? ''] ?? null;
+  // hasOwn, so a value like "toString" cannot match an inherited property.
+  return provider && Object.hasOwn(UNAVAILABLE_PROVIDERS, provider) ? UNAVAILABLE_PROVIDERS[provider] : null;
 }
