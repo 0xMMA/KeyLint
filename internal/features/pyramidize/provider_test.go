@@ -202,7 +202,7 @@ func TestPyramidizeDefaultsUnchanged(t *testing.T) {
 	}
 	// 4096 → 16000 is headroom, not a quality change: max_tokens is a limit
 	// the model does not see, so a reply that fit under 4096 is generated as
-	// before. See llm.OutputTokenCeiling for why thinking models needed it.
+	// before. See maxTokens for why thinking models needed it.
 	if maxTokens != 16000 {
 		t.Errorf("maxTokens = %d, want 16000", maxTokens)
 	}

@@ -241,13 +241,8 @@ func TestEnhanceDefaultsUnchanged(t *testing.T) {
 			t.Errorf("default fix model for %s = %q, want %q", provider, got, model)
 		}
 	}
-	// The output ceiling moved from 2048 to 16000 without an eval run, and
-	// that is not the exception it looks like: max_tokens is a limit the model
-	// does not see, so on these defaults (no thinking by default) every reply
-	// that fit under 2048 is generated exactly as before. What changed is that
-	// a thinking model is no longer cut off — see llm.OutputTokenCeiling.
-	if maxTokens != 16000 {
-		t.Errorf("maxTokens = %d, want 16000", maxTokens)
+	if maxTokens != 2048 {
+		t.Errorf("maxTokens = %d, want 2048", maxTokens)
 	}
 }
 

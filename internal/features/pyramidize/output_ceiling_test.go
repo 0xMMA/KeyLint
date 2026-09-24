@@ -18,10 +18,11 @@ import (
 //
 // Sonnet 5 and Opus 5 think by default when the request says nothing about
 // thinking, and every thinking token counts against max_tokens. Measured on
-// the two largest eval samples, a Pyramidize reply spent 2352–3974 output
-// tokens of which the visible document was roughly 700–1250: at the old 4096
-// the closest call ended 122 tokens short of the limit, and at 2048 v1 was
-// cut off before a single visible token. 16000 is headroom, not spend.
+// the two largest eval samples, a Pyramidize reply spent 2352–3822 output
+// tokens at the old 4096 (2794–3974 at 16000) of which the visible document
+// was roughly 700–1250: the closest call at 4096 ended 274 tokens short of the
+// limit, and at 2048 v1 was cut off before a single visible token. 16000 is
+// headroom, not spend.
 func TestPyramidizeOutputCeilingReachesTheWire(t *testing.T) {
 	var body map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

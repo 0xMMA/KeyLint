@@ -47,7 +47,6 @@ type Request struct {
 	Model string
 	// MaxTokens caps the response length. Only providers whose API requires it
 	// (Anthropic) send it; the others keep the request shape they had before.
-	// Features pass OutputTokenCeiling — see there for why it is that large.
 	MaxTokens int
 	// JSONMode asks for a JSON object without saying what shape. It is the
 	// weaker constraint, used when a caller parses JSON but schema enforcement
@@ -326,35 +325,9 @@ var fingerprintHeaders = []string{
 	"X-Stainless-Timeout",
 }
 
-// OutputTokenCeiling is the max_tokens a feature sends. It is a ceiling, not a
-// spend: a reply is billed for what it generates, never for the headroom.
-//
-// It has to cover thinking as well as the answer. Claude Sonnet 5, Opus 5 and
-// later models think by default when a request says nothing about thinking,
-// and every thinking token counts against max_tokens. Measured with Sonnet 5:
-// a Pyramidize reply of roughly 700–1250 visible tokens spent 2352–3974 output
-// tokens in total, and a Fix of a 3.7 KB selection spent all of the old 2048
-// on thinking without writing a character — the user was told to try a shorter
-// selection for text that was not too long.
-//
-// 16000 is the size Anthropic recommends for a non-streaming request. For
-// KeyLint the tighter bound is time, not tokens: each attempt has the feature's
-// 90 s HTTP timeout, and at the 90–125 tokens/s measured that is roughly
-// 8000–11000 tokens. So the practical effect of this number is that the output
-// limit no longer fails a reply the time budget could have delivered. The cost:
-// a generation that really does run on now ends at the timeout rather than at
-// the limit, and the SDK retries a timed-out attempt once within whatever the
-// feature's overall deadline leaves, so the user reads a timeout, not
-// outputLimitMessage. (The SDK's own "streaming required" guard never runs
-// here: it only applies when no request timeout is set, and KeyLint sets one.)
-//
-// Only the Anthropic client sends it. OpenAI, the OpenAI-compatible Ollama
-// endpoint and the Claude Code CLI are sent no output limit at all and keep
-// their own defaults, so no model with a small output limit can reject it.
-const OutputTokenCeiling = 16000
-
-// outputLimitMessage is what a user reads when a reply was cut off. It has to
-// say what to do about it rather than name a limit.
+// outputLimitMessage is what a user reads when a reply was cut off. The Fix
+// page caps at 2048 tokens, so this is reachable on ordinary long selections
+// and has to say what to do about it rather than name a limit.
 const outputLimitMessage = "the result exceeded the output limit — try a shorter selection"
 
 // outputLimitThinkingMessage is the same cut-off when the model spent the whole
@@ -363,7 +336,11 @@ const outputLimitMessage = "the result exceeded the output limit — try a short
 // one generic message is how a thinking budget went unexplained in ADR-002. A
 // reply that thought and was then cut off mid-answer still gets the generic
 // message: from the response alone that is an ordinary cut-off.
-const outputLimitThinkingMessage = "the model used the whole output limit reasoning before it answered — try shorter text or a different model"
+//
+// It is what a Fix user on a thinking model (Sonnet 5, Opus 5) sees on a long
+// selection, so it names the remedy: a model that answers without reasoning
+// at length, or less text.
+const outputLimitThinkingMessage = "the model spent the whole output limit reasoning and wrote no answer — pick a faster model in Settings → AI Providers, or shorten the text"
 
 // schemaName labels the schema for providers that require a name for it. It is
 // never shown to a user.

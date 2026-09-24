@@ -83,11 +83,19 @@ Output: "The meeting is tomorrow at 9am."
 Input:  "Hallo Hans, das release für morgen steht, einen neuen build brauchen wir nicht, einfach redeploy, hab die Klasse CarService gefixt"
 Output: "Hallo Hans, das Release für morgen steht, einen neuen Build brauchen wir nicht, einfach redeploy, hab die Klasse CarService gefixt."`
 
-// maxTokens bounds one fix/enhance reply, thinking included. The model itself
-// comes from settings (Settings.ModelFor); this limit is a constant because it
-// is not a choice a user makes. It was 2048 until Sonnet 5 spent all of that
-// thinking on a long selection — see llm.OutputTokenCeiling.
-const maxTokens = llm.OutputTokenCeiling
+// maxTokens bounds one fix/enhance reply. The model itself comes from settings
+// (Settings.ModelFor); only this limit is still a constant, because it is a
+// property of the flow rather than a choice a user makes.
+//
+// It includes thinking. Sonnet 5 and Opus 5 think by default, and on a long
+// selection they can spend all 2048 before writing a word — measured: a 3.7 KB
+// selection, twice out of two, and the same request needed 5361 tokens and
+// about 45 s once the limit was lifted. Pyramidize raised its limit; Fix
+// deliberately did not. A silent hotkey fix that succeeds after most of a
+// minute pastes into whatever window has focus by then, so for now a thinking
+// model fails fast here with an error that says what to do instead. Whether Fix
+// should wait for every answer is an open product decision, not a constant.
+const maxTokens = 2048
 
 // httpTimeout bounds a provider HTTP call, and enhanceTimeout bounds the whole
 // enhancement including a local CLI provider, which has no HTTP client to bound
