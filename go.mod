@@ -3,18 +3,17 @@ module keylint
 go 1.27
 
 require (
-	github.com/anthropics/anthropic-sdk-go v1.73.0
+	github.com/anthropics/anthropic-sdk-go v1.75.0
 	github.com/google/wire v0.7.0
 	github.com/joho/godotenv v1.5.1
 	github.com/minio/selfupdate v0.6.0
-	github.com/openai/openai-go/v3 v3.61.0
+	github.com/openai/openai-go/v3 v3.66.0
 	github.com/wailsapp/wails/v3 v3.0.0-alpha.72
-	github.com/zalando/go-keyring v0.2.6
+	github.com/zalando/go-keyring v0.2.8
 )
 
 require (
 	aead.dev/minisign v0.2.0 // indirect
-	al.essio.dev/pkg/shellescape v1.6.0 // indirect
 	dario.cat/mergo v1.0.2 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.3.0 // indirect
@@ -23,7 +22,7 @@ require (
 	github.com/bep/debounce v1.2.1 // indirect
 	github.com/buger/jsonparser v1.1.2 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
-	github.com/coder/websocket v1.8.14 // indirect
+	github.com/coder/websocket v1.8.15 // indirect
 	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/ebitengine/purego v0.9.1 // indirect
@@ -60,10 +59,10 @@ require (
 	github.com/wailsapp/go-webview2 v1.0.23 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
-	golang.org/x/crypto v0.54.0 // indirect
-	golang.org/x/net v0.57.0 // indirect
+	golang.org/x/crypto v0.55.0 // indirect
+	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
