@@ -461,6 +461,9 @@ interface ProviderKey {
       gap: 0.25rem;
     }
     .toggle-label-group .hint-text { margin-bottom: 0; }
+    /* A long hint beside the switch would otherwise squeeze it narrower than
+       its track, and the knob slides out past the edge (#26). */
+    .toggle-row p-toggle-switch { flex-shrink: 0; }
     label { font-size: 0.875rem; color: var(--p-text-muted-color); }
     input { width: 100%; }
 
