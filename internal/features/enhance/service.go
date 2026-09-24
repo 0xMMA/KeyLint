@@ -83,10 +83,11 @@ Output: "The meeting is tomorrow at 9am."
 Input:  "Hallo Hans, das release für morgen steht, einen neuen build brauchen wir nicht, einfach redeploy, hab die Klasse CarService gefixt"
 Output: "Hallo Hans, das Release für morgen steht, einen neuen Build brauchen wir nicht, einfach redeploy, hab die Klasse CarService gefixt."`
 
-// maxTokens bounds one fix/enhance reply. The model itself comes from settings
-// (Settings.ModelFor); only this limit is still a constant, because it is a
-// property of the flow rather than a choice a user makes.
-const maxTokens = 2048
+// maxTokens bounds one fix/enhance reply, thinking included. The model itself
+// comes from settings (Settings.ModelFor); this limit is a constant because it
+// is not a choice a user makes. It was 2048 until Sonnet 5 spent all of that
+// thinking on a long selection — see llm.OutputTokenCeiling.
+const maxTokens = llm.OutputTokenCeiling
 
 // httpTimeout bounds a provider HTTP call, and enhanceTimeout bounds the whole
 // enhancement including a local CLI provider, which has no HTTP client to bound

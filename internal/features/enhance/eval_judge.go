@@ -84,11 +84,14 @@ func RunJudge(settingsSvc *settings.Service, judge JudgeConfig, original, refere
 	user := fmt.Sprintf("<original>\n%s\n</original>\n\n<reference>\n%s\n</reference>\n\n<candidate>\n%s\n</candidate>",
 		original, reference, candidate)
 
+	// MaxTokens is the shared ceiling rather than a judge-sized 1024: the pinned
+	// judge does not think, so its scores do not move, but EVAL_JUDGE_MODEL can
+	// name a model that does, and 1024 would be spent before the verdict.
 	resp, err := client.Complete(context.Background(), llm.Request{
 		System:      judgeSystemPrompt,
 		User:        user,
 		Model:       judge.Model,
-		MaxTokens:   1024,
+		MaxTokens:   llm.OutputTokenCeiling,
 		JSONSchema:  fixJudgeSchema,
 		Temperature: llm.Temp(judge.Temperature),
 	})

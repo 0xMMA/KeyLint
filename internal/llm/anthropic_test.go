@@ -197,6 +197,20 @@ func TestAnthropicRefusesUnusableAnswers(t *testing.T) {
 			want:  "exceeded the output limit",
 		},
 		{
+			// Sonnet 5 and Opus 5 think by default. With display omitted the
+			// thinking block arrives empty, and a budget spent on it leaves no
+			// text at all — the shape measured on Sonnet 5 at 2048 tokens.
+			name:  "output limit spent on thinking before any answer",
+			reply: `{"stop_reason":"max_tokens","content":[{"type":"thinking","thinking":"","signature":"sig"}]}`,
+			want:  "used the whole output limit reasoning before it answered",
+		},
+		{
+			// Thinking and a partial answer: still an ordinary cut-off.
+			name:  "cut off mid-answer after thinking",
+			reply: `{"stop_reason":"max_tokens","content":[{"type":"thinking","thinking":"","signature":"sig"},{"type":"text","text":"They are going"}]}`,
+			want:  "exceeded the output limit",
+		},
+		{
 			name:  "context window exceeded",
 			reply: `{"stop_reason":"model_context_window_exceeded","content":[{"type":"text","text":"partial"}]}`,
 			want:  "exceeded the output limit",

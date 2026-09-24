@@ -8,6 +8,8 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+
+	"keylint/internal/logger"
 )
 
 // anthropicProvider carries the ID used in logs and the name used in errors.
@@ -61,24 +63,37 @@ func (c *anthropicClient) Complete(ctx context.Context, req Request) (Response, 
 		return Response{}, mapAnthropicError(attempts, req.Model, err)
 	}
 
+	// A reply can arrive as several text blocks; taking only the first would
+	// silently truncate it. Thinking blocks are counted, not read: with the
+	// default display they arrive empty, and they are never the answer.
+	var builder strings.Builder
+	thinking := false
+	for _, block := range message.Content {
+		switch b := block.AsAny().(type) {
+		case anthropic.TextBlock:
+			builder.WriteString(b.Text)
+		case anthropic.ThinkingBlock, anthropic.RedactedThinkingBlock:
+			thinking = true
+		}
+	}
+	text := builder.String()
+
 	// A truncated answer would be pasted over the user's selection as a
 	// half-written sentence — the same call the Claude Code client makes.
 	switch message.StopReason {
 	case anthropic.StopReasonMaxTokens, anthropic.StopReasonModelContextWindowExceeded:
+		// Usage carries no user text, so it may be logged at Warn: it is what
+		// tells a reader whether the budget went on thinking or on the answer.
+		logger.Warn("llm: output limit reached", "feature", c.cfg.Feature, "provider", anthropicProvider.id,
+			"model", req.Model, "stop_reason", string(message.StopReason), "max_tokens", req.MaxTokens,
+			"output_tokens", message.Usage.OutputTokens, "thinking", thinking, "answer_chars", len(text))
+		if message.StopReason == anthropic.StopReasonMaxTokens && thinking && strings.TrimSpace(text) == "" {
+			return Response{}, fmt.Errorf("%s: %s", anthropicProvider.name, outputLimitThinkingMessage)
+		}
 		return Response{}, fmt.Errorf("%s: %s", anthropicProvider.name, outputLimitMessage)
 	case anthropic.StopReasonRefusal:
 		return Response{}, fmt.Errorf("%s declined the request", anthropicProvider.name)
 	}
-
-	// A reply can arrive as several text blocks; taking only the first would
-	// silently truncate it.
-	var builder strings.Builder
-	for _, block := range message.Content {
-		if text, ok := block.AsAny().(anthropic.TextBlock); ok {
-			builder.WriteString(text.Text)
-		}
-	}
-	text := builder.String()
 	if strings.TrimSpace(text) == "" {
 		return Response{}, fmt.Errorf("%s returned no text content", anthropicProvider.name)
 	}

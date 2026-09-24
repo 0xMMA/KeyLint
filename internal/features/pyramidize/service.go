@@ -15,8 +15,10 @@ import (
 	"keylint/internal/logger"
 )
 
-// maxTokens caps a Pyramidize reply. Model IDs live in settings (#33 step 4).
-const maxTokens = 4096
+// maxTokens caps a Pyramidize reply, thinking included. Model IDs live in
+// settings (#33 step 4). It was 4096 until Sonnet 5 showed that default
+// thinking alone can use most of that — see llm.OutputTokenCeiling.
+const maxTokens = llm.OutputTokenCeiling
 
 // logFeature tags this feature's provider calls in the log.
 const logFeature = "pyramidize"

@@ -47,6 +47,7 @@ type Request struct {
 	Model string
 	// MaxTokens caps the response length. Only providers whose API requires it
 	// (Anthropic) send it; the others keep the request shape they had before.
+	// Features pass OutputTokenCeiling — see there for why it is that large.
 	MaxTokens int
 	// JSONMode asks for a JSON object without saying what shape. It is the
 	// weaker constraint, used when a caller parses JSON but schema enforcement
@@ -325,10 +326,36 @@ var fingerprintHeaders = []string{
 	"X-Stainless-Timeout",
 }
 
-// outputLimitMessage is what a user reads when a reply was cut off. The Fix
-// page caps at 2048 tokens, so this is reachable on ordinary long selections
-// and has to say what to do about it rather than name a limit.
+// OutputTokenCeiling is the max_tokens a feature sends. It is a ceiling, not a
+// spend: a reply is billed for what it generates, never for the headroom.
+//
+// It has to cover thinking as well as the answer. Claude Sonnet 5, Opus 5 and
+// later models think by default when a request says nothing about thinking,
+// and every thinking token counts against max_tokens. Measured with Sonnet 5:
+// a Pyramidize reply of roughly 700–1250 visible tokens spent 2352–3974 output
+// tokens in total, and a Fix of a 3.7 KB selection spent all of the old 2048
+// on thinking without writing a character — the user was told to try a shorter
+// selection for text that was not too long.
+//
+// 16000 is the size Anthropic recommends for a non-streaming request: large
+// enough that thinking cannot starve the answer, small enough that the SDK does
+// not demand streaming. What bounds a runaway generation in time is the
+// feature's request timeout, not this number.
+//
+// Only the Anthropic client sends it. OpenAI, the OpenAI-compatible Ollama
+// endpoint and the Claude Code CLI are sent no output limit at all and keep
+// their own defaults, so no model with a small output limit can reject it.
+const OutputTokenCeiling = 16000
+
+// outputLimitMessage is what a user reads when a reply was cut off. It has to
+// say what to do about it rather than name a limit.
 const outputLimitMessage = "the result exceeded the output limit — try a shorter selection"
+
+// outputLimitThinkingMessage is the same cut-off when the model spent the whole
+// budget thinking and wrote no answer at all. It is kept apart because the two
+// have different causes, and the one message used to be all a failed eval run
+// recorded — which is how a thinking budget went unexplained in ADR-002.
+const outputLimitThinkingMessage = "the model used the whole output limit reasoning before it answered — try a shorter selection or a different model"
 
 // schemaName labels the schema for providers that require a name for it. It is
 // never shown to a user.
