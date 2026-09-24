@@ -35,6 +35,13 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
+      # cache-apt-pkgs never refreshes the package lists on GitHub runners, and
+      # the image's lists go stale: on a cache miss apt then 404s on superseded
+      # debs, the action carries on, and caches an empty result under the final
+      # key. Refreshing first costs a few seconds and keeps the cache honest.
+      - name: Refresh apt package lists
+        run: sudo apt-get update
+
       - name: Install system deps
         uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
         with:
@@ -181,6 +188,13 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
+      # cache-apt-pkgs never refreshes the package lists on GitHub runners, and
+      # the image's lists go stale: on a cache miss apt then 404s on superseded
+      # debs, the action carries on, and caches an empty result under the final
+      # key. Refreshing first costs a few seconds and keeps the cache honest.
+      - name: Refresh apt package lists
+        run: sudo apt-get update
+
       - name: Install system deps
         uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
         with:
@@ -231,6 +245,13 @@ jobs:
           node-version: '24'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
+
+      # cache-apt-pkgs never refreshes the package lists on GitHub runners, and
+      # the image's lists go stale: on a cache miss apt then 404s on superseded
+      # debs, the action carries on, and caches an empty result under the final
+      # key. Refreshing first costs a few seconds and keeps the cache honest.
+      - name: Refresh apt package lists
+        run: sudo apt-get update
 
       - name: Install system deps
         uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
