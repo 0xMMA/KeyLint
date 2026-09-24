@@ -70,6 +70,9 @@ updates:
   #   Wails bump or a framework major. That is deliberate: a security PR is the
   #   loudest notice there is. It is not merge-on-green; do the paired or
   #   `ng update` work it asks for.
+  #   The one exception is the PrimeUI licence fence in the npm entry: it uses
+  #   explicit `versions:` ranges precisely so that no PR, security or not,
+  #   can pull a non-MIT PrimeTek package in.
   - package-ecosystem: gomod
     directory: /
     schedule:
@@ -143,6 +146,32 @@ updates:
       - dependency-name: "typescript"
         update-types:
           - version-update:semver-major
+      # LICENCE FENCE — explicit `versions:` ranges, because unlike the rules
+      # above they also bind security updates. From these versions on, the
+      # PrimeTek packages are no longer MIT but the commercial "PrimeUI
+      # License": a licence key is required, and without one the app shows a
+      # red "Invalid PrimeUI License" banner (primeng 22.x, checked 2026-09-25
+      # in the npm tarballs; https://primeui.dev/nextchapter). Every version
+      # below these bounds is MIT. Crossing them is a licensing decision for
+      # the owner, not a dependency bump — remove a line only as part of it.
+      - dependency-name: "primeng"
+        versions: [">=22.0.0"]
+      - dependency-name: "@primeuix/styles"
+        versions: [">=3.0.0"]
+      - dependency-name: "@primeuix/themes"
+        versions: [">=3.0.0"]
+      - dependency-name: "@primeuix/styled"
+        versions: [">=1.0.0"]
+      - dependency-name: "@primeuix/motion"
+        versions: [">=1.0.0"]
+      - dependency-name: "@primeuix/utils"
+        versions: [">=0.8.0"]
+      - dependency-name: "primeicons"
+        versions: [">=8.0.0"]
+      - dependency-name: "@primeicons/*"
+        versions: [">=0.0.0"]
+      - dependency-name: "@primeui/*"
+        versions: [">=0.0.0"]
       # Gated on the Angular builder's peer range, not on Vitest's release:
       # @angular/build up to 22.1.x declares vitest ^4.0.8 only, and vitest 5
       # then makes `npm install` fail with ERESOLVE (.claude/rules/testing.md).

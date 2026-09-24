@@ -9,6 +9,8 @@
 
 > **2026-09-24:** no code since 2026-09-18. This pass reconciles the file with the repo: #47 and #55 closed, WebView2 verification shipped (#66/#74), E4 step 3 partly done (#84).
 >
+> **Decision needed (2026-09-25): PrimeNG 22 is commercial.** See E4 step 2 — Angular 22 is blocked until Michael picks (a) stay on 21, (b) Community licence key, or (c) leave PrimeNG.
+>
 > **Progress log 2026-09-17/18:** E1 shipped (Claude Code provider, #45/#49/#54/#72), E2 complete (#39/#52/#57/#60), E3 measured (ADR-002 #63; Fix eval #79/#82/#88 — suite saturated, harder samples needed before more prompt work), eval instrument hardened (#62), CI: e2e + race detector + bindings drift + pinned actions + WebView2 signature check (#50/#65/#73/#74/#81/#84/#87). Waiting on Michael: #31 Windows retest, ADR-002 decisions (Sonnet 5 default, AUTO cost, dead threshold slider, `--json` score), #38 DevTools check, #61 refresh feel.
 
 | Item | State |
@@ -147,7 +149,7 @@ Issue: #35.
 
 Order matters:
 1. Wails: bump Go module to `v3.0.0-beta.23` **and** `@wailsio/runtime` to the same version; regenerate bindings; smoke test tray, window hide/show, events, Windows build.
-2. Angular 22 + PrimeNG 22 + `@primeuix/themes` 3 together (`ng update`); re-check the custom wizard (`@switch`) and dark-mode CSS overrides in `styles.scss`, which patch PrimeNG gaps that may be fixed or moved.
+2. **Blocked on a licensing decision (Michael).** PrimeNG 22 is no longer MIT: PrimeTek moved it, `@primeuix/*` 3.x and primeicons 8 to the commercial *PrimeUI License* (checked 2026-09-25 in the npm tarballs; [announcement](https://primeui.dev/nextchapter)). A licence key is required; without one `providePrimeNG()` shows a red "Invalid PrimeUI License" banner. The free Community tier covers "non-commercial open source projects" and small organisations, needs yearly renewal, and forbids publishing the key — so it would live in a CI secret and every other build shows the banner. PrimeNG 21.1.10 declares `@angular/core ^21`, so **Angular 22 is blocked with it**. Options: (a) stay on Angular 21 + PrimeNG 21 (MIT, still receives 21.x releases), (b) Community key via CI secret, (c) move off PrimeNG before Angular 21 support ends. Dependabot fences the non-MIT versions (#89). Originally: Angular 22 + PrimeNG 22 + `@primeuix/themes` 3 together (`ng update`); re-check the custom wizard (`@switch`) and dark-mode CSS overrides in `styles.scss`, which patch PrimeNG gaps that may be fixed or moved.
 3. ~~Playwright 1.63, jsdom 30, Prettier~~ **done (#84)**, Vitest to 4.1. Vitest 5 waits until `@angular/build` is on >= 22.2, the first to declare `^5` (i.e. with step 2) — then handle the `clearMocks` default flip and the reporter change in the same PR (`.claude/rules/testing.md`).
 4. TypeScript: Angular dictates it — Angular 22 requires `>=6.0 <6.1`, so step 2 moves TypeScript 5.9 → 6.0 with it. TypeScript 7 only once `@angular/build` lists it.
 5. Node 24 LTS stays.
@@ -163,7 +165,7 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 - Existing April triage: #21 `vv` version prefix, #24 hide unimplemented themes, #26 toggle knob clipping, #28 global-instruction input light background, #29 Apply button focus, #27 side-by-side on wide screens.
 
 #### E6 · Bedrock end-to-end UI (#23) — unblocked (E2 step 3 done), mostly settings UI work plus the region field and AWS SDK noted in E2 step 3. Closes #22.
-#### E7 · Light theme (#25) — after E4 (PrimeNG 22 may change token layout).
+#### E7 · Light theme (#25) — after E4 (PrimeNG 22 may change token layout); if E4 step 2 stays on PrimeNG 21, build it on the v21 tokens instead.
 #### E8 · Feature parity leftovers (moved from the old `TODO.md`)
 - Linux global hotkey (currently a stub) — low, Linux is dev-only
 - HTML clipboard (CF_HTML) paste-back for Outlook/Teams — medium, real user value on Windows
