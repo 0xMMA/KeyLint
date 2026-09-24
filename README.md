@@ -59,14 +59,14 @@ MIT + Commons Clause — see [LICENSE](LICENSE) for details.
 | Layer | Technology |
 |-------|------------|
 | Desktop runtime | [Wails v3](https://v3.wails.io/) (Go) |
-| Backend language | Go 1.26 |
+| Backend language | Go 1.27 |
 | Dependency injection | [Wire](https://github.com/google/wire) |
 | Frontend | Angular v21 |
 | UI components | PrimeNG v21 (Aura preset, orange/zinc theme) |
 
 ### Prerequisites
 
-- Go 1.26+
+- Go 1.27+
 - Node.js 24 LTS
 - Wails v3 CLI: `go install github.com/wailsapp/wails/v3/cmd/wails3@latest`
 - Linux: `sudo apt install libgtk-3-dev libwebkit2gtk-4.1-dev`
