@@ -87,7 +87,7 @@ func (c *anthropicClient) Complete(ctx context.Context, req Request) (Response, 
 		logger.Warn("llm: output limit reached", "feature", c.cfg.Feature, "provider", anthropicProvider.id,
 			"model", req.Model, "stop_reason", string(message.StopReason), "max_tokens", req.MaxTokens,
 			"output_tokens", message.Usage.OutputTokens, "thinking", thinking, "answer_bytes", len(text))
-		if message.StopReason == anthropic.StopReasonMaxTokens && thinking && strings.TrimSpace(text) == "" {
+		if message.StopReason == anthropic.StopReasonMaxTokens && thinking {
 			return Response{}, fmt.Errorf("%s: %s", anthropicProvider.name, outputLimitThinkingMessage)
 		}
 		return Response{}, fmt.Errorf("%s: %s", anthropicProvider.name, outputLimitMessage)

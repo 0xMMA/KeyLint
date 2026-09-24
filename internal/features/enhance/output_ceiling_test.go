@@ -72,7 +72,7 @@ func TestFixOnAThinkingModelSaysWhatToDo(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error for a reply with no text")
 	}
-	for _, want := range []string{"reasoning", "pick a faster model", "Settings", "shorten the text"} {
+	for _, want := range []string{"reasoning", "does not reason first", "shorten the text"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error = %q, want it to mention %q", err, want)
 		}

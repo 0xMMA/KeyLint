@@ -31,7 +31,10 @@ import (
 // tighter bound is time: each attempt has a 90 s HTTP timeout, roughly
 // 8000–11000 tokens at the 90–125 tokens/s measured, so a generation that runs
 // longer ends as a timeout (retried once by the SDK within callTimeout) rather
-// than as an output-limit error. Pyramidize is a visible wait in the app, which
+// than as an output-limit error. The timeout is also what lets 16000 go out
+// non-streaming at all: the SDK refuses a non-streaming request whose
+// max_tokens implies a very long generation unless the client sets a timeout,
+// and every client here does. Pyramidize is a visible wait in the app, which
 // is why it gets the room and the silent Fix hotkey does not (see enhance).
 //
 // Only the Anthropic client sends max_tokens. OpenAI, the OpenAI-compatible

@@ -141,8 +141,10 @@ description, not a diagnosis.
 > two failing samples spent 2352–3822 output tokens at 4096 against a visible
 > document of about 700–1250; at 2048 the cut-off reproduces — for v1 with no
 > visible text, for v2 after about 305 visible tokens. The reading above, "a
-> generation that does not terminate", is retracted: nothing ran away, the
-> thinking before an ordinary document varies, and sometimes it does not fit.
+> generation that does not terminate", is retracted as the explanation: a
+> runaway is not needed to explain the failures — the thinking before an
+> ordinary document varies, and sometimes it does not fit. How far the 09-18
+> failures would have run past 4096 is unknown.
 > v2 spent
 > 3082 and 3822 on the same two samples, so it shares the exposure, which
 > weakens the reliability argument (see "What would change these decisions").
@@ -221,8 +223,10 @@ readings are recorded because they differ, and the difference is the decision.
 - **Schema enforcement.** The roadmap's v3 was "single call, *structured output*"
   — all three baselines ran with `schemaEnforcement: false`. Whether enforcing
   the schema changes quality is untested and remains open under #47/#34.
-- **Opus 5.** The roadmap asks for a re-baseline on Sonnet 5 *and* Opus 5. Only
-  Sonnet 5 was run.
+- **Opus 5.** Not run for this ADR. Measured afterwards (2026-09-25, three runs,
+  v2, Pyramidize limit 16000): deterministic 0.8878 (0.8848–0.8895), judge
+  0.8197 (0.8123–0.8238) — see `quality-status.md`. The decision above is
+  unchanged by it; it is an input to the default-model question.
 - **memo, wiki, powerpoint.** All three still append `selfQABlock` and use
   `documentSchema`, and none has any eval coverage — the suite is 13 email
   samples. Retiring the refine stage outright needs samples for them, or a

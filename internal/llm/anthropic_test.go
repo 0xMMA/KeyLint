@@ -206,18 +206,19 @@ func TestAnthropicRefusesUnusableAnswers(t *testing.T) {
 			// text at all — the shape measured on Sonnet 5 at 2048 tokens.
 			name:  "output limit spent on thinking before any answer",
 			reply: `{"stop_reason":"max_tokens","content":[{"type":"thinking","thinking":"","signature":"sig"}]}`,
-			want:  "spent the whole output limit reasoning and wrote no answer",
+			want:  "spent most of the output limit reasoning",
 		},
 		{
 			name:  "output limit spent on redacted thinking",
 			reply: `{"stop_reason":"max_tokens","content":[{"type":"redacted_thinking","data":"opaque"}]}`,
-			want:  "spent the whole output limit reasoning and wrote no answer",
+			want:  "spent most of the output limit reasoning",
 		},
 		{
-			// Thinking and a partial answer: still an ordinary cut-off.
+			// Thinking and a partial answer: the budget still went on reasoning,
+			// and "shorten the text" alone would misdiagnose it.
 			name:  "cut off mid-answer after thinking",
 			reply: `{"stop_reason":"max_tokens","content":[{"type":"thinking","thinking":"","signature":"sig"},{"type":"text","text":"They are going"}]}`,
-			want:  "exceeded the output limit",
+			want:  "spent most of the output limit reasoning",
 		},
 		{
 			name:  "context window exceeded",

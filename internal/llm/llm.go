@@ -330,17 +330,19 @@ var fingerprintHeaders = []string{
 // and has to say what to do about it rather than name a limit.
 const outputLimitMessage = "the result exceeded the output limit — try a shorter selection"
 
-// outputLimitThinkingMessage is the same cut-off when the model spent the whole
-// budget thinking and wrote no answer at all. It is kept apart because the two
-// have different causes, and an eval run records only the error string — the
-// one generic message is how a thinking budget went unexplained in ADR-002. A
-// reply that thought and was then cut off mid-answer still gets the generic
-// message: from the response alone that is an ordinary cut-off.
+// outputLimitThinkingMessage is the same cut-off when the model reasoned before
+// answering — with no answer at all, or cut off mid-answer. It is kept apart
+// because the cause differs, and an eval run records only the error string —
+// the one generic message is how a thinking budget went unexplained in
+// ADR-002. Telling a thinking model's user that the text is too long would be
+// the same misdiagnosis; the Warn line's answer_bytes says which of the two
+// shapes it was.
 //
 // It is what a Fix user on a thinking model (Sonnet 5, Opus 5) sees on a long
-// selection, so it names the remedy: a model that answers without reasoning
-// at length, or less text.
-const outputLimitThinkingMessage = "the model spent the whole output limit reasoning and wrote no answer — pick a faster model in Settings → AI Providers, or shorten the text"
+// selection, so it names the remedy. Worded for every surface it reaches — the
+// GUI and the -fix / -pyramidize CLI — so it names the property that matters
+// (the model reasons first) and not a settings tab.
+const outputLimitThinkingMessage = "the model spent most of the output limit reasoning and was cut off — choose a model that does not reason first (such as Haiku 4.5), or shorten the text"
 
 // schemaName labels the schema for providers that require a name for it. It is
 // never shown to a user.

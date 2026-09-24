@@ -105,9 +105,6 @@ func TestTheJudgeSendsItsTemperatureAndSchema(t *testing.T) {
 	if got.MaxTokens != 4096 {
 		t.Errorf("MaxTokens = %d, want the judge's own 4096", got.MaxTokens)
 	}
-	if got.MaxTokens == maxTokens {
-		t.Error("the judge sent the pipeline's output limit")
-	}
 }
 
 // TestTheJudgeSchemaIgnoresThePipelineFlag: KEYLINT_PYRAMIDIZE_SCHEMA describes
