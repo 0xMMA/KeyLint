@@ -55,4 +55,7 @@ func TestFixOutputCeilingReachesTheWire(t *testing.T) {
 	if _, ok := body["thinking"]; ok {
 		t.Errorf("thinking = %v, want it absent so the model default applies", body["thinking"])
 	}
+	if _, ok := body["output_config"]; ok {
+		t.Errorf("output_config = %v, want it absent: Fix asks for prose and sets no effort", body["output_config"])
+	}
 }

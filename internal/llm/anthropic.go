@@ -86,7 +86,7 @@ func (c *anthropicClient) Complete(ctx context.Context, req Request) (Response, 
 		// tells a reader whether the budget went on thinking or on the answer.
 		logger.Warn("llm: output limit reached", "feature", c.cfg.Feature, "provider", anthropicProvider.id,
 			"model", req.Model, "stop_reason", string(message.StopReason), "max_tokens", req.MaxTokens,
-			"output_tokens", message.Usage.OutputTokens, "thinking", thinking, "answer_chars", len(text))
+			"output_tokens", message.Usage.OutputTokens, "thinking", thinking, "answer_bytes", len(text))
 		if message.StopReason == anthropic.StopReasonMaxTokens && thinking && strings.TrimSpace(text) == "" {
 			return Response{}, fmt.Errorf("%s: %s", anthropicProvider.name, outputLimitThinkingMessage)
 		}

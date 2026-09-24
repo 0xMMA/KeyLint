@@ -20,7 +20,7 @@ import (
 // thinking, and every thinking token counts against max_tokens. Measured on
 // the two largest eval samples, a Pyramidize reply spent 2352–3974 output
 // tokens of which the visible document was roughly 700–1250: at the old 4096
-// the answer was a few hundred tokens from being cut off, and at 2048 it was
+// the closest call ended 122 tokens short of the limit, and at 2048 v1 was
 // cut off before a single visible token. 16000 is headroom, not spend.
 func TestPyramidizeOutputCeilingReachesTheWire(t *testing.T) {
 	var body map[string]any

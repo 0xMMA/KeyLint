@@ -337,10 +337,16 @@ var fingerprintHeaders = []string{
 // on thinking without writing a character — the user was told to try a shorter
 // selection for text that was not too long.
 //
-// 16000 is the size Anthropic recommends for a non-streaming request: large
-// enough that thinking cannot starve the answer, small enough that the SDK does
-// not demand streaming. What bounds a runaway generation in time is the
-// feature's request timeout, not this number.
+// 16000 is the size Anthropic recommends for a non-streaming request. For
+// KeyLint the tighter bound is time, not tokens: each attempt has the feature's
+// 90 s HTTP timeout, and at the 90–125 tokens/s measured that is roughly
+// 8000–11000 tokens. So the practical effect of this number is that the output
+// limit no longer fails a reply the time budget could have delivered. The cost:
+// a generation that really does run on now ends at the timeout rather than at
+// the limit, and the SDK retries a timed-out attempt once within whatever the
+// feature's overall deadline leaves, so the user reads a timeout, not
+// outputLimitMessage. (The SDK's own "streaming required" guard never runs
+// here: it only applies when no request timeout is set, and KeyLint sets one.)
 //
 // Only the Anthropic client sends it. OpenAI, the OpenAI-compatible Ollama
 // endpoint and the Claude Code CLI are sent no output limit at all and keep
@@ -353,9 +359,11 @@ const outputLimitMessage = "the result exceeded the output limit — try a short
 
 // outputLimitThinkingMessage is the same cut-off when the model spent the whole
 // budget thinking and wrote no answer at all. It is kept apart because the two
-// have different causes, and the one message used to be all a failed eval run
-// recorded — which is how a thinking budget went unexplained in ADR-002.
-const outputLimitThinkingMessage = "the model used the whole output limit reasoning before it answered — try a shorter selection or a different model"
+// have different causes, and an eval run records only the error string — the
+// one generic message is how a thinking budget went unexplained in ADR-002. A
+// reply that thought and was then cut off mid-answer still gets the generic
+// message: from the response alone that is an ordinary cut-off.
+const outputLimitThinkingMessage = "the model used the whole output limit reasoning before it answered — try shorter text or a different model"
 
 // schemaName labels the schema for providers that require a name for it. It is
 // never shown to a user.
