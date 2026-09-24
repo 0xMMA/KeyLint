@@ -27,7 +27,8 @@ done
 
 # Build the binary first.
 echo "Building KeyLint..."
-go build -o bin/KeyLint .
+# gtk3 keeps Linux on the GTK3 stack (see CLAUDE.md); ignored on Windows.
+go build -tags gtk3 -o bin/KeyLint .
 
 TIMESTAMP=$(date +"%Y-%m-%dT%H-%M-%S")
 RUN_DIR="test-data/eval-runs/${TIMESTAMP}"

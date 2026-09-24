@@ -15,7 +15,7 @@
 |---|---|
 | Latest release | `v4.4.3-beta` (2026-04-05) |
 | Last commit on `main` | 2026-09-18 — restart sprint (#39–#88) |
-| Build / tests | `go build` ✅ · `go test ./internal/...` ✅ · Vitest 198/198 ✅ (2026-09-24) |
+| Build / tests | `go build -tags gtk3` ✅ · `go test -tags gtk3 ./internal/...` ✅ · Vitest 198/198 ✅ (2026-09-24) |
 | Open PR | #31 shortcut single/double press — branch frozen, waiting on the Windows retest |
 | Open issues | April triage #21–#30 · shortcut robustness #42 #44 · #34 E3 · #35 E4 · #36 Fix page · #38 shell · #56 shell specs · #61 model-list refresh · #80 #83 Fix prompt |
 | Stale remote branches | `feat/pyramidize`, `fix/updater-platform-aware-install` (both already merged, safe to delete) |
