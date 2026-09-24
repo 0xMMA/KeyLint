@@ -111,10 +111,10 @@ Issue: #33 (closed). Follow-ups: #47 schema enforcement (closed, parked default-
 
 | Need | Covered by | Notes |
 |---|---|---|
-| Anthropic API | `github.com/anthropics/anthropic-sdk-go` (v1.73) | official |
+| Anthropic API | `github.com/anthropics/anthropic-sdk-go` (v1.75) | official |
 | AWS Bedrock | same SDK, `bedrock.NewMantleClient` | closes #23 for free, #22 becomes moot |
 | Google Vertex | same SDK, `vertex.WithGoogleAuth` | optional |
-| OpenAI | `github.com/openai/openai-go/v3` (v3.61) | official |
+| OpenAI | `github.com/openai/openai-go/v3` (v3.66) | official |
 | Ollama, OpenRouter, LM Studio, Groq, Mistral, … | `openai-go` + `option.WithBaseURL` | OpenAI-compatible endpoints; Ollama serves `/v1` |
 | Claude Code CLI | `internal/llm/claudecli` (E1, #32) | spawn |
 
