@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=keylint
+Name=KeyLint
 Exec=KeyLint
 Icon=KeyLint
 Categories=Development;
