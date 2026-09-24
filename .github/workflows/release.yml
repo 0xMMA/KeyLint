@@ -45,6 +45,11 @@ jobs:
           packages: pkg-config libgtk-4-dev libwebkitgtk-6.0-dev gcc
           version: 1.0
 
+      # The action above caches whatever it managed to install, including nothing.
+      # Fail here, at the cause, rather than later at the first cgo package.
+      - name: Check GTK4 headers are present
+        run: pkg-config --exists --print-errors gtk4 webkitgtk-6.0
+
       - name: Install Wails v3 CLI
         run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.25
 
@@ -100,6 +105,11 @@ jobs:
         with:
           packages: pkg-config libgtk-4-dev libwebkitgtk-6.0-dev gcc gcc-mingw-w64
           version: 1.0
+
+      # The action above caches whatever it managed to install, including nothing.
+      # Fail here, at the cause, rather than later at the first cgo package.
+      - name: Check GTK4 headers are present
+        run: pkg-config --exists --print-errors gtk4 webkitgtk-6.0
 
       - name: Install Wails v3 CLI
         run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.25
