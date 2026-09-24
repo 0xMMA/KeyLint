@@ -66,3 +66,10 @@ require (
 	golang.org/x/text v0.41.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
+
+// Go 1.27 lets SSL_CERT_FILE / SSL_CERT_DIR replace the Windows and macOS
+// certificate store. Keep the pre-1.27 behaviour: KeyLint trusts the system
+// store there, so a stale variable cannot break every provider call and a
+// corporate root CA installed only in the store keeps working. Revisit as an
+// explicit product decision, not as a side effect of a toolchain bump.
+godebug x509sslcertoverrideplatform=0
