@@ -1,6 +1,6 @@
 # Pyramidize Output Quality — Status & Open Issues
 
-> Last updated: 2026-09-18
+> Last updated: 2026-09-25
 
 > The Fix prompt has its own suite and baseline: [`docs/fix/quality-status.md`](../fix/quality-status.md).
 
@@ -43,6 +43,22 @@ exactly those fields. See [ADR-002](adr-002-one-shot-vs-pipeline.md).
 | Sonnet 5 + v2 (one-shot, shipped prompt) | 0.8651 (0.8606–0.8683) | 0.8251 (0.8000–0.8477) | 13 of 13 | 8–10 |
 | Sonnet 5 + v1 (pipeline, self-QA + refine) | 0.7726 (0.7326–0.8058) | 0.8290 (0.8125–0.8417) | 11–12 of 13 | 9–10 |
 | Sonnet 5 + v1, completed documents only | 0.8611 (0.8444–0.8730) | — | — | — |
+| Opus 5 + v2 (2026-09-25, Pyramidize limit 16000 — see note) | 0.8878 (0.8848–0.8895) | 0.8197 (0.8123–0.8238) | 13 of 13 | 10 |
+
+**Opus 5** (`test-data/eval-baselines/2026-09-25T00-47-48/`, gitSHA `df1ed3d`, three runs):
+deterministic is clearly above both Sonnet rows — its range overlaps neither. The
+judge is **below Sonnet 4.6 with disjoint ranges** and overlaps Sonnet 5, so
+against 4.6 this is "improvement: deterministic, regression: judge". It is the
+first model here with a judge *regression* by this document's rule: Sonnet 5's
+judge range (0.8000–0.8477) overlaps 4.6's, which makes its lower mean
+inconclusive, not a regression. The judge's rationales repeatedly mark down the
+same thing on the low-scoring samples: a subject line that packs several
+messages instead of leading with one. Read that as a hint about where the
+disagreement lies, not as a finding: it is one judge model's taste, and the
+deterministic checks reward informative subjects. Opus 5 ran with the
+Pyramidize output limit at 16000 (the other rows ran at 4096); v2 produced all
+13 documents in every run, so the limit did not decide any sample here, but
+`--compare` cannot see that difference — `max_tokens` is not in `summary.json`.
 
 Two readings that are easy to get wrong here:
 
@@ -51,11 +67,13 @@ of the thirteen samples hit `stop_reason: max_tokens` against the shared
 `maxTokens = 4096` in every run. A zeroed sample costs a 13-sample mean about
 0.065. Scored over what it produced, v1 sits at 0.8611 (0.8444–0.8730); v2 over
 the same samples is 0.8707 (0.8618–0.8775). Overlapping, therefore inconclusive.
-Why v1 runs away on the two largest inputs while v2 does not is **unexplained** —
-the self-QA payload is about fifteen tokens and the largest document any run
-produced is well under a quarter of the budget. Note also that the v1 row mixes
-denominators: its deterministic mean is over all 13 with zeros, its judge mean
-over the 11–12 that completed.
+Note also that the v1 row mixes denominators: its deterministic mean is over all
+13 with zeros, its judge mean over the 11–12 that completed. What filled the
+budget was thinking, not the document: Sonnet 5 thinks by default when a request
+says nothing about thinking, every thinking token counts against `max_tokens`,
+and the thinking block comes back empty, so a response showed a small document
+and hid the rest. This stood here as unexplained until 2026-09-25 — see
+[Why Sonnet 5 hit the output limit](#why-sonnet-5-hit-the-output-limit).
 
 **Sonnet 5 is not simply better than 4.6 on the shipped prompt.** Deterministic
 is clearly up — the intervals do not overlap. The judge is inconclusive, its mean
@@ -68,6 +86,97 @@ because the work that measured it was asked for a stricter bar; see
 **These rows measure the explicitly typed email path.** The shipped default is
 `auto`, which spends a detect call first — two calls, or three if detection
 picks a document type that still runs self-QA.
+
+### Why Sonnet 5 hit the output limit
+
+**Single API calls, not an eval run.** Each row below is one request, made on
+2026-09-24/25 with the exact foundation-step request the eval sends (email, v1 or
+v2, `professional`/`professional`, no schema), captured from `Pyramidize` and
+replayed through the SDK so `stop_reason` and `usage` could be read. There are
+no scores here and none of these numbers is comparable with the tables above.
+"Visible" is the returned text measured with `count_tokens` (a few tokens of
+message framing included); "thinking" is output minus visible. Every Sonnet 5
+response carried a thinking block with empty text.
+
+| Sample | Prompt | Model | `max_tokens` | `stop_reason` | Output | Visible ≈ | Thinking ≈ |
+|---|:---:|---|:---:|---|:---:|:---:|:---:|
+| reply-to-feedback | v1 | Sonnet 5 | 4096 | end_turn | 3672 | 774 | 2898 |
+| reply-to-feedback | v1 | Sonnet 5 | 4096 | end_turn | 2352 | 709 | 1643 |
+| project-status | v1 | Sonnet 5 | 4096 | end_turn | 3526 | 1219 | 2307 |
+| project-status | v1 | Sonnet 5 | 4096 | end_turn | 3808 | 1257 | 2551 |
+| reply-to-feedback | v1 | Sonnet 5 | 16000 | end_turn | 2794 | 673 | 2121 |
+| reply-to-feedback | v1 | Sonnet 5 | 16000 | end_turn | 3421 | 707 | 2714 |
+| project-status | v1 | Sonnet 5 | 16000 | end_turn | 3584 | 1148 | 2436 |
+| project-status | v1 | Sonnet 5 | 16000 | end_turn | 3974 | 1230 | 2744 |
+| reply-to-feedback | v2 | Sonnet 5 | 4096 | end_turn | 3082 | 820 | 2262 |
+| project-status | v2 | Sonnet 5 | 4096 | end_turn | 3822 | 904 | 2918 |
+| reply-to-feedback | v1 | Opus 5 | 4096 | end_turn | 1460 | 725 | 735 |
+| reply-to-feedback | v1 | Sonnet 5 | 2048 | **max_tokens** | 2048 | 0 | 2048 |
+| project-status | v2 | Sonnet 5 | 2048 | **max_tokens** | 2048 | ~305, cut off | ~1743 |
+
+What this shows:
+
+- **Thinking is 60–80 % of a Sonnet 5 Pyramidize reply** on the two largest
+  samples. The document itself is 700–1250 tokens, which is why every produced
+  document looked far under budget.
+- **At 4096 the call runs close to the ceiling.** The highest total at 4096 was
+  3822, 274 tokens short (3974 was seen at 16000, where the limit is not in
+  play). How long the model thinks varies from call to call, so a
+  share of calls going over is what the eval's "ordinary document, or a runaway
+  past 4096" pattern looks like — no loop in the generation needed. At 2048 the
+  cut-off is reproduced outright, with not one visible character on v1.
+- **v2 is exposed as well.** Its two calls here spent 3082 and 3822. On Sonnet 5
+  v2 lost no document in three eval runs (the other three of ADR-002's "six"
+  were Sonnet 4.6, which does not think by default); with two calls it cannot
+  be said whether v2 thinks less than v1 or had more luck. ADR-002 lists this
+  ("a prompt property that v2 shares latently") as something that would weaken
+  its reliability argument.
+- **None of the eight v1 calls at 4096 or higher went over**, where the
+  2026-09-18 runs lost 4 of 6 attempts on these two samples. Eight calls are too
+  few to say whether today's thinking is shorter or 09-18 was unlucky; the
+  mechanism does not depend on which.
+- **Opus 5 thought far less on the same request** (735 against 1643–2898) —
+  one call, indicative only.
+
+The self-QA *instruction* that ADR-002 named as a candidate is therefore not
+needed to explain the failures. Whether v1's prompt raises the failure rate —
+by making the model think longer — is still open: 4 of 6 v1 attempts against 0
+of 6 v2 attempts on these samples on 2026-09-18 says it may, and eight calls
+today say nothing either way.
+
+**What changed:** Pyramidize's `max_tokens` is now 16000, up from 4096. It is a
+ceiling, not a spend, and the model does not see it: the four v1 calls at 16000
+above spent about what those at 4096 did (2794–3974 against 2352–3808).
+Thinking and effort were left at the model's default on purpose — turning them
+down changes output quality and belongs to an eval-gated decision (E3, #34). The
+Pyramidize judge now has its own limit of 4096, what it sent before, so the
+instrument did not move with the pipeline.
+
+Do not expect a failed eval run to name thinking as the cause from now on. At
+16000 inside a 90 s per-attempt timeout, a thinking runaway ends as "context
+deadline exceeded", which carries no usage at all.
+
+**Runs from before this change are not comparable on this point, and
+`--compare` cannot tell.** Every baseline up to and including 2026-09-18 ran at
+4096; `max_tokens` is not in the recorded configuration. A v1 run on Sonnet 5
+that no longer zeroes a sample will look like a gain against those baselines —
+read it as the limit first, not the prompt or the model.
+
+For Pyramidize the tighter bound is now time: each attempt has a 90 s timeout,
+which at the 90–125 tokens/s seen here is roughly 8000–11000 tokens. A
+generation that runs longer ends as a timeout — retried once by the SDK within
+the feature's 120 s overall deadline — rather than as an output-limit error.
+
+**Fix is unchanged at 2048, on purpose, and it has the same problem.** Sonnet 5
+on a 3.7 KB selection spent all 2048 on thinking twice out of two and returned
+no text; at 16000 the same request finished with 5361 output tokens after about
+45 s. (The one Opus 5 Fix call, on a short sample, finished at 223 tokens; Opus
+5 was not tried on the long selection.) Fix is a silent hotkey: a fix that
+succeeds after most of a minute, with no feedback, pastes into whatever window
+has focus by then. Whether Fix should fail fast or wait for every answer is an
+open product decision, so it keeps its limit. What changed is the message: a
+reply spent entirely on reasoning now says so and tells the user to pick a
+faster model or shorten the text, instead of only "try a shorter selection".
 
 ### The noise floor
 

@@ -1,10 +1,14 @@
 package llm
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
+
+	"keylint/internal/logger"
 )
 
 func TestAnthropicCompleteRequestShape(t *testing.T) {
@@ -197,6 +201,26 @@ func TestAnthropicRefusesUnusableAnswers(t *testing.T) {
 			want:  "exceeded the output limit",
 		},
 		{
+			// Sonnet 5 and Opus 5 think by default. With display omitted the
+			// thinking block arrives empty, and a budget spent on it leaves no
+			// text at all — the shape measured on Sonnet 5 at 2048 tokens.
+			name:  "output limit spent on thinking before any answer",
+			reply: `{"stop_reason":"max_tokens","content":[{"type":"thinking","thinking":"","signature":"sig"}]}`,
+			want:  "spent most of the output limit reasoning",
+		},
+		{
+			name:  "output limit spent on redacted thinking",
+			reply: `{"stop_reason":"max_tokens","content":[{"type":"redacted_thinking","data":"opaque"}]}`,
+			want:  "spent most of the output limit reasoning",
+		},
+		{
+			// Thinking and a partial answer: the budget still went on reasoning,
+			// and "shorten the text" alone would misdiagnose it.
+			name:  "cut off mid-answer after thinking",
+			reply: `{"stop_reason":"max_tokens","content":[{"type":"thinking","thinking":"","signature":"sig"},{"type":"text","text":"They are going"}]}`,
+			want:  "spent most of the output limit reasoning",
+		},
+		{
 			name:  "context window exceeded",
 			reply: `{"stop_reason":"model_context_window_exceeded","content":[{"type":"text","text":"partial"}]}`,
 			want:  "exceeded the output limit",
@@ -244,5 +268,38 @@ func TestAnthropicJoinsTextBlocks(t *testing.T) {
 	}
 	if resp.Text != "first second" {
 		t.Errorf("Text = %q, want every text block joined", resp.Text)
+	}
+}
+
+// TestAnthropicOutputLimitLogCarriesNoText: the Warn line for a cut-off is
+// written whatever the sensitive-logging setting says, so it may carry usage
+// but never the user's text or the partial answer (#41).
+func TestAnthropicOutputLimitLogCarriesNoText(t *testing.T) {
+	var logs bytes.Buffer
+	logger.InitWithWriter(&logs, "warning", false)
+	t.Cleanup(func() { logger.InitWithWriter(io.Discard, "off", false) })
+
+	const userText = "USER-SECRET-7731"
+	const partial = "PARTIAL-ANSWER-4410"
+	var got capture
+	srv := newServer(t, &got, http.StatusOK,
+		`{"stop_reason":"max_tokens","usage":{"input_tokens":10,"output_tokens":16000},"content":[{"type":"thinking","thinking":"","signature":"s"},{"type":"text","text":"`+partial+`"}]}`)
+
+	client := newAnthropic(Config{APIKey: "sk-ant-test", BaseURL: srv.URL, Feature: "enhance"})
+	_, err := client.Complete(context.Background(), Request{Model: "claude-sonnet-5", User: userText, MaxTokens: 16000})
+	if err == nil {
+		t.Fatal("expected an output-limit error")
+	}
+
+	line := logs.String()
+	for _, want := range []string{"output limit reached", "output_tokens=16000", "thinking=true", "max_tokens=16000", "feature=enhance"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("log = %q, want it to contain %q", line, want)
+		}
+	}
+	for _, secret := range []string{userText, partial} {
+		if strings.Contains(line, secret) {
+			t.Errorf("log leaked %q: %q", secret, line)
+		}
 	}
 }

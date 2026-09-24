@@ -15,8 +15,32 @@ import (
 	"keylint/internal/logger"
 )
 
-// maxTokens caps a Pyramidize reply. Model IDs live in settings (#33 step 4).
-const maxTokens = 4096
+// maxTokens caps a Pyramidize reply, thinking included. Model IDs live in
+// settings (#33 step 4). It is a ceiling, not a spend: a reply is billed for
+// what it generates, and the model does not see the limit.
+//
+// It was 4096. Sonnet 5 and Opus 5 think by default when a request says
+// nothing about thinking, and every thinking token counts against max_tokens.
+// Measured with Sonnet 5 on the two largest eval samples: 2352–3822 output
+// tokens at the old limit for a visible document of roughly 700–1250, and at
+// 2048 v1 was cut off before a single visible token. Thinking and effort are
+// left at the model default; changing them is an eval-gated quality decision
+// (E3, #34).
+//
+// 16000 is Anthropic's recommendation for a non-streaming request. Here the
+// tighter bound is time: each attempt has a 90 s HTTP timeout, roughly
+// 8000–11000 tokens at the 90–125 tokens/s measured, so a generation that runs
+// longer ends as a timeout (retried once by the SDK within callTimeout) rather
+// than as an output-limit error. The timeout is also what lets 16000 go out
+// non-streaming at all: the SDK refuses a non-streaming request whose
+// max_tokens implies a very long generation unless the client sets a timeout,
+// and every client here does. Pyramidize is a visible wait in the app, which
+// is why it gets the room and the silent Fix hotkey does not (see enhance).
+//
+// Only the Anthropic client sends max_tokens. OpenAI, the OpenAI-compatible
+// Ollama endpoint and the Claude Code CLI are sent no output limit, so no model
+// with a small output limit can reject it.
+const maxTokens = 16000
 
 // logFeature tags this feature's provider calls in the log.
 const logFeature = "pyramidize"
@@ -336,6 +360,10 @@ type aiOpts struct {
 	// temperature pins sampling. nil leaves it to the provider, which is what
 	// the product does; the eval judge sets it so its scores are repeatable.
 	temperature *float64
+	// maxTokens overrides the pipeline's output limit for one call. 0 means
+	// the pipeline's own. Only the eval judge sets it: an instrument must not
+	// move when the product's limit does.
+	maxTokens int
 }
 
 // --- internal pipeline helpers ---
@@ -471,11 +499,15 @@ func (svc *Service) callAISync(ctx context.Context, cfg settings.Settings, opts 
 		return "", err
 	}
 
+	limit := maxTokens
+	if opts.maxTokens > 0 {
+		limit = opts.maxTokens
+	}
 	resp, err := client.Complete(ctx, llm.Request{
 		System:    systemPrompt,
 		User:      userMessage,
 		Model:     model,
-		MaxTokens: maxTokens,
+		MaxTokens: limit,
 		// Every step here parses JSON, so ask for an object even when schema
 		// enforcement is off — that is what this pipeline did before schemas
 		// existed, and losing it would leave OpenAI and Ollama unconstrained.
