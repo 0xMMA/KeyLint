@@ -48,3 +48,135 @@ updates:
       - dependency-name: "*"
         update-types:
           - version-update:semver-major
+
+
+
+  # Go modules and the frontend's npm packages (roadmap: dependency drift went
+  # unnoticed for five months). Monthly and grouped, so a quiet month costs a
+  # handful of PRs.
+  #
+  # What this does NOT do, so nobody reads more into it:
+  # - It does not surface the drift that motivated it. Wails is ignored and
+  #   framework majors are blocked (see below); the quarterly check in
+  #   docs/roadmap.md housekeeping is what surfaces those.
+  # - Go: a major that changes the module path (openai-go/v3 -> v4) is never
+  #   proposed. v0 -> v1 keeps the path and IS proposed, and a v0 minor —
+  #   google/wire, minio/selfupdate, zalando/go-keyring are all v0 — lands in
+  #   the go-minor group although v0 minors may break the API. Read those.
+  # - `ignore` rules without an explicit `versions:` range apply to version
+  #   updates only. Security updates skip them (dependabot-core
+  #   ignore_condition.rb: `return versions if security_updates_only`). So an
+  #   advisory for Wails or a framework package CAN arrive as a PR — a Go-only
+  #   Wails bump or a framework major. That is deliberate: a security PR is the
+  #   loudest notice there is. It is not merge-on-green; do the paired or
+  #   `ng update` work it asks for.
+  #   The one exception is the PrimeUI licence fence in the npm entry: it uses
+  #   explicit `versions:` ranges precisely so that no PR, security or not,
+  #   can pull a non-MIT PrimeTek package in.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore(deps)
+    groups:
+      go-minor:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Wails moves in three places at once: this module, `@wailsio/runtime`
+      # in frontend/package.json, and the `wails3` CLI version installed in
+      # .github/workflows/. Dependabot cannot bump across ecosystems, and a
+      # half-bump is a runtime mismatch. Done by hand, with a Windows smoke
+      # test — see docs/roadmap.md E4.
+      - dependency-name: github.com/wailsapp/wails/v3
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: monthly
+    # A compromised npm release runs its lifecycle scripts in CI on the day it
+    # is proposed; a week's delay lets the registry pull it first. Dependabot
+    # extends this to transitive packages only through npm's
+    # `--min-release-age`, which needs npm >= 11.10 — hence `packageManager`
+    # in frontend/package.json. Below that, only the bumped package waits.
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: chore(deps)
+    groups:
+      # One group, because these move together: Angular's packages pin each
+      # other exactly and pin TypeScript to one minor range; PrimeNG peers on
+      # @angular/core, common, forms, router and platform-browser; the
+      # @primeuix theme and primeicons have no peer on PrimeNG but are styled
+      # and loaded by it at runtime, so a mismatch shows only on screen.
+      frontend-framework:
+        patterns:
+          - "@angular/*"
+          - "primeng"
+          - "@primeuix/*"
+          - "primeicons"
+          - "typescript"
+      npm-minor:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Paired with the Go module — see the gomod entry above.
+      - dependency-name: "@wailsio/runtime"
+      # Framework majors need `ng update` migrations, the TypeScript major that
+      # Angular dictates, and a look at every screen on Windows. A Dependabot
+      # PR does none of that; it would be a lockfile that installs and an app
+      # nobody has seen. They are roadmap epics (E4), done by hand. THE COST OF
+      # THESE LINES: nobody is told about a framework major again — the
+      # quarterly check in docs/roadmap.md housekeeping replaces the notice.
+      - dependency-name: "@angular/*"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "primeng"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "@primeuix/*"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "primeicons"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "typescript"
+        update-types:
+          - version-update:semver-major
+      # LICENCE FENCE — explicit `versions:` ranges, because unlike the rules
+      # above they also bind security updates. From these versions on, the
+      # PrimeTek packages are no longer MIT but the commercial "PrimeUI
+      # License": a licence key is required, and without one the app shows a
+      # red "Invalid PrimeUI License" banner (primeng 22.x, checked 2026-09-25
+      # in the npm tarballs; https://primeui.dev/nextchapter). Every version
+      # below these bounds is MIT. Crossing them is a licensing decision for
+      # the owner, not a dependency bump — remove a line only as part of it.
+      - dependency-name: "primeng"
+        versions: [">=22.0.0"]
+      - dependency-name: "@primeuix/styles"
+        versions: [">=3.0.0"]
+      - dependency-name: "@primeuix/themes"
+        versions: [">=3.0.0"]
+      - dependency-name: "@primeuix/styled"
+        versions: [">=1.0.0"]
+      - dependency-name: "@primeuix/motion"
+        versions: [">=1.0.0"]
+      - dependency-name: "@primeuix/utils"
+        versions: [">=0.8.0"]
+      - dependency-name: "primeicons"
+        versions: [">=8.0.0"]
+      - dependency-name: "@primeicons/*"
+        versions: [">=0.0.0"]
+      - dependency-name: "@primeui/*"
+        versions: [">=0.0.0"]
+      # Gated on the Angular builder's peer range, not on Vitest's release:
+      # @angular/build up to 22.1.x declares vitest ^4.0.8 only, and vitest 5
+      # then makes `npm install` fail with ERESOLVE (.claude/rules/testing.md).
+      # 22.2.0 is the first to accept ^5 — drop this line only once
+      # @angular/build is on >= 22.2.
+      - dependency-name: "vitest"
+        update-types:
+          - version-update:semver-major
