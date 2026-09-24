@@ -103,8 +103,9 @@ What this shows:
 - **Thinking is 60–80 % of a Sonnet 5 Pyramidize reply** on the two largest
   samples. The document itself is 700–1250 tokens, which is why every produced
   document looked far under budget.
-- **At 4096 the call runs close to the ceiling.** The highest
-  total seen was 3974. How long the model thinks varies from call to call, so a
+- **At 4096 the call runs close to the ceiling.** The highest total at 4096 was
+  3822, 274 tokens short (3974 was seen at 16000, where the limit is not in
+  play). How long the model thinks varies from call to call, so a
   share of calls going over is what the eval's "ordinary document, or a runaway
   past 4096" pattern looks like — no loop in the generation needed. At 2048 the
   cut-off is reproduced outright, with not one visible character on v1.
@@ -127,19 +128,17 @@ by making the model think longer — is still open: 4 of 6 v1 attempts against 0
 of 6 v2 attempts on these samples on 2026-09-18 says it may, and eight calls
 today say nothing either way.
 
-**What changed:** `max_tokens` is now 16000 for both features
-(`llm.OutputTokenCeiling`), up from 4096 (Pyramidize) and 2048 (Fix). It is a
+**What changed:** Pyramidize's `max_tokens` is now 16000, up from 4096. It is a
 ceiling, not a spend, and the model does not see it: the four v1 calls at 16000
 above spent about what those at 4096 did (2794–3974 against 2352–3808).
 Thinking and effort were left at the model's default on purpose — turning them
-down changes output quality and belongs to an eval-gated decision (E3, #34).
+down changes output quality and belongs to an eval-gated decision (E3, #34). The
+Pyramidize judge now has its own limit of 4096, what it sent before, so the
+instrument did not move with the pipeline.
 
-A cut-off where the model thought and wrote no answer at all now has its own
-error ("used the whole output limit reasoning before it answered"), and an eval
-run records that string. A reply that thought and was then cut off mid-document
-still reads as the generic output-limit error, and the Warn log line with the
-token counts is not written during an eval (tests do not initialise the
-logger) — so a failed run shows the cause only in the first case.
+Do not expect a failed eval run to name thinking as the cause from now on. At
+16000 inside a 90 s per-attempt timeout, a thinking runaway ends as "context
+deadline exceeded", which carries no usage at all.
 
 **Runs from before this change are not comparable on this point, and
 `--compare` cannot tell.** Every baseline up to and including 2026-09-18 ran at
@@ -147,16 +146,21 @@ logger) — so a failed run shows the cause only in the first case.
 that no longer zeroes a sample will look like a gain against those baselines —
 read it as the limit first, not the prompt or the model.
 
-The same trap hit Fix harder: Sonnet 5 on a 3.7 KB selection spent all of the
-old 2048 on thinking twice out of two, and finished at 5361 output tokens once
-the limit was 16000. A user who picked Sonnet 5 for Fix got "try a shorter
-selection" on text of ordinary length. (The one Opus 5 Fix call, on a short
-sample, finished at 223 tokens; Opus 5 was not tried on the long selection.)
-
-For KeyLint the tighter bound is now time: each attempt has a 90 s timeout,
+For Pyramidize the tighter bound is now time: each attempt has a 90 s timeout,
 which at the 90–125 tokens/s seen here is roughly 8000–11000 tokens. A
 generation that runs longer ends as a timeout — retried once by the SDK within
 the feature's 120 s overall deadline — rather than as an output-limit error.
+
+**Fix is unchanged at 2048, on purpose, and it has the same problem.** Sonnet 5
+on a 3.7 KB selection spent all 2048 on thinking twice out of two and returned
+no text; at 16000 the same request finished with 5361 output tokens after about
+45 s. (The one Opus 5 Fix call, on a short sample, finished at 223 tokens; Opus
+5 was not tried on the long selection.) Fix is a silent hotkey: a fix that
+succeeds after most of a minute, with no feedback, pastes into whatever window
+has focus by then. Whether Fix should fail fast or wait for every answer is an
+open product decision, so it keeps its limit. What changed is the message: a
+reply spent entirely on reasoning now says so and tells the user to pick a
+faster model or shorten the text, instead of only "try a shorter selection".
 
 ### The noise floor
 

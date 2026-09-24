@@ -138,12 +138,18 @@ description, not a diagnosis.
 > **Addendum 2026-09-25 — explained.** The budget went on thinking. Sonnet 5
 > thinks by default, thinking counts against `max_tokens`, and the thinking block
 > comes back empty, so only the small document was visible. Single calls on the
-> two failing samples spent 2352–3974 output tokens against a visible document of
-> about 700–1250; at 2048 the cut-off reproduces with no visible text. v2 spent
+> two failing samples spent 2352–3822 output tokens at 4096 against a visible
+> document of about 700–1250; at 2048 the cut-off reproduces — for v1 with no
+> visible text, for v2 after about 305 visible tokens. The reading above, "a
+> generation that does not terminate", is retracted: nothing ran away, the
+> thinking before an ordinary document varies, and sometimes it does not fit.
+> v2 spent
 > 3082 and 3822 on the same two samples, so it shares the exposure, which
 > weakens the reliability argument (see "What would change these decisions").
 > The mechanism is the model's default; whether v1's prompt raises the rate is
-> still open. The limit is now 16000; thinking and effort are unchanged. Evidence and caveats: [quality-status.md](quality-status.md#why-sonnet-5-hit-the-output-limit).
+> still open. The Pyramidize limit is now 16000; thinking and effort are
+> unchanged. Evidence and caveats:
+> [quality-status.md](quality-status.md#why-sonnet-5-hit-the-output-limit).
 
 ### Whether the pipeline arm ever made a second call is unrecorded
 
