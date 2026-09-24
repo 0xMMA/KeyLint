@@ -53,7 +53,8 @@ applies to anything else process-global: module singletons, leftover TestBed
 state, patched prototypes.
 
 **vitest stays on 4.x.** The builder declares vitest as an optional peer at
-`^4.0.8`, on every published 21.2.x and on 22.1.8, the newest release. vitest 5
+`^4.0.8` on every published 21.2.x (22.2.0, 2026-09-23, is the first to accept
+`^5.0.0` — so the Angular 22 upgrade is where this lifts). vitest 5
 does run — the suite passes and the builder's watch path works — but it makes
 `npm install` fail outright with `ERESOLVE could not resolve`, for every
 developer and every package, until someone adds `--legacy-peer-deps`. `npm ci`

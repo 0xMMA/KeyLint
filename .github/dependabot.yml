@@ -49,15 +49,18 @@ updates:
         update-types:
           - version-update:semver-major
 
+
   # Go modules and the frontend's npm packages (roadmap: dependency drift went
-  # unnoticed for five months). Monthly and grouped, so a quiet month costs at
-  # most a handful of PRs: security advisories do not wait for this schedule.
+  # unnoticed for five months). Monthly and grouped, so a quiet month costs a
+  # handful of PRs.
   #
-  # Unlike the actions above, majors ARE proposed here — surfacing them is the
-  # point. They arrive grouped by family, because the families only move
-  # together (Angular's packages and its builder; PrimeNG and its theme
-  # package), and a major is a read-the-migration-guide PR, never a
-  # merge-on-green one.
+  # What this does NOT do, so nobody reads more into it:
+  # - Go majors are never proposed: they change the module path
+  #   (openai-go/v3 -> v4), which Dependabot does not follow.
+  # - Framework majors are blocked (see the npm entry). They are surfaced by the
+  #   quarterly check in docs/roadmap.md, not here.
+  # - `ignore` also suppresses SECURITY updates. For every ignored package below
+  #   an advisory shows up as a Dependabot alert, never as a PR.
   - package-ecosystem: gomod
     directory: /
     schedule:
@@ -74,25 +77,33 @@ updates:
       # in frontend/package.json, and the `wails3` CLI version installed in
       # .github/workflows/. Dependabot cannot bump across ecosystems, and a
       # half-bump is a runtime mismatch. Done by hand, with a Windows smoke
-      # test — see docs/roadmap.md E4.
+      # test — see docs/roadmap.md E4. This is the bridge between the webview
+      # and Go: watch its alerts, since no security PR will come.
       - dependency-name: github.com/wailsapp/wails/v3
 
   - package-ecosystem: npm
     directory: /frontend
     schedule:
       interval: monthly
+    # A compromised npm release runs its lifecycle scripts in CI on the day it
+    # is proposed. A week's delay lets the registry pull it first.
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: chore(deps)
     groups:
-      angular:
+      # Angular, PrimeNG, their theme and icon packages and TypeScript only
+      # move together: Angular pins TypeScript to one minor range, and PrimeNG
+      # pins Angular (via @angular/cdk, which is only PrimeNG's peer here, not
+      # a direct dependency). Split into groups, Dependabot's resolver cannot
+      # satisfy the peers and quietly stays put.
+      frontend-framework:
         patterns:
           - "@angular/*"
-          - "@angular-devkit/*"
-      primeng:
-        patterns:
           - "primeng"
           - "@primeuix/*"
           - "primeicons"
+          - "typescript"
       npm-minor:
         update-types:
           - minor
@@ -100,13 +111,32 @@ updates:
     ignore:
       # Paired with the Go module — see the gomod entry above.
       - dependency-name: "@wailsio/runtime"
-      # Both are gated on @angular/build, not on their own release: TypeScript
-      # until the builder lists the new major as supported, Vitest until it
-      # declares it as a peer (vitest 5 makes `npm install` fail with ERESOLVE,
-      # see .claude/rules/testing.md). A PR that cannot install is noise.
-      - dependency-name: typescript
+      # Framework majors need `ng update` migrations, a TypeScript major that
+      # Angular dictates, and a visual check; a Dependabot PR does none of that
+      # and, with these peer ranges, cannot even resolve (Angular 22 needs
+      # TypeScript >=6.0 <6.1, PrimeNG 22 needs @angular/cdk 22). They are
+      # done by hand as roadmap epics (E4). THE COST OF THESE LINES: nobody is
+      # told about a framework major again — the quarterly check in
+      # docs/roadmap.md housekeeping is what replaces the notice.
+      - dependency-name: "@angular/*"
         update-types:
           - version-update:semver-major
-      - dependency-name: vitest
+      - dependency-name: "primeng"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "@primeuix/*"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "primeicons"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "typescript"
+        update-types:
+          - version-update:semver-major
+      # Gated on the Angular builder's peer range, not on Vitest's release:
+      # @angular/build 21.x declares vitest ^4.0.8 only, and vitest 5 then makes
+      # `npm install` fail with ERESOLVE (.claude/rules/testing.md). Angular
+      # 22.2 accepts ^5 — drop this line in the Angular 22 upgrade.
+      - dependency-name: "vitest"
         update-types:
           - version-update:semver-major
