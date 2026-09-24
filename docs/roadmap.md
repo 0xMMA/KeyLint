@@ -24,8 +24,8 @@
 
 | Dependency | Pinned | Latest | Note |
 |---|---|---|---|
-| `wailsapp/wails/v3` (Go) | `v3.0.0-alpha.72` | `v3.0.0-beta.23` | v3 Beta shipped Aug 2026; community reports alpha→beta is a version bump, no known breaking changes |
-| `@wailsio/runtime` (npm) | `3.0.0-alpha.79` | `3.0.0-beta.23` | already **mismatched** with the Go side (alpha.72 vs alpha.79) |
+| `wailsapp/wails/v3` (Go) | `v3.0.0-beta.25` | `v3.0.0-beta.25` | E4 step 1 (PR #WAILSPR), waiting on the Windows smoke test. No Go API break for KeyLint; Linux moved to GTK4 + WebKitGTK 6.0 |
+| `@wailsio/runtime` (npm) | `3.0.0-beta.25` | `3.0.0-beta.25` | pinned exactly, same version as the Go side (was alpha.79 vs alpha.72) |
 | Angular | 21.2.0 | 22.1.x | |
 | PrimeNG / `@primeuix/themes` | 21.1.3 / 2.0.3 | 22.1.x / 3.0.x | move together |
 | TypeScript | 5.9 | 7.0 | TS 7 = Go-native compiler; only when Angular CLI supports it |
@@ -146,7 +146,7 @@ Hypothesis: with Opus 5 / Sonnet 5 a single well-structured call matches the det
 Issue: #35.
 
 Order matters:
-1. Wails: bump Go module to `v3.0.0-beta.23` **and** `@wailsio/runtime` to the same version; regenerate bindings; smoke test tray, window hide/show, events, Windows build.
+1. Wails: bump Go module to `v3.0.0-beta.25` **and** `@wailsio/runtime` to the same version; regenerate bindings; smoke test tray, window hide/show, events, Windows build. **PR #WAILSPR** — bindings unchanged, Linux now needs `libgtk-4-dev libwebkitgtk-6.0-dev`, also clears the 8 go-git/go-billy govulncheck findings; waiting on the Windows smoke test in the PR body.
 2. Angular 22 + PrimeNG 22 + `@primeuix/themes` 3 together (`ng update`); re-check the custom wizard (`@switch`) and dark-mode CSS overrides in `styles.scss`, which patch PrimeNG gaps that may be fixed or moved.
 3. ~~Playwright 1.63, jsdom 30, Prettier~~ **done (#84)**, Vitest to 4.1. Vitest 5 waits until `@angular/build` declares `^5` — then handle the `clearMocks` default flip and the reporter change in the same PR (`.claude/rules/testing.md`).
 4. TypeScript 7: only once `@angular/build` lists it as supported.

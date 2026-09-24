@@ -2,7 +2,7 @@
 
 ## What (The Map)
 
-**Stack:** Go 1.27 + Wails v3 (alpha.72) + Wire DI | Angular v21 + PrimeNG v21 + PrimeFlex + Vitest
+**Stack:** Go 1.27 + Wails v3 (beta.25) + Wire DI | Angular v21 + PrimeNG v21 + PrimeFlex + Vitest
 
 **Key directories:**
 - `main.go` — Wails entry point, service registration, event loop
@@ -102,7 +102,7 @@ KeyLint is a desktop app that fixes/enhances clipboard text via AI (OpenAI, Anth
 
 **Dark mode / PrimeNG / state:** → See `.claude/rules/architecture.md` for dark mode, PrimeNG imports, and navigation state patterns.
 
-**Environment setup:** copy `.env.example` → `.env` and add `ANTHROPIC_API_KEY` for E2E tests. Linux needs `libgtk-3-dev libwebkit2gtk-4.1-dev` installed.
+**Environment setup:** copy `.env.example` → `.env` and add `ANTHROPIC_API_KEY` for E2E tests. Linux needs `libgtk-4-dev libwebkitgtk-6.0-dev` installed (Wails v3 beta builds against GTK4 + WebKitGTK 6.0; the old GTK3 stack is `-tags gtk3`, removed upstream in v3.1).
 
 **Releasing:** → See `.claude/docs/versioning.md` and `.claude/rules/workflows.md`.
 
