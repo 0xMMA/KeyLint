@@ -115,7 +115,7 @@ tasks:
     deps:
       - task: install:frontend:deps
     cmds:
-      # 127.0.0.1, not the default "localhost": since beta the Wails dev proxy
+      # 127.0.0.1, not the default "localhost": since alpha.79 the Wails dev proxy
       # dials localhost over IPv4 only, while Node may bind ng serve to ::1.
       - npm run dev -- --port {{.VITE_PORT}} --host 127.0.0.1
 

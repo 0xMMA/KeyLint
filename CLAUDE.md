@@ -85,7 +85,7 @@ EVAL_JUDGE_MODEL=... ./scripts/eval.sh                 # override the pinned jud
 KeyLint is a desktop app that fixes/enhances clipboard text via AI (OpenAI, Anthropic, the installed Claude Code CLI, Ollama, Bedrock). A global hotkey silently grabs clipboard text, enhances it, and writes it back. The main UI provides manual fix and advanced enhancement modes.
 
 **Architecture decisions:**
-- AI API calls go through the Go backend (`internal/features/enhance/service.go:1`) — WebKit2GTK on Linux blocks external HTTPS fetch from the webview
+- AI API calls go through the Go backend (`internal/features/enhance/service.go:1`) — WebKitGTK on Linux blocks external HTTPS fetch from the webview
 - API keys stored in OS keyring (`github.com/zalando/go-keyring`); env vars take priority over keyring — see `internal/features/settings/service.go`
 - PrimeNG Stepper was replaced with a custom `@switch`-based wizard (`welcome-wizard.component.ts`) because PrimeNG v21 StepPanel animations broke DOM visibility
 - CLI mode (`-fix`, `-pyramidize`) dispatches before Wails boots in `main.go`, uses the same service layer with manual wiring (no Wire/Wails). Prompts are identical between CLI and GUI — output formatting is the caller's concern.
@@ -102,7 +102,7 @@ KeyLint is a desktop app that fixes/enhances clipboard text via AI (OpenAI, Anth
 
 **Dark mode / PrimeNG / state:** → See `.claude/rules/architecture.md` for dark mode, PrimeNG imports, and navigation state patterns.
 
-**Environment setup:** copy `.env.example` → `.env` and add `ANTHROPIC_API_KEY` for E2E tests. Linux needs `libgtk-4-dev libwebkitgtk-6.0-dev` installed (Wails v3 beta builds against GTK4 + WebKitGTK 6.0; the old GTK3 stack is `-tags gtk3`, removed upstream in v3.1).
+**Environment setup:** copy `.env.example` → `.env` and add `ANTHROPIC_API_KEY` for E2E tests. Linux needs `libgtk-4-dev libwebkitgtk-6.0-dev` installed (Wails v3 beta builds against GTK4 + WebKitGTK 6.0; the old GTK3 stack is `-tags gtk3`, removed upstream in v3.1). WebKitGTK 6.0 always sandboxes with bubblewrap, and Ubuntu 23.10+ blocks unprivileged user namespaces by default (`kernel.apparmor_restrict_unprivileged_userns=1`), so the Linux app aborts at start (`bwrap: setting up uid map: Permission denied`). For the dev loop only, run it with `WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1`; never bake that into a build.
 
 **Releasing:** → See `.claude/docs/versioning.md` and `.claude/rules/workflows.md`.
 
