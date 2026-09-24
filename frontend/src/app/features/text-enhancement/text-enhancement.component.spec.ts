@@ -526,3 +526,69 @@ describe('TextEnhancementComponent — Claude Code provider', () => {
     expect(wailsMock.getKeyStatus).not.toHaveBeenCalledWith('ollama');
   });
 });
+
+// Pyramidize is the page's main action. Apply only does something once there
+// is an instruction, so until then it must not wear the same accent (#29).
+describe('TextEnhancementComponent — Apply button emphasis', () => {
+  let fixture: ComponentFixture<TextEnhancementComponent>;
+  let component: TextEnhancementComponent;
+  let el: HTMLElement;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [TextEnhancementComponent],
+      providers: [
+        provideAnimationsAsync(),
+        provideRouter([]),
+        { provide: WailsService, useValue: createWailsMock() },
+        { provide: TextEnhancementService, useValue: makeEnhancementServiceMock() },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(TextEnhancementComponent);
+    component = fixture.componentInstance;
+    el = fixture.nativeElement;
+    component.originalTextView = '';
+    component.canvasTextView = 'Some canvas text';
+    component.isLoading = false;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    component.originalTextView = '';
+    component.canvasTextView = '';
+  });
+
+  function applyButton(): HTMLButtonElement {
+    return el.querySelector<HTMLButtonElement>('[data-testid="apply-instruction-btn"] button')!;
+  }
+
+  async function typeInstruction(text: string): Promise<void> {
+    const input = el.querySelector<HTMLInputElement>('[data-testid="global-instruction-input"]')!;
+    input.value = text;
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  it('is secondary while the instruction is empty', () => {
+    expect(applyButton().classList).toContain('p-button-secondary');
+  });
+
+  it('becomes the primary action once an instruction is typed', async () => {
+    await typeInstruction('make it shorter');
+
+    expect(applyButton().disabled).toBe(false);
+    expect(applyButton().classList).not.toContain('p-button-secondary');
+  });
+
+  it('recedes again when the instruction is only whitespace', async () => {
+    await typeInstruction('make it shorter');
+    await typeInstruction('   ');
+
+    expect(applyButton().classList).toContain('p-button-secondary');
+  });
+});

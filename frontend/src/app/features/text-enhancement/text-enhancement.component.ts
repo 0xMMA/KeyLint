@@ -416,6 +416,7 @@ function addTrace(label: string, snapshot: string): void {
             label="Apply"
             icon="pi pi-play"
             size="small"
+            [severity]="globalInstruction.trim() ? 'primary' : 'secondary'"
             [disabled]="!globalInstruction.trim() || !canvasTextView.trim() || isLoading"
             (onClick)="applyGlobalInstruction()"
           >
