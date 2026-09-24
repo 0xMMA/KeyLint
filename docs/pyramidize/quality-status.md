@@ -103,15 +103,17 @@ What this shows:
 - **Thinking is 60–80 % of a Sonnet 5 Pyramidize reply** on the two largest
   samples. The document itself is 700–1250 tokens, which is why every produced
   document looked far under budget.
-- **At 4096 the call runs a few hundred tokens from the ceiling.** The highest
+- **At 4096 the call runs close to the ceiling.** The highest
   total seen was 3974. How long the model thinks varies from call to call, so a
   share of calls going over is what the eval's "ordinary document, or a runaway
   past 4096" pattern looks like — no loop in the generation needed. At 2048 the
   cut-off is reproduced outright, with not one visible character on v1.
-- **v2 is exposed as well.** Its two calls here spent 3082 and 3822. v2 lost no
-  document in six eval runs; with two calls it cannot be said whether v2 thinks
-  less than v1 or had more luck. ADR-002 lists this ("a prompt property that v2
-  shares latently") as something that would weaken its reliability argument.
+- **v2 is exposed as well.** Its two calls here spent 3082 and 3822. On Sonnet 5
+  v2 lost no document in three eval runs (the other three of ADR-002's "six"
+  were Sonnet 4.6, which does not think by default); with two calls it cannot
+  be said whether v2 thinks less than v1 or had more luck. ADR-002 lists this
+  ("a prompt property that v2 shares latently") as something that would weaken
+  its reliability argument.
 - **None of the eight v1 calls at 4096 or higher went over**, where the
   2026-09-18 runs lost 4 of 6 attempts on these two samples. Eight calls are too
   few to say whether today's thinking is shorter or 09-18 was unlucky; the
@@ -120,22 +122,41 @@ What this shows:
   one call, indicative only.
 
 The self-QA *instruction* that ADR-002 named as a candidate is therefore not
-needed to explain the failures. Whether it adds to the thinking is not tested
-here.
+needed to explain the failures. Whether v1's prompt raises the failure rate —
+by making the model think longer — is still open: 4 of 6 v1 attempts against 0
+of 6 v2 attempts on these samples on 2026-09-18 says it may, and eight calls
+today say nothing either way.
 
 **What changed:** `max_tokens` is now 16000 for both features
 (`llm.OutputTokenCeiling`), up from 4096 (Pyramidize) and 2048 (Fix). It is a
 ceiling, not a spend, and the model does not see it: the four v1 calls at 16000
-above spent about what those at 4096 did (2794–3974 against 2352–3808). Thinking and effort were left at the
-model's default on purpose — turning them down changes output quality and
-belongs to an eval-gated decision (E3, #34). A cut-off that happens anyway now
-says the model used the output limit reasoning before answering, rather than the
-generic "try a shorter selection", so a failed eval run records the cause.
+above spent about what those at 4096 did (2794–3974 against 2352–3808).
+Thinking and effort were left at the model's default on purpose — turning them
+down changes output quality and belongs to an eval-gated decision (E3, #34).
+
+A cut-off where the model thought and wrote no answer at all now has its own
+error ("used the whole output limit reasoning before it answered"), and an eval
+run records that string. A reply that thought and was then cut off mid-document
+still reads as the generic output-limit error, and the Warn log line with the
+token counts is not written during an eval (tests do not initialise the
+logger) — so a failed run shows the cause only in the first case.
+
+**Runs from before this change are not comparable on this point, and
+`--compare` cannot tell.** Every baseline up to and including 2026-09-18 ran at
+4096; `max_tokens` is not in the recorded configuration. A v1 run on Sonnet 5
+that no longer zeroes a sample will look like a gain against those baselines —
+read it as the limit first, not the prompt or the model.
 
 The same trap hit Fix harder: Sonnet 5 on a 3.7 KB selection spent all of the
 old 2048 on thinking twice out of two, and finished at 5361 output tokens once
-the limit was 16000. A user who picked Sonnet 5 or Opus 5 for Fix got "try a
-shorter selection" on text of ordinary length.
+the limit was 16000. A user who picked Sonnet 5 for Fix got "try a shorter
+selection" on text of ordinary length. (The one Opus 5 Fix call, on a short
+sample, finished at 223 tokens; Opus 5 was not tried on the long selection.)
+
+For KeyLint the tighter bound is now time: each attempt has a 90 s timeout,
+which at the 90–125 tokens/s seen here is roughly 8000–11000 tokens. A
+generation that runs longer ends as a timeout — retried once by the SDK within
+the feature's 120 s overall deadline — rather than as an output-limit error.
 
 ### The noise floor
 
