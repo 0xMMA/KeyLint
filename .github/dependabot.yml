@@ -50,17 +50,26 @@ updates:
           - version-update:semver-major
 
 
+
   # Go modules and the frontend's npm packages (roadmap: dependency drift went
   # unnoticed for five months). Monthly and grouped, so a quiet month costs a
   # handful of PRs.
   #
   # What this does NOT do, so nobody reads more into it:
-  # - Go majors are never proposed: they change the module path
-  #   (openai-go/v3 -> v4), which Dependabot does not follow.
-  # - Framework majors are blocked (see the npm entry). They are surfaced by the
-  #   quarterly check in docs/roadmap.md, not here.
-  # - `ignore` also suppresses SECURITY updates. For every ignored package below
-  #   an advisory shows up as a Dependabot alert, never as a PR.
+  # - It does not surface the drift that motivated it. Wails is ignored and
+  #   framework majors are blocked (see below); the quarterly check in
+  #   docs/roadmap.md housekeeping is what surfaces those.
+  # - Go: a major that changes the module path (openai-go/v3 -> v4) is never
+  #   proposed. v0 -> v1 keeps the path and IS proposed, and a v0 minor —
+  #   google/wire, minio/selfupdate, zalando/go-keyring are all v0 — lands in
+  #   the go-minor group although v0 minors may break the API. Read those.
+  # - `ignore` rules without an explicit `versions:` range apply to version
+  #   updates only. Security updates skip them (dependabot-core
+  #   ignore_condition.rb: `return versions if security_updates_only`). So an
+  #   advisory for Wails or a framework package CAN arrive as a PR — a Go-only
+  #   Wails bump or a framework major. That is deliberate: a security PR is the
+  #   loudest notice there is. It is not merge-on-green; do the paired or
+  #   `ng update` work it asks for.
   - package-ecosystem: gomod
     directory: /
     schedule:
@@ -77,8 +86,7 @@ updates:
       # in frontend/package.json, and the `wails3` CLI version installed in
       # .github/workflows/. Dependabot cannot bump across ecosystems, and a
       # half-bump is a runtime mismatch. Done by hand, with a Windows smoke
-      # test — see docs/roadmap.md E4. This is the bridge between the webview
-      # and Go: watch its alerts, since no security PR will come.
+      # test — see docs/roadmap.md E4.
       - dependency-name: github.com/wailsapp/wails/v3
 
   - package-ecosystem: npm
@@ -86,17 +94,20 @@ updates:
     schedule:
       interval: monthly
     # A compromised npm release runs its lifecycle scripts in CI on the day it
-    # is proposed. A week's delay lets the registry pull it first.
+    # is proposed; a week's delay lets the registry pull it first. Dependabot
+    # extends this to transitive packages only through npm's
+    # `--min-release-age`, which needs npm >= 11.10 — hence `packageManager`
+    # in frontend/package.json. Below that, only the bumped package waits.
     cooldown:
       default-days: 7
     commit-message:
       prefix: chore(deps)
     groups:
-      # Angular, PrimeNG, their theme and icon packages and TypeScript only
-      # move together: Angular pins TypeScript to one minor range, and PrimeNG
-      # pins Angular (via @angular/cdk, which is only PrimeNG's peer here, not
-      # a direct dependency). Split into groups, Dependabot's resolver cannot
-      # satisfy the peers and quietly stays put.
+      # One group, because these move together: Angular's packages pin each
+      # other exactly and pin TypeScript to one minor range; PrimeNG peers on
+      # @angular/core, common, forms, router and platform-browser; the
+      # @primeuix theme and primeicons have no peer on PrimeNG but are styled
+      # and loaded by it at runtime, so a mismatch shows only on screen.
       frontend-framework:
         patterns:
           - "@angular/*"
@@ -111,13 +122,12 @@ updates:
     ignore:
       # Paired with the Go module — see the gomod entry above.
       - dependency-name: "@wailsio/runtime"
-      # Framework majors need `ng update` migrations, a TypeScript major that
-      # Angular dictates, and a visual check; a Dependabot PR does none of that
-      # and, with these peer ranges, cannot even resolve (Angular 22 needs
-      # TypeScript >=6.0 <6.1, PrimeNG 22 needs @angular/cdk 22). They are
-      # done by hand as roadmap epics (E4). THE COST OF THESE LINES: nobody is
-      # told about a framework major again — the quarterly check in
-      # docs/roadmap.md housekeeping is what replaces the notice.
+      # Framework majors need `ng update` migrations, the TypeScript major that
+      # Angular dictates, and a look at every screen on Windows. A Dependabot
+      # PR does none of that; it would be a lockfile that installs and an app
+      # nobody has seen. They are roadmap epics (E4), done by hand. THE COST OF
+      # THESE LINES: nobody is told about a framework major again — the
+      # quarterly check in docs/roadmap.md housekeeping replaces the notice.
       - dependency-name: "@angular/*"
         update-types:
           - version-update:semver-major
@@ -134,9 +144,10 @@ updates:
         update-types:
           - version-update:semver-major
       # Gated on the Angular builder's peer range, not on Vitest's release:
-      # @angular/build 21.x declares vitest ^4.0.8 only, and vitest 5 then makes
-      # `npm install` fail with ERESOLVE (.claude/rules/testing.md). Angular
-      # 22.2 accepts ^5 — drop this line in the Angular 22 upgrade.
+      # @angular/build up to 22.1.x declares vitest ^4.0.8 only, and vitest 5
+      # then makes `npm install` fail with ERESOLVE (.claude/rules/testing.md).
+      # 22.2.0 is the first to accept ^5 — drop this line only once
+      # @angular/build is on >= 22.2.
       - dependency-name: "vitest"
         update-types:
           - version-update:semver-major

@@ -3,7 +3,7 @@
 ## Vitest (Frontend)
 
 - Use `async/await`, not `fakeAsync`/`tick` — no zone.js
-- `vi.mock()` is blocked by the Angular Vitest runner — use Angular DI mocking instead
+- `vi.mock()` of a relative (or absolute) path is blocked by the Angular Vitest runner — up to 21.2.0 it was blocked outright, since 21.2.1 only paths starting with `.` or `/` throw. The bindings and every app module are imported by relative path, so in practice: use Angular DI mocking instead
 - Mock pattern: `createWailsMock()` from `frontend/src/testing/wails-mock.ts`, inject via `{ provide: WailsService, useValue: wailsMock }`
 - DOM-first assertions: assert on what the user sees (`data-testid` attributes), not internal state
 - After `fixture.detectChanges()`, always `await fixture.whenStable()` before querying async-loaded DOM
@@ -53,22 +53,23 @@ applies to anything else process-global: module singletons, leftover TestBed
 state, patched prototypes.
 
 **vitest stays on 4.x.** The builder declares vitest as an optional peer at
-`^4.0.8` on every published 21.2.x (22.2.0, 2026-09-23, is the first to accept
-`^5.0.0` — so the Angular 22 upgrade is where this lifts). vitest 5
+`^4.0.8` on every published 21.2.x and on 22.0.x–22.1.x. 22.2.0 (2026-09-23)
+is the first to accept `^5.0.0`, so this lifts with an Angular upgrade to
+>= 22.2, not with any Angular 22. vitest 5
 does run — the suite passes and the builder's watch path works — but it makes
 `npm install` fail outright with `ERESOLVE could not resolve`, for every
 developer and every package, until someone adds `--legacy-peer-deps`. `npm ci`
 is unaffected, so CI would never have caught it. A test-runner major is not
 worth that, so the bump stopped at 4.1.11.
 
-When Angular's builder declares `^5`, two things need handling in the same
+Once `@angular/build` is on >= 22.2 (the first to declare `^5`), two things need handling in the same
 change: vitest 5 flips `clearMocks` from `false` to `true` by default and the
 builder does not set it, so a mock's calls no longer survive into the next test
 — an assertion on call counts that should fail could start passing. It also
 changes the default reporter, which swallows `console.log` (`--reporters=verbose`
 brings it back).
 
-## Go Tests## Go Tests
+## Go Tests
 
 Settings tests use `XDG_CONFIG_HOME` env override to redirect file I/O to a temp dir.
 

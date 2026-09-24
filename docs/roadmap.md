@@ -29,7 +29,7 @@
 | Angular | 21.2.0 | 22.1.x | |
 | PrimeNG / `@primeuix/themes` | 21.1.3 / 2.0.3 | 22.1.x / 3.0.x | move together |
 | TypeScript | 5.9 | 7.0 | Angular 22 requires 6.0 (`>=6.0 <6.1`); TS 7 = Go-native compiler, only when Angular CLI supports it |
-| Vitest / Playwright / jsdom | 4.1 / 1.63 / 30 | 5.0 / 1.63 / 30 | #84; Vitest 5 blocked by the `@angular/build` peer range (`^4.0.8`), see `.claude/rules/testing.md` |
+| Vitest / Playwright / jsdom | 4.1 / 1.63 / 30 | 5.0 / 1.63 / 30 | #84; Vitest 5 blocked by the `@angular/build` peer range (`^4.0.8` up to 22.1.x; 22.2.0 accepts `^5`), see `.claude/rules/testing.md` |
 
 **Provider code today:** one `internal/llm` package behind a `Client` interface — the vendor SDKs for Claude, OpenAI and Ollama, plus the spawned Claude Code CLI — with contexts, timeouts, SDK retries and tests on every path (#39, #45, #33 step 3). Model IDs are still constants at the two call sites; that is step 4. Bedrock is still a stub that returns an error (#23).
 
@@ -148,7 +148,7 @@ Issue: #35.
 Order matters:
 1. Wails: bump Go module to `v3.0.0-beta.23` **and** `@wailsio/runtime` to the same version; regenerate bindings; smoke test tray, window hide/show, events, Windows build.
 2. Angular 22 + PrimeNG 22 + `@primeuix/themes` 3 together (`ng update`); re-check the custom wizard (`@switch`) and dark-mode CSS overrides in `styles.scss`, which patch PrimeNG gaps that may be fixed or moved.
-3. ~~Playwright 1.63, jsdom 30, Prettier~~ **done (#84)**, Vitest to 4.1. Vitest 5 waits until `@angular/build` declares `^5` — then handle the `clearMocks` default flip and the reporter change in the same PR (`.claude/rules/testing.md`).
+3. ~~Playwright 1.63, jsdom 30, Prettier~~ **done (#84)**, Vitest to 4.1. Vitest 5 waits until `@angular/build` is on >= 22.2, the first to declare `^5` (i.e. with step 2) — then handle the `clearMocks` default flip and the reporter change in the same PR (`.claude/rules/testing.md`).
 4. TypeScript: Angular dictates it — Angular 22 requires `>=6.0 <6.1`, so step 2 moves TypeScript 5.9 → 6.0 with it. TypeScript 7 only once `@angular/build` lists it.
 5. Node 24 LTS stays.
 
@@ -193,7 +193,7 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 - [x] `docs/pyramidize/ux-roadmap.md` model strategy section is outdated (Sonnet 4.6 / GPT-5.2 era); superseded by E2 step 4 — replaced by a pointer to `internal/llm/models.go`
 - [x] Pin third-party GitHub Actions to commit SHAs, add Dependabot for actions (#51, #65, #73, #81). `actions/*` stay on floating major tags by design — GitHub's own org, and Dependabot is configured to ignore majors since #81 — so the workflows are hardened, not fully SHA-pinned
 - [ ] Quarterly dependency hygiene — Dependabot deliberately stays silent on these, so this check is the only notice. (1) Actions: check `gh api repos/actions/<name>/releases/latest` for every `actions/*` in `.github/workflows/` and bump paired actions together (artifact upload/download, pages upload/deploy). (2) Framework majors: `cd frontend && npm outdated` for Angular, PrimeNG, `@primeuix/*`, primeicons, TypeScript, Vitest. (3) Wails: `go list -m -u github.com/wailsapp/wails/v3` and its open security advisories. Next due: 2026-12.
-- [x] Add `gomod` and `npm` to Dependabot: the dependency drift recorded at the top of this file (Wails alpha.72 vs beta.23, `@wailsio/runtime` mismatched, Angular 21.2 vs 22.1) is exactly what those ecosystems would surface (#89). Monthly, grouped, 7-day npm cooldown. Minor/patch only for the framework family (Angular, PrimeNG, `@primeuix/*`, primeicons, TypeScript) — their majors cannot resolve as a Dependabot PR, so the quarterly check below surfaces them. Wails is excluded on both sides and stays a manual, paired bump; its security advisories arrive as alerts, not PRs
+- [x] Add `gomod` and `npm` to Dependabot (#89) — monthly, grouped, 7-day npm cooldown (`packageManager` moved to npm 11.19 so it covers transitive packages too). It does **not** surface the drift that prompted this item: Wails is ignored on both sides, and framework majors (Angular, PrimeNG, `@primeuix/*`, primeicons, TypeScript) are blocked because they need `ng update` and a visual check. The quarterly check above surfaces those. Security updates skip the ignores, so an advisory can still arrive as a PR — as a notice, not merge-on-green
 - [x] `MicrosoftEdgeWebview2Setup.exe` was curled from a redirector with no checksum or signature check and bundled into the installer users run — now `scripts/fetch-webview2.sh` refuses any file without a valid Microsoft signature, in both `release.yml` and `build-linux.yml` (#66, #74)
 - [ ] Branch protection on `main` (required checks incl. `e2e`, `test` with race detector, bindings drift) — Michael, repo settings
 - [ ] Shortcut robustness under rapid input (#42, #44) after #31 lands
