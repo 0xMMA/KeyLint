@@ -40,18 +40,16 @@ describe('ShellComponent — theme / body class', () => {
     expect(document.body.classList.contains('app-dark')).toBe(true);
   });
 
-  it('removes app-dark from body for light theme', async () => {
-    document.body.classList.add('app-dark');
-    await createAndWait('light');
-    expect(document.body.classList.contains('app-dark')).toBe(false);
-  });
+  // Only the dark theme is styled (#24). A value saved by an older version, or
+  // one a light theme (#25) will honour later, must not unstyle the app today.
+  for (const stored of ['light', 'system', '', 'something-else']) {
+    it(`stays dark when theme_preference is "${stored}"`, async () => {
+      await createAndWait(stored);
+      expect(document.body.classList.contains('app-dark')).toBe(true);
+    });
+  }
 
-  it('keeps app-dark for system theme (dark-first app)', async () => {
-    await createAndWait('system');
-    expect(document.body.classList.contains('app-dark')).toBe(true);
-  });
-
-  it('re-applies theme when settingsChanged$ emits', async () => {
+  it('stays dark when settingsChanged$ brings a light preference', async () => {
     const fixture = await createAndWait('dark');
     expect(document.body.classList.contains('app-dark')).toBe(true);
 
@@ -59,7 +57,7 @@ describe('ShellComponent — theme / body class', () => {
     wailsMock._settingsChanged$.next();
     await fixture.whenStable();
 
-    expect(document.body.classList.contains('app-dark')).toBe(false);
+    expect(document.body.classList.contains('app-dark')).toBe(true);
   });
 
   it('renders the sidebar nav', async () => {

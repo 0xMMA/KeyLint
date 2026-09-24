@@ -43,7 +43,7 @@ Keys are NOT stored in `settings.json`. `GetKey(provider)` / `SetKey` / `DeleteK
 
 ## Dark Mode
 
-`<body class="app-dark">` set in `frontend/src/index.html:10` before Angular bootstraps — eliminates flash. `ShellComponent.applyTheme()` removes the class only if `theme_preference === 'light'` (dark-first logic). PrimeNG Aura has gaps in dark mode CSS; manual overrides are in `frontend/src/styles.scss`.
+`<body class="app-dark">` set in `frontend/src/index.html:10` before Angular bootstraps — eliminates flash. `ShellComponent.applyTheme()` never removes it: only the dark theme is styled, so `theme_preference` is not read until the light theme lands (#24, #25). PrimeNG Aura has gaps in dark mode CSS; manual overrides are in `frontend/src/styles.scss`.
 
 ## Routes
 

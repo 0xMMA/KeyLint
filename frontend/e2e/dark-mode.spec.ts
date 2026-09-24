@@ -122,4 +122,69 @@ test.describe('Dark mode — visual verification', () => {
       .toBe('rgb(9, 9, 11)');
     await screenshot(page, '07-select-label-transparent');
   });
+
+  // Only the dark theme is styled (#24). A "light" saved by an older version
+  // used to strip .app-dark and leave PrimeNG's unstyled light mode; now it is
+  // ignored, and there is no theme control to set it with.
+  test('a stored light theme still renders dark, with no theme control', async ({ page }) => {
+    await serveSettings(page, { theme_preference: 'light' });
+    await page.goto('/settings');
+    await page.waitForLoadState('networkidle');
+    await expect(page.locator('[data-testid="save-btn"] button')).toBeVisible();
+
+    // Proves the stored value actually reached the app, so the dark assertion
+    // below is not vacuous: Log Level comes from the same stubbed response.
+    await expect(page.locator('[data-testid="log-level-section"] .p-select-label')).toHaveText('Debug');
+
+    const hasAppDark = await page.evaluate(() => document.body.classList.contains('app-dark'));
+    expect(hasAppDark, 'stored "light" must not remove .app-dark').toBe(true);
+    const bgColor = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    expect(bgColor).toBe('rgb(9, 9, 11)');
+
+    await expect(page.locator('label', { hasText: /^Theme$/ })).toHaveCount(0);
+    await screenshot(page, '08-stored-light-stays-dark');
+  });
 });
+
+/**
+ * ng serve has no Wails backend, so every binding call fails and the app falls
+ * back to its browser-mode defaults. This answers Settings.Get only, with the
+ * given fields over those defaults, so a spec can put a stored value in front
+ * of the UI. The method ID comes from the generated binding
+ * (bindings/keylint/internal/features/settings/service.js, Get).
+ */
+const SETTINGS_GET_METHOD_ID = 2040733582;
+
+async function serveSettings(page: Page, overrides: Record<string, unknown>): Promise<void> {
+  await page.route('**/wails/runtime', async (route) => {
+    let methodID: unknown;
+    try {
+      methodID = JSON.parse(route.request().postData() ?? '{}')?.args?.methodID;
+    } catch {
+      methodID = undefined;
+    }
+    if (methodID !== SETTINGS_GET_METHOD_ID) {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        active_provider: 'claude',
+        models: {},
+        providers: { ollama_url: '', aws_region: '' },
+        shortcut_key: 'ctrl+g',
+        start_on_boot: false,
+        theme_preference: 'dark',
+        completed_setup: true,
+        log_level: 'debug',
+        sensitive_logging: false,
+        update_channel: '',
+        app_presets: [],
+        pyramidize_quality_threshold: 0.65,
+        ...overrides,
+      }),
+    });
+  });
+}

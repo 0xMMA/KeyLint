@@ -102,15 +102,6 @@ interface ProviderKey {
                     <p-toggle-switch [(ngModel)]="settings.start_on_boot" />
                   </div>
                 </div>
-                <div class="form-group">
-                  <label>Theme</label>
-                  <p-select
-                    [(ngModel)]="settings.theme_preference"
-                    [options]="themes"
-                    optionLabel="label"
-                    optionValue="value"
-                  />
-                </div>
                 <div class="form-group" data-testid="log-level-section">
                   <label>Log Level</label>
                   <p-select
@@ -561,12 +552,6 @@ export class SettingsComponent implements OnInit, OnDestroy {
     { label: 'Ollama (local)', value: 'ollama' },
     // AWS Bedrock stays out until it works (#22, #23). A settings file that
     // still names it is explained, not broken — see unavailableProvider.
-  ];
-
-  readonly themes = [
-    { label: 'Dark', value: 'dark' },
-    { label: 'Light', value: 'light' },
-    { label: 'System', value: 'system' },
   ];
 
   readonly updateChannels = [

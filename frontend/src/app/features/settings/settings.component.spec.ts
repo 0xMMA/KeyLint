@@ -844,3 +844,57 @@ describe('SettingsComponent — AWS Bedrock is not offered yet', () => {
     );
   });
 });
+
+
+// Only the dark theme is styled (#24). A dropdown with one entry is not a
+// choice, so the control is gone until a light theme exists (#25).
+describe('SettingsComponent — theme', () => {
+  let fixture: ComponentFixture<SettingsComponent>;
+  let component: SettingsComponent;
+  let el: HTMLElement;
+  let wailsMock: ReturnType<typeof createWailsMock>;
+
+  async function render(themePreference: string): Promise<void> {
+    TestBed.resetTestingModule();
+    wailsMock = createWailsMock();
+    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, theme_preference: themePreference });
+    wailsMock.getKeyStatus.mockResolvedValue({ ...defaultKeyStatus });
+
+    await TestBed.configureTestingModule({
+      imports: [SettingsComponent],
+      providers: [
+        provideAnimationsAsync(),
+        { provide: WailsService, useValue: wailsMock },
+        { provide: ActivatedRoute, useValue: makeActivatedRoute() },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(SettingsComponent);
+    component = fixture.componentInstance;
+    component.settings = { ...defaultSettings, theme_preference: themePreference };
+    el = fixture.nativeElement;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  it('shows no theme control on the General tab', async () => {
+    await render('dark');
+
+    const labels = Array.from(el.querySelectorAll('label')).map(l => l.textContent?.trim());
+    expect(labels).toContain('Start on Boot');
+    expect(labels).not.toContain('Theme');
+  });
+
+  // The field stays in the model for #25; saving must not rewrite it.
+  it('saves a stored theme preference unchanged', async () => {
+    await render('light');
+
+    await component.save();
+
+    expect(wailsMock.saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ theme_preference: 'light' }),
+    );
+  });
+});
