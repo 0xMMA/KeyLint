@@ -67,6 +67,19 @@ jobs:
           CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -tags production,gtk3 -trimpath \
             -ldflags="-w -s -X main.AppVersion=${{ github.ref_name }}" -o bin/KeyLint .
 
+      # The gtk3 tag is the only thing keeping Linux off GTK4 + WebKitGTK 6.0,
+      # which aborts at start on stock Ubuntu 23.10+. Fail if it ever slips.
+      - name: Check the Linux binary links GTK3
+        run: |
+          needed=$(readelf -d bin/KeyLint | grep NEEDED)
+          case "$needed" in *libgtk-3.so*) ;; *) bad=1;; esac
+          case "$needed" in *libwebkit2gtk-4.1.so*) ;; *) bad=1;; esac
+          if [ -n "${bad:-}" ]; then
+            echo "$needed"
+            echo "::error::bin/KeyLint does not link GTK3 / WebKit2GTK 4.1 - was -tags gtk3 dropped?"
+            exit 1
+          fi
+
       - name: Upload Linux artifact
         uses: actions/upload-artifact@v7
         with:
