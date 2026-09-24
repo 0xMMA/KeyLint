@@ -217,6 +217,34 @@ describe('SettingsComponent', () => {
   });
 
   describe('About tab', () => {
+    // Same wording as the sidebar (#21): one "v", and "dev" stays "dev".
+    describe('version label', () => {
+      for (const [raw, shown] of [['v3.6.0', 'Version: v3.6.0'], ['3.6.0', 'Version: v3.6.0'], ['dev', 'Version: dev']] as const) {
+        it(`shows "${raw}" as "${shown}"`, async () => {
+          TestBed.resetTestingModule();
+          const wailsMock = createWailsMock();
+          wailsMock.getVersion.mockResolvedValue(raw);
+          await TestBed.configureTestingModule({
+            imports: [SettingsComponent],
+            providers: [
+              provideAnimationsAsync(),
+              { provide: WailsService, useValue: wailsMock },
+              { provide: ActivatedRoute, useValue: makeActivatedRoute('about') },
+            ],
+          }).compileComponents();
+          const fixture = TestBed.createComponent(SettingsComponent);
+          fixture.componentInstance.settings = { ...defaultSettings };
+          fixture.detectChanges();
+          await fixture.whenStable();
+          await fixture.whenStable();
+          fixture.detectChanges();
+
+          const text = fixture.nativeElement.querySelector('[data-testid="app-version"]')?.textContent?.trim();
+          expect(text).toBe(shown);
+        });
+      }
+    });
+
     it('displays app version after init', async () => {
       wailsMock.getVersion.mockResolvedValue('3.6.0');
       await component.ngOnInit();

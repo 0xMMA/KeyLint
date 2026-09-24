@@ -81,6 +81,27 @@ describe('ShellComponent — theme / body class', () => {
     expect(footer!.textContent).toContain('v4.1.7');
   });
 
+  // Release builds get their version from the git tag, which already carries
+  // the "v" (#21); local builds may not, and dev builds say "dev".
+  for (const [raw, shown] of [
+    ['v3.6.0', 'v3.6.0'],
+    ['v3.7.0-alpha.2-5-gabc1234', 'v3.7.0-alpha.2-5-gabc1234'],
+    ['3.6.0', 'v3.6.0'],
+    ['dev', 'dev'],
+    // `git describe --always` without a reachable tag: a bare commit hash.
+    ['0a1b2c3', '0a1b2c3'],
+  ] as const) {
+    it(`shows version "${raw}" as "${shown}"`, async () => {
+      wailsMock.getVersion.mockResolvedValue(raw);
+      const fixture = await createAndWait('dark');
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      const text = fixture.nativeElement.querySelector('[data-testid="version-text"]')?.textContent?.trim();
+      expect(text).toBe(shown);
+    });
+  }
+
   it('shows update indicator when update is available', async () => {
     wailsMock.getVersion.mockResolvedValue('4.1.7');
     wailsMock.checkForUpdate.mockResolvedValue({ ...defaultUpdateInfo, is_available: true, latest_version: '4.1.8' });

@@ -3,6 +3,7 @@ import { Router, RouterOutlet, RouterLink, RouterLinkActive } from '@angular/rou
 import { isDevMode } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { TooltipModule } from 'primeng/tooltip';
+import { versionLabel } from '../core/version-label';
 import { WailsService } from '../core/wails.service';
 
 // Persists across navigation
@@ -71,7 +72,7 @@ let sidebarHovered   = false;
         <div class="sidebar-footer">
           <div class="version-row" data-testid="version-footer" (click)="goToAbout()">
             @if (!collapsedView || hoverExpanded) {
-              <span class="version-text">v{{ appVersion || '…' }}</span>
+              <span class="version-text" data-testid="version-text">{{ versionLabel(appVersion) }}</span>
               @if (updateAvailable) {
                 <i class="pi pi-arrow-circle-up update-indicator" data-testid="update-indicator" title="Update available"></i>
               }
@@ -97,6 +98,7 @@ let sidebarHovered   = false;
 })
 export class ShellComponent implements OnInit, OnDestroy {
   readonly dev = isDevMode();
+  readonly versionLabel = versionLabel;
   appVersion = '';
   updateAvailable = false;
   private sub?: Subscription;

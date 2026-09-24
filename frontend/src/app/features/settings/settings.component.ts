@@ -10,6 +10,7 @@ import { MessageModule } from 'primeng/message';
 import { CardModule } from 'primeng/card';
 import { TagModule } from 'primeng/tag';
 import { ActivatedRoute } from '@angular/router';
+import { versionLabel } from '../../core/version-label';
 import { WailsService, Settings as AppSettings, KeyStatus, UpdateInfo, AppPreset, ClaudeCodeStatus, ModelInfo } from '../../core/wails.service';
 import { noteForModelSource } from '../../core/model-source';
 import { DOCUMENT_TYPE_OPTIONS } from '../../core/constants';
@@ -362,7 +363,7 @@ interface ProviderKey {
               <p-tabpanel value="about">
                 <p>KeyLint — Wails v3 + Angular v21</p>
                 <p>Built with Go, Angular, and PrimeNG.</p>
-                <p data-testid="app-version">Version: {{ appVersion }}</p>
+                <p data-testid="app-version">Version: {{ versionLabel(appVersion) }}</p>
 
                 <div class="form-group mt-3" data-testid="update-channel-section">
                   <label>Update Channel</label>
@@ -530,6 +531,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   activeTab = 'general';
 
   appVersion = '';
+  readonly versionLabel = versionLabel;
   updateInfo: UpdateInfo | null = null;
   updateChecking = false;
   updateInstalling = false;
