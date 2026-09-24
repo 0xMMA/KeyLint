@@ -68,7 +68,8 @@ MIT + Commons Clause — see [LICENSE](LICENSE) for details.
 
 - Go 1.27+
 - Node.js 24 LTS
-- Wails v3 CLI: `go install github.com/wailsapp/wails/v3/cmd/wails3@latest`
+- Wails v3 CLI, the same version as the module in `go.mod` (CI's bindings-drift check uses it): `go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.72`
+- Install `wails3` and `wire` with Go 1.27 or newer. `go install` builds a tool with the Go version the *tool* declares, so on an older base Go they refuse this module ("package requires newer Go version go1.27"). If your default `go` is older: `GOTOOLCHAIN=go1.27.1 go install …`
 - Linux: `sudo apt install libgtk-3-dev libwebkit2gtk-4.1-dev`
 - Windows cross-compilation from Linux: `sudo apt install gcc-mingw-w64`
 
