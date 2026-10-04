@@ -108,7 +108,7 @@ done
 JQ_ROUND='def r4: (. * 10000 | round) / 10000;
 def resolvedOr(r; m): if (r // "") == "" then m else r end;
 def judgeTemp(j): if j == null then "none"
-                  elif (j | has("temperature")) then (j.temperature | tostring)
+                  elif (j | has("temperature")) then (j.temperature | if . == null then "null" else (. + 0 | tostring) end)
                   else "0" end;
 def keyFrom(c): [(c.suite // "pyramidize"), c.provider, resolvedOr(c.resolvedModel; c.model),
                  (c.judge.provider // "none"), resolvedOr(c.judge.resolvedModel; (c.judge.model // "none")),
@@ -177,6 +177,9 @@ AGGREGATE=$(jq -s --argjson perSample "$PER_SAMPLE" --argjson runs "$RUNS_JSON" 
             # What the requested model resolved to; the key uses it. null for
             # runs that predate the field.
             resolvedModel: (if (.[0].resolvedModel // "") == "" then null else .[0].resolvedModel end),
+            # Recorded, not keyed: the CLI is part of the instrument when a run
+            # goes through it, and a comparison reports a version change below.
+            claudeCodeVersion: (if (.[0].claudeCodeVersion // "") == "" then null else .[0].claudeCodeVersion end),
             promptVariant: .[0].promptVariant,
             judge: .[0].judge,
             schemaEnforcement: .[0].schemaEnforcement,
@@ -253,6 +256,8 @@ VERDICT=$(printf '%s\n' "$AGGREGATE" | jq --slurpfile base "$COMPARE" "$JQ_ROUND
                           changed: (($was.config.splitHash // null) != ($now.config.splitHash // null))},
         promptHash: {baseline: ($was.config.promptHash // null), now: ($now.config.promptHash // null),
                      changed: (($was.config.promptHash // null) != ($now.config.promptHash // null))},
+        claudeCodeVersion: {baseline: ($was.config.claudeCodeVersion // null), now: ($now.config.claudeCodeVersion // null),
+                            changed: (($was.config.claudeCodeVersion // null) != ($now.config.claudeCodeVersion // null))},
         baseline: {config: $wasKey, runs: $was.runCount, gitSHA: $was.config.gitSHA,
                    deterministic: $was.deterministic, judge: $was.judge, samplesPassing: $was.samplesPassing},
         now:      {config: $now.configKey, runs: $now.runCount, gitSHA: $now.config.gitSHA,
@@ -301,6 +306,14 @@ if [[ "$(printf '%s' "$VERDICT" | jq -r '.promptHash.changed')" == "true" ]]; th
     printf 'The prompt changed between these two sides (%s -> %s). Whatever moved, the prompt is a candidate.\n' \
         "$(printf '%s' "$VERDICT" | jq -r '.promptHash.baseline // "unrecorded"')" \
         "$(printf '%s' "$VERDICT" | jq -r '.promptHash.now // "unrecorded"')" >&2
+fi
+
+# Same reasoning for the CLI: its defaults sit between the model and the score,
+# and an upgrade can move a number with nothing in this repository moving.
+if [[ "$(printf '%s' "$VERDICT" | jq -r '.claudeCodeVersion.changed')" == "true" ]]; then
+    printf 'The Claude Code CLI changed between these two sides (%s -> %s). Whatever moved, the CLI is a candidate.\n' \
+        "$(printf '%s' "$VERDICT" | jq -r '.claudeCodeVersion.baseline // "unrecorded"')" \
+        "$(printf '%s' "$VERDICT" | jq -r '.claudeCodeVersion.now // "unrecorded"')" >&2
 fi
 
 case "$(printf '%s' "$VERDICT" | jq -r .verdict)" in

@@ -1,6 +1,7 @@
 package enhance
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -124,9 +125,22 @@ func evalEnvFromFile(file map[string]string, getenv func(string) string) map[str
 		return set
 	}
 	for key, value := range file {
-		if strings.HasSuffix(key, "_API_KEY") {
+		// An empty line copied from .env.example must not blank a key the shell
+		// exports: credentials from the file win, but only real ones.
+		if strings.HasSuffix(key, "_API_KEY") && strings.TrimSpace(value) != "" {
 			set[key] = value
 		}
 	}
 	return set
+}
+
+// evalCLIVersion is the Claude Code CLI's version when the pipeline or the judge
+// runs through it, and "" otherwise.
+func evalCLIVersion(providers ...string) string {
+	for _, p := range providers {
+		if p == llm.ProviderClaudeCode {
+			return llm.ClaudeCodeVersion(context.Background(), "")
+		}
+	}
+	return ""
 }

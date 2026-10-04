@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"keylint/internal/features/settings"
 	"keylint/internal/llm"
@@ -133,6 +134,10 @@ Respond with ONLY a JSON object:
 // that measures the pipeline.
 const judgeMaxTokens = 4096
 
+// judgeTimeout bounds one judge call. Through the CLI a judge call takes about
+// 30 s; this is a safety net against a hung process, not a budget.
+const judgeTimeout = 180 * time.Second
+
 // runJudge calls the LLM to evaluate a candidate output against the baseline.
 //
 // The judge always sends its schema, whatever KEYLINT_PYRAMIDIZE_SCHEMA says.
@@ -155,8 +160,7 @@ func (svc *Service) runJudge(settingsSvc *settings.Service, judge JudgeConfig, r
 
 	// Resolve API key upfront so callAISync has no keyring dependency.
 	apiKey := ""
-	switch judge.Provider {
-	case "openai", "claude":
+	if llm.UsesAPIKey(judge.Provider) {
 		apiKey = settingsSvc.GetKey(judge.Provider)
 	}
 
@@ -167,7 +171,13 @@ func (svc *Service) runJudge(settingsSvc *settings.Service, judge JudgeConfig, r
 		temperature: judge.Temperature,
 		maxTokens:   judgeMaxTokens,
 	}
-	raw, err := svc.callAISync(context.Background(), cfg, opts, apiKey, judgeSystemPrompt, userMessage, judgeSchema)
+	// callAISync has no deadline of its own (callAIWithContext adds the
+	// pipeline's), and a CLI process that hangs would otherwise run into the
+	// go test timeout, which panics before summary.json is written and throws
+	// away every sample already paid for.
+	ctx, cancel := context.WithTimeout(context.Background(), judgeTimeout)
+	defer cancel()
+	raw, err := svc.callAISync(ctx, cfg, opts, apiKey, judgeSystemPrompt, userMessage, judgeSchema)
 	if err != nil {
 		return JudgeScore{}, fmt.Errorf("judge AI call failed: %w", err)
 	}

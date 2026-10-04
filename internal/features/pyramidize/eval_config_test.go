@@ -99,3 +99,19 @@ func TestDotEnvNeverOverridesTheCommandLine(t *testing.T) {
 		t.Error("a key was loaded for a provider the command line overrode")
 	}
 }
+
+// TestAnEmptyKeyInDotEnvDoesNotBlankTheShellsKey: .env.example ships the line
+// empty, and a copy of it must not override a key the shell exports.
+func TestAnEmptyKeyInDotEnvDoesNotBlankTheShellsKey(t *testing.T) {
+	got := evalEnvFromFile(map[string]string{"ANTHROPIC_API_KEY": ""},
+		envFrom(map[string]string{"EVAL_PROVIDER": llm.ProviderClaude}))
+	if _, ok := got["ANTHROPIC_API_KEY"]; ok {
+		t.Error("an empty .env key was set over the environment's")
+	}
+}
+
+func TestTheCLIVersionIsOnlyAskedForWhenTheCLIRuns(t *testing.T) {
+	if got := evalCLIVersion(llm.ProviderClaude, llm.ProviderOpenAI); got != "" {
+		t.Errorf("evalCLIVersion without the CLI = %q, want empty", got)
+	}
+}

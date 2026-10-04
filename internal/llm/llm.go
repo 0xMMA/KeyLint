@@ -81,7 +81,9 @@ type Response struct {
 	// Model is the model ID that actually answered, as the provider reported
 	// it — which is not always the ID that was asked for. An alias such as the
 	// CLI's "sonnet" resolves to a dated generation, and that generation can
-	// change without a commit. Empty when the provider did not say.
+	// change without a commit. Empty when the provider did not say. The Claude
+	// Code CLI can report more than one model for a call; it then holds their
+	// IDs sorted and comma-joined.
 	//
 	// Nothing in the product reads it. The eval does: a measurement has to name
 	// the model that produced it, not the alias it was requested by.

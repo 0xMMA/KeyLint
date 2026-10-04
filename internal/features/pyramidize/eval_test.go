@@ -275,10 +275,13 @@ func TestEvalPyramidize(t *testing.T) {
 		// The ID that answered, which the configKey uses in place of model.
 		// Empty only when no call succeeded, and then the key falls back to the
 		// requested model.
-		"resolvedModel":    pipelineModels.String(),
-		"promptVariant":    effectiveVariant,
-		"judge":            judge,
-		"qualityThreshold": settings.DefaultQualityThreshold,
+		"resolvedModel": pipelineModels.String(),
+		// The CLI is part of the instrument when either side runs through it: its
+		// defaults sit between the model and the score. Recorded, not keyed.
+		"claudeCodeVersion": evalCLIVersion(provider, judge.Provider),
+		"promptVariant":     effectiveVariant,
+		"judge":             judge,
+		"qualityThreshold":  settings.DefaultQualityThreshold,
 		// Which configuration produced these numbers; see schemas.go.
 		"schemaEnforcement": schemaEnforcement,
 		"sampleCount":       len(samples),

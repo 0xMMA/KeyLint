@@ -235,13 +235,16 @@ func TestEvalFix(t *testing.T) {
 		// two five-sample holdouts with one swapped would compare cleanly; this
 		// is the record that says they were not the same five. Enforcement is a
 		// test against SPLIT.json, which fails before anything is measured.
-		"splitHash":        SplitHash(sampleNames(samples)),
-		"provider":         provider,
-		"model":            model,
-		"resolvedModel":    pipelineModels.String(),
-		"judge":            judge,
-		"promptVariant":    0, // the Fix prompt has no variants
-		"qualityThreshold": 0,
+		"splitHash":     SplitHash(sampleNames(samples)),
+		"provider":      provider,
+		"model":         model,
+		"resolvedModel": pipelineModels.String(),
+		// The CLI is part of the instrument when either side runs through it: its
+		// defaults sit between the model and the score. Recorded, not keyed.
+		"claudeCodeVersion": evalCLIVersion(provider, judge.Provider),
+		"judge":             judge,
+		"promptVariant":     0, // the Fix prompt has no variants
+		"qualityThreshold":  0,
 		// Kept for shape-compatibility with the Pyramidize summaries, which is
 		// what lets scripts/eval-aggregate.sh read both.
 		"schemaEnforcement": false,

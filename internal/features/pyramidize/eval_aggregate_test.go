@@ -685,9 +685,9 @@ func TestAnElevenFieldKeyUpgradesToAPinnedJudge(t *testing.T) {
 	}
 	parts := strings.Split(doc["configKey"].(string), "|")
 	doc["configKey"] = strings.Join(parts[:11], "|")
+	// Without a config object, baselineKey has only the stored string to go on
+	// — which is the path under test.
 	delete(doc, "config")
-	// The comparison reads config.* for its report lines, so keep the fields it
-	// needs while dropping the object keyFrom would otherwise prefer.
 	out, _ := json.Marshal(doc)
 	if err := os.WriteFile(base, out, 0o644); err != nil {
 		t.Fatal(err)
@@ -698,7 +698,31 @@ func TestAnElevenFieldKeyUpgradesToAPinnedJudge(t *testing.T) {
 		fakeRun(t, filepath.Join(root, "n2"), "claude-sonnet-4-6", 0.77, 0.89),
 	}
 	got, code := aggregate(t, append([]string{"--compare", base}, now...)...)
-	if code == 2 {
-		t.Fatalf("an eleven-field API-era key was refused: %v", got["verdict"])
+	// 0, not merely "not 2": a jq error exits 5 and must not pass as an upgrade.
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 — an eleven-field API-era key should upgrade: %v", code, got["verdict"])
+	}
+}
+
+// TestAJudgeTemperatureWrittenAsAFloatKeysAsZero: jq 1.7 keeps number literals
+// as written, so 0.0 would otherwise key as "0.0" and refuse a pinned judge.
+func TestAJudgeTemperatureWrittenAsAFloatKeysAsZero(t *testing.T) {
+	root := t.TempDir()
+	dir := fakeRun(t, filepath.Join(root, "r1"), "claude-sonnet-4-6", 0.80, 0.88)
+	path := filepath.Join(dir, "summary.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = []byte(strings.Replace(string(data), `"temperature": 0`, `"temperature": 0.0`, 1))
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, code := aggregate(t, dir, fakeRun(t, filepath.Join(root, "r2"), "claude-sonnet-4-6", 0.76, 0.90))
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 — 0.0 and 0 are the same pin", code)
+	}
+	if key, _ := got["configKey"].(string); !strings.HasSuffix(key, "|0") {
+		t.Errorf("configKey = %v, want it to end in |0", key)
 	}
 }

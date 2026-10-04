@@ -5,6 +5,7 @@ package enhance
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"keylint/internal/features/settings"
 	"keylint/internal/llm"
@@ -43,6 +44,9 @@ Respond with ONLY a JSON object:
 
 overall is your holistic judgement, not the mean.`
 
+// judgeTimeout bounds one judge call; through the CLI one takes about 30 s.
+const judgeTimeout = 180 * time.Second
+
 // RunJudge scores one candidate. The three texts are always in the same order,
 // because reordering them would move the scores for reasons that have nothing
 // to do with the prompt under test.
@@ -65,7 +69,11 @@ func RunJudge(settingsSvc *settings.Service, judge JudgeConfig, newClient func(s
 	user := fmt.Sprintf("<original>\n%s\n</original>\n\n<reference>\n%s\n</reference>\n\n<candidate>\n%s\n</candidate>",
 		original, reference, candidate)
 
-	resp, err := client.Complete(context.Background(), llm.Request{
+	// A deadline, so a hung CLI process fails one sample instead of running into
+	// the go test timeout, which loses summary.json and every paid-for sample.
+	ctx, cancel := context.WithTimeout(context.Background(), judgeTimeout)
+	defer cancel()
+	resp, err := client.Complete(ctx, llm.Request{
 		System:     judgeSystemPrompt,
 		User:       user,
 		Model:      judge.Model,

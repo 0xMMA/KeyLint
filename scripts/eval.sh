@@ -61,10 +61,18 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# The defaults the Go side applies when nothing is set. Kept in step with
+# The providers this run will use, resolved the way the Go side resolves them:
+# the command line or shell first, then a non-credential line in .env (the Go
+# side fills an empty EVAL_* from it), then the defaults — kept in step with
 # defaultEvalProvider and defaultJudgeProvider in both eval_config.go files.
-PIPELINE_PROVIDER="${EVAL_PROVIDER:-claude-code}"
-JUDGE_PROVIDER="${EVAL_JUDGE_PROVIDER:-claude-code}"
+dotenv_value() {
+    [[ -f .env ]] || return 0
+    grep -E "^$1=" .env | tail -1 | cut -d= -f2- | tr -d '\r'
+}
+PIPELINE_PROVIDER="${EVAL_PROVIDER:-$(dotenv_value EVAL_PROVIDER)}"
+PIPELINE_PROVIDER="${PIPELINE_PROVIDER:-claude-code}"
+JUDGE_PROVIDER="${EVAL_JUDGE_PROVIDER:-$(dotenv_value EVAL_JUDGE_PROVIDER)}"
+JUDGE_PROVIDER="${JUDGE_PROVIDER:-claude-code}"
 uses_api_key() { [[ "$1" == "claude" || "$1" == "openai" ]]; }
 
 # Load credentials from .env, and only credentials — and only when the run has
@@ -78,7 +86,11 @@ if uses_api_key "$PIPELINE_PROVIDER" || uses_api_key "$JUDGE_PROVIDER"; then
     if [[ -f .env ]]; then
         while IFS='=' read -r key value; do
             [[ "$key" == *_API_KEY ]] || continue
-            export "$key=${value%$'\r'}"
+            value="${value%$'\r'}"
+            # An empty line copied from .env.example must not blank a key the
+            # shell exports.
+            [[ -n "$value" ]] || continue
+            export "$key=$value"
         done < <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .env)
     fi
 fi
@@ -150,7 +162,7 @@ if [[ "$SUITE" == "fix" ]]; then
 fi
 
 echo "=== KeyLint Eval: $SUITE ==="
-echo "Provider: ${EVAL_PROVIDER:-claude-code (eval default)}"
+echo "Provider: $PIPELINE_PROVIDER"
 echo "Model:    ${EVAL_MODEL:-<provider default>} (the resolved ID is recorded in summary.json)"
 if [[ "$SUITE" != "fix" ]]; then
     echo "Variant:  ${EVAL_VARIANT:-0 (latest)}"
@@ -177,10 +189,11 @@ for (( i = 1; i <= RUNS; i++ )); do
     # already spent on the earlier runs.
     BEFORE=$(ls -d test-data/eval-runs/*/ 2>/dev/null | sort || true)
     set +e
-    # 3600s, not 900s: through the CLI each call spawns a process and a judge
-    # call alone takes ~30 s, so a 13-sample Pyramidize run takes ~20 minutes.
-    # A go test timeout panics before summary.json is written and throws the
-    # whole run away, so the limit is a safety net, not a budget.
+    # 3600s, not 900s: through the CLI a Fix sample (fix + judge) takes about a
+    # minute, and the first CLI attempt at the Fix baseline lost a whole run to
+    # the 900 s panic. Pyramidize runs took 12.5–14 minutes. A go test timeout
+    # panics before summary.json is written and throws the whole run away, so
+    # the limit is a safety net, not a budget.
     go test -tags eval "$SUITE_PKG" -v -timeout 3600s 2>&1 | tee /dev/stderr | tail -1
     run_status=${PIPESTATUS[0]}
     set -e
