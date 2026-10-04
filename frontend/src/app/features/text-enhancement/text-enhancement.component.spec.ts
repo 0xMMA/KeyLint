@@ -44,6 +44,11 @@ function makeEnhancementServiceMock() {
   };
 }
 
+// The provider choice is module-level, outlives every fixture and is shared
+// with other spec files (isolate: false): every test starts a fresh session.
+beforeEach(() => resetPyramidizeProviderSession());
+afterEach(() => resetPyramidizeProviderSession());
+
 describe('TextEnhancementComponent (Pyramidize)', () => {
   let fixture: ComponentFixture<TextEnhancementComponent>;
   let component: TextEnhancementComponent;
@@ -635,6 +640,35 @@ describe('TextEnhancementComponent — provider follows Settings', () => {
     expect(override()).toBeNull();
     await visit('ollama');
     expect(selectText()).toContain('Ollama (local)');
+  });
+
+  it('ends the override once Settings catches up, and follows Settings again', async () => {
+    await visit('claude');
+    await pick('openai');
+
+    await visit('openai');
+    expect(override()).toBeNull();
+
+    await visit('ollama');
+    expect(selectText()).toContain('Ollama (local)');
+  });
+
+  // Settings names a provider that cannot run, so the user had to pick one.
+  // That is no preference to protect, and a link back would be a dead end.
+  it('treats a pick forced by an unavailable Settings provider as no override', async () => {
+    await visit('bedrock');
+    await pick('openai');
+
+    expect(override()).toBeNull();
+    expect(el.querySelector('[data-testid="provider-follow-settings"]')).toBeNull();
+    expect(el.querySelector('[data-testid="provider-forced-note"]')!.textContent).toContain('AWS Bedrock');
+
+    await visit('bedrock');
+    expect(selectText()).toContain('OpenAI');
+
+    await visit('claude');
+    expect(selectText()).toContain('Anthropic API');
+    expect(el.querySelector('[data-testid="provider-forced-note"]')).toBeNull();
   });
 
   it('starts from Settings\' default model again after following a switch', async () => {

@@ -48,7 +48,7 @@ import { Message } from 'primeng/message';
             size="small"
             severity="secondary"
             [outlined]="true"
-            [ariaLabel]="'Use ' + label()"
+            [ariaLabel]="'Use this: ' + label()"
             [loading]="switching()"
             [disabled]="locked()"
             (onClick)="use.emit()"
@@ -95,14 +95,7 @@ import { Message } from 'primeng/message';
     }
     .provider-card-label:focus { outline: none; }
     .provider-card-label:focus-visible { outline: 2px solid var(--p-primary-color); outline-offset: 2px; }
-    .sr-only {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      overflow: hidden;
-      clip: rect(0 0 0 0);
-      white-space: nowrap;
-    }
+
     .provider-card-spacer { flex: 1; }
     :host ::ng-deep .provider-card-warning { margin-bottom: 0.75rem; }
   `],

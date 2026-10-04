@@ -70,6 +70,10 @@ let selectedProvider = '';
 // the one Settings names. Without such a pick the panel follows Settings on
 // every visit, so a switch made there is not ignored until a restart.
 let providerPickedThisSession = false;
+// What Settings named when that pick was made. A pick made because Settings
+// named a provider that cannot work (a saved AWS Bedrock) is no override of a
+// choice; it only stands until Settings names something usable.
+let pickedWhileSettingsWas = '';
 
 /**
  * Puts the provider choice back to "follow Settings". For specs: the state is
@@ -80,6 +84,7 @@ export function resetPyramidizeProviderSession(): void {
   selectedProvider = '';
   selectedModel = '';
   providerPickedThisSession = false;
+  pickedWhileSettingsWas = '';
 }
 // Empty means "whatever settings say for this provider" — the backend resolves it.
 let selectedModel = '';
@@ -151,6 +156,11 @@ function addTrace(label: string, snapshot: string): void {
             <small class="session-override" data-testid="provider-session-override">
               Session override — Settings uses {{ settingsLabel }}.
               <button type="button" class="session-override-reset" data-testid="provider-follow-settings" (click)="followSettingsProvider()">Use {{ settingsLabel }}</button>
+            </small>
+          }
+          @if (settingsProviderUnusable; as name) {
+            <small class="session-override" data-testid="provider-forced-note">
+              Settings names {{ name }}, which is not available yet, so Pyramidize uses this provider for now.
             </small>
           }
           @if (unavailableProviderView; as name) {
@@ -1044,10 +1054,21 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
    * Providers is the confusion that page exists to remove.
    */
   get sessionOverrideOf(): string | null {
-    if (!providerPickedThisSession || !this.settingsProvider || selectedProvider === this.settingsProvider) return null;
-    return PROVIDER_OPTIONS.find(p => p.value === this.settingsProvider)?.label
-      ?? unavailableProviderName(this.settingsProvider)
-      ?? this.settingsProvider;
+    if (!this.pickDiffersFromSettings || unavailableProviderName(this.settingsProvider)) return null;
+    return PROVIDER_OPTIONS.find(p => p.value === this.settingsProvider)?.label ?? this.settingsProvider;
+  }
+
+  /**
+   * The name of the unusable provider Settings names, while the user is on
+   * another one because of it. Not an override, so no link back: going back
+   * would land on a provider that cannot run.
+   */
+  get settingsProviderUnusable(): string | null {
+    return this.pickDiffersFromSettings ? unavailableProviderName(this.settingsProvider) : null;
+  }
+
+  private get pickDiffersFromSettings(): boolean {
+    return providerPickedThisSession && !!this.settingsProvider && selectedProvider !== this.settingsProvider;
   }
   /** Name of a provider settings still names but nothing can use yet (#22). */
   get unavailableProviderView(): string | null { return unavailableProviderName(selectedProvider); }
@@ -1149,6 +1170,17 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     // navigation, and the backend never emits settings:changed, so this is
     // where a switch made in Settings reaches this panel.
     this.settingsProvider = settings.active_provider ?? '';
+    if (providerPickedThisSession) {
+      const caughtUp = selectedProvider === this.settingsProvider;
+      const forcedPickOutlived = !!unavailableProviderName(pickedWhileSettingsWas)
+        && this.settingsProvider !== pickedWhileSettingsWas;
+      // An override ends once Settings agrees with it, so the next switch made
+      // there is followed again; a forced pick ends once Settings names
+      // something else, because it was never the user's preference.
+      if (caughtUp || forcedPickOutlived) {
+        providerPickedThisSession = false;
+      }
+    }
     if (!providerPickedThisSession && this.settingsProvider && selectedProvider !== this.settingsProvider) {
       selectedProvider = this.settingsProvider;
       // Empty means "whatever Settings says for this provider".
@@ -1209,6 +1241,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   async onProviderChange(): Promise<void> {
     // Picking Settings' own provider is no override; anything else is one.
     providerPickedThisSession = selectedProvider !== this.settingsProvider;
+    pickedWhileSettingsWas = this.settingsProvider;
     // Back to "whatever settings say": a model from the previous provider would
     // not exist on this one.
     selectedModel = '';

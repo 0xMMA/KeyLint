@@ -26,11 +26,11 @@ test.describe('Settings — provider in use', () => {
     expect(await inUse(page)).toEqual(['claude-code']);
     await expect(page.getByTestId('providers-summary')).toContainText('Claude Code (installed CLI)');
 
-    await page.getByTestId('provider-use-claude').getByRole('button', { name: /^Use / }).click();
+    await page.getByTestId('provider-use-claude').getByRole('button', { name: /^Use this/ }).click();
 
     await expect(page.getByTestId('provider-in-use-claude')).toBeVisible();
     expect(await inUse(page)).toEqual(['claude']);
-    // The marker moves before the save returns, so wait for the save itself.
+    // The marker is shown once the backend answered; the record is the fake's.
     await expect.poll(() => state.saves.at(-1)?.['active_provider']).toBe('claude');
 
     // Saved, not just shown: a fresh load reads it back from the backend.
@@ -47,11 +47,11 @@ test.describe('Settings — provider in use', () => {
     await page.goto('/settings?tab=providers');
     await expect(page.getByTestId('provider-in-use-claude')).toBeVisible();
 
-    await page.getByTestId('provider-use-ollama').getByRole('button', { name: /^Use / }).click();
+    await page.getByTestId('provider-use-ollama').getByRole('button', { name: /^Use this/ }).click();
 
     await expect(page.getByTestId('provider-in-use-ollama')).toBeVisible();
     await expect(page.getByTestId('provider-not-ready-ollama')).toContainText('cannot reach Ollama');
-    // The marker moves before the save returns, so wait for the save itself.
+    // The marker is shown once the backend answered; the record is the fake's.
     await expect.poll(() => state.saves.at(-1)?.['active_provider']).toBe('ollama');
   });
 
@@ -71,6 +71,21 @@ test.describe('Settings — provider in use', () => {
     await page.locator('a[routerLink="/enhance"], a[href="/enhance"]').first().click();
     await expect(page.getByTestId('provider-select')).toContainText('Claude Code (installed CLI)');
     await expect(page.getByTestId('provider-session-override')).toHaveCount(0);
+  });
+
+  test('a switch the backend refuses leaves the marker where it was', async ({ page }) => {
+    const state = fakeState({ activeProvider: 'claude-code', cliSignedIn: true, keys: { claude: 'keyring' } });
+    state.failSetActiveProvider = 'settings.json is locked';
+    await installFakeBackend(page, state);
+
+    await page.goto('/settings?tab=providers');
+    await expect(page.getByTestId('provider-in-use-claude-code')).toBeVisible();
+    await page.getByTestId('provider-use-claude').getByRole('button', { name: /^Use this/ }).click();
+
+    await expect(page.getByTestId('provider-switch-error')).toContainText('settings.json is locked');
+    expect(await inUse(page)).toEqual(['claude-code']);
+    await expect(page.getByTestId('provider-heading-claude-code')).toBeFocused();
+    expect(state.saves).toEqual([]);
   });
 
   test('the General tab names the provider and points to where it is changed', async ({ page }) => {

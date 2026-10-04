@@ -27,7 +27,12 @@ export interface FakeBackendState {
   modelSources: Partial<Record<string, string>>;
   /** Every settings object the app saved (Save or SetActiveProvider), oldest first. */
   saves: Record<string, unknown>[];
+  /** When set, SetActiveProvider fails with this message, as a failed write would. */
+  failSetActiveProvider?: string;
 }
+
+/** What the real SetActiveProvider accepts; see selectableProviders in settings/service.go. */
+const SELECTABLE_PROVIDERS = ['openai', 'claude', 'claude-code', 'ollama'];
 
 export const BASE_SETTINGS: Record<string, unknown> = {
   active_provider: 'claude',
@@ -104,10 +109,20 @@ export async function installFakeBackend(page: Page, state: FakeBackendState): P
         state.settings = structuredClone(args[0] as Record<string, unknown>);
         state.saves.push(state.settings);
         return empty();
-      case 'SetActiveProvider':
-        state.settings = { ...state.settings, active_provider: args[0] };
+      case 'SetActiveProvider': {
+        const provider = args[0] as string;
+        // The runtime turns a non-2xx answer into a rejected promise carrying
+        // the body, which is how a Go error reaches the frontend.
+        if (!SELECTABLE_PROVIDERS.includes(provider)) {
+          return route.fulfill({ status: 500, contentType: 'text/plain', body: `settings: "${provider}" is not a provider KeyLint can use` });
+        }
+        if (state.failSetActiveProvider) {
+          return route.fulfill({ status: 500, contentType: 'text/plain', body: state.failSetActiveProvider });
+        }
+        state.settings = { ...state.settings, active_provider: provider };
         state.saves.push(state.settings);
         return empty();
+      }
       case 'GetKeyStatus': {
         const source = state.keys[args[0] as string];
         return json(source ? { is_set: true, source } : { is_set: false, source: 'none' });

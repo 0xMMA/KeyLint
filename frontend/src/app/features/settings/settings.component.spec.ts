@@ -1063,10 +1063,10 @@ describe('SettingsComponent — which provider is in use', () => {
     expect(q('provider-use-claude')!.querySelector('button')!.disabled).toBe(false);
   });
 
-  it('names the provider on each "Use this" button for screen readers', async () => {
+  it('names the provider on each "Use this" button, keeping the visible words first', async () => {
     await render({ active: 'claude-code', ...BOTH });
 
-    expect(q('provider-use-claude')!.querySelector('button')!.getAttribute('aria-label')).toBe('Use Anthropic API');
+    expect(q('provider-use-claude')!.querySelector('button')!.getAttribute('aria-label')).toBe('Use this: Anthropic API');
   });
 
   it('moves focus to the heading of the card it marks, since the pressed button goes away', async () => {
@@ -1090,6 +1090,60 @@ describe('SettingsComponent — which provider is in use', () => {
     await settle();
 
     expect(q('provider-switch-error')).toBeNull();
+  });
+
+  it('announces a failed switch once, through the error, not the live region too', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    wailsMock.setActiveProvider.mockRejectedValueOnce(new Error('disk full'));
+
+    await clickUse('claude');
+
+    expect(q('provider-switch-error')!.querySelector('[role="alert"]')).not.toBeNull();
+    expect(q('provider-announcement')!.textContent!.trim()).toBe('');
+  });
+
+  it('focuses the error after a failed switch when no card is in use', async () => {
+    await render({ active: 'bedrock', ...BOTH });
+    document.body.appendChild(el);
+    wailsMock.setActiveProvider.mockRejectedValueOnce(new Error('disk full'));
+
+    await clickUse('claude');
+
+    expect(document.activeElement).toBe(q('provider-switch-error'));
+    el.remove();
+  });
+
+  it('clears an earlier Save error once a switch goes through', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    wailsMock.saveSettings.mockRejectedValueOnce(new Error('disk full'));
+    await fixture.componentInstance.save();
+    fixture.detectChanges();
+    expect(q('save-error')).not.toBeNull();
+
+    await clickUse('claude');
+
+    expect(q('save-error')).toBeNull();
+  });
+
+  it('re-probes the CLI when switching to it, bypassing the cached answer', async () => {
+    await render({ active: 'claude', ...BOTH });
+    wailsMock.getClaudeCodeStatus.mockClear();
+
+    await clickUse('claude-code');
+
+    expect(wailsMock.getClaudeCodeStatus).toHaveBeenCalledWith(true);
+  });
+
+  it('re-reads the key status when switching to an API provider', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    wailsMock.getKeyStatus.mockClear();
+    wailsMock.getKeyStatus.mockResolvedValue({ is_set: true, source: 'keyring' });
+
+    await clickUse('openai');
+
+    expect(wailsMock.getKeyStatus).toHaveBeenCalledWith('openai');
+    expect(q('key-status-openai')!.textContent).toContain('key set');
+    expect(q('provider-not-ready-openai')).toBeNull();
   });
 
   it('shows a failed Save beside the button instead of throwing', async () => {

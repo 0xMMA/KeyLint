@@ -170,7 +170,11 @@ interface ProviderKey {
                 <!-- Screen readers hear a switch land; the marker itself only moves. -->
                 <div class="sr-only" aria-live="polite" data-testid="provider-announcement">{{ providerAnnouncement }}</div>
                 @if (switchError) {
-                  <p-message data-testid="provider-switch-error" severity="error" size="small" styleClass="mb-3">{{ switchError }}</p-message>
+                  <!-- Focusable, for a failed switch with no card in use to return to.
+                       The message is role="alert", so it announces itself. -->
+                  <div class="switch-error" tabindex="-1" data-testid="provider-switch-error">
+                    <p-message severity="error" size="small" styleClass="mb-3">{{ switchError }}</p-message>
+                  </div>
                 }
                 <p class="hint-text">
                   Keys are stored in your OS keyring (Windows Credential Manager / libsecret on Linux).
@@ -543,14 +547,7 @@ interface ProviderKey {
     label { font-size: 0.875rem; color: var(--p-text-muted-color); }
     input { width: 100%; }
 
-    .sr-only {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      overflow: hidden;
-      clip: rect(0 0 0 0);
-      white-space: nowrap;
-    }
+    .switch-error:focus { outline: none; }
     .provider-summary {
       margin: 0 0 0.75rem;
       font-size: 0.95rem;
@@ -853,15 +850,48 @@ export class SettingsComponent implements OnInit, OnDestroy {
     }
     if (switched && this.settings === target) {
       target.active_provider = provider;
+      // The switch saved, so whatever the last Save said is no longer the news.
+      this.saveError = '';
+      this.refreshProviderStatus(provider);
     }
-    this.providerAnnouncement = switched ? `KeyLint now uses ${label}.` : this.switchError;
+    // Announced once: a failure is already announced by the error message,
+    // which is role="alert"; the live region carries only the success.
+    this.providerAnnouncement = switched ? `KeyLint now uses ${label}.` : '';
     if (this.destroyed) return;
     this.cdr.detectChanges();
     // The pressed button is gone (on success it became the "In use" tag) or
-    // no longer the point (on failure); either way focus goes to the heading
-    // of the card that is in use now.
-    const inUse = this.settings?.active_provider;
-    if (inUse) this.focusCardHeading(inUse);
+    // no longer the point (on failure). Focus goes to the heading of the card
+    // in use now; after a failure with no card in use (a saved Bedrock, or
+    // nothing saved), to the error that explains it.
+    const inUse = this.activeProviderLabel ? this.settings?.active_provider : null;
+    if (inUse) {
+      this.focusCardHeading(inUse);
+    } else if (!switched) {
+      (this.host.nativeElement as HTMLElement)
+        .querySelector<HTMLElement>('[data-testid="provider-switch-error"]')?.focus();
+    }
+  }
+
+  /**
+   * Re-asks about the provider just switched to, so its card does not show an
+   * answer from before the user set it up. The CLI probe is forced, the same
+   * bypass the card's Re-check uses. Ollama has no such bypass: the backend
+   * keeps a failed listing for 30 s, so a daemon started moments ago can still
+   * read as unreachable until that passes.
+   */
+  private refreshProviderStatus(provider: string): void {
+    if (provider === 'claude-code') {
+      void this.recheckClaudeCode(true);
+    } else if (provider === 'ollama') {
+      void this.loadModelOptions();
+    } else {
+      const pk = this.keyFor(provider);
+      if (!pk) return;
+      void this.wails.getKeyStatus(provider).then(status => {
+        pk.status = status;
+        if (!this.destroyed) this.cdr.detectChanges();
+      }).catch(() => { /* keep the answer the card already has */ });
+    }
   }
 
   /** The General tab's pointer: show the AI Providers tab and move focus there. */
