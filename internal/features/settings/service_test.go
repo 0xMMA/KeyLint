@@ -117,6 +117,94 @@ func TestSave_LeavesSettingsUnchangedWhenTheFileCannotBeWritten(t *testing.T) {
 	}
 }
 
+// The one-click switch saves the provider and nothing else: whatever the
+// settings screen still has pending must not reach the file with it.
+func TestSetActiveProvider_ChangesOnlyTheProvider(t *testing.T) {
+	tmp := t.TempDir()
+	svc := newServiceAt(t, tmp)
+	saved := settings.Default()
+	saved.ActiveProvider = "openai"
+	saved.LogLevel = "off"
+	saved.Providers.OllamaURL = "http://gpu-box:11434"
+	if err := svc.Save(saved); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	if err := svc.SetActiveProvider("claude-code"); err != nil {
+		t.Fatalf("SetActiveProvider: %v", err)
+	}
+
+	got := svc.Get()
+	if got.ActiveProvider != "claude-code" {
+		t.Errorf("active_provider = %q, want claude-code", got.ActiveProvider)
+	}
+	if got.LogLevel != "off" || got.Providers.OllamaURL != "http://gpu-box:11434" {
+		t.Errorf("other fields changed: log_level=%q ollama_url=%q", got.LogLevel, got.Providers.OllamaURL)
+	}
+
+	// And on disk, so a restart sees the switch.
+	data, err := os.ReadFile(filepath.Join(tmp, "KeyLint", "settings.json"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var onDisk settings.Settings
+	if err := json.Unmarshal(data, &onDisk); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if onDisk.ActiveProvider != "claude-code" || onDisk.Providers.OllamaURL != "http://gpu-box:11434" {
+		t.Errorf("on disk: active_provider=%q ollama_url=%q", onDisk.ActiveProvider, onDisk.Providers.OllamaURL)
+	}
+}
+
+func TestSetActiveProvider_RejectsProvidersItCannotUse(t *testing.T) {
+	svc := newServiceAt(t, t.TempDir())
+	before := svc.Get().ActiveProvider
+
+	for _, p := range []string{"", "bedrock", "gemini", "toString"} {
+		if err := svc.SetActiveProvider(p); err == nil {
+			t.Errorf("SetActiveProvider(%q): want an error", p)
+		}
+	}
+	if got := svc.Get().ActiveProvider; got != before {
+		t.Errorf("active_provider = %q after rejected switches, want %q", got, before)
+	}
+}
+
+// A switch racing a full save must not lose either: each runs whole, in some
+// order, and the file ends up matching memory.
+func TestSetActiveProvider_DoesNotInterleaveWithSave(t *testing.T) {
+	tmp := t.TempDir()
+	svc := newServiceAt(t, tmp)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 50; i++ {
+			s := svc.Get()
+			s.LogLevel = "debug"
+			_ = svc.Save(s)
+		}
+	}()
+	for i := 0; i < 50; i++ {
+		if err := svc.SetActiveProvider("ollama"); err != nil {
+			t.Fatalf("SetActiveProvider: %v", err)
+		}
+	}
+	<-done
+
+	data, err := os.ReadFile(filepath.Join(tmp, "KeyLint", "settings.json"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var onDisk settings.Settings
+	if err := json.Unmarshal(data, &onDisk); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if mem := svc.Get(); onDisk.ActiveProvider != mem.ActiveProvider || onDisk.LogLevel != mem.LogLevel {
+		t.Errorf("disk (%q, %q) differs from memory (%q, %q)", onDisk.ActiveProvider, onDisk.LogLevel, mem.ActiveProvider, mem.LogLevel)
+	}
+}
+
 func TestSave_WritesValidJSON(t *testing.T) {
 	tmp := t.TempDir()
 	svc := newServiceAt(t, tmp)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -51,7 +52,8 @@ type Service struct {
 	// them: SetAppPreset edits AppPresets[i] in the value it was handed.
 	currentMu sync.RWMutex
 	current   Settings
-	// saveMu serialises Save, which writes the file and then swaps current.
+	// saveMu serialises Save and SetActiveProvider, which write the file and
+	// then swap current.
 	saveMu sync.Mutex
 
 	// claudeCode caches the CLI probe; see GetClaudeCodeStatus. Spawning
@@ -199,17 +201,54 @@ func (s *Service) Save(updated Settings) error {
 	// same save when two land together.
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
+	return s.persistLocked(updated)
+}
 
-	// The file is written before the live settings change. A save that fails
-	// must leave everything as it was: the settings screen puts its controls
-	// back on an error, and a provider switch that the backend had already
-	// applied in memory would send text somewhere the screen no longer shows.
+// SetActiveProvider makes provider the one KeyLint uses and saves that alone.
+//
+// The settings screen's one-click switch calls this rather than Save: Save
+// takes the whole form, so a switch would also commit every other edit still
+// pending on the page, including ones on tabs the user cannot see. Reading the
+// current settings and writing them back under saveMu also means no Save can
+// land in between and be overwritten.
+func (s *Service) SetActiveProvider(provider string) error {
+	if !slices.Contains(selectableProviders, provider) {
+		return fmt.Errorf("settings: %q is not a provider KeyLint can use", provider)
+	}
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	updated := s.Get()
+	updated.ActiveProvider = provider
+	if err := s.persistLocked(updated); err != nil {
+		return err
+	}
+	logger.Info("settings: active provider set", "provider", provider)
+	return nil
+}
+
+// selectableProviders are the providers SetActiveProvider accepts: the ones the
+// settings screen offers. AWS Bedrock is left out until it works (#22, #23).
+var selectableProviders = []string{
+	llm.ProviderOpenAI,
+	llm.ProviderClaude,
+	llm.ProviderClaudeCode,
+	llm.ProviderOllama,
+}
+
+// persistLocked writes updated to disk and then makes it the live settings.
+// The caller holds saveMu.
+//
+// The file is written before the live settings change. A save that fails must
+// leave everything as it was: the settings screen puts its controls back on an
+// error, and a provider switch already applied in memory would send text
+// somewhere the screen no longer shows.
+func (s *Service) persistLocked(updated Settings) error {
 	if s.filePath != "" {
 		data, err := json.MarshalIndent(updated, "", "  ")
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(s.filePath, data, 0600); err != nil {
+		if err := writeFileAtomic(s.filePath, data, writeAll); err != nil {
 			return err
 		}
 	}
