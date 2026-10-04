@@ -90,6 +90,12 @@ Score the CANDIDATE on these dimensions (0.0 to 1.0):
 Respond with ONLY a JSON object:
 {"pyramidStructure":0.0,"clarity":0.0,"completeness":0.0,"tonePreservation":0.0,"overall":0.0,"rationale":"Brief explanation"}`
 
+// judgeMaxTokens is the judge's own output limit. It equals what the judge
+// sent while it borrowed the pipeline's limit (4096), and it is its own
+// constant so that raising the pipeline's limit cannot move the instrument
+// that measures the pipeline.
+const judgeMaxTokens = 4096
+
 // runJudge calls the LLM to evaluate a candidate output against the baseline.
 //
 // The judge always sends its schema, whatever KEYLINT_PYRAMIDIZE_SCHEMA says.
@@ -121,6 +127,7 @@ func (svc *Service) runJudge(settingsSvc *settings.Service, judge JudgeConfig, r
 		provider:    judge.Provider,
 		model:       judge.Model,
 		temperature: llm.Temp(judge.Temperature),
+		maxTokens:   judgeMaxTokens,
 	}
 	raw, err := svc.callAISync(context.Background(), cfg, opts, apiKey, judgeSystemPrompt, userMessage, judgeSchema)
 	if err != nil {

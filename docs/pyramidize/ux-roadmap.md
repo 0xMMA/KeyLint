@@ -6,39 +6,17 @@ Companion plan to PYRAMIDIZE.md. Covers post-ENG-12 UX improvements and model-se
 
 ## Model Strategy (all providers)
 
-### Anthropic
-Official aliases (documented, forward-compatible — no snapshot date = always latest snapshot of that generation):
-- `claude-sonnet-4-6` → Claude Sonnet 4.6 (best balance; **default for Pyramidize**)
-- `claude-opus-4-6`   → Claude Opus 4.6 (highest quality, higher cost)
-- `claude-haiku-4-5`  → Claude Haiku 4.5 (fastest, lowest cost)
+Superseded by E2 step 4 (#33, see `docs/roadmap.md`). The model lists and per-provider
+defaults that used to live here (Sonnet 4.6 / GPT-5.2 era) went stale; the source of
+truth is now code and data:
 
-**Change from:** `claude-haiku-4-5-20251001` → **`claude-sonnet-4-6`** (hardcoded default)
+- `internal/llm/models.go` — one default per provider **and per feature** (the silent fix
+  wants a fast model, Pyramidize a stronger one) plus a curated fallback list.
+- `settings.json` → `models` — the user's choice. Resolution: request override → settings → default.
+- Live lists come from the providers themselves (`ListModels`); the Claude Code CLI uses the
+  aliases `opus` / `sonnet` / `haiku`.
 
-### OpenAI
-Rolling aliases (no date suffix required). Current generation is **GPT-4.1** (Apr 2025);
-GPT-4o is the previous generation. GPT-5 exists as of Aug 2025.
-
-- `gpt-4.1-nano` → GPT-4.1 Nano — fastest/cheapest
-- `gpt-4.1-mini` → GPT-4.1 Mini — fast/cheap
-- `gpt-4.1`      → GPT-4.1 — balanced
-- `gpt-5.1-mini` → GPT-5.1 Mini — fast, capable
-- `gpt-5.2`      → GPT-5.2 — **default for Pyramidize** (Dec 2025, pinned: `gpt-5.2-2025-12-11`)
-- `gpt-5.2-pro`  → GPT-5.2 Pro — most capable
-- `o3`           → o3 — reasoning tasks
-
-`gpt-4o` / `gpt-4o-mini` are old generation — do not use as defaults.
-
-**Change from:** `gpt-4o-mini` → **`gpt-5.2`**
-
-### Ollama
-Docker-style tags — omitting tag defaults to `:latest`. Models to surface in selector:
-- `llama3.2` (default)
-- `mistral`
-- `gemma3`
-- `phi4`
-- `qwen2.5`
-
-User can also type a custom model name directly.
+Moving a default is a quality decision for E3 (#34) and needs an eval run.
 
 ---
 
