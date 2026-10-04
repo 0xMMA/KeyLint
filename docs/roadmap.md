@@ -102,6 +102,7 @@ echo "<text>" | claude -p --model haiku --output-format json \
 - [x] Welcome wizard: detect → one-click select; fallback to BYOK
 - [x] Pyramidize + Fix + `-fix` CLI use it
 - [x] Model picker for this provider uses aliases (`opus`, `sonnet`, `haiku`) — the CLI resolves the current generation
+- [x] **Isolation fix (2026-10-04, #105):** `--setting-sources ""` did not stop Claude Code's auto-memory — the memory file of `~/.claude/projects/<slug of KeyLint's working directory>` reached every Fix and Pyramidize call. Every spawn now runs in an empty KeyLint-owned directory (user cache dir) with `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, and inherited thinking/output-cap/alias-remapping variables are stripped. Still no `--bare`.
 - [ ] Follow-up (separate issue when E1 ships): same interface for Codex CLI (`codex exec`) and Gemini CLI (`gemini -p`) → OpenAI/ChatGPT and Google subscribers
 
 ### P1 — foundation
