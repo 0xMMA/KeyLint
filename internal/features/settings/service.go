@@ -52,8 +52,8 @@ type Service struct {
 	// them: SetAppPreset edits AppPresets[i] in the value it was handed.
 	currentMu sync.RWMutex
 	current   Settings
-	// saveMu serialises Save and SetActiveProvider, which write the file and
-	// then swap current.
+	// saveMu serialises Save and Update, which write the file and then swap
+	// current.
 	saveMu sync.Mutex
 
 	// claudeCode caches the CLI probe; see GetClaudeCodeStatus. Spawning
@@ -208,22 +208,33 @@ func (s *Service) Save(updated Settings) error {
 //
 // The settings screen's one-click switch calls this rather than Save: Save
 // takes the whole form, so a switch would also commit every other edit still
-// pending on the page, including ones on tabs the user cannot see. Reading the
-// current settings and writing them back under saveMu also means no Save can
-// land in between and be overwritten.
+// pending on the page, including ones on tabs the user cannot see. It goes
+// through Update, so no other save can land between the read and the write.
 func (s *Service) SetActiveProvider(provider string) error {
 	if !slices.Contains(selectableProviders, provider) {
 		return fmt.Errorf("settings: %q is not a provider KeyLint can use", provider)
 	}
-	s.saveMu.Lock()
-	defer s.saveMu.Unlock()
-	updated := s.Get()
-	updated.ActiveProvider = provider
-	if err := s.persistLocked(updated); err != nil {
+	if err := Update(s, func(c *Settings) { c.ActiveProvider = provider }); err != nil {
 		return err
 	}
 	logger.Info("settings: active provider set", "provider", provider)
 	return nil
+}
+
+// Update applies mutate to the current settings and saves the result, holding
+// saveMu from the read to the write. Backend code that changes one field uses
+// this rather than Get followed by Save: with a gap between the two, a save
+// landing in it — a provider switch from the settings screen, say — would be
+// overwritten by settings read before it.
+//
+// A package function rather than a method, so Wails does not try to bind it:
+// a callback is not something the frontend can pass.
+func Update(s *Service, mutate func(*Settings)) error {
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	updated := s.Get()
+	mutate(&updated)
+	return s.persistLocked(updated)
 }
 
 // selectableProviders are the providers SetActiveProvider accepts: the ones the

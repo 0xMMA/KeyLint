@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"keylint/internal/features/settings"
 )
@@ -170,9 +171,10 @@ func TestSetActiveProvider_RejectsProvidersItCannotUse(t *testing.T) {
 	}
 }
 
-// A switch racing a full save must not lose either: each runs whole, in some
-// order, and the file ends up matching memory.
-func TestSetActiveProvider_DoesNotInterleaveWithSave(t *testing.T) {
+// Switches and full saves racing each other run one at a time, so whatever
+// order they land in, the file ends up holding exactly what memory holds.
+// (Which of them wins is not the point: Save sends a whole form.)
+func TestSetActiveProvider_KeepsFileAndMemoryInStepUnderConcurrentSaves(t *testing.T) {
 	tmp := t.TempDir()
 	svc := newServiceAt(t, tmp)
 
@@ -202,6 +204,45 @@ func TestSetActiveProvider_DoesNotInterleaveWithSave(t *testing.T) {
 	}
 	if mem := svc.Get(); onDisk.ActiveProvider != mem.ActiveProvider || onDisk.LogLevel != mem.LogLevel {
 		t.Errorf("disk (%q, %q) differs from memory (%q, %q)", onDisk.ActiveProvider, onDisk.LogLevel, mem.ActiveProvider, mem.LogLevel)
+	}
+}
+
+// Update holds the save lock from its read to its write. A provider switch
+// arriving while another update is in progress therefore lands after it
+// instead of being overwritten by settings read before it — which is what
+// Get-then-Save in CompleteSetup or the preset writers used to allow.
+func TestUpdate_DoesNotOverwriteASwitchThatArrivesMeanwhile(t *testing.T) {
+	svc := newServiceAt(t, t.TempDir())
+	if err := svc.SetActiveProvider("openai"); err != nil {
+		t.Fatal(err)
+	}
+
+	inside := make(chan struct{})
+	release := make(chan struct{})
+	updated := make(chan error)
+	go func() {
+		updated <- settings.Update(svc, func(c *settings.Settings) {
+			close(inside)
+			<-release
+			c.CompletedSetup = true
+		})
+	}()
+	<-inside
+	switched := make(chan error)
+	go func() { switched <- svc.SetActiveProvider("ollama") }()
+	// Long enough for an unguarded switch to finish before the update writes.
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	if err := <-updated; err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if err := <-switched; err != nil {
+		t.Fatalf("SetActiveProvider: %v", err)
+	}
+
+	got := svc.Get()
+	if got.ActiveProvider != "ollama" || !got.CompletedSetup {
+		t.Errorf("active_provider=%q completed_setup=%v, want ollama and true", got.ActiveProvider, got.CompletedSetup)
 	}
 }
 

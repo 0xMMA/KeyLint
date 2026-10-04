@@ -125,9 +125,8 @@ export function Save(updated) {
  * 
  * The settings screen's one-click switch calls this rather than Save: Save
  * takes the whole form, so a switch would also commit every other edit still
- * pending on the page, including ones on tabs the user cannot see. Reading the
- * current settings and writing them back under saveMu also means no Save can
- * land in between and be overwritten.
+ * pending on the page, including ones on tabs the user cannot see. It goes
+ * through Update, so no other save can land between the read and the write.
  * @param {string} provider
  * @returns {$CancellablePromise<void>}
  */
