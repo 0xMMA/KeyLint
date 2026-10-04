@@ -300,7 +300,8 @@ separate the pipeline route from the judge change.
 **Cost:** 90 CLI calls on the subscription, about 12 minutes per run — roughly
 three times the API's wall clock, which is why `eval.sh` now gives `go test`
 3600 s: the first attempt at this baseline lost a whole run to the old 900 s
-limit.
+limit. CLI version on the machine at the time: 2.1.289 — not in the files,
+which predate the `claudeCodeVersion` field that runs now record.
 
 ---
 
@@ -544,9 +545,9 @@ EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --suite fix --provider claude --run
 ```
 
 The default is the subscription. A run against the API is still possible, and
-is the only way to compare against the 2026-09-18 baselines — but only with both
-`--provider claude` and `EVAL_JUDGE_PROVIDER=claude`, since the key carries the
-pipeline provider, the judge provider and the judge temperature.
+is the only route that can compare against the 2026-09-18 baselines — and only
+with both `--provider claude` and `EVAL_JUDGE_PROVIDER=claude`, since the key
+carries the pipeline provider, the judge provider and the judge temperature. This is untested since the key moved to resolved IDs: it holds only if the API reports the same model ID the API-era runs requested, and one paid API run would settle it.
 
 `--variant` and `--schema` configure the Pyramidize pipeline and are rejected
 here rather than ignored; the Fix prompt has no variants and returns text.

@@ -79,8 +79,12 @@ EVAL_JUDGE_MODEL=... ./scripts/eval.sh                 # override the pinned jud
 # Runs are isolated: settings come from an explicit config and keys from the
 # environment only, so ~/.config/KeyLint/settings.json and the OS keyring cannot
 # move a number; the CLI is spawned without credential env vars and with
-# --setting-sources "", so ~/.claude settings cannot either. The judge is pinned
-# to a dated snapshot; the pipeline is not, because users get the alias.
+# --setting-sources "", so ~/.claude settings cannot either. Not stripped, and
+# so still able to move a CLI run: tuning variables such as MAX_THINKING_TOKENS,
+# CLAUDE_CODE_MAX_OUTPUT_TOKENS or ANTHROPIC_DEFAULT_*_MODEL in your shell (the
+# last would at least show in resolvedModel). The CLI version is recorded
+# (claudeCodeVersion) and reported next to a verdict, not keyed. The judge is
+# pinned to a dated snapshot; the pipeline is not, because users get the alias.
 # The configKey names the instrument, not the thing measured: suite, provider,
 # RESOLVED model, judge provider, RESOLVED judge model, variant, schema,
 # threshold, sample count, checksVersion, split and judge temperature. An alias

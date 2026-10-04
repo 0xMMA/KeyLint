@@ -13,7 +13,7 @@
 - **Test data:** 13 anonymized German business email samples in `test-data/pyramidal-emails/` (one mixes German and English heavily — code-switching the prompts preserve on purpose)
 - **Results:** Logged to `test-data/eval-runs/<timestamp>/` with `summary.json`, `results.jsonl`, `samples/`
 - **Run:** `./scripts/eval.sh --runs 3` — pipeline and judge through the installed Claude Code CLI (since 2026-10-04)
-- **Requires:** a signed-in Claude Code CLI (`claude auth status`), no API key. Against the API instead: `EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --provider claude --runs 3` with `ANTHROPIC_API_KEY` in `.env` — the only way to compare against the API-era baselines below
+- **Requires:** a signed-in Claude Code CLI (`claude auth status`), no API key. Against the API instead: `EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --provider claude --runs 3` with `ANTHROPIC_API_KEY` in `.env` — the only route that can compare against the API-era baselines below. This is untested since the key moved to resolved IDs: it holds only if the API reports the same model ID the API-era runs requested, and one paid API run would settle it.
 
 ---
 
@@ -33,8 +33,9 @@ What makes it a different instrument:
   (`modelUsage` named it in every call) — but the CLI has no temperature flag.
   `summary.json` records `"temperature": null` and a note rather than a 0 that
   never reached the model, and the temperature is part of the `configKey`. The
-  judge's spread below (0.0662) is nearly three times the API era's 0.0231;
-  expect that to be the price.
+  judge's spread below (0.0662) is nearly three times Sonnet 4.6's 0.0231 and
+  about 1.4 times Sonnet 5's 0.0477 through the API; some of that is likely
+  the price of the missing pin, and three runs cannot say how much.
 - **The pipeline runs on the alias users get.** `sonnet` resolved to
   `claude-sonnet-5-5` in every call of all three runs. That is a newer
   generation than any API-era row, so the gap below is model *and* route *and*
@@ -77,8 +78,11 @@ before the main message. That is one judge model's taste meeting a newer
 writer, now sampled without a pin; read it as a hint, not a finding.
 
 **Cost:** 13 samples × (one pipeline call + one judge call) × 3 runs on the
-subscription, about 13 minutes per run. The old 900 s `go test` limit would
-not have survived a run; `eval.sh` now allows 3600 s.
+subscription, 12.5–14 minutes per run — close enough to the old 900 s `go test`
+limit that `eval.sh` now allows 3600 s (the Fix suite did lose a run to it).
+CLI version on the machine at the time: 2.1.289. These baselines predate the
+`claudeCodeVersion` field, so the files do not carry it; runs recorded from now
+on do, and `--compare` names a CLI version change next to the verdict.
 
 ---
 
