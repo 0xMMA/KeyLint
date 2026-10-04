@@ -3,7 +3,7 @@
 package pyramidize
 
 // Evaluation tests — make real AI calls against test-data samples.
-// Run with: go test -tags eval ./internal/features/pyramidize/ -v -timeout 900s
+// Run with: go test -tags eval ./internal/features/pyramidize/ -v -timeout 3600s
 //
 // Requires, by default, nothing but a signed-in Claude Code CLI: pipeline and
 // judge both run through it (provider claude-code), so no API key is read.

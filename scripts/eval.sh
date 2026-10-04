@@ -177,7 +177,11 @@ for (( i = 1; i <= RUNS; i++ )); do
     # already spent on the earlier runs.
     BEFORE=$(ls -d test-data/eval-runs/*/ 2>/dev/null | sort || true)
     set +e
-    go test -tags eval "$SUITE_PKG" -v -timeout 900s 2>&1 | tee /dev/stderr | tail -1
+    # 3600s, not 900s: through the CLI each call spawns a process and a judge
+    # call alone takes ~30 s, so a 13-sample Pyramidize run takes ~20 minutes.
+    # A go test timeout panics before summary.json is written and throws the
+    # whole run away, so the limit is a safety net, not a budget.
+    go test -tags eval "$SUITE_PKG" -v -timeout 3600s 2>&1 | tee /dev/stderr | tail -1
     run_status=${PIPESTATUS[0]}
     set -e
     AFTER=$(ls -d test-data/eval-runs/*/ 2>/dev/null | sort || true)
