@@ -11,11 +11,11 @@ import { CardModule } from 'primeng/card';
 import { TagModule } from 'primeng/tag';
 import { ActivatedRoute } from '@angular/router';
 import { versionLabel } from '../../core/version-label';
+import { ProviderCardComponent } from './provider-card/provider-card.component';
 import { WailsService, Settings as AppSettings, KeyStatus, UpdateInfo, AppPreset, ClaudeCodeStatus, ModelInfo } from '../../core/wails.service';
 import { noteForModelSource } from '../../core/model-source';
 import { DOCUMENT_TYPE_OPTIONS, unavailableProviderName } from '../../core/constants';
 import { LogService } from '../../core/log.service';
-import { ProviderCardComponent } from './provider-card/provider-card.component';
 
 /**
  * Lets a user defer to KeyLint's default without knowing a model name.
@@ -64,10 +64,10 @@ interface ProviderKey {
   selector: 'app-settings',
   standalone: true,
   imports: [
+    ProviderCardComponent,
     CommonModule, FormsModule,
     ButtonModule, InputTextModule, SelectModule, ToggleSwitchModule,
     Tabs, TabList, Tab, TabPanels, TabPanel, MessageModule, CardModule, TagModule,
-    ProviderCardComponent,
   ],
   template: `
     <div class="settings-page">
