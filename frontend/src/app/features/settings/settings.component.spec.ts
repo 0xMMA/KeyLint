@@ -4,7 +4,7 @@ import { ComponentFixture } from '@angular/core/testing';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { ActivatedRoute, convertToParamMap } from '@angular/router';
 import { SettingsComponent } from './settings.component';
-import { WailsService, ClaudeCodeStatus } from '../../core/wails.service';
+import { WailsService, ClaudeCodeStatus, KeyStatus } from '../../core/wails.service';
 import { createWailsMock, defaultSettings, defaultKeyStatus, defaultUpdateInfo, defaultClaudeCodeStatus, defaultModelList } from '../../../testing/wails-mock';
 
 function makeActivatedRoute(tab?: string): Partial<ActivatedRoute> {
@@ -671,7 +671,7 @@ describe('SettingsComponent — model selection', () => {
     expect(el.querySelector('[data-testid="models-note-claude-code"]')).toBeNull();
   });
 
-  it('uses the same provider labels as the Active Provider list', async () => {
+  it('uses the same provider labels as the provider cards', async () => {
     await render();
 
     for (const mp of component.modelProviders) {
@@ -745,6 +745,257 @@ describe('SettingsComponent — model selection', () => {
 
 
 // Bedrock is a stub that only returns an error (#22) until #23 implements it.
+// "If I have both an Anthropic API key and the Claude Code CLI, I cannot see or
+// define which is prioritized." One provider is in use, the AI Providers tab
+// shows which, and switching is one click there.
+describe('SettingsComponent — which provider is in use', () => {
+  let fixture: ComponentFixture<SettingsComponent>;
+  let el: HTMLElement;
+  let wailsMock: ReturnType<typeof createWailsMock>;
+
+  interface Setup {
+    active: string;
+    tab?: string;
+    keys?: Record<string, KeyStatus['source']>;
+    cli?: Partial<ClaudeCodeStatus>;
+    ollamaSource?: string;
+    ollamaURL?: string;
+  }
+
+  async function render(setup: Setup): Promise<void> {
+    TestBed.resetTestingModule();
+    const settings = {
+      ...defaultSettings,
+      active_provider: setup.active,
+      providers: { ...defaultSettings.providers, ollama_url: setup.ollamaURL ?? '' },
+    };
+    const cli = { ...defaultClaudeCodeStatus, ...setup.cli };
+    wailsMock = createWailsMock();
+    wailsMock.loadSettings.mockImplementation(async () => structuredClone(settings));
+    wailsMock.getKeyStatus.mockImplementation(async (provider: string) => {
+      const source = setup.keys?.[provider];
+      return source ? { is_set: true, source } : { ...defaultKeyStatus };
+    });
+    wailsMock.getClaudeCodeStatus.mockResolvedValue(cli);
+    wailsMock.listModels.mockImplementation(async (provider: string) =>
+      provider === 'ollama'
+        ? { models: [], source: setup.ollamaSource ?? 'live' }
+        : { ...defaultModelList, source: 'live' });
+
+    await TestBed.configureTestingModule({
+      imports: [SettingsComponent],
+      providers: [
+        provideAnimationsAsync(),
+        { provide: WailsService, useValue: wailsMock },
+        { provide: ActivatedRoute, useValue: makeActivatedRoute(setup.tab ?? 'providers') },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(SettingsComponent);
+    // Pre-set the async results: letting them land mid-render trips NG0100.
+    fixture.componentInstance.settings = structuredClone(settings);
+    fixture.componentInstance.claudeCodeStatus = cli;
+    el = fixture.nativeElement;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  function q(testid: string): HTMLElement | null {
+    return el.querySelector<HTMLElement>(`[data-testid="${testid}"]`);
+  }
+
+  /** Which cards carry the "In use" marker, by provider ID. */
+  function inUse(): string[] {
+    return Array.from(el.querySelectorAll('[data-testid^="provider-in-use-"]'))
+      .map(t => t.getAttribute('data-testid')!.replace('provider-in-use-', ''));
+  }
+
+  async function clickUse(provider: string): Promise<void> {
+    q(`provider-use-${provider}`)!.querySelector('button')!.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  const BOTH = { keys: { claude: 'keyring' as const }, cli: { installed: true, loggedIn: true } };
+
+  it('marks exactly the saved provider as in use, with both configured', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+
+    expect(inUse()).toEqual(['claude-code']);
+    for (const other of ['openai', 'claude', 'ollama']) {
+      expect(q(`provider-use-${other}`), other).not.toBeNull();
+    }
+    expect(q('provider-use-claude-code')).toBeNull();
+    expect(q('providers-summary')!.textContent).toContain('Claude Code (installed CLI)');
+  });
+
+  it('gives every offered provider a card, in a stable order', async () => {
+    await render({ active: 'openai' });
+
+    const cards = Array.from(el.querySelectorAll('[data-testid^="provider-card-"]'))
+      .map(c => c.getAttribute('data-testid'));
+    expect(cards).toEqual(['provider-card-openai', 'provider-card-claude', 'provider-card-claude-code', 'provider-card-ollama']);
+  });
+
+  it('switches with one click and saves the choice', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+
+    await clickUse('claude');
+
+    expect(wailsMock.saveSettings).toHaveBeenCalledTimes(1);
+    expect(wailsMock.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ active_provider: 'claude' }));
+    expect(inUse()).toEqual(['claude']);
+    expect(q('provider-use-claude-code')).not.toBeNull();
+    expect(q('providers-summary')!.textContent).toContain('Anthropic API');
+  });
+
+  it('keeps the marker where it was when the save fails', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    wailsMock.saveSettings.mockRejectedValueOnce(new Error('disk full'));
+
+    await clickUse('claude');
+
+    expect(inUse()).toEqual(['claude-code']);
+    expect(q('provider-switch-error')!.textContent).toContain('disk full');
+  });
+
+  it('runs one switch at a time', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    let finish!: () => void;
+    wailsMock.saveSettings.mockImplementationOnce(() => new Promise<void>(r => { finish = r; }));
+
+    q('provider-use-claude')!.querySelector('button')!.click();
+    fixture.detectChanges();
+    q('provider-use-openai')!.querySelector('button')!.click();
+    finish();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(wailsMock.saveSettings).toHaveBeenCalledTimes(1);
+    expect(inUse()).toEqual(['claude']);
+  });
+
+  it('lets a provider without a key be chosen, and says why it will not work yet', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+
+    await clickUse('openai');
+
+    expect(inUse()).toEqual(['openai']);
+    expect(q('provider-not-ready-openai')!.textContent).toContain('no API key');
+  });
+
+  it('warns about a CLI that is not signed in', async () => {
+    await render({ active: 'claude-code', cli: { installed: true, loggedIn: false } });
+
+    expect(q('provider-not-ready-claude-code')!.textContent).toContain('not signed in');
+  });
+
+  it('warns about a CLI that is not installed', async () => {
+    await render({ active: 'claude-code', cli: { installed: false } });
+
+    expect(q('provider-not-ready-claude-code')!.textContent).toContain('not installed');
+  });
+
+  it('warns when Ollama cannot be reached, naming the default address for an empty URL', async () => {
+    await render({ active: 'ollama', ollamaSource: 'unreachable' });
+
+    expect(q('provider-not-ready-ollama')!.textContent).toContain('http://localhost:11434');
+  });
+
+  it('names the configured Ollama address when one is set', async () => {
+    await render({ active: 'ollama', ollamaSource: 'unreachable', ollamaURL: 'http://gpu-box:11434' });
+
+    expect(q('provider-not-ready-ollama')!.textContent).toContain('http://gpu-box:11434');
+  });
+
+  // An empty field is localhost on the default port, which is where Ollama
+  // listens. Warning about it would be a false alarm.
+  it('does not warn about a reachable Ollama with an empty URL', async () => {
+    await render({ active: 'ollama', ollamaSource: 'live' });
+
+    expect(inUse()).toEqual(['ollama']);
+    expect(q('provider-not-ready-ollama')).toBeNull();
+  });
+
+  it('does not warn about the provider in use when it works', async () => {
+    await render({ active: 'claude', ...BOTH });
+
+    expect(inUse()).toEqual(['claude']);
+    expect(el.querySelector('[data-testid^="provider-not-ready-"]')).toBeNull();
+  });
+
+  // The status tags already say "no key"; a warning on every unused card
+  // would bury the one that matters.
+  it('keeps warnings to the card in use', async () => {
+    await render({ active: 'claude-code', cli: { installed: true, loggedIn: true } });
+
+    expect(q('key-status-openai')!.textContent).toContain('no key');
+    expect(q('provider-not-ready-openai')).toBeNull();
+  });
+
+  it('says when an environment variable supplies the key, and which one', async () => {
+    await render({ active: 'claude', keys: { claude: 'env' } });
+
+    expect(q('key-status-claude')!.textContent).toContain('env var');
+    expect(q('key-env-hint-claude')!.textContent).toContain('ANTHROPIC_API_KEY');
+    expect(q('provider-card-claude')!.textContent).not.toContain('Set Key');
+    expect(q('provider-not-ready-claude')).toBeNull();
+  });
+
+  it('keeps the Ollama URL on the Ollama card and saves it with the switch', async () => {
+    await render({ active: 'claude', ...BOTH });
+
+    const input = q('provider-card-ollama')!.querySelector<HTMLInputElement>('[data-testid="ollama-url-input"]')!;
+    input.value = 'http://gpu-box:11434';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    await clickUse('ollama');
+
+    expect(wailsMock.saveSettings).toHaveBeenCalledWith(expect.objectContaining({
+      active_provider: 'ollama',
+      providers: expect.objectContaining({ ollama_url: 'http://gpu-box:11434' }),
+    }));
+  });
+
+  describe('General tab', () => {
+    it('names the provider in use instead of offering a dropdown', async () => {
+      await render({ active: 'claude-code', tab: 'general', ...BOTH });
+
+      expect(q('provider-pointer-text')!.textContent).toContain('Claude Code (installed CLI)');
+      expect(q('active-provider-select')).toBeNull();
+    });
+
+    it('opens the AI Providers tab from the pointer', async () => {
+      await render({ active: 'claude-code', tab: 'general', ...BOTH });
+      const providersPanel = () => el.querySelector<HTMLElement>('p-tabpanel[data-p-active="true"]');
+      expect(providersPanel()!.contains(q('provider-pointer'))).toBe(true);
+
+      q('provider-pointer-link')!.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(providersPanel()!.contains(q('provider-card-claude'))).toBe(true);
+    });
+
+    it('repeats the warning when the provider in use cannot work', async () => {
+      await render({ active: 'claude', tab: 'general' });
+
+      expect(q('provider-pointer-problem')!.textContent).toContain('no API key');
+    });
+
+    it('stays quiet when the provider in use works', async () => {
+      await render({ active: 'claude', tab: 'general', ...BOTH });
+
+      expect(q('provider-pointer-problem')).toBeNull();
+      expect(q('provider-unavailable')).toBeNull();
+    });
+  });
+});
+
+
 describe('SettingsComponent — AWS Bedrock is not offered yet', () => {
   let fixture: ComponentFixture<SettingsComponent>;
   let component: SettingsComponent;
@@ -776,27 +1027,21 @@ describe('SettingsComponent — AWS Bedrock is not offered yet', () => {
     fixture.detectChanges();
   }
 
-  function openActiveProviderDropdown(): string[] {
-    el.querySelector<HTMLElement>('[data-testid="active-provider-select"]')!.click();
-    fixture.detectChanges();
-    return Array.from(document.querySelectorAll('.p-select-option'))
-      .map(o => o.textContent?.trim() ?? '');
-  }
+  it('offers no Bedrock card among the providers', async () => {
+    await render('openai', 'providers');
 
-  it('leaves Bedrock out of the Active Provider dropdown', async () => {
-    await render('openai');
-
-    const options = openActiveProviderDropdown();
-    expect(options).toContain('OpenAI');
-    expect(options.some(o => /bedrock/i.test(o))).toBe(false);
+    // Positive first, so an unrendered tab cannot pass the absence check.
+    expect(el.querySelector('[data-testid="provider-card-openai"]')).not.toBeNull();
+    expect(el.querySelector('[data-testid="provider-card-bedrock"]')).toBeNull();
+    expect(el.querySelector('[data-testid="provider-use-bedrock"]')).toBeNull();
   });
 
   it('has no AWS key field on the AI Providers tab', async () => {
     await render('openai', 'providers');
 
     // Positive first, so an unrendered tab cannot pass the absence checks.
-    expect(el.textContent).toContain('OpenAI API Key');
-    expect(el.textContent).toContain('Anthropic API Key');
+    expect(el.querySelector('[data-testid="key-status-openai"]')).not.toBeNull();
+    expect(el.querySelector('[data-testid="key-status-claude"]')).not.toBeNull();
     expect(el.textContent).not.toMatch(/AWS/);
     expect(wailsMock.getKeyStatus).not.toHaveBeenCalledWith('bedrock');
   });
@@ -817,6 +1062,15 @@ describe('SettingsComponent — AWS Bedrock is not offered yet', () => {
     expect(note!.textContent).toContain('AWS Bedrock is not available yet');
   });
 
+  // No card can carry the marker, so the tab itself has to say why.
+  it('says on the AI Providers tab that no offered provider is in use', async () => {
+    await render('bedrock', 'providers');
+
+    expect(el.querySelector('[data-testid="providers-tab-unavailable"]')?.textContent)
+      .toContain('AWS Bedrock');
+    expect(el.querySelector('[data-testid^="provider-in-use-"]')).toBeNull();
+  });
+
   // Switching on the user's behalf would send their text to a service they
   // never chose, so the saved value stays until they pick one.
   it('does not switch a saved Bedrock provider behind the user\'s back', async () => {
@@ -830,18 +1084,14 @@ describe('SettingsComponent — AWS Bedrock is not offered yet', () => {
   });
 
   it('drops the explanation once the user picks a provider', async () => {
-    await render('bedrock');
+    await render('bedrock', 'providers');
 
-    openActiveProviderDropdown();
-    const openai = Array.from(document.querySelectorAll<HTMLElement>('.p-select-option'))
-      .find(o => o.textContent?.trim() === 'OpenAI')!;
-    openai.click();
-    fixture.detectChanges();
+    el.querySelector<HTMLElement>('[data-testid="provider-use-openai"] button')!.click();
     await fixture.whenStable();
     fixture.detectChanges();
 
     expect(el.querySelector('[data-testid="provider-unavailable"]')).toBeNull();
-    await component.save();
+    expect(el.querySelector('[data-testid="providers-tab-unavailable"]')).toBeNull();
     expect(wailsMock.saveSettings).toHaveBeenCalledWith(
       expect.objectContaining({ active_provider: 'openai' }),
     );

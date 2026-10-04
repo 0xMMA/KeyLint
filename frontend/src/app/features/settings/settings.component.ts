@@ -15,6 +15,7 @@ import { WailsService, Settings as AppSettings, KeyStatus, UpdateInfo, AppPreset
 import { noteForModelSource } from '../../core/model-source';
 import { DOCUMENT_TYPE_OPTIONS, unavailableProviderName } from '../../core/constants';
 import { LogService } from '../../core/log.service';
+import { ProviderCardComponent } from './provider-card/provider-card.component';
 
 /**
  * Lets a user defer to KeyLint's default without knowing a model name.
@@ -44,6 +45,12 @@ function toModelOption(model: ModelInfo): ModelOption {
   return { id: model.id, label: model.id, display: model.label || model.id };
 }
 
+/** Mirrors envVars in internal/features/settings/service.go. */
+const ENV_KEY_VARS: Readonly<Record<string, string>> = {
+  openai: 'OPENAI_API_KEY',
+  claude: 'ANTHROPIC_API_KEY',
+};
+
 interface ProviderKey {
   id: string;
   label: string;
@@ -60,12 +67,13 @@ interface ProviderKey {
     CommonModule, FormsModule,
     ButtonModule, InputTextModule, SelectModule, ToggleSwitchModule,
     Tabs, TabList, Tab, TabPanels, TabPanel, MessageModule, CardModule, TagModule,
+    ProviderCardComponent,
   ],
   template: `
     <div class="settings-page">
       <p-card>
         @if (settings) {
-          <p-tabs [value]="activeTab">
+          <p-tabs [(value)]="activeTab">
             <p-tablist>
               <p-tab value="general">General</p-tab>
               <p-tab value="providers">AI Providers</p-tab>
@@ -76,20 +84,34 @@ interface ProviderKey {
             <p-tabpanels>
               <!-- General tab -->
               <p-tabpanel value="general">
-                <div class="form-group">
-                  <label>Active Provider</label>
-                  <p-select
-                    data-testid="active-provider-select"
-                    [(ngModel)]="settings.active_provider"
-                    [options]="providers"
-                    optionLabel="label"
-                    optionValue="value"
-                    placeholder="Choose a provider"
-                  />
+                <!-- Read-only: the provider is chosen on the AI Providers tab, next
+                     to the keys and the CLI status that decide whether it works. -->
+                <div class="form-group" data-testid="provider-pointer">
+                  <label>AI Provider</label>
+                  <div class="provider-pointer">
+                    <span data-testid="provider-pointer-text">
+                      @if (unavailableProvider; as name) {
+                        Using: <strong>{{ name }}</strong> (not available yet)
+                      } @else if (activeProviderLabel; as label) {
+                        Using: <strong>{{ label }}</strong>
+                      } @else {
+                        No provider chosen yet
+                      }
+                    </span>
+                    <span class="provider-pointer-sep" aria-hidden="true">—</span>
+                    <a
+                      href="#"
+                      class="provider-pointer-link"
+                      data-testid="provider-pointer-link"
+                      (click)="$event.preventDefault(); activeTab = 'providers'"
+                    >change under AI Providers</a>
+                  </div>
                   @if (unavailableProvider; as name) {
                     <p-message data-testid="provider-unavailable" severity="warn" size="small">
-                      {{ name }} is not available yet, so KeyLint has no provider to use. Choose another one and save.
+                      {{ name }} is not available yet, so KeyLint has no provider to use. Pick another one under AI Providers.
                     </p-message>
+                  } @else if (activeProviderProblem; as why) {
+                    <p-message data-testid="provider-pointer-problem" severity="warn" size="small">{{ why }}</p-message>
                   }
                 </div>
                 <div class="form-group">
@@ -125,107 +147,152 @@ interface ProviderKey {
 
               <!-- AI Providers / Keys tab -->
               <p-tabpanel value="providers">
+                <p class="provider-summary" data-testid="providers-summary">
+                  @if (activeProviderLabel; as label) {
+                    KeyLint sends your text to <strong>{{ label }}</strong>.
+                    To switch, press <em>Use this</em> on another provider.
+                  } @else {
+                    No provider is in use. Press <em>Use this</em> on the one KeyLint should send your text to.
+                  }
+                </p>
+                @if (unavailableProvider; as name) {
+                  <p-message data-testid="providers-tab-unavailable" severity="warn" size="small" styleClass="mb-3">
+                    {{ name }} is saved as your provider but is not available yet, so KeyLint has no provider to use.
+                  </p-message>
+                }
+                @if (switchError) {
+                  <p-message data-testid="provider-switch-error" severity="error" size="small" styleClass="mb-3">{{ switchError }}</p-message>
+                }
                 <p class="hint-text">
                   Keys are stored in your OS keyring (Windows Credential Manager / libsecret on Linux).
                   Environment variables (<code>OPENAI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>) take priority and cannot be overridden here.
                 </p>
 
-                <!-- Claude Code CLI needs no key: the user signs in themselves. -->
-                <div class="key-row" data-testid="claude-code-card">
-                  <div class="key-header">
-                    <span class="key-label">Claude Code (installed CLI)</span>
-                    @if (claudeCodeStatus) {
-                      @if (claudeCodeStatus.installed && claudeCodeStatus.loggedIn) {
-                        <p-tag data-testid="claude-code-status-tag" value="● signed in" severity="success" />
-                      } @else if (claudeCodeStatus.installed) {
-                        <p-tag data-testid="claude-code-status-tag" value="not signed in" severity="warn" />
-                      } @else {
-                        <p-tag data-testid="claude-code-status-tag" value="not installed" severity="secondary" />
-                      }
-                    }
-                  </div>
-
-                  @if (claudeCodeStatus?.installed) {
-                    <p class="hint-text" data-testid="claude-code-detected">
-                      Detected at <code>{{ claudeCodeStatus!.path }}</code>
-                      @if (claudeCodeStatus!.version) {
-                        <span> · version {{ claudeCodeStatus!.version }}</span>
-                      }
-                    </p>
-                    <p class="hint-text" data-testid="claude-code-env-hint">
-                      KeyLint runs the CLI with your subscription login. API-key variables in your
-                      environment (<code>ANTHROPIC_API_KEY</code> and friends) are not passed through,
-                      so the CLI uses the account you signed in with.
-                    </p>
-
-                    @if (!claudeCodeStatus!.loggedIn) {
-                      <p class="hint-text" data-testid="claude-code-signin-hint">
-                        Open a terminal, run <code>claude</code>, and sign in. KeyLint never reads or stores your credentials.
-                      </p>
-                    }
-                  } @else if (claudeCodeStatus) {
-                    <p class="hint-text" data-testid="claude-code-missing">
-                      No Claude Code CLI found on this machine. Install it to use your own subscription instead of an API key.
-                    </p>
-                  }
-
-                  <div class="key-actions">
-                    <p-button
-                      data-testid="claude-code-recheck"
-                      label="Re-check"
-                      icon="pi pi-refresh"
-                      severity="secondary"
-                      size="small"
-                      (onClick)="recheckClaudeCode(true)"
-                      [loading]="claudeCodeChecking"
-                    />
-                  </div>
-                </div>
-
-                @for (pk of providerKeys; track pk.id) {
-                  <div class="key-row">
-                    <div class="key-header">
-                      <span class="key-label">{{ pk.label }}</span>
-                      @if (pk.status) {
-                        @if (pk.status.is_set && pk.status.source === 'env') {
-                          <p-tag value="from env var" severity="info" />
-                        } @else if (pk.status.is_set) {
-                          <p-tag value="● set" severity="success" />
+                @for (p of providers; track p.value) {
+                  <app-provider-card
+                    [providerId]="p.value"
+                    [label]="p.label"
+                    [inUse]="settings.active_provider === p.value"
+                    [problem]="providerProblem(p.value)"
+                    [switching]="switchingTo === p.value"
+                    [locked]="switchingTo !== null"
+                    (use)="useProvider(p.value)"
+                  >
+                    <span cardStatus class="card-status">
+                      @if (p.value === 'claude-code') {
+                        @if (claudeCodeStatus) {
+                          @if (claudeCodeStatus.installed && claudeCodeStatus.loggedIn) {
+                            <p-tag data-testid="claude-code-status-tag" value="● signed in" severity="success" />
+                          } @else if (claudeCodeStatus.installed) {
+                            <p-tag data-testid="claude-code-status-tag" value="not signed in" severity="warn" />
+                          } @else {
+                            <p-tag data-testid="claude-code-status-tag" value="not installed" severity="secondary" />
+                          }
+                        }
+                      } @else if (p.value === 'ollama') {
+                        @switch (modelSource['ollama']) {
+                          @case ('live') { <p-tag data-testid="ollama-status-tag" value="● running" severity="success" /> }
+                          @case ('empty') { <p-tag data-testid="ollama-status-tag" value="no models" severity="warn" /> }
+                          @case ('unreachable') { <p-tag data-testid="ollama-status-tag" value="not reachable" severity="secondary" /> }
+                        }
+                      } @else if (keyFor(p.value)?.status; as status) {
+                        @if (status.is_set && status.source === 'env') {
+                          <p-tag [attr.data-testid]="'key-status-' + p.value" value="key from env var" severity="info" />
+                        } @else if (status.is_set) {
+                          <p-tag [attr.data-testid]="'key-status-' + p.value" value="● key set" severity="success" />
                         } @else {
-                          <p-tag value="not set" severity="secondary" />
+                          <p-tag [attr.data-testid]="'key-status-' + p.value" value="no key" severity="secondary" />
                         }
                       }
-                    </div>
+                    </span>
 
-                    @if (pk.editing) {
-                      <div class="key-edit">
-                        <input pInputText
-                          type="password"
-                          [(ngModel)]="pk.draftKey"
-                          [placeholder]="keyPlaceholder(pk.id)"
-                          style="flex:1"
-                        />
-                        <p-button
-                          label="Save"
-                          icon="pi pi-check"
-                          size="small"
-                          (onClick)="saveKey(pk)"
-                          [loading]="pk.saving"
-                          [disabled]="!pk.draftKey"
-                        />
-                        <p-button
-                          label="Cancel"
-                          icon="pi pi-times"
-                          severity="secondary"
-                          size="small"
-                          (onClick)="cancelEdit(pk)"
-                        />
-                      </div>
-                    } @else {
-                      <div class="key-actions">
-                        @if (pk.status?.source !== 'env') {
+                    @if (p.value === 'claude-code') {
+                      <!-- Claude Code CLI needs no key: the user signs in themselves. -->
+                      <div data-testid="claude-code-card">
+                        @if (claudeCodeStatus?.installed) {
+                          <p class="hint-text" data-testid="claude-code-detected">
+                            Detected at <code>{{ claudeCodeStatus!.path }}</code>
+                            @if (claudeCodeStatus!.version) {
+                              <span> · version {{ claudeCodeStatus!.version }}</span>
+                            }
+                          </p>
+                          <p class="hint-text" data-testid="claude-code-env-hint">
+                            KeyLint runs the CLI with your subscription login. API-key variables in your
+                            environment (<code>ANTHROPIC_API_KEY</code> and friends) are not passed through,
+                            so the CLI uses the account you signed in with.
+                          </p>
+
+                          @if (!claudeCodeStatus!.loggedIn) {
+                            <p class="hint-text" data-testid="claude-code-signin-hint">
+                              Open a terminal, run <code>claude</code>, and sign in. KeyLint never reads or stores your credentials.
+                            </p>
+                          }
+                        } @else if (claudeCodeStatus) {
+                          <p class="hint-text" data-testid="claude-code-missing">
+                            No Claude Code CLI found on this machine. Install it to use your own subscription instead of an API key.
+                          </p>
+                        }
+
+                        <div class="key-actions">
                           <p-button
-                            [label]="pk.status?.is_set ? 'Update' : 'Set Key'"
+                            data-testid="claude-code-recheck"
+                            label="Re-check"
+                            icon="pi pi-refresh"
+                            severity="secondary"
+                            size="small"
+                            (onClick)="recheckClaudeCode(true)"
+                            [loading]="claudeCodeChecking"
+                          />
+                        </div>
+                      </div>
+                    } @else if (p.value === 'ollama') {
+                      <!-- Ollama URL (not a secret) -->
+                      <div class="form-group ollama-url">
+                        <label for="ollama-url">Server URL</label>
+                        <input
+                          id="ollama-url"
+                          data-testid="ollama-url-input"
+                          pInputText
+                          [(ngModel)]="settings.providers.ollama_url"
+                          placeholder="http://localhost:11434"
+                        />
+                        <small class="hint-text">Leave empty for a local Ollama on the default port. Press Save after changing it.</small>
+                      </div>
+                    } @else if (keyFor(p.value); as pk) {
+                      @if (pk.status?.source === 'env') {
+                        <p class="hint-text" [attr.data-testid]="'key-env-hint-' + pk.id">
+                          Using the key from the <code>{{ envVarFor(pk.id) }}</code> environment variable.
+                          It takes priority over a key saved here, so it can only be changed where it is set.
+                        </p>
+                      }
+                      @if (pk.editing) {
+                        <div class="key-edit">
+                          <input pInputText
+                            type="password"
+                            [(ngModel)]="pk.draftKey"
+                            [placeholder]="keyPlaceholder(pk.id)"
+                            style="flex:1"
+                          />
+                          <p-button
+                            label="Save"
+                            icon="pi pi-check"
+                            size="small"
+                            (onClick)="saveKey(pk)"
+                            [loading]="pk.saving"
+                            [disabled]="!pk.draftKey"
+                          />
+                          <p-button
+                            label="Cancel"
+                            icon="pi pi-times"
+                            severity="secondary"
+                            size="small"
+                            (onClick)="cancelEdit(pk)"
+                          />
+                        </div>
+                      } @else if (pk.status?.source !== 'env') {
+                        <div class="key-actions">
+                          <p-button
+                            [label]="pk.status?.is_set ? 'Update Key' : 'Set Key'"
                             icon="pi pi-key"
                             severity="secondary"
                             size="small"
@@ -241,10 +308,10 @@ interface ProviderKey {
                               [loading]="pk.saving"
                             />
                           }
-                        }
-                      </div>
+                        </div>
+                      }
                     }
-                  </div>
+                  </app-provider-card>
                 }
 
                 <!-- Model selection per provider (#33 step 4) -->
@@ -311,12 +378,6 @@ interface ProviderKey {
                   </div>
                 }
 
-                <!-- Ollama URL (not a secret) -->
-                <div class="form-group mt-4">
-                  <label>Ollama Server URL</label>
-                  <input pInputText [(ngModel)]="settings.providers.ollama_url" placeholder="http://localhost:11434" />
-                  <small class="hint-text">Only needed when using Ollama as the provider.</small>
-                </div>
               </p-tabpanel>
 
               <!-- App Defaults tab -->
@@ -467,6 +528,26 @@ interface ProviderKey {
     label { font-size: 0.875rem; color: var(--p-text-muted-color); }
     input { width: 100%; }
 
+    .provider-summary {
+      margin: 0 0 0.75rem;
+      font-size: 0.95rem;
+    }
+    .provider-pointer {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 0.4rem;
+    }
+    .provider-pointer-sep { color: var(--p-text-muted-color); }
+    .provider-pointer-link {
+      color: var(--p-primary-color);
+      text-decoration: none;
+    }
+    .provider-pointer-link:hover { text-decoration: underline; }
+    .card-status { display: inline-flex; gap: 0.5rem; }
+    .ollama-url { margin-bottom: 0; }
+    .ollama-url .hint-text { margin-bottom: 0; }
+
     .key-row {
       border: 1px solid var(--p-content-border-color);
       border-radius: var(--p-border-radius-md, 6px);
@@ -529,7 +610,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
   settings: AppSettings | null = null;
   saved = false;
   keyError = '';
-  activeTab = 'general';
+  /** Two-way bound to the tabs, so the General tab's pointer can switch it. */
+  activeTab: string | number | undefined = 'general';
 
   appVersion = '';
   readonly versionLabel = versionLabel;
@@ -548,9 +630,14 @@ export class SettingsComponent implements OnInit, OnDestroy {
   addingPreset = false;
   addPresetDraft: AppPreset = { sourceApp: '', documentType: 'email' };
 
+  /**
+   * The providers a user can choose, in the order their cards appear on the AI
+   * Providers tab. The labels are what the General tab's pointer and the model
+   * pickers show too.
+   */
   readonly providers = [
     { label: 'OpenAI', value: 'openai' },
-    { label: 'Anthropic Claude', value: 'claude' },
+    { label: 'Anthropic API', value: 'claude' },
     { label: 'Claude Code (installed CLI)', value: 'claude-code' },
     { label: 'Ollama (local)', value: 'ollama' },
     // AWS Bedrock stays out until it works (#22, #23). A settings file that
@@ -575,7 +662,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly docTypeOptions = DOCUMENT_TYPE_OPTIONS;
 
   /**
-   * Providers whose model can be chosen. Derived from the Active Provider list
+   * Providers whose model can be chosen. Derived from the provider list
    * rather than repeated, so the two cannot drift apart.
    *
    * Computed once: a getter would hand the template a new array on every
@@ -593,6 +680,11 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   /** The Ollama URL as last persisted; see save(). */
   private savedOllamaURL = '';
+
+  /** The provider whose "Use this" is being saved, so one switch runs at a time. */
+  switchingTo: string | null = null;
+  /** Why the last switch did not stick; cleared by the next one. */
+  switchError = '';
 
   /** Null until the first detection run finishes. */
   claudeCodeStatus: ClaudeCodeStatus | null = null;
@@ -636,6 +728,93 @@ export class SettingsComponent implements OnInit, OnDestroy {
   /** See UNAVAILABLE_PROVIDERS: the saved value is explained, not switched. */
   get unavailableProvider(): string | null {
     return unavailableProviderName(this.settings?.active_provider);
+  }
+
+  /** The active provider's display name, or null when none of the offered ones is saved. */
+  get activeProviderLabel(): string | null {
+    const active = this.settings?.active_provider;
+    return this.providers.find(p => p.value === active)?.label ?? null;
+  }
+
+  /** Why the active provider cannot work right now, for the General tab's pointer. */
+  get activeProviderProblem(): string | null {
+    const active = this.settings?.active_provider;
+    return active ? this.providerProblem(active) : null;
+  }
+
+  /**
+   * Why a provider cannot work right now, or null when nothing is known to be
+   * wrong — including while its status is still loading, so a card does not
+   * flash a warning it is about to take back.
+   *
+   * Ollama is judged by whether its daemon answered, not by whether the URL
+   * field is filled: an empty field means localhost on the default port, which
+   * is where a local Ollama listens, so "no URL" would be a false alarm.
+   */
+  providerProblem(provider: string): string | null {
+    switch (provider) {
+      case 'claude-code': {
+        const cli = this.claudeCodeStatus;
+        if (!cli) return null;
+        if (!cli.installed) return "Won't work yet: the Claude Code CLI is not installed on this machine.";
+        if (!cli.loggedIn) return "Won't work yet: the Claude Code CLI is not signed in.";
+        return null;
+      }
+      case 'ollama': {
+        const where = this.savedOllamaURL || 'http://localhost:11434';
+        switch (this.modelSource['ollama']) {
+          case 'unreachable': return `Won't work yet: KeyLint cannot reach Ollama at ${where}. Start Ollama, or check the server URL.`;
+          case 'empty': return "Won't work yet: Ollama has no models pulled. Pull one with `ollama pull`.";
+          default: return null;
+        }
+      }
+      default: {
+        const status = this.keyFor(provider)?.status;
+        if (!status || status.is_set) return null;
+        return "Won't work yet: no API key is set.";
+      }
+    }
+  }
+
+  /** The key row for an API provider, or undefined for one that takes no key. */
+  keyFor(provider: string): ProviderKey | undefined {
+    return this.providerKeys.find(pk => pk.id === provider);
+  }
+
+  /** The environment variable the backend reads first; see envVars in settings/service.go. */
+  envVarFor(provider: string): string {
+    return ENV_KEY_VARS[provider] ?? '';
+  }
+
+  /**
+   * Makes `provider` the one KeyLint uses, saved straight away so one click is
+   * the whole switch.
+   *
+   * It goes through save(), the same path as the Save button, so whatever else
+   * is edited on the page is saved with it — the alternative, saving only this
+   * field, would leave the form showing values that differ from disk with no
+   * sign of which. A failed save puts the marker back where it was: the card
+   * must not claim a provider the backend never heard about.
+   */
+  async useProvider(provider: string): Promise<void> {
+    if (!this.settings || this.switchingTo !== null) return;
+    const previous = this.settings.active_provider;
+    if (previous === provider) return;
+    this.settings.active_provider = provider;
+    this.switchingTo = provider;
+    this.switchError = '';
+    try {
+      await this.save();
+      this.log.info(`settings: active provider set to ${provider}`);
+    } catch (e) {
+      this.settings.active_provider = previous;
+      this.switchError = `Could not switch provider: ${e instanceof Error ? e.message : String(e)}`;
+    } finally {
+      this.switchingTo = null;
+      if (!this.destroyed) {
+        this.cdr.detectChanges();
+      }
+    }
   }
 
   /** Reads the configured model, or "" when the default applies. */
