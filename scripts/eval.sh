@@ -21,6 +21,8 @@ set -euo pipefail
 #   ./scripts/eval.sh --schema                 # enforce the JSON schemas (off by default, see schemas.go)
 #   ./scripts/eval.sh --runs 3                 # run n times and write an aggregate baseline.json
 #   ./scripts/eval.sh --runs 3 --compare path/to/baseline.json
+#   ./scripts/eval.sh --suite fix --thinking off --runs 3   # Fix through the CLI without thinking
+#   ./scripts/eval.sh --dry-run                # print the resolved configuration, run nothing
 #
 # --compare wants --runs on both sides. A single run has no range, so it gets an
 # "indicative only" answer rather than a verdict: believing a one-run delta is
@@ -46,6 +48,8 @@ SUITE=pyramidize
 VARIANT_SET=0
 SCHEMA_SET=0
 SPLIT_SET=0
+THINKING_SET=0
+DRY_RUN=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -57,6 +61,8 @@ while [[ $# -gt 0 ]]; do
         --suite)    SUITE="$2"; shift 2 ;;
         --split)    export EVAL_SPLIT="$2"; SPLIT_SET=1; shift 2 ;;
         --compare)  COMPARE="$2"; shift 2 ;;
+        --thinking) export EVAL_THINKING="$2"; THINKING_SET=1; shift 2 ;;
+        --dry-run)  DRY_RUN=1; shift ;;
         *)          echo "Unknown flag: $1" >&2; exit 1 ;;
     esac
 done
@@ -65,9 +71,39 @@ done
 # the command line or shell first, then a non-credential line in .env (the Go
 # side fills an empty EVAL_* from it), then the defaults — kept in step with
 # defaultEvalProvider and defaultJudgeProvider in both eval_config.go files.
-dotenv_value() {
+#
+# .env is parsed the way godotenv (the Go side) reads it: comments and blank
+# lines skipped, an optional `export ` prefix, single or double quotes around
+# the value, an inline ` # comment` after an unquoted one. Every function here
+# returns 0 whatever it finds — under `set -e` a lookup that finds nothing must
+# not end the script, least of all with exit 1, which means "regression".
+dotenv_entries() {
     [[ -f .env ]] || return 0
-    grep -E "^$1=" .env | tail -1 | cut -d= -f2- | tr -d '\r'
+    local line key value
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%$'\r'}"
+        line="${line#"${line%%[![:space:]]*}"}"
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        if [[ "$line" =~ ^export[[:space:]]+(.*)$ ]]; then
+            line="${BASH_REMATCH[1]}"
+        fi
+        [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_.]*)[[:space:]]*=[[:space:]]*(.*)$ ]] || continue
+        key="${BASH_REMATCH[1]}"
+        value="${BASH_REMATCH[2]}"
+        if [[ "$value" =~ ^\"(.*)\"[[:space:]]*(#.*)?$ ]]; then
+            value="${BASH_REMATCH[1]}"
+        elif [[ "$value" =~ ^\'(.*)\'[[:space:]]*(#.*)?$ ]]; then
+            value="${BASH_REMATCH[1]}"
+        else
+            value="${value%%[[:space:]]#*}"
+            value="${value%"${value##*[![:space:]]}"}"
+        fi
+        printf '%s\t%s\n' "$key" "$value"
+    done < .env
+    return 0
+}
+dotenv_value() {
+    dotenv_entries | awk -F'\t' -v k="$1" '$1 == k { v = $2 } END { print v }'
 }
 PIPELINE_PROVIDER="${EVAL_PROVIDER:-$(dotenv_value EVAL_PROVIDER)}"
 PIPELINE_PROVIDER="${PIPELINE_PROVIDER:-claude-code}"
@@ -82,24 +118,30 @@ uses_api_key() { [[ "$1" == "claude" || "$1" == "openai" ]]; }
 # must not use one. (The CLI client strips it from the child anyway; a key that
 # is never loaded cannot be the one that answered.) The Go side applies the
 # same rule on its own reading of .env.
+LOADED_KEYS=()
 if uses_api_key "$PIPELINE_PROVIDER" || uses_api_key "$JUDGE_PROVIDER"; then
-    if [[ -f .env ]]; then
-        while IFS='=' read -r key value; do
-            [[ "$key" == *_API_KEY ]] || continue
-            value="${value%$'\r'}"
-            # An empty line copied from .env.example must not blank a key the
-            # shell exports.
-            [[ -n "$value" ]] || continue
-            export "$key=$value"
-        done < <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .env)
-    fi
+    while IFS=$'\t' read -r key value; do
+        [[ "$key" == *_API_KEY ]] || continue
+        # An empty line copied from .env.example must not blank a key the
+        # shell exports.
+        [[ -n "$value" ]] || continue
+        export "$key=$value"
+        LOADED_KEYS+=("$key")
+    done < <(dotenv_entries)
 fi
 
 # A signed-out CLI fails every sample one by one; say so once, up front. Only
 # when the binary is on PATH — KeyLint also finds it in other places, and the
 # Go side reports a missing one per sample with the right wording.
 if [[ "$PIPELINE_PROVIDER" == "claude-code" || "$JUDGE_PROVIDER" == "claude-code" ]] && command -v claude >/dev/null; then
-    if ! env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u CLAUDE_CODE_OAUTH_TOKEN \
+    # The same variables internal/llm strips before every CLI call
+    # (blockedCLIEnv): detection must see the account the eval will run as.
+    if ! env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL \
+            -u CLAUDE_CODE_OAUTH_TOKEN -u ANTHROPIC_MODEL \
+            -u ANTHROPIC_DEFAULT_OPUS_MODEL -u ANTHROPIC_DEFAULT_SONNET_MODEL \
+            -u ANTHROPIC_DEFAULT_HAIKU_MODEL -u ANTHROPIC_SMALL_FAST_MODEL \
+            -u CLAUDE_CODE_USE_BEDROCK -u CLAUDE_CODE_USE_VERTEX -u AWS_BEARER_TOKEN_BEDROCK \
+            -u MAX_THINKING_TOKENS -u CLAUDE_CODE_MAX_OUTPUT_TOKENS \
             claude auth status 2>/dev/null | jq -e '.loggedIn == true' >/dev/null 2>&1; then
         echo "The Claude Code CLI is not signed in. Run \`claude\` in a terminal and sign in, then retry." >&2
         exit 3
@@ -135,8 +177,14 @@ esac
 # up out of .env — it fills any EVAL_* key whose environment value is empty —
 # and the header below would print "all" while the run measured the holdout.
 # Same trap the *_API_KEY filter above exists for, one variable further on.
+# Exported rather than unset: an unset variable is exactly the "empty" the Go
+# side fills from .env, so unsetting it let the file decide after all.
 if (( ! SPLIT_SET )); then
-    unset EVAL_SPLIT
+    export EVAL_SPLIT=all
+fi
+# Thinking follows the same rule, for the same reason: only the flag decides.
+if (( ! THINKING_SET )); then
+    export EVAL_THINKING=default
 fi
 case "${EVAL_SPLIT:-all}" in
     all|tune|holdout) ;;
@@ -159,7 +207,17 @@ if [[ "$SUITE" == "fix" ]]; then
         echo "--schema enforces the pyramidize JSON schemas; the Fix suite returns text" >&2
         exit 3
     fi
+else
+    # Pyramidize thinking is left as the provider sets it, on both routes.
+    if (( THINKING_SET )); then
+        echo "--thinking applies to the fix suite; Pyramidize thinking is left to the provider" >&2
+        exit 3
+    fi
 fi
+case "${EVAL_THINKING:-default}" in
+    on|off|default) ;;
+    *) echo "--thinking takes 'on', 'off' or 'default'" >&2; exit 3 ;;
+esac
 
 echo "=== KeyLint Eval: $SUITE ==="
 echo "Provider: $PIPELINE_PROVIDER"
@@ -169,6 +227,7 @@ if [[ "$SUITE" != "fix" ]]; then
 fi
 if [[ "$SUITE" == "fix" ]]; then
     echo "Split:    ${EVAL_SPLIT:-all}"
+    echo "Thinking: ${EVAL_THINKING:-default} (CLI only; recorded in summary.json)"
 fi
 if uses_api_key "$JUDGE_PROVIDER" || [[ "$JUDGE_PROVIDER" == "ollama" ]]; then
     JUDGE_TEMP="temp 0"
@@ -178,6 +237,12 @@ fi
 echo "Judge:    $JUDGE_PROVIDER / ${EVAL_JUDGE_MODEL:-<pinned>} @ $JUDGE_TEMP"
 echo "Runs:     $RUNS"
 echo ""
+
+if (( DRY_RUN )); then
+    # Machine-readable, for scripts/eval.sh's own tests.
+    echo "dry-run pipeline=$PIPELINE_PROVIDER judge=$JUDGE_PROVIDER keys=${LOADED_KEYS[*]:-none}"
+    exit 0
+fi
 
 RUN_DIRS=()
 for (( i = 1; i <= RUNS; i++ )); do
@@ -189,12 +254,13 @@ for (( i = 1; i <= RUNS; i++ )); do
     # already spent on the earlier runs.
     BEFORE=$(ls -d test-data/eval-runs/*/ 2>/dev/null | sort || true)
     set +e
-    # 3600s, not 900s: through the CLI a Fix sample (fix + judge) takes about a
-    # minute, and the first CLI attempt at the Fix baseline lost a whole run to
-    # the 900 s panic. Pyramidize runs took 12.5–14 minutes. A go test timeout
-    # panics before summary.json is written and throws the whole run away, so
-    # the limit is a safety net, not a budget.
-    go test -tags eval "$SUITE_PKG" -v -timeout 3600s 2>&1 | tee /dev/stderr | tail -1
+    # 7200 s covers the worst case the per-call deadlines allow: Fix 15 ×
+    # (120 s fix + 180 s judge) = 4500 s, Pyramidize 13 × (2 × 120 s + 180 s)
+    # = 5460 s with a refine on every sample. A go test timeout panics before
+    # summary.json is written and throws the whole run away — the first CLI
+    # attempt at the Fix baseline lost a run to the old 900 s — so this is a
+    # safety net, not a budget. Typical runs take 12–15 minutes.
+    go test -tags eval "$SUITE_PKG" -v -timeout 7200s 2>&1 | tee /dev/stderr | tail -1
     run_status=${PIPESTATUS[0]}
     set -e
     AFTER=$(ls -d test-data/eval-runs/*/ 2>/dev/null | sort || true)

@@ -124,6 +124,10 @@ func TestEvalFix(t *testing.T) {
 	loadEvalEnv(t)
 
 	provider, model := evalTarget(os.Getenv)
+	thinking, thinkingLabel, err := evalThinking(provider, os.Getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
 	judge := JudgeConfigFromEnv(os.Getenv)
 
 	// Explicit configuration and environment-only keys: the developer's own
@@ -144,8 +148,12 @@ func TestEvalFix(t *testing.T) {
 	// configKey keys on it, so a silent generation change reads "not
 	// comparable" instead of looking like a prompt effect.
 	var pipelineModels, judgeModels llm.ResolvedModels
+	// Read at the start and again at the end: the CLI is part of the
+	// instrument, and an auto-update mid-run would otherwise go unrecorded.
+	cliVersionAtStart := evalCLIVersion(provider, judge.Provider)
 	svc := NewService(settingsSvc)
 	svc.newClient = pipelineModels.WrapFactory(llm.New)
+	svc.thinking = thinking
 	judgeClient := judgeModels.WrapFactory(llm.New)
 	split, err := SplitFromEnv(os.Getenv("EVAL_SPLIT"))
 	if err != nil {
@@ -241,10 +249,13 @@ func TestEvalFix(t *testing.T) {
 		"resolvedModel": pipelineModels.String(),
 		// The CLI is part of the instrument when either side runs through it: its
 		// defaults sit between the model and the score. Recorded, not keyed.
-		"claudeCodeVersion": evalCLIVersion(provider, judge.Provider),
-		"judge":             judge,
-		"promptVariant":     0, // the Fix prompt has no variants
-		"qualityThreshold":  0,
+		"claudeCodeVersion": cliVersionSpan(cliVersionAtStart, evalCLIVersion(provider, judge.Provider)),
+		// Whether the pipeline thought first: on/off through the CLI, n/a for an
+		// API provider, which KeyLint does not ask. In the configKey.
+		"thinking":         thinkingLabel,
+		"judge":            judge,
+		"promptVariant":    0, // the Fix prompt has no variants
+		"qualityThreshold": 0,
 		// Kept for shape-compatibility with the Pyramidize summaries, which is
 		// what lets scripts/eval-aggregate.sh read both.
 		"schemaEnforcement": false,
@@ -264,7 +275,7 @@ func TestEvalFix(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(runDir, "summary.json"), data, 0o644)
 
 	t.Logf("\n=== FIX EVAL SUMMARY ===")
-	t.Logf("Provider: %s | Model: %s (resolved: %s) | Prompt: %s", provider, model, pipelineModels.String(), promptHash())
+	t.Logf("Provider: %s | Model: %s (resolved: %s) | Thinking: %s | Prompt: %s", provider, model, pipelineModels.String(), thinkingLabel, promptHash())
 	t.Logf("Judge: %s / %s (resolved: %s) @ temp %s", judge.Provider, judge.Model, judge.ResolvedModel, judge.TemperatureLabel())
 	t.Logf("Samples: %d (split %s, membership %s)", len(samples), split, SplitHash(sampleNames(samples)))
 	t.Logf("Avg deterministic: %.2f (%d of %d samples scored)", totalDet/float64(max(scored, 1)), scored, len(samples))

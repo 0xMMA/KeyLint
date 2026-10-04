@@ -60,7 +60,7 @@ func evalNeedsAPIKey(providers ...string) bool {
 func evalEnvFromFile(file map[string]string, getenv func(string) string) map[string]string {
 	set := map[string]string{}
 	for key, value := range file {
-		if strings.HasSuffix(key, "_API_KEY") {
+		if strings.HasSuffix(key, "_API_KEY") || !isEvalSetting(key) {
 			continue
 		}
 		if getenv(key) == "" {
@@ -98,4 +98,32 @@ func evalCLIVersion(providers ...string) string {
 		}
 	}
 	return ""
+}
+
+// isEvalSetting is what the eval takes from .env besides credentials: its own
+// EVAL_* and KEYLINT_* switches. Anything else stays out of the test process —
+// and so out of the Claude Code CLI's environment, which inherits it.
+func isEvalSetting(key string) bool {
+	return strings.HasPrefix(key, "EVAL_") || strings.HasPrefix(key, "KEYLINT_")
+}
+
+// cliVersionSpan is what a run records as the CLI version: the version read at
+// its start, or "start->end" when the CLI changed while the run was going. The
+// configKey includes it, so a run that straddled an upgrade matches nothing.
+func cliVersionSpan(start, end string) string {
+	if start == end {
+		return start
+	}
+	return start + "->" + end
+}
+
+// pyramidizeThinking is the thinking label a Pyramidize run records. KeyLint
+// does not set thinking on this path: through the CLI the model thinks by
+// default ("on"), and on the API path the provider decides ("n/a") — Sonnet
+// thinks there by default too, which is why the two routes are left alone.
+func pyramidizeThinking(provider string) string {
+	if provider == llm.ProviderClaudeCode {
+		return "on"
+	}
+	return "n/a"
 }

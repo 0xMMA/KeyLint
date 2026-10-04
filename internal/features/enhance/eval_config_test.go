@@ -73,3 +73,60 @@ func TestTheFixEvalTakesAKeyOnlyForAnAPIProvider(t *testing.T) {
 		}
 	}
 }
+
+// TestEvalThinkingNamesTheEffectiveSetting: the label is what ran, never
+// "default", so changing fixThinking makes old runs read "not comparable".
+func TestEvalThinkingNamesTheEffectiveSetting(t *testing.T) {
+	cases := []struct {
+		provider, env string
+		thinking      bool
+		label         string
+	}{
+		{llm.ProviderClaudeCode, "off", false, "off"},
+		{llm.ProviderClaudeCode, "on", true, "on"},
+		{llm.ProviderClaudeCode, "", fixThinking, map[bool]string{true: "on", false: "off"}[fixThinking]},
+		{llm.ProviderClaude, "off", false, "n/a"},
+	}
+	for _, tc := range cases {
+		thinking, label, err := evalThinking(tc.provider, envFrom(map[string]string{"EVAL_THINKING": tc.env}))
+		if err != nil {
+			t.Fatalf("%v: %v", tc, err)
+		}
+		if thinking != tc.thinking || label != tc.label {
+			t.Errorf("%s/%q = %v/%q, want %v/%q", tc.provider, tc.env, thinking, label, tc.thinking, tc.label)
+		}
+	}
+	if _, _, err := evalThinking(llm.ProviderClaudeCode, envFrom(map[string]string{"EVAL_THINKING": "maybe"})); err == nil {
+		t.Error("an unknown EVAL_THINKING was accepted")
+	}
+}
+
+func TestCLIVersionSpan(t *testing.T) {
+	if got := cliVersionSpan("2.1.289", "2.1.289"); got != "2.1.289" {
+		t.Errorf("same version = %q", got)
+	}
+	if got := cliVersionSpan("2.1.289", "2.1.290"); got != "2.1.289->2.1.290" {
+		t.Errorf("upgrade mid-run = %q", got)
+	}
+}
+
+// TestOnlyEvalSettingsLeaveDotEnv: the test process's environment is the CLI's
+// environment. A stray line in .env must not reach it.
+func TestOnlyEvalSettingsLeaveDotEnv(t *testing.T) {
+	got := evalEnvFromFile(map[string]string{
+		"EVAL_SPLIT":                "tune",
+		"KEYLINT_PYRAMIDIZE_SCHEMA": "1",
+		"MAX_THINKING_TOKENS":       "0",
+		"CLAUDE_CONFIG_DIR":         "/elsewhere",
+	}, envFrom(nil))
+	for _, k := range []string{"EVAL_SPLIT", "KEYLINT_PYRAMIDIZE_SCHEMA"} {
+		if _, ok := got[k]; !ok {
+			t.Errorf("%s was dropped", k)
+		}
+	}
+	for _, k := range []string{"MAX_THINKING_TOKENS", "CLAUDE_CONFIG_DIR"} {
+		if _, ok := got[k]; ok {
+			t.Errorf("%s left .env and would reach the CLI", k)
+		}
+	}
+}

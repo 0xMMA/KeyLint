@@ -167,6 +167,9 @@ func TestEvalPyramidize(t *testing.T) {
 	// looking like a prompt effect. Two services so the two recorders cannot
 	// mix: the judge goes through the same callAISync as the pipeline.
 	var pipelineModels, judgeModels llm.ResolvedModels
+	// Read at the start and again at the end: the CLI is part of the
+	// instrument, and an auto-update mid-run would otherwise go unrecorded.
+	cliVersionAtStart := evalCLIVersion(provider, judge.Provider)
 	svc := NewService(settingsSvc, nil)
 	svc.newClient = pipelineModels.WrapFactory(llm.New)
 	judgeSvc := NewService(settingsSvc, nil)
@@ -187,6 +190,10 @@ func TestEvalPyramidize(t *testing.T) {
 		Deterministic EvalScorecard `json:"deterministic"`
 		Judge         *JudgeScore   `json:"judge,omitempty"`
 		Error         string        `json:"error,omitempty"`
+		// JudgeError is recorded, not just logged: a judge that dropped an
+		// answer leaves judgeCount below scoredCount, and the run folder has to
+		// say why once the log is gone.
+		JudgeError string `json:"judgeError,omitempty"`
 		// AppliedRefinement says whether this sample cost a second model call.
 		// Without it a run cannot show whether the pipeline arm of a comparison
 		// ever behaved like a pipeline — the gap ADR-002 had to record as
@@ -203,6 +210,7 @@ func TestEvalPyramidize(t *testing.T) {
 	totalDet := 0.0
 	totalJudge := 0.0
 	judgeCount := 0
+	scored := 0
 
 	for _, sample := range samples {
 		t.Run(sample.Name, func(t *testing.T) {
@@ -229,6 +237,7 @@ func TestEvalPyramidize(t *testing.T) {
 				// Deterministic checks.
 				sr.Deterministic = RunDeterministicChecks(sample.RawInput, result.FullDocument)
 				totalDet += sr.Deterministic.OverallScore
+				scored++
 
 				t.Logf("deterministic: %.2f (pass=%v)", sr.Deterministic.OverallScore, sr.Deterministic.AllPassed)
 				for _, c := range sr.Deterministic.Checks {
@@ -240,6 +249,7 @@ func TestEvalPyramidize(t *testing.T) {
 					score, err := judgeSvc.runJudge(settingsSvc, judge,
 						sample.RawInput, sample.Baseline, result.FullDocument)
 					if err != nil {
+						sr.JudgeError = err.Error()
 						t.Logf("judge failed: %v", err)
 					} else {
 						sr.Judge = &score
@@ -278,14 +288,21 @@ func TestEvalPyramidize(t *testing.T) {
 		"resolvedModel": pipelineModels.String(),
 		// The CLI is part of the instrument when either side runs through it: its
 		// defaults sit between the model and the score. Recorded, not keyed.
-		"claudeCodeVersion": evalCLIVersion(provider, judge.Provider),
+		"claudeCodeVersion": cliVersionSpan(cliVersionAtStart, evalCLIVersion(provider, judge.Provider)),
+		"thinking":          pyramidizeThinking(provider),
 		"promptVariant":     effectiveVariant,
 		"judge":             judge,
 		"qualityThreshold":  settings.DefaultQualityThreshold,
 		// Which configuration produced these numbers; see schemas.go.
 		"schemaEnforcement": schemaEnforcement,
 		"sampleCount":       len(samples),
-		"avgDeterministic":  totalDet / float64(len(samples)),
+		// Divided by what was scored, not by what was attempted: a sample whose
+		// call failed is a measurement of the network, not of the prompt. The
+		// counts say how many that was; the aggregate refuses to compare a run
+		// that did not score every sample.
+		"avgDeterministic": totalDet / float64(max(scored, 1)),
+		"scoredCount":      scored,
+		"errorCount":       len(samples) - scored,
 	}
 	if judgeCount > 0 {
 		summary["avgJudge"] = totalJudge / float64(judgeCount)
@@ -299,7 +316,7 @@ func TestEvalPyramidize(t *testing.T) {
 	t.Logf("Judge: %s / %s (resolved: %s) @ temp %s", judge.Provider, judge.Model, judge.ResolvedModel, judge.TemperatureLabel())
 	t.Logf("Schema enforcement: %v | Quality threshold: %.2f", schemaEnforcement, settings.DefaultQualityThreshold)
 	t.Logf("Samples: %d", len(samples))
-	t.Logf("Avg deterministic: %.2f", totalDet/float64(len(samples)))
+	t.Logf("Avg deterministic: %.2f (%d of %d samples scored)", totalDet/float64(max(scored, 1)), scored, len(samples))
 	if judgeCount > 0 {
 		t.Logf("Avg judge overall: %.2f (%d samples)", totalJudge/float64(judgeCount), judgeCount)
 	}

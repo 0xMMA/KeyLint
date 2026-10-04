@@ -66,7 +66,7 @@ const (
 )
 
 // judgeTemperatureNote is recorded wherever the judge's temperature is null.
-const judgeTemperatureNote = "not pinned: the Claude Code CLI has no temperature flag, so the judge samples at the CLI default"
+const judgeTemperatureNote = "not pinned: the Claude Code CLI has no temperature flag, so the judge samples at the CLI default (and thinks first, as the CLI does by default)"
 
 // JudgeConfigFromEnv resolves the judge's configuration, pinned unless a run
 // deliberately overrides it. An override is recorded in summary.json like

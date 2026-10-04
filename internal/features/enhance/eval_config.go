@@ -36,6 +36,39 @@ func evalTarget(getenv func(string) string) (provider, model string) {
 	return provider, model
 }
 
+// Thinking settings a Fix run can measure. "default" is what the product does
+// (fixThinking); "on" and "off" override it. Only the Claude Code CLI acts on it,
+// so for an API run it is recorded as "n/a".
+const (
+	thinkingOn  = "on"
+	thinkingOff = "off"
+	thinkingNA  = "n/a"
+)
+
+// evalThinking resolves EVAL_THINKING for a Fix run: whether the pipeline may
+// think, and the label summary.json and the configKey record. The label names
+// the effective setting, never "default", so a later change to fixThinking
+// reads "not comparable" instead of silently swapping the instrument.
+func evalThinking(provider string, getenv func(string) string) (thinking bool, label string, err error) {
+	thinking = fixThinking
+	switch v := strings.ToLower(strings.TrimSpace(getenv("EVAL_THINKING"))); v {
+	case "", "default":
+	case thinkingOn:
+		thinking = true
+	case thinkingOff:
+		thinking = false
+	default:
+		return false, "", fmt.Errorf("EVAL_THINKING takes on, off or default, not %q", v)
+	}
+	if provider != llm.ProviderClaudeCode {
+		return thinking, thinkingNA, nil
+	}
+	if thinking {
+		return true, thinkingOn, nil
+	}
+	return false, thinkingOff, nil
+}
+
 // JudgeConfig pins the instrument, exactly as the Pyramidize eval does — a
 // judge that moves with what it measures reports nothing. Same provider and
 // dated snapshot, so the two suites' judge columns are produced the same way.
@@ -61,7 +94,7 @@ const (
 	defaultJudgeProvider = llm.ProviderClaudeCode
 	defaultJudgeModel    = "claude-sonnet-4-5-20250929"
 	judgeTemperature     = 0.0
-	judgeTemperatureNote = "not pinned: the Claude Code CLI has no temperature flag, so the judge samples at the CLI default"
+	judgeTemperatureNote = "not pinned: the Claude Code CLI has no temperature flag, so the judge samples at the CLI default (and thinks first, as the CLI does by default)"
 )
 
 // JudgeConfigFromEnv resolves the judge, pinned unless deliberately overridden.
@@ -107,7 +140,7 @@ func evalNeedsAPIKey(providers ...string) bool {
 func evalEnvFromFile(file map[string]string, getenv func(string) string) map[string]string {
 	set := map[string]string{}
 	for key, value := range file {
-		if strings.HasSuffix(key, "_API_KEY") {
+		if strings.HasSuffix(key, "_API_KEY") || !isEvalSetting(key) {
 			continue
 		}
 		if getenv(key) == "" {
@@ -143,4 +176,21 @@ func evalCLIVersion(providers ...string) string {
 		}
 	}
 	return ""
+}
+
+// isEvalSetting is what the eval takes from .env besides credentials: its own
+// EVAL_* and KEYLINT_* switches. Anything else stays out of the test process —
+// and so out of the Claude Code CLI's environment, which inherits it.
+func isEvalSetting(key string) bool {
+	return strings.HasPrefix(key, "EVAL_") || strings.HasPrefix(key, "KEYLINT_")
+}
+
+// cliVersionSpan is what a run records as the CLI version: the version read at
+// its start, or "start->end" when the CLI changed while the run was going. The
+// configKey includes it, so a run that straddled an upgrade matches nothing.
+func cliVersionSpan(start, end string) string {
+	if start == end {
+		return start
+	}
+	return start + "->" + end
 }

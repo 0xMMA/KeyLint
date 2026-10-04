@@ -115,3 +115,19 @@ func TestTheCLIVersionIsOnlyAskedForWhenTheCLIRuns(t *testing.T) {
 		t.Errorf("evalCLIVersion without the CLI = %q, want empty", got)
 	}
 }
+
+func TestOnlyEvalSettingsLeaveDotEnvForPyramidize(t *testing.T) {
+	got := evalEnvFromFile(map[string]string{"EVAL_VARIANT": "1", "CLAUDE_CONFIG_DIR": "/elsewhere"}, envFrom(nil))
+	if got["EVAL_VARIANT"] != "1" {
+		t.Error("EVAL_VARIANT was dropped")
+	}
+	if _, ok := got["CLAUDE_CONFIG_DIR"]; ok {
+		t.Error("CLAUDE_CONFIG_DIR left .env and would reach the CLI")
+	}
+}
+
+func TestPyramidizeThinkingLabel(t *testing.T) {
+	if pyramidizeThinking(llm.ProviderClaudeCode) != "on" || pyramidizeThinking(llm.ProviderClaude) != "n/a" {
+		t.Error("thinking labels drifted")
+	}
+}

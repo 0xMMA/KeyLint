@@ -63,9 +63,17 @@ func fakeRunFull(t *testing.T, dir, model string, det, judge float64, promptHash
 // through the CLI, the judge's temperature null, and the resolved IDs recorded.
 func fakeRunCLI(t *testing.T, dir, alias, resolved string, det, judge float64) string {
 	t.Helper()
+	return fakeRunCLIWith(t, dir, alias, resolved, det, judge, "on", "2.1.289")
+}
+
+// fakeRunCLIWith is fakeRunCLI with a chosen thinking setting and CLI version.
+func fakeRunCLIWith(t *testing.T, dir, alias, resolved string, det, judge float64, thinking, cliVersion string) string {
+	t.Helper()
 	return fakeRunEdited(t, dir, alias, det, judge, func(summary map[string]any) {
 		summary["provider"] = "claude-code"
 		summary["resolvedModel"] = resolved
+		summary["thinking"] = thinking
+		summary["claudeCodeVersion"] = cliVersion
 		summary["judge"] = map[string]any{
 			"provider":        "claude-code",
 			"model":           "claude-sonnet-4-5-20250929",
@@ -394,7 +402,7 @@ func TestARunRecordedBeforeTheSuiteFieldStillKeys(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}
-	const want = "pyramidize|claude|claude-sonnet-4-6|claude|claude-sonnet-4-5-20250929|2|false|0.65|2|1|all|0"
+	const want = "pyramidize|claude|claude-sonnet-4-6|claude|claude-sonnet-4-5-20250929|2|false|0.65|2|1|all|0|n/a|none"
 	if got["configKey"] != want {
 		t.Errorf("configKey = %v\nwant       %v", got["configKey"], want)
 	}
@@ -446,10 +454,10 @@ func downgradeKey(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 	parts := strings.Split(doc["configKey"].(string), "|")
-	if len(parts) != 12 {
-		t.Fatalf("configKey has %d fields, expected the current 12: %v", len(parts), doc["configKey"])
+	if len(parts) != 14 {
+		t.Fatalf("configKey has %d fields, expected the current 14: %v", len(parts), doc["configKey"])
 	}
-	doc["configKey"] = strings.Join(parts[1:len(parts)-3], "|")
+	doc["configKey"] = strings.Join(parts[1:len(parts)-5], "|")
 	cfg := doc["config"].(map[string]any)
 	delete(cfg, "suite")
 	delete(cfg, "promptHash")
@@ -569,7 +577,7 @@ func TestTheKeyNamesTheResolvedModel(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}
-	const want = "pyramidize|claude-code|claude-sonnet-4-6|claude-code|claude-sonnet-4-5-20250929|2|false|0.65|2|1|all|null"
+	const want = "pyramidize|claude-code|claude-sonnet-4-6|claude-code|claude-sonnet-4-5-20250929|2|false|0.65|2|1|all|null|on|2.1.289"
 	if got["configKey"] != want {
 		t.Errorf("configKey = %v\nwant       %v", got["configKey"], want)
 	}
@@ -722,7 +730,89 @@ func TestAJudgeTemperatureWrittenAsAFloatKeysAsZero(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 — 0.0 and 0 are the same pin", code)
 	}
-	if key, _ := got["configKey"].(string); !strings.HasSuffix(key, "|0") {
-		t.Errorf("configKey = %v, want it to end in |0", key)
+	if key, _ := got["configKey"].(string); !strings.HasSuffix(key, "|0|n/a|none") {
+		t.Errorf("configKey = %v, want the judge temperature to key as 0", key)
+	}
+}
+
+// TestThinkingIsPartOfTheInstrument: the same CLI, model and prompt with
+// thinking on and off produced different numbers, so the two must not compare.
+func TestThinkingIsPartOfTheInstrument(t *testing.T) {
+	root := t.TempDir()
+	base := filepath.Join(root, "baseline.json")
+	doc, code := aggregate(t,
+		fakeRunCLIWith(t, filepath.Join(root, "b1"), "haiku", "claude-haiku-4-5-20251001", 0.92, 0.85, "on", "2.1.289"),
+		fakeRunCLIWith(t, filepath.Join(root, "b2"), "haiku", "claude-haiku-4-5-20251001", 0.93, 0.86, "on", "2.1.289"))
+	if code != 0 {
+		t.Fatalf("baseline exit = %d", code)
+	}
+	data, _ := json.Marshal(doc)
+	if err := os.WriteFile(base, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, code := aggregate(t, "--compare", base,
+		fakeRunCLIWith(t, filepath.Join(root, "n1"), "haiku", "claude-haiku-4-5-20251001", 0.95, 0.93, "off", "2.1.289"),
+		fakeRunCLIWith(t, filepath.Join(root, "n2"), "haiku", "claude-haiku-4-5-20251001", 0.96, 0.94, "off", "2.1.289"))
+	if code != 2 || got["verdict"] != "not comparable: different configuration" {
+		t.Errorf("thinking on vs off: exit %d, verdict %v — want not comparable", code, got["verdict"])
+	}
+}
+
+// TestRunsOnDifferentCLIVersionsDoNotAverage: a CLI default moved the numbers
+// once, so three runs straddling an upgrade are refused rather than averaged.
+func TestRunsOnDifferentCLIVersionsDoNotAverage(t *testing.T) {
+	root := t.TempDir()
+	_, code := aggregate(t,
+		fakeRunCLIWith(t, filepath.Join(root, "r1"), "haiku", "claude-haiku-4-5-20251001", 0.92, 0.85, "off", "2.1.289"),
+		fakeRunCLIWith(t, filepath.Join(root, "r2"), "haiku", "claude-haiku-4-5-20251001", 0.93, 0.86, "off", "2.1.290"))
+	if code != 2 {
+		t.Errorf("exit = %d, want 2 — runs on two CLI versions must not be averaged", code)
+	}
+}
+
+// TestAFirstGenerationCLIBaselineIsUnrecordedNotNone: the first CLI baselines
+// carry neither thinking nor version. They key as "unrecorded", so they stay
+// apart from new CLI runs without pretending no CLI was involved.
+func TestAFirstGenerationCLIBaselineIsUnrecordedNotNone(t *testing.T) {
+	root := t.TempDir()
+	strip := func(s map[string]any) {
+		delete(s, "thinking")
+		delete(s, "claudeCodeVersion")
+	}
+	dir1 := fakeRunCLI(t, filepath.Join(root, "r1"), "sonnet", "claude-sonnet-5-5", 0.88, 0.77)
+	dir2 := fakeRunCLI(t, filepath.Join(root, "r2"), "sonnet", "claude-sonnet-5-5", 0.87, 0.76)
+	for _, dir := range []string{dir1, dir2} {
+		path := filepath.Join(dir, "summary.json")
+		data, _ := os.ReadFile(path)
+		var s map[string]any
+		_ = json.Unmarshal(data, &s)
+		strip(s)
+		data, _ = json.Marshal(s)
+		_ = os.WriteFile(path, data, 0o644)
+	}
+	got, code := aggregate(t, dir1, dir2)
+	if code != 0 {
+		t.Fatalf("exit = %d", code)
+	}
+	if key, _ := got["configKey"].(string); !strings.HasSuffix(key, "|unrecorded|unrecorded") {
+		t.Errorf("configKey = %v, want unrecorded thinking and version", key)
+	}
+}
+
+// TestAPipelineFailureIsNotBlamedOnTheJudge: a sample the pipeline never
+// produced has no judge score either; the reason must name the pipeline.
+func TestAPipelineFailureIsNotBlamedOnTheJudge(t *testing.T) {
+	root := t.TempDir()
+	base := filepath.Join(root, "baseline.json")
+	writeBaseline(t, root, base)
+	failed := func(s map[string]any) {
+		s["scoredCount"] = 1
+		s["judgeCount"] = 1
+	}
+	got, code := aggregate(t, "--compare", base,
+		fakeRunEdited(t, filepath.Join(root, "n1"), "claude-sonnet-4-6", 0.79, 0.88, failed),
+		fakeRunEdited(t, filepath.Join(root, "n2"), "claude-sonnet-4-6", 0.77, 0.89, failed))
+	if code != 2 || got["verdict"] != "not comparable: a run failed to score every sample" {
+		t.Errorf("exit %d, verdict %v — want the pipeline named", code, got["verdict"])
 	}
 }
