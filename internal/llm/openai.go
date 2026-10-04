@@ -105,7 +105,7 @@ func completeViaOpenAI(ctx context.Context, cfg Config, p provider, baseURL stri
 		return Response{}, fmt.Errorf("%s returned an empty result", p.name)
 	}
 	logResponse(cfg, p, text)
-	return Response{Text: text}, nil
+	return Response{Text: text, Model: completion.Model}, nil
 }
 
 // openAISDKClient builds the SDK client for an OpenAI-compatible endpoint.

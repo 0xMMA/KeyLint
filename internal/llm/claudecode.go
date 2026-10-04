@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -238,10 +239,34 @@ func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response,
 		return Response{}, fmt.Errorf("%s returned an empty result", name)
 	}
 
+	resolved := env.resolvedModel()
 	logger.Info("llm: claude code call finished", "feature", c.cfg.Feature,
-		"model", req.Model, "duration_ms", env.DurationMS, "total_cost_usd", env.TotalCostUSD)
+		"model", req.Model, "resolved_model", resolved,
+		"duration_ms", env.DurationMS, "total_cost_usd", env.TotalCostUSD)
 
-	return Response{Text: text}, nil
+	return Response{Text: text, Model: resolved}, nil
+}
+
+// resolvedModel names the model that answered, from the envelope's modelUsage:
+// the CLI keys it by the full ID it ran ("claude-sonnet-4-5-20250929"), which
+// is what an alias like "sonnet" resolved to on this call.
+//
+// The keys are sorted and joined rather than one being picked. A run that used
+// more than one model is not the same measurement as a run that used one, and
+// choosing "the main one" would hide exactly that difference. Empty when the
+// CLI reported no usage — an older CLI, or a stub.
+func (env claudeCodeEnvelope) resolvedModel() string {
+	if len(env.ModelUsage) == 0 {
+		return ""
+	}
+	ids := make([]string, 0, len(env.ModelUsage))
+	for id := range env.ModelUsage {
+		if id = strings.TrimSpace(id); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	return strings.Join(ids, ",")
 }
 
 // partialText summarises what a cut-off run produced, for the debug log only.

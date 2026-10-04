@@ -98,7 +98,7 @@ func (c *anthropicClient) Complete(ctx context.Context, req Request) (Response, 
 		return Response{}, fmt.Errorf("%s returned no text content", anthropicProvider.name)
 	}
 	logResponse(c.cfg, anthropicProvider, text)
-	return Response{Text: text}, nil
+	return Response{Text: text, Model: string(message.Model)}, nil
 }
 
 // client builds the SDK client per call. Construction is cheap, and it keeps the

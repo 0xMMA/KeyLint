@@ -593,3 +593,45 @@ func TestClaudeCodeOrdinaryStopReasonsPass(t *testing.T) {
 		})
 	}
 }
+
+// TestClaudeCodeReportsTheResolvedModel: the CLI takes "sonnet" and answers with
+// whatever generation that means today. modelUsage names it, and an eval has to
+// record that ID rather than the alias it asked for.
+func TestClaudeCodeReportsTheResolvedModel(t *testing.T) {
+	cases := []struct {
+		name     string
+		envelope string
+		want     string
+	}{
+		{
+			name:     "one model",
+			envelope: `{"result":"ok","is_error":false,"modelUsage":{"claude-sonnet-4-6":{"outputTokens":3}}}`,
+			want:     "claude-sonnet-4-6",
+		},
+		{
+			// Sorted and joined, never one picked: a run that used two models
+			// is not the measurement a one-model run is.
+			name:     "two models",
+			envelope: `{"result":"ok","is_error":false,"modelUsage":{"claude-sonnet-4-6":{},"claude-haiku-4-5-20251001":{}}}`,
+			want:     "claude-haiku-4-5-20251001,claude-sonnet-4-6",
+		},
+		{
+			name:     "no usage reported",
+			envelope: successEnvelope,
+			want:     "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newStub(t)
+			s.replies(tc.envelope)
+			resp, err := s.client().Complete(context.Background(), Request{Model: "sonnet", User: "x"})
+			if err != nil {
+				t.Fatalf("Complete: %v", err)
+			}
+			if resp.Model != tc.want {
+				t.Errorf("Model = %q, want %q", resp.Model, tc.want)
+			}
+		})
+	}
+}
