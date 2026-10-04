@@ -320,16 +320,18 @@ jobs:
             -DINFO_PRODUCTVERSION="${VERSION#v}" \
             build/windows/nsis/project.nsi
 
+      # 14 days, not 3: these are what gets smoke-tested on a real Windows
+      # machine, and that test rarely happens the same week as the push.
       - name: Upload Windows binary
         uses: actions/upload-artifact@v7
         with:
           name: KeyLint-windows-amd64
           path: bin/KeyLint.exe
-          retention-days: 3
+          retention-days: 14
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v7
         with:
           name: KeyLint-windows-amd64-setup
           path: bin/KeyLint-amd64-installer.exe
-          retention-days: 3
+          retention-days: 14
