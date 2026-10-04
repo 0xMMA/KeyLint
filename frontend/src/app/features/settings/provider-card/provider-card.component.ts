@@ -1,7 +1,7 @@
 import { Component, input, output } from '@angular/core';
-import { ButtonModule } from 'primeng/button';
-import { TagModule } from 'primeng/tag';
-import { MessageModule } from 'primeng/message';
+import { Button } from 'primeng/button';
+import { Tag } from 'primeng/tag';
+import { Message } from 'primeng/message';
 
 /**
  * One provider on Settings › AI Providers: its name, whether KeyLint is using
@@ -18,17 +18,21 @@ import { MessageModule } from 'primeng/message';
 @Component({
   selector: 'app-provider-card',
   standalone: true,
-  imports: [ButtonModule, TagModule, MessageModule],
+  imports: [Button, Tag, Message],
   template: `
     <div
       class="provider-card"
       [class.in-use]="inUse()"
       [attr.data-testid]="'provider-card-' + providerId()"
-      [attr.aria-current]="inUse() ? 'true' : null"
-      tabindex="-1"
     >
       <div class="provider-card-header">
-        <span class="provider-card-label">{{ label() }}</span>
+        <!-- A heading, so a screen reader can jump between providers, and
+             the focus target after a switch: it carries the provider's name. -->
+        <h3
+          class="provider-card-label"
+          tabindex="-1"
+          [attr.data-testid]="'provider-heading-' + providerId()"
+        >{{ label() }}@if (inUse()) {<span class="sr-only"> (in use)</span>}</h3>
         <ng-content select="[cardStatus]" />
         <span class="provider-card-spacer"></span>
         @if (inUse()) {
@@ -44,6 +48,8 @@ import { MessageModule } from 'primeng/message';
             size="small"
             severity="secondary"
             [outlined]="true"
+            [ariaLabel]="'Use ' + label()"
+            [loading]="switching()"
             [disabled]="locked()"
             (onClick)="use.emit()"
           />
@@ -83,12 +89,21 @@ import { MessageModule } from 'primeng/message';
       margin-bottom: 0.5rem;
     }
     .provider-card-label {
+      margin: 0;
       font-weight: 600;
       font-size: 0.9rem;
     }
+    .provider-card-label:focus { outline: none; }
+    .provider-card-label:focus-visible { outline: 2px solid var(--p-primary-color); outline-offset: 2px; }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+    }
     .provider-card-spacer { flex: 1; }
-    .provider-card:focus { outline: none; }
-    .provider-card:focus-visible { outline: 2px solid var(--p-primary-color); outline-offset: 2px; }
     :host ::ng-deep .provider-card-warning { margin-bottom: 0.75rem; }
   `],
 })
@@ -99,7 +114,9 @@ export class ProviderCardComponent {
   readonly inUse = input(false);
   /** Why this provider cannot work right now, or null when nothing is known to be wrong. */
   readonly problem = input<string | null>(null);
-  /** Another switch is in flight; one at a time keeps the saves in order. */
+  /** This card's switch is being saved. */
+  readonly switching = input(false);
+  /** Another switch, a save or a reset is in flight; one at a time keeps them in order. */
   readonly locked = input(false);
 
   /** The user asked to make this the active provider. */

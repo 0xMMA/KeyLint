@@ -26,7 +26,7 @@ test.describe('Settings — provider in use', () => {
     expect(await inUse(page)).toEqual(['claude-code']);
     await expect(page.getByTestId('providers-summary')).toContainText('Claude Code (installed CLI)');
 
-    await page.getByTestId('provider-use-claude').getByRole('button', { name: 'Use this' }).click();
+    await page.getByTestId('provider-use-claude').getByRole('button', { name: /^Use / }).click();
 
     await expect(page.getByTestId('provider-in-use-claude')).toBeVisible();
     expect(await inUse(page)).toEqual(['claude']);
@@ -47,12 +47,30 @@ test.describe('Settings — provider in use', () => {
     await page.goto('/settings?tab=providers');
     await expect(page.getByTestId('provider-in-use-claude')).toBeVisible();
 
-    await page.getByTestId('provider-use-ollama').getByRole('button', { name: 'Use this' }).click();
+    await page.getByTestId('provider-use-ollama').getByRole('button', { name: /^Use / }).click();
 
     await expect(page.getByTestId('provider-in-use-ollama')).toBeVisible();
     await expect(page.getByTestId('provider-not-ready-ollama')).toContainText('cannot reach Ollama');
     // The marker moves before the save returns, so wait for the save itself.
     await expect.poll(() => state.saves.at(-1)?.['active_provider']).toBe('ollama');
+  });
+
+  test('Pyramidize follows a switch made in Settings', async ({ page }) => {
+    const state = fakeState({ activeProvider: 'claude', cliSignedIn: true, keys: { claude: 'keyring' } });
+    await installFakeBackend(page, state);
+
+    await page.goto('/enhance');
+    await expect(page.getByTestId('provider-select')).toContainText('Anthropic API');
+
+    await page.locator('a[routerLink="/settings"], a[href="/settings"]').first().click();
+    await page.getByRole('tab', { name: 'AI Providers' }).click();
+    await page.getByTestId('provider-use-claude-code').getByRole('button').click();
+    await expect(page.getByTestId('provider-in-use-claude-code')).toBeVisible();
+    await expect.poll(() => state.saves.at(-1)?.['active_provider']).toBe('claude-code');
+
+    await page.locator('a[routerLink="/enhance"], a[href="/enhance"]').first().click();
+    await expect(page.getByTestId('provider-select')).toContainText('Claude Code (installed CLI)');
+    await expect(page.getByTestId('provider-session-override')).toHaveCount(0);
   });
 
   test('the General tab names the provider and points to where it is changed', async ({ page }) => {

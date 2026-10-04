@@ -61,6 +61,7 @@ export function createWailsMock() {
 
     loadSettings: vi.fn().mockResolvedValue({ ...defaultSettings }),
     saveSettings: vi.fn().mockResolvedValue(undefined),
+    setActiveProvider: vi.fn().mockResolvedValue(undefined),
     isFirstRun: vi.fn().mockResolvedValue(false),
     completeSetup: vi.fn().mockResolvedValue(undefined),
     readClipboard: vi.fn().mockResolvedValue('clipboard text'),

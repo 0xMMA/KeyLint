@@ -45,7 +45,11 @@ function toModelOption(model: ModelInfo): ModelOption {
   return { id: model.id, label: model.id, display: model.label || model.id };
 }
 
-/** Mirrors envVars in internal/features/settings/service.go. */
+/**
+ * Which environment variable supplies each provider's key. The source of truth
+ * is `envVars` in internal/features/settings/service.go: keep the two in sync,
+ * or a card names a variable the backend does not read.
+ */
 const ENV_KEY_VARS: Readonly<Record<string, string>> = {
   openai: 'OPENAI_API_KEY',
   claude: 'ANTHROPIC_API_KEY',
@@ -53,7 +57,6 @@ const ENV_KEY_VARS: Readonly<Record<string, string>> = {
 
 interface ProviderKey {
   id: string;
-  label: string;
   status: KeyStatus | null;
   editing: boolean;
   draftKey: string;
@@ -90,8 +93,8 @@ interface ProviderKey {
                   <label>AI Provider</label>
                   <div class="provider-pointer">
                     <span data-testid="provider-pointer-text">
-                      @if (unavailableProvider; as name) {
-                        Using: <strong>{{ name }}</strong> (not available yet)
+                      @if (unavailableProvider) {
+                        No provider in use
                       } @else if (activeProviderLabel; as label) {
                         Using: <strong>{{ label }}</strong>
                       } @else {
@@ -109,7 +112,7 @@ interface ProviderKey {
                   </div>
                   @if (unavailableProvider; as name) {
                     <p-message data-testid="provider-unavailable" severity="warn" size="small">
-                      {{ name }} is not available yet, so KeyLint has no provider to use. Pick another one under AI Providers.
+                      {{ name }} is saved but not available yet, so KeyLint has no provider in use. Pick another one under AI Providers.
                     </p-message>
                   } @else if (activeProviderProblem; as why) {
                     <p-message data-testid="provider-pointer-problem" severity="warn" size="small">{{ why }}</p-message>
@@ -148,12 +151,12 @@ interface ProviderKey {
 
               <!-- AI Providers / Keys tab -->
               <p-tabpanel value="providers">
-                <!-- Pyramidize keeps its own per-session provider choice, so this
-                     names what follows this setting rather than promising more. -->
+                <!-- Pyramidize follows this choice unless the user picked another
+                     there for the session, and says so on its own page. -->
                 <p class="provider-summary" data-testid="providers-summary" tabindex="-1">
                   @if (activeProviderLabel; as label) {
-                    Fix and the hotkey send your text to <strong>{{ label }}</strong>.
-                    Pyramidize has its own provider menu, which starts from this one.
+                    Fix sends your text to <strong>{{ label }}</strong>.
+                    Pyramidize uses it too, unless you pick another provider there for this session.
                     To switch, press <em>Use this</em> on another provider.
                   } @else {
                     No provider is in use. Press <em>Use this</em> on the one KeyLint should send your text to.
@@ -161,9 +164,11 @@ interface ProviderKey {
                 </p>
                 @if (unavailableProvider; as name) {
                   <p-message data-testid="providers-tab-unavailable" severity="warn" size="small" styleClass="mb-3">
-                    {{ name }} is saved as your provider but is not available yet, so KeyLint has no provider to use.
+                    {{ name }} is saved but not available yet, so KeyLint has no provider in use.
                   </p-message>
                 }
+                <!-- Screen readers hear a switch land; the marker itself only moves. -->
+                <div class="sr-only" aria-live="polite" data-testid="provider-announcement">{{ providerAnnouncement }}</div>
                 @if (switchError) {
                   <p-message data-testid="provider-switch-error" severity="error" size="small" styleClass="mb-3">{{ switchError }}</p-message>
                 }
@@ -178,7 +183,8 @@ interface ProviderKey {
                     [label]="p.label"
                     [inUse]="settings.active_provider === p.value"
                     [problem]="providerProblem(p.value)"
-                    [locked]="switchingTo !== null"
+                    [switching]="switchingTo === p.value"
+                    [locked]="switchingTo !== null || formBusy"
                     (use)="useProvider(p.value)"
                   >
                     <span cardStatus class="card-status">
@@ -259,7 +265,7 @@ interface ProviderKey {
                           [(ngModel)]="settings.providers.ollama_url"
                           placeholder="http://localhost:11434"
                         />
-                        <small class="hint-text">Leave empty for a local Ollama on the default port. Press Save after changing it.</small>
+                        <small class="hint-text">Leave empty for a local Ollama on the default port. Saved with the Save button below; <em>Use this</em> only switches the provider.</small>
                       </div>
                     } @else if (keyFor(p.value); as pk) {
                       @if (pk.status?.source === 'env') {
@@ -493,15 +499,19 @@ interface ProviderKey {
           @if (saved) {
             <p-message data-testid="saved-banner" severity="success" text="Settings saved!" styleClass="mt-3" />
           }
+          @if (saveError) {
+            <p-message data-testid="save-error" severity="error" [text]="saveError" styleClass="mt-3" />
+          }
           @if (keyError) {
             <p-message severity="error" [text]="keyError" styleClass="mt-3" />
           }
 
           <div class="mt-4 flex gap-3">
-            <!-- Held while a provider switch saves: a second save or a reset landing
-                 in the middle could overwrite it or be overwritten by it. -->
-            <p-button data-testid="save-btn" label="Save" icon="pi pi-check" [disabled]="switchingTo !== null" (onClick)="save()" />
-            <p-button data-testid="reset-btn" label="Reset to Defaults" icon="pi pi-refresh" severity="danger" outlined [disabled]="switchingTo !== null" (onClick)="resetToDefaults()" />
+            <!-- Held while a provider switch saves, and the switch is held while
+                 these run: one landing in the middle of the other could
+                 overwrite it or be overwritten by it. -->
+            <p-button data-testid="save-btn" label="Save" icon="pi pi-check" [disabled]="switchingTo !== null || formBusy" (onClick)="save()" />
+            <p-button data-testid="reset-btn" label="Reset to Defaults" icon="pi pi-refresh" severity="danger" outlined [disabled]="switchingTo !== null || formBusy" (onClick)="resetToDefaults()" />
           </div>
         }
       </p-card>
@@ -533,6 +543,14 @@ interface ProviderKey {
     label { font-size: 0.875rem; color: var(--p-text-muted-color); }
     input { width: 100%; }
 
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+    }
     .provider-summary {
       margin: 0 0 0.75rem;
       font-size: 0.95rem;
@@ -695,6 +713,12 @@ export class SettingsComponent implements OnInit, OnDestroy {
   switchingTo: string | null = null;
   /** Why the last switch did not stick; cleared by the next one. */
   switchError = '';
+  /** What the live region last announced about a switch. */
+  providerAnnouncement = '';
+  /** Save or Reset is running; a switch must wait for it. */
+  formBusy = false;
+  /** Why the last Save failed, shown beside the button. */
+  saveError = '';
 
   /** Null until the first detection run finishes. */
   claudeCodeStatus: ClaudeCodeStatus | null = null;
@@ -703,8 +727,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
   private destroyed = false;
 
   providerKeys: ProviderKey[] = [
-    { id: 'openai',  label: 'OpenAI API Key',      status: null, editing: false, draftKey: '', saving: false },
-    { id: 'claude',  label: 'Anthropic API Key',    status: null, editing: false, draftKey: '', saving: false },
+    { id: 'openai', status: null, editing: false, draftKey: '', saving: false },
+    { id: 'claude', status: null, editing: false, draftKey: '', saving: false },
   ];
 
   constructor(
@@ -801,36 +825,43 @@ export class SettingsComponent implements OnInit, OnDestroy {
    * Makes `provider` the one KeyLint uses, saved straight away so one click is
    * the whole switch.
    *
-   * It goes through save(), the same path as the Save button, so whatever else
-   * is edited on the page is saved with it — the alternative, saving only this
-   * field, would leave the form showing values that differ from disk with no
-   * sign of which. A failed save puts the marker back where it was: the card
-   * must not claim a provider the backend never heard about.
+   * Only the provider is saved (SetActiveProvider). Anything else edited on
+   * the page stays pending until Save: a switch that also committed a half-typed
+   * URL or a Sensitive Logging toggle on a tab out of view would save things
+   * the user never confirmed.
+   *
+   * The marker moves once the backend has the switch, not before, so it never
+   * claims a provider the backend does not use.
    */
   async useProvider(provider: string): Promise<void> {
-    if (!this.settings || this.switchingTo !== null) return;
+    if (!this.settings || this.switchingTo !== null || this.formBusy) return;
+    if (this.settings.active_provider === provider) return;
     const target = this.settings;
-    const previous = target.active_provider;
-    if (previous === provider) return;
-    target.active_provider = provider;
+    const label = this.providers.find(p => p.value === provider)?.label ?? provider;
     this.switchingTo = provider;
     this.switchError = '';
-    // The pressed button turns into the "In use" tag, so focus would fall to
-    // the page; the card it now marks is where a keyboard user expects it.
     this.cdr.detectChanges();
-    this.focusCard(provider);
+    let switched = false;
     try {
-      await this.save();
+      await this.wails.setActiveProvider(provider);
+      switched = true;
       this.log.info(`settings: active provider set to ${provider}`);
     } catch (e) {
-      target.active_provider = previous;
-      this.switchError = `Could not switch provider: ${e instanceof Error ? e.message : String(e)}`;
+      this.switchError = `Could not switch to ${label}: ${e instanceof Error ? e.message : String(e)}`;
     } finally {
       this.switchingTo = null;
-      if (!this.destroyed) {
-        this.cdr.detectChanges();
-      }
     }
+    if (switched && this.settings === target) {
+      target.active_provider = provider;
+    }
+    this.providerAnnouncement = switched ? `KeyLint now uses ${label}.` : this.switchError;
+    if (this.destroyed) return;
+    this.cdr.detectChanges();
+    // The pressed button is gone (on success it became the "In use" tag) or
+    // no longer the point (on failure); either way focus goes to the heading
+    // of the card that is in use now.
+    const inUse = this.settings?.active_provider;
+    if (inUse) this.focusCardHeading(inUse);
   }
 
   /** The General tab's pointer: show the AI Providers tab and move focus there. */
@@ -842,9 +873,9 @@ export class SettingsComponent implements OnInit, OnDestroy {
       .querySelector<HTMLElement>('[data-testid="providers-summary"]')?.focus();
   }
 
-  private focusCard(provider: string): void {
+  private focusCardHeading(provider: string): void {
     (this.host.nativeElement as HTMLElement)
-      .querySelector<HTMLElement>(`[data-testid="provider-card-${provider}"]`)?.focus();
+      .querySelector<HTMLElement>(`[data-testid="provider-heading-${provider}"]`)?.focus();
   }
 
   /** Reads the configured model, or "" when the default applies. */
@@ -1047,10 +1078,20 @@ export class SettingsComponent implements OnInit, OnDestroy {
   }
 
   async save(): Promise<void> {
-    if (!this.settings) return;
+    if (!this.settings || this.formBusy) return;
     this.switchError = '';
+    this.saveError = '';
     const ollamaURLChanged = this.settings.providers?.ollama_url !== this.savedOllamaURL;
-    await this.wails.saveSettings(this.settings);
+    this.formBusy = true;
+    try {
+      await this.wails.saveSettings(this.settings);
+    } catch (e) {
+      this.saveError = `Could not save settings: ${e instanceof Error ? e.message : String(e)}`;
+      return;
+    } finally {
+      this.formBusy = false;
+      if (!this.destroyed) this.cdr.detectChanges();
+    }
     this.savedOllamaURL = this.settings.providers?.ollama_url ?? '';
     this.log.info('settings: saved');
     if (ollamaURLChanged) {
@@ -1067,8 +1108,19 @@ export class SettingsComponent implements OnInit, OnDestroy {
   }
 
   async resetToDefaults(): Promise<void> {
-    await this.wails.resetSettings();
-    this.settings = await this.wails.loadSettings();
+    if (this.formBusy) return;
+    this.formBusy = true;
+    this.saveError = '';
+    try {
+      await this.wails.resetSettings();
+      this.settings = await this.wails.loadSettings();
+    } catch (e) {
+      this.saveError = `Could not reset settings: ${e instanceof Error ? e.message : String(e)}`;
+      return;
+    } finally {
+      this.formBusy = false;
+      if (!this.destroyed) this.cdr.detectChanges();
+    }
     this.savedOllamaURL = this.settings?.providers?.ollama_url ?? '';
     this.switchError = '';
     delete this.modelSource['ollama'];

@@ -811,10 +811,16 @@ describe('SettingsComponent — which provider is in use', () => {
       .map(t => t.getAttribute('data-testid')!.replace('provider-in-use-', ''));
   }
 
+  /** Lets promise chains the fixture does not track run out, then repaints. */
+  async function settle(): Promise<void> {
+    await fixture.whenStable();
+    await new Promise(r => setTimeout(r));
+    fixture.detectChanges();
+  }
+
   async function clickUse(provider: string): Promise<void> {
     q(`provider-use-${provider}`)!.querySelector('button')!.click();
-    await fixture.whenStable();
-    fixture.detectChanges();
+    await settle();
   }
 
   const BOTH = { keys: { claude: 'keyring' as const }, cli: { installed: true, loggedIn: true } };
@@ -838,41 +844,79 @@ describe('SettingsComponent — which provider is in use', () => {
     expect(cards).toEqual(['provider-card-openai', 'provider-card-claude', 'provider-card-claude-code', 'provider-card-ollama']);
   });
 
-  it('switches with one click and saves the choice', async () => {
+  it('switches with one click, saving only the provider', async () => {
     await render({ active: 'claude-code', ...BOTH });
 
     await clickUse('claude');
 
-    expect(wailsMock.saveSettings).toHaveBeenCalledTimes(1);
-    expect(wailsMock.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ active_provider: 'claude' }));
+    expect(wailsMock.setActiveProvider).toHaveBeenCalledTimes(1);
+    expect(wailsMock.setActiveProvider).toHaveBeenCalledWith('claude');
+    expect(wailsMock.saveSettings).not.toHaveBeenCalled();
     expect(inUse()).toEqual(['claude']);
     expect(q('provider-use-claude-code')).not.toBeNull();
     expect(q('providers-summary')!.textContent).toContain('Anthropic API');
+    expect(q('provider-announcement')!.textContent).toContain('KeyLint now uses Anthropic API.');
   });
 
-  it('keeps the marker where it was when the save fails', async () => {
+  // A switch must not commit edits the user has not confirmed, least of all
+  // on a tab out of view (Sensitive Logging writes full payloads to the log).
+  it('leaves other unsaved edits pending, for the Save button', async () => {
     await render({ active: 'claude-code', ...BOTH });
-    wailsMock.saveSettings.mockRejectedValueOnce(new Error('disk full'));
+    fixture.componentInstance.settings!.log_level = 'debug';
+    fixture.componentInstance.settings!.sensitive_logging = true;
+
+    await clickUse('claude');
+
+    expect(wailsMock.saveSettings).not.toHaveBeenCalled();
+    q('save-btn')!.querySelector('button')!.click();
+    await settle();
+    expect(wailsMock.saveSettings).toHaveBeenCalledWith(expect.objectContaining({
+      active_provider: 'claude',
+      sensitive_logging: true,
+    }));
+  });
+
+  it('keeps the marker where it was when the switch fails, with focus on it', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    document.body.appendChild(el);
+    wailsMock.setActiveProvider.mockRejectedValueOnce(new Error('disk full'));
 
     await clickUse('claude');
 
     expect(inUse()).toEqual(['claude-code']);
     expect(q('provider-switch-error')!.textContent).toContain('disk full');
+    expect(document.activeElement).toBe(q('provider-heading-claude-code'));
+    el.remove();
+  });
+
+  it('shows progress on the pressed card and moves the marker once saved', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    let finish!: () => void;
+    wailsMock.setActiveProvider.mockImplementationOnce(() => new Promise<void>(r => { finish = r; }));
+
+    q('provider-use-claude')!.querySelector('button')!.click();
+    fixture.detectChanges();
+
+    expect(q('provider-use-claude')!.querySelector('.p-button-loading')).not.toBeNull();
+    expect(inUse()).toEqual(['claude-code']);
+    finish();
+    await settle();
+    expect(inUse()).toEqual(['claude']);
   });
 
   it('runs one switch at a time', async () => {
     await render({ active: 'claude-code', ...BOTH });
     let finish!: () => void;
-    wailsMock.saveSettings.mockImplementationOnce(() => new Promise<void>(r => { finish = r; }));
+    wailsMock.setActiveProvider.mockImplementationOnce(() => new Promise<void>(r => { finish = r; }));
 
     q('provider-use-claude')!.querySelector('button')!.click();
     fixture.detectChanges();
-    q('provider-use-openai')!.querySelector('button')!.click();
+    expect(q('provider-use-openai')!.querySelector('button')!.disabled).toBe(true);
+    await fixture.componentInstance.useProvider('openai');
     finish();
-    await fixture.whenStable();
-    fixture.detectChanges();
+    await settle();
 
-    expect(wailsMock.saveSettings).toHaveBeenCalledTimes(1);
+    expect(wailsMock.setActiveProvider).toHaveBeenCalledTimes(1);
     expect(inUse()).toEqual(['claude']);
   });
 
@@ -943,25 +987,24 @@ describe('SettingsComponent — which provider is in use', () => {
     expect(q('provider-not-ready-claude')).toBeNull();
   });
 
-  it('keeps the Ollama URL on the Ollama card and saves it with the switch', async () => {
+  it('does not save a half-typed Ollama URL with a switch', async () => {
     await render({ active: 'claude', ...BOTH });
 
     const input = q('provider-card-ollama')!.querySelector<HTMLInputElement>('[data-testid="ollama-url-input"]')!;
-    input.value = 'http://gpu-box:11434';
+    input.value = 'http://gpu-bo';
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
     await clickUse('ollama');
 
-    expect(wailsMock.saveSettings).toHaveBeenCalledWith(expect.objectContaining({
-      active_provider: 'ollama',
-      providers: expect.objectContaining({ ollama_url: 'http://gpu-box:11434' }),
-    }));
+    expect(wailsMock.setActiveProvider).toHaveBeenCalledWith('ollama');
+    expect(wailsMock.saveSettings).not.toHaveBeenCalled();
+    expect((q('ollama-url-input') as HTMLInputElement).value).toBe('http://gpu-bo');
   });
 
   it('holds Save and Reset while a switch is saving', async () => {
     await render({ active: 'claude-code', ...BOTH });
     let finish!: () => void;
-    wailsMock.saveSettings.mockImplementationOnce(() => new Promise<void>(r => { finish = r; }));
+    wailsMock.setActiveProvider.mockImplementationOnce(() => new Promise<void>(r => { finish = r; }));
 
     q('provider-use-claude')!.querySelector('button')!.click();
     fixture.detectChanges();
@@ -969,38 +1012,100 @@ describe('SettingsComponent — which provider is in use', () => {
     expect(q('save-btn')!.querySelector('button')!.disabled).toBe(true);
     expect(q('reset-btn')!.querySelector('button')!.disabled).toBe(true);
     finish();
-    // The save's promise chain is not a task the fixture tracks.
-    await new Promise(r => setTimeout(r));
-    fixture.detectChanges();
+    await settle();
     expect(q('save-btn')!.querySelector('button')!.disabled).toBe(false);
   });
 
-  it('moves focus to the card it marks, since the pressed button goes away', async () => {
+  it('does not let a reset start in the middle of a switch', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    let finish!: () => void;
+    wailsMock.setActiveProvider.mockImplementationOnce(() => new Promise<void>(r => { finish = r; }));
+
+    q('provider-use-claude')!.querySelector('button')!.click();
+    fixture.detectChanges();
+    q('reset-btn')!.querySelector('button')!.click();
+    finish();
+    await settle();
+
+    expect(wailsMock.resetSettings).not.toHaveBeenCalled();
+    expect(inUse()).toEqual(['claude']);
+  });
+
+  it('holds every "Use this" while a reset runs', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    let finish!: () => void;
+    wailsMock.resetSettings.mockImplementationOnce(() => new Promise<void>(r => { finish = r; }));
+
+    q('reset-btn')!.querySelector('button')!.click();
+    fixture.detectChanges();
+
+    for (const p of ['openai', 'claude', 'ollama']) {
+      expect(q(`provider-use-${p}`)!.querySelector('button')!.disabled, p).toBe(true);
+    }
+    await fixture.componentInstance.useProvider('claude');
+    expect(wailsMock.setActiveProvider).not.toHaveBeenCalled();
+    finish();
+    await settle();
+    expect(q('provider-use-claude')!.querySelector('button')!.disabled).toBe(false);
+  });
+
+  it('holds every "Use this" while a save runs', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    let finish!: () => void;
+    wailsMock.saveSettings.mockImplementationOnce(() => new Promise<void>(r => { finish = r; }));
+
+    q('save-btn')!.querySelector('button')!.click();
+    fixture.detectChanges();
+
+    expect(q('provider-use-claude')!.querySelector('button')!.disabled).toBe(true);
+    finish();
+    await settle();
+    expect(q('provider-use-claude')!.querySelector('button')!.disabled).toBe(false);
+  });
+
+  it('names the provider on each "Use this" button for screen readers', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+
+    expect(q('provider-use-claude')!.querySelector('button')!.getAttribute('aria-label')).toBe('Use Anthropic API');
+  });
+
+  it('moves focus to the heading of the card it marks, since the pressed button goes away', async () => {
     await render({ active: 'claude-code', ...BOTH });
     document.body.appendChild(el);
 
     await clickUse('claude');
 
-    expect(document.activeElement).toBe(q('provider-card-claude'));
+    expect(document.activeElement).toBe(q('provider-heading-claude'));
+    expect(document.activeElement!.textContent).toContain('Anthropic API');
     el.remove();
   });
 
   it('clears a failed switch\'s error once a later save goes through', async () => {
     await render({ active: 'claude-code', ...BOTH });
-    wailsMock.saveSettings.mockRejectedValueOnce(new Error('disk full'));
+    wailsMock.setActiveProvider.mockRejectedValueOnce(new Error('disk full'));
     await clickUse('claude');
     expect(q('provider-switch-error')).not.toBeNull();
 
     q('save-btn')!.querySelector('button')!.click();
-    await fixture.whenStable();
-    fixture.detectChanges();
+    await settle();
 
     expect(q('provider-switch-error')).toBeNull();
   });
 
-  // Presets are saved by the backend on their own. A switch saves the whole
+  it('shows a failed Save beside the button instead of throwing', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    wailsMock.saveSettings.mockRejectedValueOnce(new Error('disk full'));
+
+    await expect(fixture.componentInstance.save()).resolves.toBeUndefined();
+    fixture.detectChanges();
+
+    expect(q('save-error')!.textContent).toContain('disk full');
+    expect(q('saved-banner')).toBeNull();
+  });
+
+  // Presets are saved by the backend on their own. Save sends the whole
   // settings object, so a stale preset list in it would undo the change.
-  it('does not undo a preset added in the same visit when switching', async () => {
+  it('does not undo a preset added in the same visit when saving', async () => {
     await render({ active: 'claude-code', ...BOTH });
     const added = { sourceApp: 'Outlook', documentType: 'email' };
     wailsMock.getAppPresets.mockResolvedValue([added]);
@@ -1008,10 +1113,9 @@ describe('SettingsComponent — which provider is in use', () => {
     fixture.componentInstance.addPresetDraft = { ...added };
     await fixture.componentInstance.saveAddPreset();
 
-    await clickUse('claude');
+    await fixture.componentInstance.save();
 
     expect(wailsMock.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({
-      active_provider: 'claude',
       app_presets: [added],
     }));
   });
@@ -1026,8 +1130,7 @@ describe('SettingsComponent — which provider is in use', () => {
     input.value = 'http://gpu-box:11434';
     input.dispatchEvent(new Event('input'));
     q('save-btn')!.querySelector('button')!.click();
-    await fixture.whenStable();
-    fixture.detectChanges();
+    await settle();
 
     expect(q('provider-not-ready-ollama')).toBeNull();
   });
@@ -1051,6 +1154,24 @@ describe('SettingsComponent — which provider is in use', () => {
       fixture.detectChanges();
 
       expect(providersPanel()!.contains(q('provider-card-claude'))).toBe(true);
+    });
+
+    // The tabs are two-way bound. One-way, a deep link to AI Providers would
+    // leave the property on "providers" after the user clicked General, and
+    // the pointer setting it to "providers" again would change nothing.
+    it('opens AI Providers from the pointer after a deep link and a tab click', async () => {
+      await render({ active: 'claude-code', tab: 'providers', ...BOTH });
+      const activePanel = () => el.querySelector<HTMLElement>('p-tabpanel[data-p-active="true"]');
+      const generalTab = Array.from(el.querySelectorAll<HTMLElement>('[role="tab"]'))
+        .find(t => t.textContent?.trim() === 'General')!;
+
+      generalTab.click();
+      await settle();
+      expect(activePanel()!.contains(q('provider-pointer'))).toBe(true);
+
+      q('provider-pointer-link')!.click();
+      await settle();
+      expect(activePanel()!.contains(q('provider-card-claude'))).toBe(true);
     });
 
     it('moves focus to the AI Providers tab, out of the panel that hides', async () => {
@@ -1144,7 +1265,8 @@ describe('SettingsComponent — AWS Bedrock is not offered yet', () => {
 
     const note = el.querySelector('[data-testid="provider-unavailable"]');
     expect(note).not.toBeNull();
-    expect(note!.textContent).toContain('AWS Bedrock is not available yet');
+    expect(note!.textContent).toContain('AWS Bedrock is saved but not available yet');
+    expect(el.querySelector('[data-testid="provider-pointer-text"]')!.textContent).toContain('No provider in use');
   });
 
   // No card can carry the marker, so the tab itself has to say why.
@@ -1173,13 +1295,12 @@ describe('SettingsComponent — AWS Bedrock is not offered yet', () => {
 
     el.querySelector<HTMLElement>('[data-testid="provider-use-openai"] button')!.click();
     await fixture.whenStable();
+    await new Promise(r => setTimeout(r));
     fixture.detectChanges();
 
     expect(el.querySelector('[data-testid="provider-unavailable"]')).toBeNull();
     expect(el.querySelector('[data-testid="providers-tab-unavailable"]')).toBeNull();
-    expect(wailsMock.saveSettings).toHaveBeenCalledWith(
-      expect.objectContaining({ active_provider: 'openai' }),
-    );
+    expect(wailsMock.setActiveProvider).toHaveBeenCalledWith('openai');
   });
 });
 

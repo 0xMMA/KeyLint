@@ -25,7 +25,7 @@ export interface FakeBackendState {
   claudeCode: { installed: boolean; path: string; version: string; loggedIn: boolean };
   /** ModelList.source per provider; anything absent answers "unreachable". */
   modelSources: Partial<Record<string, string>>;
-  /** Every settings object the app saved, oldest first. */
+  /** Every settings object the app saved (Save or SetActiveProvider), oldest first. */
   saves: Record<string, unknown>[];
 }
 
@@ -102,6 +102,10 @@ export async function installFakeBackend(page: Page, state: FakeBackendState): P
         return json(state.settings);
       case 'Save':
         state.settings = structuredClone(args[0] as Record<string, unknown>);
+        state.saves.push(state.settings);
+        return empty();
+      case 'SetActiveProvider':
+        state.settings = { ...state.settings, active_provider: args[0] };
         state.saves.push(state.settings);
         return empty();
       case 'GetKeyStatus': {

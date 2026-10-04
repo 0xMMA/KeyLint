@@ -3,10 +3,10 @@ import { TestBed } from '@angular/core/testing';
 import { ComponentFixture } from '@angular/core/testing';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideRouter } from '@angular/router';
-import { TextEnhancementComponent } from './text-enhancement.component';
+import { TextEnhancementComponent, resetPyramidizeProviderSession } from './text-enhancement.component';
 import { TextEnhancementService } from './text-enhancement.service';
 import { WailsService } from '../../core/wails.service';
-import { createWailsMock } from '../../../testing/wails-mock';
+import { createWailsMock, defaultSettings } from '../../../testing/wails-mock';
 
 // PrimeNG TabList uses ResizeObserver which is not available in jsdom
 (globalThis as Record<string, unknown>)['ResizeObserver'] = class {
@@ -524,6 +524,126 @@ describe('TextEnhancementComponent — Claude Code provider', () => {
     expect(component.apiKeySet).toBe(true);
     expect(el.querySelector('[data-testid="api-key-banner"]')).toBeNull();
     expect(wailsMock.getKeyStatus).not.toHaveBeenCalledWith('ollama');
+  });
+});
+
+// Settings › AI Providers marks one provider as in use. This panel follows it
+// on every visit unless the user picked another here this session, and then
+// says so, so the two pages never disagree silently.
+describe('TextEnhancementComponent — provider follows Settings', () => {
+  let fixture: ComponentFixture<TextEnhancementComponent>;
+  let component: TextEnhancementComponent;
+  let el: HTMLElement;
+  let wailsMock: ReturnType<typeof createWailsMock>;
+
+  /** One visit to the page: a fresh component, as navigation creates. */
+  async function visit(settingsProvider: string): Promise<void> {
+    fixture?.destroy();
+    TestBed.resetTestingModule();
+    wailsMock = createWailsMock();
+    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, active_provider: settingsProvider });
+    wailsMock.getKeyStatus.mockResolvedValue({ is_set: true, source: 'keyring' });
+    await TestBed.configureTestingModule({
+      imports: [TextEnhancementComponent],
+      providers: [
+        provideRouter([]),
+        provideAnimationsAsync(),
+        { provide: WailsService, useValue: wailsMock },
+        { provide: TextEnhancementService, useValue: makeEnhancementServiceMock() },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(TextEnhancementComponent);
+    component = fixture.componentInstance;
+    el = fixture.nativeElement;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    // ngOnInit awaits several backend calls the fixture does not track.
+    await new Promise(r => setTimeout(r));
+    fixture.detectChanges();
+  }
+
+  async function pick(provider: string): Promise<void> {
+    component.providerView = provider;
+    await component.onProviderChange();
+    fixture.detectChanges();
+  }
+
+  function selectText(): string {
+    return el.querySelector('[data-testid="provider-select"]')?.textContent?.trim() ?? '';
+  }
+
+  function override(): HTMLElement | null {
+    return el.querySelector('[data-testid="provider-session-override"]');
+  }
+
+  beforeEach(() => resetPyramidizeProviderSession());
+  afterEach(() => {
+    fixture?.destroy();
+    resetPyramidizeProviderSession();
+  });
+
+  it('follows a switch made in Settings on the next visit', async () => {
+    await visit('claude');
+    expect(selectText()).toContain('Anthropic API');
+
+    await visit('ollama');
+
+    expect(selectText()).toContain('Ollama (local)');
+    expect(override()).toBeNull();
+  });
+
+  it('keeps a provider picked here for the session, and says Settings uses another', async () => {
+    await visit('claude');
+    await pick('openai');
+
+    expect(override()!.textContent).toContain('Settings uses Anthropic API');
+
+    await visit('claude');
+    expect(selectText()).toContain('OpenAI');
+    expect(override()!.textContent).toContain('Settings uses Anthropic API');
+  });
+
+  it('names Settings\' new provider when it changes under a session pick', async () => {
+    await visit('claude');
+    await pick('openai');
+
+    await visit('claude-code');
+
+    expect(selectText()).toContain('OpenAI');
+    expect(override()!.textContent).toContain('Settings uses Claude Code (installed CLI)');
+  });
+
+  it('goes back to Settings\' provider from the override note, and follows it again', async () => {
+    await visit('claude');
+    await pick('openai');
+
+    el.querySelector<HTMLElement>('[data-testid="provider-follow-settings"]')!.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(selectText()).toContain('Anthropic API');
+    expect(override()).toBeNull();
+    await visit('ollama');
+    expect(selectText()).toContain('Ollama (local)');
+  });
+
+  it('treats picking Settings\' own provider as no override', async () => {
+    await visit('claude');
+    await pick('openai');
+    await pick('claude');
+
+    expect(override()).toBeNull();
+    await visit('ollama');
+    expect(selectText()).toContain('Ollama (local)');
+  });
+
+  it('starts from Settings\' default model again after following a switch', async () => {
+    await visit('claude');
+    component.modelView = 'claude-haiku-4-5-20251001';
+
+    await visit('openai');
+
+    expect(component.modelView).toBe('');
   });
 });
 
