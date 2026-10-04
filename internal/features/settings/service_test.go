@@ -85,6 +85,38 @@ func TestSave_PersistsToDisk(t *testing.T) {
 	}
 }
 
+// A save that cannot be written must not take effect in memory either. The
+// settings screen puts a provider switch back when Save fails; had the switch
+// already been applied, Fix would keep using a provider the screen no longer
+// shows.
+func TestSave_LeavesSettingsUnchangedWhenTheFileCannotBeWritten(t *testing.T) {
+	tmp := t.TempDir()
+	svc := newServiceAt(t, tmp)
+
+	// A directory where the file should be makes the write fail on every OS.
+	filePath := filepath.Join(tmp, "KeyLint", "settings.json")
+	if err := os.RemoveAll(filePath); err != nil {
+		t.Fatalf("RemoveAll: %v", err)
+	}
+	if err := os.MkdirAll(filePath, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	before := svc.Get().ActiveProvider
+	updated := settings.Default()
+	updated.ActiveProvider = "claude-code"
+	if before == updated.ActiveProvider {
+		t.Fatalf("test needs a different starting provider than %q", before)
+	}
+
+	if err := svc.Save(updated); err == nil {
+		t.Fatal("Save: expected an error writing over a directory")
+	}
+	if got := svc.Get().ActiveProvider; got != before {
+		t.Errorf("after a failed Save: active_provider=%q, want %q unchanged", got, before)
+	}
+}
+
 func TestSave_WritesValidJSON(t *testing.T) {
 	tmp := t.TempDir()
 	svc := newServiceAt(t, tmp)

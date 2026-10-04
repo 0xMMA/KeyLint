@@ -51,6 +51,8 @@ type Service struct {
 	// them: SetAppPreset edits AppPresets[i] in the value it was handed.
 	currentMu sync.RWMutex
 	current   Settings
+	// saveMu serialises Save, which writes the file and then swaps current.
+	saveMu sync.Mutex
 
 	// claudeCode caches the CLI probe; see GetClaudeCodeStatus. Spawning
 	// processes on every screen that asks is what #55 was about.
@@ -193,6 +195,27 @@ func (s Settings) clone() Settings {
 
 // Save persists the provided settings to disk.
 func (s *Service) Save(updated Settings) error {
+	// One save at a time, so the file and the in-memory copy end up holding the
+	// same save when two land together.
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+
+	// The file is written before the live settings change. A save that fails
+	// must leave everything as it was: the settings screen puts its controls
+	// back on an error, and a provider switch that the backend had already
+	// applied in memory would send text somewhere the screen no longer shows.
+	if s.filePath != "" {
+		data, err := json.MarshalIndent(updated, "", "  ")
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(s.filePath, data, 0600); err != nil {
+			return err
+		}
+	}
+	// Built with NewServiceFrom there is no file: the update is kept in memory
+	// only, because the only file it could write to is the user's real one.
+
 	s.currentMu.Lock()
 	ollamaMoved := updated.Providers.OllamaURL != s.current.Providers.OllamaURL
 	// Cloned on the way in as well: the caller still holds `updated` and may
@@ -204,19 +227,9 @@ func (s *Service) Save(updated Settings) error {
 	if ollamaMoved {
 		s.forgetModelList(llm.ProviderOllama)
 	}
-	if s.filePath == "" {
-		// Built with NewServiceFrom: the update is kept in memory, because the
-		// only file this could write to is the user's real one.
-		return nil
+	if s.filePath != "" {
+		logger.Info("settings: saved", "path", s.filePath)
 	}
-	data, err := json.MarshalIndent(updated, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(s.filePath, data, 0600); err != nil {
-		return err
-	}
-	logger.Info("settings: saved", "path", s.filePath)
 	return nil
 }
 
