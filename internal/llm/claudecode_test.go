@@ -635,3 +635,89 @@ func TestClaudeCodeReportsTheResolvedModel(t *testing.T) {
 		})
 	}
 }
+
+// TestClaudeCodeRunsIsolatedFromTheUsersClaudeCodeSessions: --setting-sources ""
+// does not stop Claude Code's auto-memory. Measured: with KeyLint's own working
+// directory inherited, the memory file of the matching ~/.claude/projects/<slug>
+// was injected into every call. The spawn now runs in an empty directory
+// KeyLint owns, with auto-memory switched off — for every caller, not just evals.
+func TestClaudeCodeRunsIsolatedFromTheUsersClaudeCodeSessions(t *testing.T) {
+	s := newStub(t)
+	s.replies(successEnvelope)
+	cwdFile := filepath.Join(t.TempDir(), "cwd")
+	t.Setenv("CLAUDESTUB_CWD_FILE", cwdFile)
+	workDir := t.TempDir()
+	old := cliWorkDir
+	cliWorkDir = func() string { return workDir }
+	t.Cleanup(func() { cliWorkDir = old })
+	// Inherited values must not win over KeyLint's own.
+	t.Setenv("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "0")
+	t.Setenv("MAX_THINKING_TOKENS", "31999")
+	t.Setenv("ANTHROPIC_DEFAULT_HAIKU_MODEL", "claude-something-else")
+
+	if _, err := s.client().Complete(context.Background(), Request{Model: "haiku", User: "x"}); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	got := readRecorded(t, cwdFile)
+	if want, _ := filepath.EvalSymlinks(workDir); got != workDir && got != want {
+		t.Errorf("CLI ran in %q, want the neutral directory %q", got, workDir)
+	}
+	values := map[string][]string{}
+	for _, entry := range s.env() {
+		name, value, _ := strings.Cut(entry, "=")
+		values[strings.ToUpper(name)] = append(values[strings.ToUpper(name)], value)
+	}
+	if v := values["CLAUDE_CODE_DISABLE_AUTO_MEMORY"]; len(v) != 1 || v[0] != "1" {
+		t.Errorf("CLAUDE_CODE_DISABLE_AUTO_MEMORY = %v, want exactly [1]", v)
+	}
+	for _, name := range []string{"MAX_THINKING_TOKENS", "ANTHROPIC_DEFAULT_HAIKU_MODEL"} {
+		if v, ok := values[name]; ok {
+			t.Errorf("%s = %v reached the CLI; only the request may decide it", name, v)
+		}
+	}
+}
+
+// TestClaudeCodeThinkingIsAPerRequestChoice: the CLI thinks by default; a caller
+// that wants parity with the API path (where Haiku does not think) says so per
+// request, and nothing else changes.
+func TestClaudeCodeThinkingIsAPerRequestChoice(t *testing.T) {
+	for _, disable := range []bool{false, true} {
+		s := newStub(t)
+		s.replies(successEnvelope)
+		if _, err := s.client().Complete(context.Background(), Request{Model: "haiku", User: "x", DisableThinking: disable}); err != nil {
+			t.Fatalf("Complete: %v", err)
+		}
+		var seen []string
+		for _, entry := range s.env() {
+			if name, value, _ := strings.Cut(entry, "="); strings.EqualFold(name, "MAX_THINKING_TOKENS") {
+				seen = append(seen, value)
+			}
+		}
+		if disable && (len(seen) != 1 || seen[0] != "0") {
+			t.Errorf("DisableThinking: MAX_THINKING_TOKENS = %v, want [0]", seen)
+		}
+		if !disable && len(seen) != 0 {
+			t.Errorf("default: MAX_THINKING_TOKENS = %v, want unset", seen)
+		}
+	}
+}
+
+func TestDefaultCLIWorkDirIsKeyLintsOwn(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	dir := defaultCLIWorkDir()
+	if dir == "" {
+		t.Fatal("no working directory")
+	}
+	if filepath.Base(dir) != "claude-cli" || filepath.Base(filepath.Dir(dir)) != "KeyLint" {
+		t.Errorf("dir = %q, want .../KeyLint/claude-cli", dir)
+	}
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("dir %q was not created: %v", dir, err)
+	}
+	// Idempotent: the second call finds what the first made.
+	if again := defaultCLIWorkDir(); again != dir {
+		t.Errorf("second call = %q, want %q", again, dir)
+	}
+}

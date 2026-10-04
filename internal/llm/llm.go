@@ -69,6 +69,13 @@ type Request struct {
 	// differently on each run cannot tell a prompt change from noise. The Claude
 	// Code CLI has no flag for it and ignores this field.
 	Temperature *float64
+	// DisableThinking asks the model not to think before answering. Only the
+	// Claude Code CLI honours it (MAX_THINKING_TOKENS=0 in its environment):
+	// the CLI thinks by default, where the Anthropic API path sends no thinking
+	// parameter and Haiku 4.5 does not think there. The flag is what puts the
+	// two routes on par for a caller that wants no thinking; the HTTP providers
+	// ignore it.
+	DisableThinking bool
 }
 
 // Temp is a helper for setting Request.Temperature, which is a pointer so that

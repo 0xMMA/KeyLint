@@ -65,6 +65,9 @@ func main() {
 func record() {
 	writeFile(os.Getenv("CLAUDESTUB_ARGV_FILE"), strings.Join(os.Args[1:], "\n"))
 	writeFile(os.Getenv("CLAUDESTUB_ENV_FILE"), strings.Join(os.Environ(), "\n"))
+	if wd, err := os.Getwd(); err == nil {
+		writeFile(os.Getenv("CLAUDESTUB_CWD_FILE"), wd)
+	}
 	if path := os.Getenv("CLAUDESTUB_STDIN_FILE"); path != "" {
 		data, _ := io.ReadAll(os.Stdin)
 		writeFile(path, string(data))

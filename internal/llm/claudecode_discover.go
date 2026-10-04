@@ -179,6 +179,7 @@ func runClaudeCode(ctx context.Context, path string, args ...string) ([]byte, er
 	// which never sees that key — then fails as "not signed in".
 	env, _ := cliEnv()
 	cmd.Env = env
+	cmd.Dir = cliWorkDir()
 	cmd.WaitDelay = cliWaitDelay
 	configureCLIProcess(cmd)
 	return cmd.Output()
