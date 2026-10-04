@@ -1,6 +1,6 @@
 # Pyramidize Output Quality — Status & Open Issues
 
-> Last updated: 2026-09-25
+> Last updated: 2026-10-04
 
 > The Fix prompt has its own suite and baseline: [`docs/fix/quality-status.md`](../fix/quality-status.md).
 
@@ -12,12 +12,77 @@
 - **Eval framework:** Deterministic checks + LLM-as-judge, build-tagged (`//go:build eval`)
 - **Test data:** 13 anonymized German business email samples in `test-data/pyramidal-emails/` (one mixes German and English heavily — code-switching the prompts preserve on purpose)
 - **Results:** Logged to `test-data/eval-runs/<timestamp>/` with `summary.json`, `results.jsonl`, `samples/`
-- **Run:** `EVAL_PROVIDER=claude go test -tags eval ./internal/features/pyramidize/ -v -timeout 600s`
-- **Requires:** `.env` with `ANTHROPIC_API_KEY` in project root
+- **Run:** `./scripts/eval.sh --runs 3` — pipeline and judge through the installed Claude Code CLI (since 2026-10-04)
+- **Requires:** a signed-in Claude Code CLI (`claude auth status`), no API key. Against the API instead: `EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --provider claude --runs 3` with `ANTHROPIC_API_KEY` in `.env` — the only way to compare against the API-era baselines below
 
 ---
 
-## Eval Scores — baseline of 2026-09-18
+## Eval Scores — baseline of 2026-10-04 (Claude Code CLI — a new instrument)
+
+**Every eval call goes through the owner's subscription now.** Pipeline and
+judge both run through the installed Claude Code CLI (`claude-code`); no API key
+is read. That was the owner's decision, made knowing that it costs the judge its
+temperature pin and that **every number below this section becomes history**:
+none of the API-era rows is comparable with this one, and `--compare` refuses
+the pair (exit 2) instead of printing a delta.
+
+What makes it a different instrument:
+
+- **The judge is not pinned to a temperature.** It is still the dated snapshot
+  `claude-sonnet-4-5-20250929` — the CLI takes the dated ID and answers with it
+  (`modelUsage` named it in every call) — but the CLI has no temperature flag.
+  `summary.json` records `"temperature": null` and a note rather than a 0 that
+  never reached the model, and the temperature is part of the `configKey`. The
+  judge's spread below (0.0662) is nearly three times the API era's 0.0231;
+  expect that to be the price.
+- **The pipeline runs on the alias users get.** `sonnet` resolved to
+  `claude-sonnet-5-5` in every call of all three runs. That is a newer
+  generation than any API-era row, so the gap below is model *and* route *and*
+  judge sampling at once — it cannot be attributed to any one of them.
+- **Resolved IDs are recorded and keyed.** `resolvedModel` and
+  `judge.resolvedModel` come from the CLI's `modelUsage`; the `configKey` uses
+  them in place of the requested names. When `sonnet` moves to the next
+  generation, a comparison against this baseline reads "not comparable" rather
+  than crediting the move to the prompt.
+
+Three runs, `claude-code` / `sonnet` → `claude-sonnet-5-5`, judge `claude-code` /
+`claude-sonnet-4-5-20250929` (temperature unpinned), prompt v2, schema
+enforcement off, threshold 0.65, 13 samples, gitSHA `f8e362c`. Baseline in
+`test-data/eval-baselines/2026-10-04T22-01-17/baseline.json`.
+
+| Metric | Mean | Min | Max | Spread |
+|--------|:---:|:---:|:---:|:---:|
+| Avg deterministic | **0.8780** | 0.8706 | 0.8836 | 0.0131 |
+| Avg judge overall | **0.7682** | 0.7323 | 0.7985 | 0.0662 |
+| Samples passing | 9.7 | 9/13 | 10/13 | 1 sample |
+
+All 13 documents produced in every run; the refine step never fired (0 calls).
+Failing in all three runs: `email-dataquality-reply-to-feedback`,
+`email-diagnose-update`, `email-meeting-request`.
+
+Next to the API-era rows, **labelled not comparable** — different route,
+different judge sampling, and for the pipeline a different model:
+
+| Configuration | Deterministic | Judge | Passing |
+|---|:---:|:---:|:---:|
+| **CLI: Sonnet alias → `claude-sonnet-5-5` + v2 (2026-10-04)** | **0.8780** (0.8706–0.8836) | **0.7682** (0.7323–0.7985) | 9–10 |
+| API: Sonnet 4.6 + v2 (2026-09-18) | 0.8353 (0.8209–0.8446) | 0.8485 (0.8338–0.8569) | 7–9 |
+| API: Sonnet 5 + v2 (2026-09-18) | 0.8651 (0.8606–0.8683) | 0.8251 (0.8000–0.8477) | 8–10 |
+| API: Opus 5 + v2 (2026-09-25) | 0.8878 (0.8848–0.8895) | 0.8197 (0.8123–0.8238) | 10 |
+
+The shape repeats what Opus 5 showed: the deterministic checks like the newer
+model, the judge marks it down. The low-scoring rationales say the same thing
+they said then — a subject line that packs several messages, the action placed
+before the main message. That is one judge model's taste meeting a newer
+writer, now sampled without a pin; read it as a hint, not a finding.
+
+**Cost:** 13 samples × (one pipeline call + one judge call) × 3 runs on the
+subscription, about 13 minutes per run. The old 900 s `go test` limit would
+not have survived a run; `eval.sh` now allows 3600 s.
+
+---
+
+## Eval Scores — baseline of 2026-09-18 (API era — history, not comparable with 2026-10-04)
 
 **Three runs of the same commit, same model, same judge.** Run individually they
 report 0.82, 0.84 and 0.84 on the deterministic checks — that variation is the
