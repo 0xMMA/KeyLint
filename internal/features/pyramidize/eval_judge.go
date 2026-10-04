@@ -20,10 +20,22 @@ import (
 type JudgeConfig struct {
 	Provider string `json:"provider"`
 	Model    string `json:"model"`
-	// Temperature is pinned at 0: the judge should return the same score for
-	// the same three texts, so that a difference between runs is a difference
-	// in the pipeline.
-	Temperature float64 `json:"temperature"`
+	// Temperature is pinned at 0 where the provider honours it: the judge
+	// should return the same score for the same three texts, so that a
+	// difference between runs is a difference in the pipeline.
+	//
+	// nil — written as null — where it cannot be pinned. The Claude Code CLI
+	// has no temperature flag, and recording a 0 that never reached the model
+	// would claim a repeatability the instrument does not have. null also keys
+	// differently from 0 in eval-aggregate.sh, so a CLI-judged run can never be
+	// compared as equal to an API-judged one.
+	Temperature *float64 `json:"temperature"`
+	// TemperatureNote says why Temperature is null. Empty when it is pinned.
+	TemperatureNote string `json:"temperatureNote,omitempty"`
+	// ResolvedModel is the model ID that actually answered, filled in after a
+	// run from what the provider reported. For a dated snapshot it should equal
+	// Model; if it does not, the instrument was not what the config says.
+	ResolvedModel string `json:"resolvedModel,omitempty"`
 }
 
 const (
@@ -32,35 +44,60 @@ const (
 	// why they are constants here rather than a fallback to whatever the
 	// pipeline happens to use.
 	//
+	// The provider is the installed Claude Code CLI since 2026-10: every eval
+	// call goes through the owner's subscription, not an API key. The price is
+	// the temperature pin, which the CLI cannot set — see JudgeConfig. The
+	// API-judged baselines before that date are a different instrument.
+	//
 	// The model is a DATED snapshot on purpose. #53 suspected the March
 	// baseline had drifted under an alias, and an alias is exactly what a
 	// measuring instrument must not be: claude-sonnet-4-6 is what the account
 	// lists, with no dated form behind it, so anything judged by that alias can
-	// change without a commit. claude-sonnet-4-5-20250929 cannot.
+	// change without a commit. claude-sonnet-4-5-20250929 cannot. The CLI takes
+	// the dated ID as well as its aliases, and answers with it (checked
+	// 2026-10-04: modelUsage named claude-sonnet-4-5-20250929).
 	//
 	// The pipeline under test still runs on the alias, because that is what
 	// users get. Only the judge is frozen.
-	defaultJudgeProvider = "claude"
+	defaultJudgeProvider = llm.ProviderClaudeCode
 	defaultJudgeModel    = "claude-sonnet-4-5-20250929"
 	judgeTemperature     = 0.0
 )
 
+// judgeTemperatureNote is recorded wherever the judge's temperature is null.
+const judgeTemperatureNote = "not pinned: the Claude Code CLI has no temperature flag, so the judge samples at the CLI default"
+
 // JudgeConfigFromEnv resolves the judge's configuration, pinned unless a run
 // deliberately overrides it. An override is recorded in summary.json like
 // everything else, so a run judged by something else says so.
-func JudgeConfigFromEnv() JudgeConfig {
+func JudgeConfigFromEnv() JudgeConfig { return judgeConfigFrom(os.Getenv) }
+
+func judgeConfigFrom(getenv func(string) string) JudgeConfig {
 	cfg := JudgeConfig{
-		Provider:    defaultJudgeProvider,
-		Model:       defaultJudgeModel,
-		Temperature: judgeTemperature,
+		Provider: defaultJudgeProvider,
+		Model:    defaultJudgeModel,
 	}
-	if v := strings.TrimSpace(os.Getenv("EVAL_JUDGE_PROVIDER")); v != "" {
+	if v := strings.TrimSpace(getenv("EVAL_JUDGE_PROVIDER")); v != "" {
 		cfg.Provider = v
 	}
-	if v := strings.TrimSpace(os.Getenv("EVAL_JUDGE_MODEL")); v != "" {
+	if v := strings.TrimSpace(getenv("EVAL_JUDGE_MODEL")); v != "" {
 		cfg.Model = v
 	}
+	if llm.SupportsTemperature(cfg.Provider) {
+		cfg.Temperature = llm.Temp(judgeTemperature)
+	} else {
+		cfg.TemperatureNote = judgeTemperatureNote
+	}
 	return cfg
+}
+
+// TemperatureLabel is the judge's temperature for a log line: the number when
+// pinned, "unpinned" when the provider cannot set one.
+func (c JudgeConfig) TemperatureLabel() string {
+	if c.Temperature == nil {
+		return "unpinned (CLI default)"
+	}
+	return fmt.Sprintf("%.1f", *c.Temperature)
 }
 
 // JudgeScore holds the LLM-as-judge evaluation of one sample.
@@ -124,9 +161,10 @@ func (svc *Service) runJudge(settingsSvc *settings.Service, judge JudgeConfig, r
 	}
 
 	opts := aiOpts{
-		provider:    judge.Provider,
-		model:       judge.Model,
-		temperature: llm.Temp(judge.Temperature),
+		provider: judge.Provider,
+		model:    judge.Model,
+		// nil for the CLI, which could not honour it anyway.
+		temperature: judge.Temperature,
 		maxTokens:   judgeMaxTokens,
 	}
 	raw, err := svc.callAISync(context.Background(), cfg, opts, apiKey, judgeSystemPrompt, userMessage, judgeSchema)

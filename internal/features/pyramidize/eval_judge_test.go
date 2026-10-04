@@ -2,10 +2,12 @@ package pyramidize
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
 	"keylint/internal/features/settings"
+	"keylint/internal/llm"
 )
 
 // The judge is the instrument. These pin the properties that make its numbers
@@ -27,8 +29,57 @@ func TestTheJudgeIsPinnedAndSeparateFromThePipeline(t *testing.T) {
 		t.Errorf("judge = %s/%s, want the pinned %s/%s — the pipeline's provider must not reach it",
 			cfg.Provider, cfg.Model, defaultJudgeProvider, defaultJudgeModel)
 	}
-	if cfg.Temperature != 0 {
-		t.Errorf("temperature = %v, want 0 — the same three texts should score the same twice", cfg.Temperature)
+}
+
+// TestTheDefaultJudgeRunsThroughTheCLIAndSaysItIsUnpinned: the owner moved every
+// eval call to the subscription, and the CLI has no temperature flag. Recording
+// a 0 that never reached the model would claim a repeatability the instrument
+// does not have.
+func TestTheDefaultJudgeRunsThroughTheCLIAndSaysItIsUnpinned(t *testing.T) {
+	t.Setenv("EVAL_JUDGE_PROVIDER", "")
+	t.Setenv("EVAL_JUDGE_MODEL", "")
+
+	cfg := JudgeConfigFromEnv()
+	if cfg.Provider != llm.ProviderClaudeCode {
+		t.Errorf("judge provider = %q, want %q", cfg.Provider, llm.ProviderClaudeCode)
+	}
+	if cfg.Temperature != nil {
+		t.Errorf("temperature = %v, want nil — the CLI cannot pin it", *cfg.Temperature)
+	}
+	if cfg.TemperatureNote == "" {
+		t.Error("an unpinned temperature carries no note saying why")
+	}
+
+	// And it has to reach summary.json as null, not as a missing field or a 0:
+	// eval-aggregate.sh keys on it.
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back map[string]any
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := back["temperature"]; !ok || v != nil {
+		t.Errorf("temperature in JSON = %v (present=%v), want null", v, ok)
+	}
+}
+
+// TestAnAPIJudgeIsStillPinnedAtZero: EVAL_JUDGE_PROVIDER=claude is the way back
+// to the API judge, and there the pin still applies.
+func TestAnAPIJudgeIsStillPinnedAtZero(t *testing.T) {
+	t.Setenv("EVAL_JUDGE_PROVIDER", llm.ProviderClaude)
+	t.Setenv("EVAL_JUDGE_MODEL", "")
+
+	cfg := JudgeConfigFromEnv()
+	if cfg.Temperature == nil || *cfg.Temperature != 0 {
+		t.Fatalf("temperature = %v, want a pinned 0", cfg.Temperature)
+	}
+	if cfg.TemperatureNote != "" {
+		t.Errorf("a pinned temperature carries a note: %q", cfg.TemperatureNote)
+	}
+	if cfg.Model != defaultJudgeModel {
+		t.Errorf("model = %q, want the pinned snapshot", cfg.Model)
 	}
 }
 
@@ -69,7 +120,7 @@ func TestAnOverrideIsStillPossibleAndVisible(t *testing.T) {
 	if err := json.Unmarshal(data, &back); err != nil {
 		t.Fatal(err)
 	}
-	if back != cfg {
+	if !reflect.DeepEqual(back, cfg) {
 		t.Errorf("round trip = %+v, want %+v", back, cfg)
 	}
 }
@@ -77,6 +128,9 @@ func TestAnOverrideIsStillPossibleAndVisible(t *testing.T) {
 // TestTheJudgeSendsItsTemperatureAndSchema walks the real call path with a fake
 // provider client: the pin is worth nothing if it stops at the struct.
 func TestTheJudgeSendsItsTemperatureAndSchema(t *testing.T) {
+	// The API judge: the one provider path where a temperature can be pinned.
+	t.Setenv("EVAL_JUDGE_PROVIDER", llm.ProviderClaude)
+	t.Setenv("EVAL_JUDGE_MODEL", "")
 	svc, rec := newTestService()
 	rec.client.reply = `{"pyramidStructure":0.8,"clarity":0.8,"completeness":0.8,"tonePreservation":0.8,"overall":0.8,"rationale":"ok"}`
 	settingsSvc := settings.NewServiceFrom(settings.Default(), func(string) string { return "key" })
@@ -147,5 +201,28 @@ func TestTheJudgeReadsTheThreeTextsInAFixedOrder(t *testing.T) {
 	}
 	if !(raw < base && base < cand) {
 		t.Errorf("order was raw=%d baseline=%d candidate=%d, want that sequence", raw, base, cand)
+	}
+}
+
+// TestTheCLIJudgeSendsNoTemperature: the default judge must not hand the CLI
+// client a pin it silently drops — the request says what the run really did.
+func TestTheCLIJudgeSendsNoTemperature(t *testing.T) {
+	t.Setenv("EVAL_JUDGE_PROVIDER", "")
+	t.Setenv("EVAL_JUDGE_MODEL", "")
+	svc, rec := newTestService()
+	rec.client.reply = `{"pyramidStructure":0.8,"clarity":0.8,"completeness":0.8,"tonePreservation":0.8,"overall":0.8,"rationale":"ok"}`
+	settingsSvc := settings.NewServiceFrom(settings.Default(), nil)
+
+	if _, err := svc.runJudge(settingsSvc, JudgeConfigFromEnv(), "raw", "baseline", "candidate"); err != nil {
+		t.Fatalf("runJudge: %v", err)
+	}
+	if rec.provider != llm.ProviderClaudeCode {
+		t.Errorf("provider = %q, want %q", rec.provider, llm.ProviderClaudeCode)
+	}
+	if rec.client.gotRequest.Temperature != nil {
+		t.Errorf("temperature = %v, want none", *rec.client.gotRequest.Temperature)
+	}
+	if rec.client.gotRequest.Model != defaultJudgeModel {
+		t.Errorf("model = %q, want the pinned snapshot", rec.client.gotRequest.Model)
 	}
 }

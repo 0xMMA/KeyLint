@@ -3,14 +3,14 @@
 package pyramidize
 
 // Evaluation tests — make real AI calls against test-data samples.
-// Run with: go test -tags eval ./internal/features/pyramidize/ -v -timeout 300s
+// Run with: go test -tags eval ./internal/features/pyramidize/ -v -timeout 900s
 //
-// Requires:
-//   - A configured AI provider (env vars: ANTHROPIC_API_KEY or OPENAI_API_KEY)
-//   - Network access to the AI provider's API
+// Requires, by default, nothing but a signed-in Claude Code CLI: pipeline and
+// judge both run through it (provider claude-code), so no API key is read.
 //
-// Override provider/model:
+// Against the API instead (needs ANTHROPIC_API_KEY in .env or the environment):
 //   EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 go test -tags eval ...
+//   EVAL_JUDGE_PROVIDER=claude moves the judge back to the API as well.
 
 import (
 	"encoding/json"
@@ -28,15 +28,8 @@ import (
 	"keylint/internal/llm"
 )
 
-// loadEvalEnv brings .env into the environment, letting it win for credentials
-// and lose for everything else.
-//
-// A blanket Overload looked right — a stale ANTHROPIC_API_KEY in the shell
-// should not beat the project's own — but it also overwrote the EVAL_* and
-// KEYLINT_* variables that scripts/eval.sh exports from its command line, so
-// `--model X` silently lost to a line in a file. A run is configured by what the
-// caller asked for; .env is a place to keep secrets, not a second opinion on
-// what to measure.
+// loadEvalEnv brings .env into the environment. What it takes, and why a
+// CLI-only run takes no key, is evalEnvFromFile's business.
 func loadEvalEnv(t *testing.T) {
 	t.Helper()
 	values, err := godotenv.Read(filepath.Join("..", "..", "..", ".env"))
@@ -44,21 +37,10 @@ func loadEvalEnv(t *testing.T) {
 		t.Logf("no .env loaded: %v", err)
 		return
 	}
-	for key, value := range values {
-		if strings.HasSuffix(key, "_API_KEY") {
-			t.Setenv(key, value)
-			continue
-		}
-		if os.Getenv(key) == "" {
-			t.Setenv(key, value)
-		}
+	for key, value := range evalEnvFromFile(values, os.Getenv) {
+		t.Setenv(key, value)
 	}
 }
-
-// defaultEvalProvider is what a run measures when nothing says otherwise. A
-// constant rather than the machine's active provider: a baseline that changes
-// with whoever runs it is not a baseline.
-const defaultEvalProvider = llm.ProviderClaude
 
 // gitSHA records which commit produced a run, so a number in quality-status.md
 // can be traced back to code. Empty when this is not a checkout.
@@ -161,17 +143,7 @@ func TestEvalPyramidize(t *testing.T) {
 	// key lookup, so neither ~/.config/KeyLint/settings.json nor the OS keyring
 	// can change what this run produces — a developer whose GUI has Ollama as
 	// the active provider gets the same numbers as anyone else.
-	provider := os.Getenv("EVAL_PROVIDER")
-	if provider == "" {
-		provider = defaultEvalProvider
-	}
-	// Resolved here and passed as an explicit override, so a run does not depend
-	// on whichever model the developer happens to have picked in the GUI — and
-	// so the value recorded in summary.json is the one that actually ran.
-	model := os.Getenv("EVAL_MODEL")
-	if model == "" {
-		model = llm.DefaultModel(provider, llm.FeaturePyramidize)
-	}
+	provider, model := evalTarget(os.Getenv)
 	variant := 0 // latest
 	if v := os.Getenv("EVAL_VARIANT"); v != "" {
 		fmt.Sscanf(v, "%d", &variant)
@@ -182,11 +154,23 @@ func TestEvalPyramidize(t *testing.T) {
 	evalSettings.ActiveProvider = provider
 	settingsSvc := settings.NewServiceFrom(evalSettings, settings.EnvOnlyKeys)
 
-	if settingsSvc.GetKey(provider) == "" && provider != llm.ProviderOllama && provider != llm.ProviderClaudeCode {
-		t.Fatalf("no API key for %q in the environment or .env — the eval reads no keyring", provider)
+	for _, p := range []string{provider, judge.Provider} {
+		if llm.UsesAPIKey(p) && settingsSvc.GetKey(p) == "" {
+			t.Fatalf("no API key for %q in the environment or .env — the eval reads no keyring", p)
+		}
 	}
 
+	// What actually answered, for the pipeline and the judge separately. The
+	// pipeline asks for an alias, and an alias names a different model the day
+	// the provider ships a new generation; summary.json records the ID, and the
+	// configKey keys on it, so that day reads "not comparable" rather than
+	// looking like a prompt effect. Two services so the two recorders cannot
+	// mix: the judge goes through the same callAISync as the pipeline.
+	var pipelineModels, judgeModels llm.ResolvedModels
 	svc := NewService(settingsSvc, nil)
+	svc.newClient = pipelineModels.WrapFactory(llm.New)
+	judgeSvc := NewService(settingsSvc, nil)
+	judgeSvc.newClient = judgeModels.WrapFactory(llm.New)
 	samples := loadTestSamples(t)
 	t.Logf("prompt variant: %d (0=latest=%d)", variant, LatestEmailVariant)
 
@@ -253,7 +237,7 @@ func TestEvalPyramidize(t *testing.T) {
 
 				// LLM-as-judge (if baseline available).
 				if sample.Baseline != "" {
-					score, err := svc.runJudge(settingsSvc, judge,
+					score, err := judgeSvc.runJudge(settingsSvc, judge,
 						sample.RawInput, sample.Baseline, result.FullDocument)
 					if err != nil {
 						t.Logf("judge failed: %v", err)
@@ -282,11 +266,16 @@ func TestEvalPyramidize(t *testing.T) {
 	if effectiveVariant == 0 {
 		effectiveVariant = LatestEmailVariant
 	}
+	judge.ResolvedModel = judgeModels.String()
 	summary := map[string]any{
-		"timestamp":        timestamp,
-		"gitSHA":           gitSHA(),
-		"provider":         provider,
-		"model":            model,
+		"timestamp": timestamp,
+		"gitSHA":    gitSHA(),
+		"provider":  provider,
+		"model":     model,
+		// The ID that answered, which the configKey uses in place of model.
+		// Empty only when no call succeeded, and then the key falls back to the
+		// requested model.
+		"resolvedModel":    pipelineModels.String(),
 		"promptVariant":    effectiveVariant,
 		"judge":            judge,
 		"qualityThreshold": settings.DefaultQualityThreshold,
@@ -303,8 +292,8 @@ func TestEvalPyramidize(t *testing.T) {
 	os.WriteFile(filepath.Join(runDir, "summary.json"), summaryData, 0644)
 
 	t.Logf("\n=== EVAL SUMMARY ===")
-	t.Logf("Provider: %s | Model: %s | Prompt Variant: v%d", provider, model, effectiveVariant)
-	t.Logf("Judge: %s / %s @ temp %.1f", judge.Provider, judge.Model, judge.Temperature)
+	t.Logf("Provider: %s | Model: %s (resolved: %s) | Prompt Variant: v%d", provider, model, pipelineModels.String(), effectiveVariant)
+	t.Logf("Judge: %s / %s (resolved: %s) @ temp %s", judge.Provider, judge.Model, judge.ResolvedModel, judge.TemperatureLabel())
 	t.Logf("Schema enforcement: %v | Quality threshold: %.2f", schemaEnforcement, settings.DefaultQualityThreshold)
 	t.Logf("Samples: %d", len(samples))
 	t.Logf("Avg deterministic: %.2f", totalDet/float64(len(samples)))

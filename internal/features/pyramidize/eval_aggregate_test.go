@@ -46,6 +46,39 @@ func fakeRunWithSplit(t *testing.T, dir, model string, det, judge float64, split
 // split is a run that did not record one, which reads as "all".
 func fakeRunFull(t *testing.T, dir, model string, det, judge float64, promptHash string, checksVersion int, split ...string) string {
 	t.Helper()
+	return fakeRunEdited(t, dir, model, det, judge, func(summary map[string]any) {
+		if promptHash != "" {
+			summary["promptHash"] = promptHash
+		}
+		if checksVersion > 0 {
+			summary["checksVersion"] = checksVersion
+		}
+		if len(split) > 0 && split[0] != "" {
+			summary["split"] = split[0]
+		}
+	})
+}
+
+// fakeRunCLI is a run as the Claude Code era writes it: pipeline and judge
+// through the CLI, the judge's temperature null, and the resolved IDs recorded.
+func fakeRunCLI(t *testing.T, dir, alias, resolved string, det, judge float64) string {
+	t.Helper()
+	return fakeRunEdited(t, dir, alias, det, judge, func(summary map[string]any) {
+		summary["provider"] = "claude-code"
+		summary["resolvedModel"] = resolved
+		summary["judge"] = map[string]any{
+			"provider":        "claude-code",
+			"model":           "claude-sonnet-4-5-20250929",
+			"temperature":     nil,
+			"temperatureNote": "not pinned",
+			"resolvedModel":   "claude-sonnet-4-5-20250929",
+		}
+	})
+}
+
+// fakeRunEdited writes an API-era run and lets edit change its summary first.
+func fakeRunEdited(t *testing.T, dir, model string, det, judge float64, edit func(map[string]any)) string {
+	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -63,15 +96,8 @@ func fakeRunFull(t *testing.T, dir, model string, det, judge float64, promptHash
 		"avgJudge":          judge,
 		"judgeCount":        2,
 	}
-	if promptHash != "" {
-		summary["promptHash"] = promptHash
-	}
-
-	if checksVersion > 0 {
-		summary["checksVersion"] = checksVersion
-	}
-	if len(split) > 0 && split[0] != "" {
-		summary["split"] = split[0]
+	if edit != nil {
+		edit(summary)
 	}
 	data, _ := json.MarshalIndent(summary, "", "  ")
 	if err := os.WriteFile(filepath.Join(dir, "summary.json"), data, 0o644); err != nil {
@@ -368,7 +394,7 @@ func TestARunRecordedBeforeTheSuiteFieldStillKeys(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}
-	const want = "pyramidize|claude|claude-sonnet-4-6|claude|claude-sonnet-4-5-20250929|2|false|0.65|2|1|all"
+	const want = "pyramidize|claude|claude-sonnet-4-6|claude|claude-sonnet-4-5-20250929|2|false|0.65|2|1|all|0"
 	if got["configKey"] != want {
 		t.Errorf("configKey = %v\nwant       %v", got["configKey"], want)
 	}
@@ -420,10 +446,10 @@ func downgradeKey(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 	parts := strings.Split(doc["configKey"].(string), "|")
-	if len(parts) != 11 {
-		t.Fatalf("configKey has %d fields, expected the current 11: %v", len(parts), doc["configKey"])
+	if len(parts) != 12 {
+		t.Fatalf("configKey has %d fields, expected the current 12: %v", len(parts), doc["configKey"])
 	}
-	doc["configKey"] = strings.Join(parts[1:len(parts)-2], "|")
+	doc["configKey"] = strings.Join(parts[1:len(parts)-3], "|")
 	cfg := doc["config"].(map[string]any)
 	delete(cfg, "suite")
 	delete(cfg, "promptHash")
@@ -527,5 +553,152 @@ func TestTheTwoHalvesAreNotComparable(t *testing.T) {
 	}
 	if got["verdict"] != "not comparable: different configuration" {
 		t.Errorf("verdict = %v", got["verdict"])
+	}
+}
+
+// TestTheKeyNamesTheResolvedModel: a CLI run asks for "sonnet" and the key must
+// carry what answered, not the alias — and the aggregate's config must keep
+// both, plus the judge's honest null temperature.
+func TestTheKeyNamesTheResolvedModel(t *testing.T) {
+	root := t.TempDir()
+	runs := []string{
+		fakeRunCLI(t, filepath.Join(root, "r1"), "sonnet", "claude-sonnet-4-6", 0.80, 0.88),
+		fakeRunCLI(t, filepath.Join(root, "r2"), "sonnet", "claude-sonnet-4-6", 0.76, 0.90),
+	}
+	got, code := aggregate(t, runs...)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	const want = "pyramidize|claude-code|claude-sonnet-4-6|claude-code|claude-sonnet-4-5-20250929|2|false|0.65|2|1|all|null"
+	if got["configKey"] != want {
+		t.Errorf("configKey = %v\nwant       %v", got["configKey"], want)
+	}
+	cfg := got["config"].(map[string]any)
+	if cfg["model"] != "sonnet" || cfg["resolvedModel"] != "claude-sonnet-4-6" {
+		t.Errorf("config model/resolvedModel = %v/%v, want sonnet/claude-sonnet-4-6", cfg["model"], cfg["resolvedModel"])
+	}
+	judge := cfg["judge"].(map[string]any)
+	if v, ok := judge["temperature"]; !ok || v != nil {
+		t.Errorf("judge.temperature = %v (present=%v), want null", v, ok)
+	}
+	if judge["resolvedModel"] != "claude-sonnet-4-5-20250929" {
+		t.Errorf("judge.resolvedModel = %v", judge["resolvedModel"])
+	}
+}
+
+// TestASilentGenerationChangeIsNotComparable: same alias, same everything — but
+// the provider moved "sonnet" to a new model. That is not a prompt effect, and
+// the comparison must say so rather than hand down a verdict.
+func TestASilentGenerationChangeIsNotComparable(t *testing.T) {
+	root := t.TempDir()
+	baseRuns := []string{
+		fakeRunCLI(t, filepath.Join(root, "b1"), "sonnet", "claude-sonnet-4-6", 0.80, 0.88),
+		fakeRunCLI(t, filepath.Join(root, "b2"), "sonnet", "claude-sonnet-4-6", 0.76, 0.90),
+	}
+	doc, code := aggregate(t, baseRuns...)
+	if code != 0 {
+		t.Fatalf("building the baseline exited %d", code)
+	}
+	base := filepath.Join(root, "baseline.json")
+	data, _ := json.Marshal(doc)
+	if err := os.WriteFile(base, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	now := []string{
+		fakeRunCLI(t, filepath.Join(root, "n1"), "sonnet", "claude-sonnet-5-0", 0.79, 0.88),
+		fakeRunCLI(t, filepath.Join(root, "n2"), "sonnet", "claude-sonnet-5-0", 0.77, 0.89),
+	}
+	got, code := aggregate(t, append([]string{"--compare", base}, now...)...)
+	if code != 2 {
+		t.Errorf("exit = %d, want 2 — the alias resolved to a different model", code)
+	}
+	if got["verdict"] != "not comparable: different configuration" {
+		t.Errorf("verdict = %v", got["verdict"])
+	}
+}
+
+// TestRunsThatStraddleAGenerationDoNotAverage: three runs whose alias resolved
+// to two different models measured two different things, and their mean
+// describes neither.
+func TestRunsThatStraddleAGenerationDoNotAverage(t *testing.T) {
+	root := t.TempDir()
+	_, code := aggregate(t,
+		fakeRunCLI(t, filepath.Join(root, "r1"), "sonnet", "claude-sonnet-4-6", 0.80, 0.88),
+		fakeRunCLI(t, filepath.Join(root, "r2"), "sonnet", "claude-sonnet-5-0", 0.76, 0.90),
+	)
+	if code != 2 {
+		t.Errorf("exit = %d, want 2 — runs on two models must not be averaged", code)
+	}
+}
+
+// TestTheAPIJudgeAndTheCLIJudgeNeverCompare: the API-era baselines were judged
+// at a pinned temperature 0, the CLI cannot pin one. Even with the pipeline,
+// model and judge model identical, the two are different instruments.
+func TestTheAPIJudgeAndTheCLIJudgeNeverCompare(t *testing.T) {
+	root := t.TempDir()
+	base := filepath.Join(root, "baseline.json")
+	writeBaseline(t, root, base) // API era: claude judge at temperature 0
+
+	// Same provider names as the API era on purpose: only the judge's
+	// temperature differs, and that alone must keep them apart.
+	now := []string{
+		fakeRunEdited(t, filepath.Join(root, "n1"), "claude-sonnet-4-6", 0.79, 0.88, func(s map[string]any) {
+			s["judge"] = map[string]any{"provider": "claude", "model": "claude-sonnet-4-5-20250929", "temperature": nil}
+		}),
+		fakeRunEdited(t, filepath.Join(root, "n2"), "claude-sonnet-4-6", 0.77, 0.89, func(s map[string]any) {
+			s["judge"] = map[string]any{"provider": "claude", "model": "claude-sonnet-4-5-20250929", "temperature": nil}
+		}),
+	}
+	got, code := aggregate(t, append([]string{"--compare", base}, now...)...)
+	if code != 2 {
+		t.Errorf("exit = %d, want 2 — an unpinned judge is not the pinned one", code)
+	}
+	if got["verdict"] != "not comparable: different configuration" {
+		t.Errorf("verdict = %v", got["verdict"])
+	}
+
+	// And the realistic case: an API-era baseline against a CLI-era run.
+	cli := []string{
+		fakeRunCLI(t, filepath.Join(root, "c1"), "sonnet", "claude-sonnet-4-6", 0.79, 0.88),
+		fakeRunCLI(t, filepath.Join(root, "c2"), "sonnet", "claude-sonnet-4-6", 0.77, 0.89),
+	}
+	if _, code := aggregate(t, append([]string{"--compare", base}, cli...)...); code != 2 {
+		t.Errorf("API-era baseline vs CLI-era runs: exit = %d, want 2", code)
+	}
+}
+
+// TestAnElevenFieldKeyUpgradesToAPinnedJudge: baselines stored as a bare
+// string before the temperature field joined the key were all judged at 0.
+func TestAnElevenFieldKeyUpgradesToAPinnedJudge(t *testing.T) {
+	root := t.TempDir()
+	base := filepath.Join(root, "baseline.json")
+	writeBaseline(t, root, base)
+
+	data, err := os.ReadFile(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	parts := strings.Split(doc["configKey"].(string), "|")
+	doc["configKey"] = strings.Join(parts[:11], "|")
+	delete(doc, "config")
+	// The comparison reads config.* for its report lines, so keep the fields it
+	// needs while dropping the object keyFrom would otherwise prefer.
+	out, _ := json.Marshal(doc)
+	if err := os.WriteFile(base, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	now := []string{
+		fakeRun(t, filepath.Join(root, "n1"), "claude-sonnet-4-6", 0.79, 0.88),
+		fakeRun(t, filepath.Join(root, "n2"), "claude-sonnet-4-6", 0.77, 0.89),
+	}
+	got, code := aggregate(t, append([]string{"--compare", base}, now...)...)
+	if code == 2 {
+		t.Fatalf("an eleven-field API-era key was refused: %v", got["verdict"])
 	}
 }

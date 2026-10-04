@@ -4,12 +4,18 @@ set -euo pipefail
 # Automated evaluation runner for pyramidize quality.
 # Wraps `go test -tags eval` and prints a summary.
 #
+# By default the pipeline AND the judge run through the installed Claude Code
+# CLI (provider claude-code) on the signed-in subscription: no API key is read,
+# and none is needed. --provider claude (and EVAL_JUDGE_PROVIDER=claude for the
+# judge) measure against the API instead, with ANTHROPIC_API_KEY from .env.
+#
 # Usage:
 #   ./scripts/eval.sh                          # one run of the pyramidize suite
 #   ./scripts/eval.sh --suite fix --runs 3     # the silent grammar fix instead
 #   ./scripts/eval.sh --suite fix --split tune --runs 3   # the 10 tuning samples
 #   ./scripts/eval.sh --suite fix --split holdout --runs 3  # the 5 held back, once
-#   EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 ./scripts/eval.sh
+#   ./scripts/eval.sh --provider claude --model claude-sonnet-4-6   # the API, needs a key
+#   EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --provider claude  # API judge too
 #   ./scripts/eval.sh --provider openai --model gpt-4o
 #   ./scripts/eval.sh --variant 1              # run with prompt variant v1
 #   ./scripts/eval.sh --schema                 # enforce the JSON schemas (off by default, see schemas.go)
@@ -26,16 +32,7 @@ set -euo pipefail
 # a spread, and the spread is what makes a later comparison mean anything.
 
 cd "$(git rev-parse --show-toplevel)"
-
-# Load credentials from .env, and only credentials. Sourcing the whole file
-# would let it set EVAL_PROVIDER or EVAL_MODEL behind the flags parsed below —
-# the same trap the Go side had, in the opposite direction.
-if [[ -f .env ]]; then
-    while IFS='=' read -r key value; do
-        [[ "$key" == *_API_KEY ]] || continue
-        export "$key=${value%$'\r'}"
-    done < <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .env)
-fi
+command -v jq >/dev/null || { echo "jq is required" >&2; exit 3; }
 
 RUNS=1
 COMPARE=""
@@ -64,6 +61,39 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# The defaults the Go side applies when nothing is set. Kept in step with
+# defaultEvalProvider and defaultJudgeProvider in both eval_config.go files.
+PIPELINE_PROVIDER="${EVAL_PROVIDER:-claude-code}"
+JUDGE_PROVIDER="${EVAL_JUDGE_PROVIDER:-claude-code}"
+uses_api_key() { [[ "$1" == "claude" || "$1" == "openai" ]]; }
+
+# Load credentials from .env, and only credentials — and only when the run has
+# an API provider in it. Sourcing the whole file would let it set EVAL_PROVIDER
+# or EVAL_MODEL behind the flags parsed above; loading a key into a run that
+# goes entirely through the CLI would put a credential next to a process that
+# must not use one. (The CLI client strips it from the child anyway; a key that
+# is never loaded cannot be the one that answered.) The Go side applies the
+# same rule on its own reading of .env.
+if uses_api_key "$PIPELINE_PROVIDER" || uses_api_key "$JUDGE_PROVIDER"; then
+    if [[ -f .env ]]; then
+        while IFS='=' read -r key value; do
+            [[ "$key" == *_API_KEY ]] || continue
+            export "$key=${value%$'\r'}"
+        done < <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .env)
+    fi
+fi
+
+# A signed-out CLI fails every sample one by one; say so once, up front. Only
+# when the binary is on PATH — KeyLint also finds it in other places, and the
+# Go side reports a missing one per sample with the right wording.
+if [[ "$PIPELINE_PROVIDER" == "claude-code" || "$JUDGE_PROVIDER" == "claude-code" ]] && command -v claude >/dev/null; then
+    if ! env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u CLAUDE_CODE_OAUTH_TOKEN \
+            claude auth status 2>/dev/null | jq -e '.loggedIn == true' >/dev/null 2>&1; then
+        echo "The Claude Code CLI is not signed in. Run \`claude\` in a terminal and sign in, then retry." >&2
+        exit 3
+    fi
+fi
+
 if ! [[ "$RUNS" =~ ^[0-9]+$ ]] || (( RUNS < 1 )); then
     echo "--runs takes a positive integer" >&2
     exit 3
@@ -78,7 +108,6 @@ if [[ -n "$COMPARE" && ! -f "$COMPARE" ]]; then
     echo "No such baseline: $COMPARE" >&2
     exit 3
 fi
-command -v jq >/dev/null || { echo "jq is required" >&2; exit 3; }
 
 case "$SUITE" in
     pyramidize) SUITE_PKG=./internal/features/pyramidize/ ;;
@@ -121,15 +150,20 @@ if [[ "$SUITE" == "fix" ]]; then
 fi
 
 echo "=== KeyLint Eval: $SUITE ==="
-echo "Provider: ${EVAL_PROVIDER:-<eval default: claude>}"
-echo "Model:    ${EVAL_MODEL:-<provider default>}"
+echo "Provider: ${EVAL_PROVIDER:-claude-code (eval default)}"
+echo "Model:    ${EVAL_MODEL:-<provider default>} (the resolved ID is recorded in summary.json)"
 if [[ "$SUITE" != "fix" ]]; then
     echo "Variant:  ${EVAL_VARIANT:-0 (latest)}"
 fi
 if [[ "$SUITE" == "fix" ]]; then
     echo "Split:    ${EVAL_SPLIT:-all}"
 fi
-echo "Judge:    ${EVAL_JUDGE_PROVIDER:-claude} / ${EVAL_JUDGE_MODEL:-<pinned>} @ temp 0"
+if uses_api_key "$JUDGE_PROVIDER" || [[ "$JUDGE_PROVIDER" == "ollama" ]]; then
+    JUDGE_TEMP="temp 0"
+else
+    JUDGE_TEMP="temp unpinned (the CLI has no temperature flag)"
+fi
+echo "Judge:    $JUDGE_PROVIDER / ${EVAL_JUDGE_MODEL:-<pinned>} @ $JUDGE_TEMP"
 echo "Runs:     $RUNS"
 echo ""
 

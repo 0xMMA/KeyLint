@@ -5,7 +5,6 @@ package enhance
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"keylint/internal/features/settings"
 	"keylint/internal/llm"
@@ -44,39 +43,21 @@ Respond with ONLY a JSON object:
 
 overall is your holistic judgement, not the mean.`
 
-// JudgeConfig pins the instrument, exactly as the Pyramidize eval does — a
-// judge that moves with what it measures reports nothing. Same dated snapshot,
-// so the two suites' judge columns are at least produced the same way.
-type JudgeConfig struct {
-	Provider    string  `json:"provider"`
-	Model       string  `json:"model"`
-	Temperature float64 `json:"temperature"`
-}
-
-const (
-	defaultJudgeProvider = "claude"
-	defaultJudgeModel    = "claude-sonnet-4-5-20250929"
-	judgeTemperature     = 0.0
-)
-
-// JudgeConfigFromEnv resolves the judge, pinned unless deliberately overridden.
-func JudgeConfigFromEnv(getenv func(string) string) JudgeConfig {
-	cfg := JudgeConfig{Provider: defaultJudgeProvider, Model: defaultJudgeModel, Temperature: judgeTemperature}
-	if v := strings.TrimSpace(getenv("EVAL_JUDGE_PROVIDER")); v != "" {
-		cfg.Provider = v
-	}
-	if v := strings.TrimSpace(getenv("EVAL_JUDGE_MODEL")); v != "" {
-		cfg.Model = v
-	}
-	return cfg
-}
-
 // RunJudge scores one candidate. The three texts are always in the same order,
 // because reordering them would move the scores for reasons that have nothing
 // to do with the prompt under test.
-func RunJudge(settingsSvc *settings.Service, judge JudgeConfig, original, reference, candidate string) (JudgeScore, error) {
-	apiKey := settingsSvc.GetKey(judge.Provider)
-	client, err := llm.New(judge.Provider, llm.Config{APIKey: apiKey, Feature: "eval-judge"})
+//
+// newClient is the factory to build the judge's client with — llm.New, wrapped
+// by the run so it can record which model answered.
+func RunJudge(settingsSvc *settings.Service, judge JudgeConfig, newClient func(string, llm.Config) (llm.Client, error),
+	original, reference, candidate string) (JudgeScore, error) {
+	// No key for a provider that does not take one: the CLI signs in as the
+	// user, and handing it a key would bill a different account.
+	apiKey := ""
+	if llm.UsesAPIKey(judge.Provider) {
+		apiKey = settingsSvc.GetKey(judge.Provider)
+	}
+	client, err := newClient(judge.Provider, llm.Config{APIKey: apiKey, Feature: "eval-judge"})
 	if err != nil {
 		return JudgeScore{}, err
 	}
@@ -85,12 +66,13 @@ func RunJudge(settingsSvc *settings.Service, judge JudgeConfig, original, refere
 		original, reference, candidate)
 
 	resp, err := client.Complete(context.Background(), llm.Request{
-		System:      judgeSystemPrompt,
-		User:        user,
-		Model:       judge.Model,
-		MaxTokens:   1024,
-		JSONSchema:  fixJudgeSchema,
-		Temperature: llm.Temp(judge.Temperature),
+		System:     judgeSystemPrompt,
+		User:       user,
+		Model:      judge.Model,
+		MaxTokens:  1024,
+		JSONSchema: fixJudgeSchema,
+		// nil for the CLI, which could not honour it anyway.
+		Temperature: judge.Temperature,
 	})
 	if err != nil {
 		return JudgeScore{}, fmt.Errorf("judge call failed: %w", err)
