@@ -30,7 +30,8 @@ test.describe('Settings — provider in use', () => {
 
     await expect(page.getByTestId('provider-in-use-claude')).toBeVisible();
     expect(await inUse(page)).toEqual(['claude']);
-    expect(state.saves.at(-1)?.['active_provider']).toBe('claude');
+    // The marker moves before the save returns, so wait for the save itself.
+    await expect.poll(() => state.saves.at(-1)?.['active_provider']).toBe('claude');
 
     // Saved, not just shown: a fresh load reads it back from the backend.
     await page.reload();
@@ -50,7 +51,8 @@ test.describe('Settings — provider in use', () => {
 
     await expect(page.getByTestId('provider-in-use-ollama')).toBeVisible();
     await expect(page.getByTestId('provider-not-ready-ollama')).toContainText('cannot reach Ollama');
-    expect(state.saves.at(-1)?.['active_provider']).toBe('ollama');
+    // The marker moves before the save returns, so wait for the save itself.
+    await expect.poll(() => state.saves.at(-1)?.['active_provider']).toBe('ollama');
   });
 
   test('the General tab names the provider and points to where it is changed', async ({ page }) => {

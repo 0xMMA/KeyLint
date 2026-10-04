@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef, ElementRef } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
@@ -99,12 +99,13 @@ interface ProviderKey {
                       }
                     </span>
                     <span class="provider-pointer-sep" aria-hidden="true">—</span>
-                    <a
-                      href="#"
+                    <!-- An action, not a link: it switches the tab, so it is a button. -->
+                    <button
+                      type="button"
                       class="provider-pointer-link"
                       data-testid="provider-pointer-link"
-                      (click)="$event.preventDefault(); activeTab = 'providers'"
-                    >change under AI Providers</a>
+                      (click)="openProvidersTab()"
+                    >change under AI Providers</button>
                   </div>
                   @if (unavailableProvider; as name) {
                     <p-message data-testid="provider-unavailable" severity="warn" size="small">
@@ -147,9 +148,12 @@ interface ProviderKey {
 
               <!-- AI Providers / Keys tab -->
               <p-tabpanel value="providers">
-                <p class="provider-summary" data-testid="providers-summary">
+                <!-- Pyramidize keeps its own per-session provider choice, so this
+                     names what follows this setting rather than promising more. -->
+                <p class="provider-summary" data-testid="providers-summary" tabindex="-1">
                   @if (activeProviderLabel; as label) {
-                    KeyLint sends your text to <strong>{{ label }}</strong>.
+                    Fix and the hotkey send your text to <strong>{{ label }}</strong>.
+                    Pyramidize has its own provider menu, which starts from this one.
                     To switch, press <em>Use this</em> on another provider.
                   } @else {
                     No provider is in use. Press <em>Use this</em> on the one KeyLint should send your text to.
@@ -174,7 +178,6 @@ interface ProviderKey {
                     [label]="p.label"
                     [inUse]="settings.active_provider === p.value"
                     [problem]="providerProblem(p.value)"
-                    [switching]="switchingTo === p.value"
                     [locked]="switchingTo !== null"
                     (use)="useProvider(p.value)"
                   >
@@ -495,8 +498,10 @@ interface ProviderKey {
           }
 
           <div class="mt-4 flex gap-3">
-            <p-button data-testid="save-btn" label="Save" icon="pi pi-check" (onClick)="save()" />
-            <p-button data-testid="reset-btn" label="Reset to Defaults" icon="pi pi-refresh" severity="danger" outlined (onClick)="resetToDefaults()" />
+            <!-- Held while a provider switch saves: a second save or a reset landing
+                 in the middle could overwrite it or be overwritten by it. -->
+            <p-button data-testid="save-btn" label="Save" icon="pi pi-check" [disabled]="switchingTo !== null" (onClick)="save()" />
+            <p-button data-testid="reset-btn" label="Reset to Defaults" icon="pi pi-refresh" severity="danger" outlined [disabled]="switchingTo !== null" (onClick)="resetToDefaults()" />
           </div>
         }
       </p-card>
@@ -540,6 +545,11 @@ interface ProviderKey {
     }
     .provider-pointer-sep { color: var(--p-text-muted-color); }
     .provider-pointer-link {
+      background: none;
+      border: none;
+      padding: 0;
+      font: inherit;
+      cursor: pointer;
       color: var(--p-primary-color);
       text-decoration: none;
     }
@@ -702,6 +712,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
     private readonly wails: WailsService,
     private readonly cdr: ChangeDetectorRef,
     private readonly log: LogService,
+    private readonly host: ElementRef<HTMLElement>,
   ) {}
 
   async ngOnInit(): Promise<void> {
@@ -798,16 +809,21 @@ export class SettingsComponent implements OnInit, OnDestroy {
    */
   async useProvider(provider: string): Promise<void> {
     if (!this.settings || this.switchingTo !== null) return;
-    const previous = this.settings.active_provider;
+    const target = this.settings;
+    const previous = target.active_provider;
     if (previous === provider) return;
-    this.settings.active_provider = provider;
+    target.active_provider = provider;
     this.switchingTo = provider;
     this.switchError = '';
+    // The pressed button turns into the "In use" tag, so focus would fall to
+    // the page; the card it now marks is where a keyboard user expects it.
+    this.cdr.detectChanges();
+    this.focusCard(provider);
     try {
       await this.save();
       this.log.info(`settings: active provider set to ${provider}`);
     } catch (e) {
-      this.settings.active_provider = previous;
+      target.active_provider = previous;
       this.switchError = `Could not switch provider: ${e instanceof Error ? e.message : String(e)}`;
     } finally {
       this.switchingTo = null;
@@ -815,6 +831,20 @@ export class SettingsComponent implements OnInit, OnDestroy {
         this.cdr.detectChanges();
       }
     }
+  }
+
+  /** The General tab's pointer: show the AI Providers tab and move focus there. */
+  openProvidersTab(): void {
+    this.activeTab = 'providers';
+    this.cdr.detectChanges();
+    // The pointer sits in the panel that just hid, so focus would be lost.
+    (this.host.nativeElement as HTMLElement)
+      .querySelector<HTMLElement>('[data-testid="providers-summary"]')?.focus();
+  }
+
+  private focusCard(provider: string): void {
+    (this.host.nativeElement as HTMLElement)
+      .querySelector<HTMLElement>(`[data-testid="provider-card-${provider}"]`)?.focus();
   }
 
   /** Reads the configured model, or "" when the default applies. */
@@ -1018,11 +1048,15 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   async save(): Promise<void> {
     if (!this.settings) return;
+    this.switchError = '';
     const ollamaURLChanged = this.settings.providers?.ollama_url !== this.savedOllamaURL;
     await this.wails.saveSettings(this.settings);
     this.savedOllamaURL = this.settings.providers?.ollama_url ?? '';
     this.log.info('settings: saved');
     if (ollamaURLChanged) {
+      // Until the new address answers, nothing is known about it; the old
+      // address's "unreachable" must not be shown under the new one.
+      delete this.modelSource['ollama'];
       // A daemon at another address has other models pulled, so the picker
       // would otherwise keep showing the old machine's list.
       void this.loadModelOptions();
@@ -1036,6 +1070,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
     await this.wails.resetSettings();
     this.settings = await this.wails.loadSettings();
     this.savedOllamaURL = this.settings?.providers?.ollama_url ?? '';
+    this.switchError = '';
+    delete this.modelSource['ollama'];
     // A reset puts the Ollama URL back to its default, so the pickers are now
     // showing whatever the previous address had pulled.
     void this.loadModelOptions();
@@ -1050,6 +1086,19 @@ export class SettingsComponent implements OnInit, OnDestroy {
     await this.wails.setQualityThreshold(this.qualityThreshold);
   }
 
+  /**
+   * Presets are saved by the backend the moment they change, outside save().
+   * The settings object on this page must follow, or the next save() — the
+   * Save button or a provider switch — writes back the list as it was when the
+   * page opened and undoes the change.
+   */
+  private syncPresets(presets: AppPreset[]): void {
+    this.presets = presets;
+    if (this.settings) {
+      this.settings.app_presets = presets.map(p => ({ ...p }));
+    }
+  }
+
   startEditPreset(preset: AppPreset): void {
     this.editingPreset = preset;
     this.editPresetDraft = { ...preset };
@@ -1061,14 +1110,14 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   async saveEditPreset(): Promise<void> {
     await this.wails.setAppPreset(this.editPresetDraft);
-    this.presets = await this.wails.getAppPresets();
+    this.syncPresets(await this.wails.getAppPresets());
     this.editingPreset = null;
     this.cdr.detectChanges();
   }
 
   async deletePreset(sourceApp: string): Promise<void> {
     await this.wails.deleteAppPreset(sourceApp);
-    this.presets = await this.wails.getAppPresets();
+    this.syncPresets(await this.wails.getAppPresets());
     this.cdr.detectChanges();
   }
 
@@ -1084,7 +1133,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   async saveAddPreset(): Promise<void> {
     if (!this.addPresetDraft.sourceApp) return;
     await this.wails.setAppPreset(this.addPresetDraft);
-    this.presets = await this.wails.getAppPresets();
+    this.syncPresets(await this.wails.getAppPresets());
     this.addingPreset = false;
     this.cdr.detectChanges();
   }

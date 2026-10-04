@@ -744,7 +744,6 @@ describe('SettingsComponent — model selection', () => {
 });
 
 
-// Bedrock is a stub that only returns an error (#22) until #23 implements it.
 // "If I have both an Anthropic API key and the Claude Code CLI, I cannot see or
 // define which is prioritized." One provider is in use, the AI Providers tab
 // shows which, and switching is one click there.
@@ -959,6 +958,80 @@ describe('SettingsComponent — which provider is in use', () => {
     }));
   });
 
+  it('holds Save and Reset while a switch is saving', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    let finish!: () => void;
+    wailsMock.saveSettings.mockImplementationOnce(() => new Promise<void>(r => { finish = r; }));
+
+    q('provider-use-claude')!.querySelector('button')!.click();
+    fixture.detectChanges();
+
+    expect(q('save-btn')!.querySelector('button')!.disabled).toBe(true);
+    expect(q('reset-btn')!.querySelector('button')!.disabled).toBe(true);
+    finish();
+    // The save's promise chain is not a task the fixture tracks.
+    await new Promise(r => setTimeout(r));
+    fixture.detectChanges();
+    expect(q('save-btn')!.querySelector('button')!.disabled).toBe(false);
+  });
+
+  it('moves focus to the card it marks, since the pressed button goes away', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    document.body.appendChild(el);
+
+    await clickUse('claude');
+
+    expect(document.activeElement).toBe(q('provider-card-claude'));
+    el.remove();
+  });
+
+  it('clears a failed switch\'s error once a later save goes through', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    wailsMock.saveSettings.mockRejectedValueOnce(new Error('disk full'));
+    await clickUse('claude');
+    expect(q('provider-switch-error')).not.toBeNull();
+
+    q('save-btn')!.querySelector('button')!.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(q('provider-switch-error')).toBeNull();
+  });
+
+  // Presets are saved by the backend on their own. A switch saves the whole
+  // settings object, so a stale preset list in it would undo the change.
+  it('does not undo a preset added in the same visit when switching', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    const added = { sourceApp: 'Outlook', documentType: 'email' };
+    wailsMock.getAppPresets.mockResolvedValue([added]);
+    fixture.componentInstance.startAddPreset();
+    fixture.componentInstance.addPresetDraft = { ...added };
+    await fixture.componentInstance.saveAddPreset();
+
+    await clickUse('claude');
+
+    expect(wailsMock.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      active_provider: 'claude',
+      app_presets: [added],
+    }));
+  });
+
+  it('drops the old address\'s Ollama warning once a new URL is saved', async () => {
+    await render({ active: 'ollama', ollamaSource: 'unreachable' });
+    expect(q('provider-not-ready-ollama')).not.toBeNull();
+    // The new address has not answered yet.
+    wailsMock.listModels.mockImplementation(() => new Promise(() => {}));
+
+    const input = q('ollama-url-input') as HTMLInputElement;
+    input.value = 'http://gpu-box:11434';
+    input.dispatchEvent(new Event('input'));
+    q('save-btn')!.querySelector('button')!.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(q('provider-not-ready-ollama')).toBeNull();
+  });
+
   describe('General tab', () => {
     it('names the provider in use instead of offering a dropdown', async () => {
       await render({ active: 'claude-code', tab: 'general', ...BOTH });
@@ -980,6 +1053,17 @@ describe('SettingsComponent — which provider is in use', () => {
       expect(providersPanel()!.contains(q('provider-card-claude'))).toBe(true);
     });
 
+    it('moves focus to the AI Providers tab, out of the panel that hides', async () => {
+      await render({ active: 'claude-code', tab: 'general', ...BOTH });
+      document.body.appendChild(el);
+
+      q('provider-pointer-link')!.click();
+      await fixture.whenStable();
+
+      expect(document.activeElement).toBe(q('providers-summary'));
+      el.remove();
+    });
+
     it('repeats the warning when the provider in use cannot work', async () => {
       await render({ active: 'claude', tab: 'general' });
 
@@ -996,6 +1080,7 @@ describe('SettingsComponent — which provider is in use', () => {
 });
 
 
+// Bedrock is a stub that only returns an error (#22) until #23 implements it.
 describe('SettingsComponent — AWS Bedrock is not offered yet', () => {
   let fixture: ComponentFixture<SettingsComponent>;
   let component: SettingsComponent;

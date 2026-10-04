@@ -25,6 +25,7 @@ import { MessageModule } from 'primeng/message';
       [class.in-use]="inUse()"
       [attr.data-testid]="'provider-card-' + providerId()"
       [attr.aria-current]="inUse() ? 'true' : null"
+      tabindex="-1"
     >
       <div class="provider-card-header">
         <span class="provider-card-label">{{ label() }}</span>
@@ -43,7 +44,6 @@ import { MessageModule } from 'primeng/message';
             size="small"
             severity="secondary"
             [outlined]="true"
-            [loading]="switching()"
             [disabled]="locked()"
             (onClick)="use.emit()"
           />
@@ -87,6 +87,8 @@ import { MessageModule } from 'primeng/message';
       font-size: 0.9rem;
     }
     .provider-card-spacer { flex: 1; }
+    .provider-card:focus { outline: none; }
+    .provider-card:focus-visible { outline: 2px solid var(--p-primary-color); outline-offset: 2px; }
     :host ::ng-deep .provider-card-warning { margin-bottom: 0.75rem; }
   `],
 })
@@ -97,8 +99,6 @@ export class ProviderCardComponent {
   readonly inUse = input(false);
   /** Why this provider cannot work right now, or null when nothing is known to be wrong. */
   readonly problem = input<string | null>(null);
-  /** This card's switch is being saved. */
-  readonly switching = input(false);
   /** Another switch is in flight; one at a time keeps the saves in order. */
   readonly locked = input(false);
 
