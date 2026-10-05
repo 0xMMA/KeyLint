@@ -121,6 +121,20 @@ export function Save(updated) {
 }
 
 /**
+ * SetActiveProvider makes provider the one KeyLint uses and saves that alone.
+ * 
+ * The settings screen's one-click switch calls this rather than Save: Save
+ * takes the whole form, so a switch would also commit every other edit still
+ * pending on the page, including ones on tabs the user cannot see. It goes
+ * through Update, so no other save can land between the read and the write.
+ * @param {string} provider
+ * @returns {$CancellablePromise<void>}
+ */
+export function SetActiveProvider(provider) {
+    return $Call.ByID(3937132129, provider);
+}
+
+/**
  * SetKey stores an API key for the given provider in the OS keyring.
  * Returns an error if the keyring is unavailable on this platform.
  * @param {string} provider

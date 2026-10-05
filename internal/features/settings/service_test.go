@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"keylint/internal/features/settings"
 )
@@ -82,6 +83,166 @@ func TestSave_PersistsToDisk(t *testing.T) {
 	}
 	if !got.CompletedSetup {
 		t.Error("after Save: expected completed_setup=true")
+	}
+}
+
+// A save that cannot be written must not take effect in memory either. The
+// settings screen puts a provider switch back when Save fails; had the switch
+// already been applied, Fix would keep using a provider the screen no longer
+// shows.
+func TestSave_LeavesSettingsUnchangedWhenTheFileCannotBeWritten(t *testing.T) {
+	tmp := t.TempDir()
+	svc := newServiceAt(t, tmp)
+
+	// A directory where the file should be makes the write fail on every OS.
+	filePath := filepath.Join(tmp, "KeyLint", "settings.json")
+	if err := os.RemoveAll(filePath); err != nil {
+		t.Fatalf("RemoveAll: %v", err)
+	}
+	if err := os.MkdirAll(filePath, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	before := svc.Get().ActiveProvider
+	updated := settings.Default()
+	updated.ActiveProvider = "claude-code"
+	if before == updated.ActiveProvider {
+		t.Fatalf("test needs a different starting provider than %q", before)
+	}
+
+	if err := svc.Save(updated); err == nil {
+		t.Fatal("Save: expected an error writing over a directory")
+	}
+	if got := svc.Get().ActiveProvider; got != before {
+		t.Errorf("after a failed Save: active_provider=%q, want %q unchanged", got, before)
+	}
+}
+
+// The one-click switch saves the provider and nothing else: whatever the
+// settings screen still has pending must not reach the file with it.
+func TestSetActiveProvider_ChangesOnlyTheProvider(t *testing.T) {
+	tmp := t.TempDir()
+	svc := newServiceAt(t, tmp)
+	saved := settings.Default()
+	saved.ActiveProvider = "openai"
+	saved.LogLevel = "off"
+	saved.Providers.OllamaURL = "http://gpu-box:11434"
+	if err := svc.Save(saved); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	if err := svc.SetActiveProvider("claude-code"); err != nil {
+		t.Fatalf("SetActiveProvider: %v", err)
+	}
+
+	got := svc.Get()
+	if got.ActiveProvider != "claude-code" {
+		t.Errorf("active_provider = %q, want claude-code", got.ActiveProvider)
+	}
+	if got.LogLevel != "off" || got.Providers.OllamaURL != "http://gpu-box:11434" {
+		t.Errorf("other fields changed: log_level=%q ollama_url=%q", got.LogLevel, got.Providers.OllamaURL)
+	}
+
+	// And on disk, so a restart sees the switch.
+	data, err := os.ReadFile(filepath.Join(tmp, "KeyLint", "settings.json"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var onDisk settings.Settings
+	if err := json.Unmarshal(data, &onDisk); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if onDisk.ActiveProvider != "claude-code" || onDisk.Providers.OllamaURL != "http://gpu-box:11434" {
+		t.Errorf("on disk: active_provider=%q ollama_url=%q", onDisk.ActiveProvider, onDisk.Providers.OllamaURL)
+	}
+}
+
+func TestSetActiveProvider_RejectsProvidersItCannotUse(t *testing.T) {
+	svc := newServiceAt(t, t.TempDir())
+	before := svc.Get().ActiveProvider
+
+	for _, p := range []string{"", "bedrock", "gemini", "toString"} {
+		if err := svc.SetActiveProvider(p); err == nil {
+			t.Errorf("SetActiveProvider(%q): want an error", p)
+		}
+	}
+	if got := svc.Get().ActiveProvider; got != before {
+		t.Errorf("active_provider = %q after rejected switches, want %q", got, before)
+	}
+}
+
+// Switches and full saves racing each other run one at a time, so whatever
+// order they land in, the file ends up holding exactly what memory holds.
+// (Which of them wins is not the point: Save sends a whole form.)
+func TestSetActiveProvider_KeepsFileAndMemoryInStepUnderConcurrentSaves(t *testing.T) {
+	tmp := t.TempDir()
+	svc := newServiceAt(t, tmp)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 50; i++ {
+			s := svc.Get()
+			s.LogLevel = "debug"
+			_ = svc.Save(s)
+		}
+	}()
+	for i := 0; i < 50; i++ {
+		if err := svc.SetActiveProvider("ollama"); err != nil {
+			t.Fatalf("SetActiveProvider: %v", err)
+		}
+	}
+	<-done
+
+	data, err := os.ReadFile(filepath.Join(tmp, "KeyLint", "settings.json"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var onDisk settings.Settings
+	if err := json.Unmarshal(data, &onDisk); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if mem := svc.Get(); onDisk.ActiveProvider != mem.ActiveProvider || onDisk.LogLevel != mem.LogLevel {
+		t.Errorf("disk (%q, %q) differs from memory (%q, %q)", onDisk.ActiveProvider, onDisk.LogLevel, mem.ActiveProvider, mem.LogLevel)
+	}
+}
+
+// Update holds the save lock from its read to its write. A provider switch
+// arriving while another update is in progress therefore lands after it
+// instead of being overwritten by settings read before it — which is what
+// Get-then-Save in CompleteSetup or the preset writers used to allow.
+func TestUpdate_DoesNotOverwriteASwitchThatArrivesMeanwhile(t *testing.T) {
+	svc := newServiceAt(t, t.TempDir())
+	if err := svc.SetActiveProvider("openai"); err != nil {
+		t.Fatal(err)
+	}
+
+	inside := make(chan struct{})
+	release := make(chan struct{})
+	updated := make(chan error)
+	go func() {
+		updated <- settings.Update(svc, func(c *settings.Settings) {
+			close(inside)
+			<-release
+			c.CompletedSetup = true
+		})
+	}()
+	<-inside
+	switched := make(chan error)
+	go func() { switched <- svc.SetActiveProvider("ollama") }()
+	// Long enough for an unguarded switch to finish before the update writes.
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	if err := <-updated; err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if err := <-switched; err != nil {
+		t.Fatalf("SetActiveProvider: %v", err)
+	}
+
+	got := svc.Get()
+	if got.ActiveProvider != "ollama" || !got.CompletedSetup {
+		t.Errorf("active_provider=%q completed_setup=%v, want ollama and true", got.ActiveProvider, got.CompletedSetup)
 	}
 }
 

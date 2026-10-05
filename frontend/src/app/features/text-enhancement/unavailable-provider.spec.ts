@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideRouter } from '@angular/router';
-import { TextEnhancementComponent } from './text-enhancement.component';
+import { TextEnhancementComponent, resetPyramidizeProviderSession } from './text-enhancement.component';
 import { TextEnhancementService } from './text-enhancement.service';
 import { WailsService } from '../../core/wails.service';
 import { createWailsMock, defaultSettings } from '../../../testing/wails-mock';
@@ -43,6 +43,9 @@ describe('TextEnhancementComponent — saved provider that is not available yet'
   let svcMock: ReturnType<typeof makeEnhancementServiceMock>;
 
   beforeEach(async () => {
+    // The provider choice is module-level and shared with every other spec in
+    // this process (isolate: false); start each test from a fresh session.
+    resetPyramidizeProviderSession();
     TestBed.resetTestingModule();
     wailsMock = createWailsMock();
     wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, active_provider: 'bedrock' });
@@ -62,8 +65,6 @@ describe('TextEnhancementComponent — saved provider that is not available yet'
     fixture = TestBed.createComponent(TextEnhancementComponent);
     component = fixture.componentInstance;
     el = fixture.nativeElement;
-    // Provider choice is module-level; clear it so ngOnInit reads settings.
-    component.providerView = '';
     component.originalTextView = 'Some text to pyramidize';
     component.canvasTextView = '';
     fixture.detectChanges();
@@ -75,7 +76,7 @@ describe('TextEnhancementComponent — saved provider that is not available yet'
     // Module-level state outlives the fixture; put it back to a fresh page.
     component.originalTextView = '';
     component.canvasTextView = '';
-    component.providerView = '';
+    resetPyramidizeProviderSession();
   });
 
   function pyramidizeButton(): HTMLButtonElement {
