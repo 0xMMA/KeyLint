@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -47,8 +49,20 @@ var blockedCLIEnv = []string{
 	"ANTHROPIC_BASE_URL",
 	// A pasted OAuth token stands in for the signed-in account just like a key.
 	"CLAUDE_CODE_OAUTH_TOKEN",
-	// Would answer with a different model than the one KeyLint asked for.
+	// Would answer with a different model than the one KeyLint asked for —
+	// directly, or by remapping the alias KeyLint sends.
 	"ANTHROPIC_MODEL",
+	"ANTHROPIC_DEFAULT_OPUS_MODEL",
+	"ANTHROPIC_DEFAULT_SONNET_MODEL",
+	"ANTHROPIC_DEFAULT_HAIKU_MODEL",
+	"ANTHROPIC_SMALL_FAST_MODEL",
+	// Would change how the model answers behind KeyLint's back. Thinking is a
+	// per-request decision (Request.DisableThinking), so a value inherited from
+	// the user's shell must not override it; the output cap is the CLI's own.
+	"MAX_THINKING_TOKENS",
+	"CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+	// Set by KeyLint itself below; an inherited value must not turn it back on.
+	"CLAUDE_CODE_DISABLE_AUTO_MEMORY",
 	"CLAUDE_CODE_USE_BEDROCK",
 	"CLAUDE_CODE_USE_VERTEX",
 	"AWS_BEARER_TOKEN_BEDROCK",
@@ -155,7 +169,11 @@ func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response,
 
 	cmd := exec.CommandContext(ctx, path, args...)
 	cliEnviron, removed := cliEnv()
+	if req.DisableThinking {
+		cliEnviron = append(cliEnviron, "MAX_THINKING_TOKENS=0")
+	}
 	cmd.Env = cliEnviron
+	cmd.Dir = cliWorkDir()
 	cmd.Stdin = strings.NewReader(req.User)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -166,7 +184,7 @@ func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response,
 	// Names only — the values are credentials. One line per completion, so a bug
 	// report shows why the CLI saw a different environment than KeyLint itself.
 	if len(removed) > 0 {
-		logger.Info("llm: credential variables removed for the claude code cli",
+		logger.Info("llm: environment variables removed for the claude code cli",
 			"vars", strings.Join(removed, ", "))
 	}
 
@@ -238,10 +256,34 @@ func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response,
 		return Response{}, fmt.Errorf("%s returned an empty result", name)
 	}
 
+	resolved := env.resolvedModel()
 	logger.Info("llm: claude code call finished", "feature", c.cfg.Feature,
-		"model", req.Model, "duration_ms", env.DurationMS, "total_cost_usd", env.TotalCostUSD)
+		"model", req.Model, "resolved_model", resolved,
+		"duration_ms", env.DurationMS, "total_cost_usd", env.TotalCostUSD)
 
-	return Response{Text: text}, nil
+	return Response{Text: text, Model: resolved}, nil
+}
+
+// resolvedModel names the model that answered, from the envelope's modelUsage:
+// the CLI keys it by the full ID it ran ("claude-sonnet-4-5-20250929"), which
+// is what an alias like "sonnet" resolved to on this call.
+//
+// The keys are sorted and joined rather than one being picked. A run that used
+// more than one model is not the same measurement as a run that used one, and
+// choosing "the main one" would hide exactly that difference. Empty when the
+// CLI reported no usage — an older CLI, or a stub.
+func (env claudeCodeEnvelope) resolvedModel() string {
+	if len(env.ModelUsage) == 0 {
+		return ""
+	}
+	ids := make([]string, 0, len(env.ModelUsage))
+	for id := range env.ModelUsage {
+		if id = strings.TrimSpace(id); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	return strings.Join(ids, ",")
 }
 
 // partialText summarises what a cut-off run produced, for the debug log only.
@@ -291,18 +333,57 @@ func writeSystemPromptFile(systemPrompt string) (path string, cleanup func(), er
 // point it at another account, plus the names of the variables it dropped. Both
 // the completion call and the discovery probe use it, so what KeyLint detects
 // and what it later runs see the same environment. See blockedCLIEnv.
+//
+// It also turns off Claude Code's auto-memory. --setting-sources "" does not:
+// the CLI still reads ~/.claude/projects/<slug of the working directory>/memory
+// and injects it into the conversation, so a user's notes from their own
+// Claude Code sessions would ride along with every grammar fix. cliWorkDir
+// takes away the slug; this takes away the feature.
 func cliEnv() (env []string, removed []string) {
 	parent := os.Environ()
-	filtered := make([]string, 0, len(parent))
+	filtered := make([]string, 0, len(parent)+1)
 	for _, entry := range parent {
 		name, _, found := strings.Cut(entry, "=")
 		if found && isBlockedCLIEnv(name) {
-			removed = append(removed, name)
+			// Our own setting is not a credential worth reporting.
+			if !strings.EqualFold(name, "CLAUDE_CODE_DISABLE_AUTO_MEMORY") {
+				removed = append(removed, name)
+			}
 			continue
 		}
 		filtered = append(filtered, entry)
 	}
+	filtered = append(filtered, "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
 	return filtered, removed
+}
+
+// cliWorkDir is the working directory every CLI spawn runs in: an empty
+// directory KeyLint owns, under the user cache directory.
+//
+// Without it the CLI inherited KeyLint's own working directory — the install
+// folder, or a developer's checkout — and Claude Code keys its per-project
+// memory and CLAUDE.md lookup on that directory. A neutral, empty one gives it
+// nothing to find. Empty string (inherit) only if no directory can be made,
+// which is logged; the auto-memory switch in cliEnv still applies then.
+//
+// A variable so tests can see where the spawn ran.
+var cliWorkDir = defaultCLIWorkDir
+
+func defaultCLIWorkDir() string {
+	var candidates []string
+	if cache, err := os.UserCacheDir(); err == nil {
+		// %LocalAppData%\KeyLint\claude-cli on Windows, ~/.cache/KeyLint/claude-cli
+		// on Linux, ~/Library/Caches/KeyLint/claude-cli on macOS.
+		candidates = append(candidates, filepath.Join(cache, "KeyLint", "claude-cli"))
+	}
+	candidates = append(candidates, filepath.Join(os.TempDir(), "keylint-claude-cli"))
+	for _, dir := range candidates {
+		if err := os.MkdirAll(dir, 0o700); err == nil {
+			return dir
+		}
+	}
+	logger.Warn("llm: no neutral working directory for the claude code cli; inheriting the current one")
+	return ""
 }
 
 // isBlockedCLIEnv matches case-insensitively, because Windows environment

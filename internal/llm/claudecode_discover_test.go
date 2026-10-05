@@ -195,3 +195,14 @@ func TestClaudeCodeStatusCarriesNoAccountDetails(t *testing.T) {
 		}
 	}
 }
+
+func TestClaudeCodeVersion(t *testing.T) {
+	t.Setenv("CLAUDESTUB_VERSION", "2.1.289 (Claude Code)")
+	if got := ClaudeCodeVersion(context.Background(), stubPath); got != "2.1.289" {
+		t.Errorf("ClaudeCodeVersion = %q, want 2.1.289", got)
+	}
+	missing := filepath.Join(t.TempDir(), "no-such-claude")
+	if got := ClaudeCodeVersion(context.Background(), missing); got != "" {
+		t.Errorf("ClaudeCodeVersion(missing) = %q, want empty", got)
+	}
+}

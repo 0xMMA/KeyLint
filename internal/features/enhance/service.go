@@ -111,6 +111,12 @@ const (
 // logFeature tags this feature's provider calls in the log.
 const logFeature = "enhance"
 
+// fixThinking is whether the silent fix lets the model think first. Only the
+// Claude Code CLI acts on it: the CLI thinks by default, the Anthropic API path
+// sends no thinking parameter and Haiku 4.5 does not think there. See
+// docs/fix/quality-status.md for the measurement behind the value.
+const fixThinking = true
+
 // Service calls AI provider APIs from Go so the Wails WebView does not need
 // external network access (avoids WebKit content-security-policy issues on Linux).
 type Service struct {
@@ -121,6 +127,9 @@ type Service struct {
 	// getKey resolves a provider API key. Tests replace it so they never touch
 	// the OS keyring.
 	getKey func(provider string) string
+	// thinking is fixThinking unless the eval overrides it to measure the
+	// other setting.
+	thinking bool
 }
 
 // NewService creates an EnhanceService backed by the given settings.
@@ -130,6 +139,7 @@ func NewService(s *settings.Service) *Service {
 		client:    &http.Client{Timeout: httpTimeout},
 		newClient: llm.New,
 		getKey:    s.GetKey,
+		thinking:  fixThinking,
 	}
 }
 
@@ -167,6 +177,8 @@ func (s *Service) Enhance(text string) (result string, err error) {
 		User:      buildUserMessage(text),
 		Model:     model,
 		MaxTokens: maxTokens,
+		// Ignored by every provider but the Claude Code CLI.
+		DisableThinking: !s.thinking,
 	})
 	if err != nil {
 		return "", err

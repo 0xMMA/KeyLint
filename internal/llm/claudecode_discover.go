@@ -121,6 +121,22 @@ func CheckClaudeCode(ctx context.Context, cliPath string) ClaudeCodeStatus {
 	return status
 }
 
+// ClaudeCodeVersion is the installed CLI's version, or "" when it cannot be
+// found or asked. cliPath overrides discovery, as in CheckClaudeCode. The eval
+// records it: the CLI's own defaults sit between the model and the score, so
+// a CLI upgrade can move a number without anything in this repository moving.
+func ClaudeCodeVersion(ctx context.Context, cliPath string) string {
+	path := cliPath
+	if path == "" {
+		located, err := LocateClaudeCode()
+		if err != nil {
+			return ""
+		}
+		path = located
+	}
+	return claudeCodeVersion(ctx, path)
+}
+
 // claudeCodeVersion reads `claude --version`, e.g. "2.1.274 (Claude Code)".
 func claudeCodeVersion(ctx context.Context, path string) string {
 	out, err := runClaudeCode(ctx, path, "--version")
@@ -163,6 +179,7 @@ func runClaudeCode(ctx context.Context, path string, args ...string) ([]byte, er
 	// which never sees that key — then fails as "not signed in".
 	env, _ := cliEnv()
 	cmd.Env = env
+	cmd.Dir = cliWorkDir()
 	cmd.WaitDelay = cliWaitDelay
 	configureCLIProcess(cmd)
 	return cmd.Output()

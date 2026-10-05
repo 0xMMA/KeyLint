@@ -69,6 +69,13 @@ type Request struct {
 	// differently on each run cannot tell a prompt change from noise. The Claude
 	// Code CLI has no flag for it and ignores this field.
 	Temperature *float64
+	// DisableThinking asks the model not to think before answering. Only the
+	// Claude Code CLI honours it (MAX_THINKING_TOKENS=0 in its environment):
+	// the CLI thinks by default, where the Anthropic API path sends no thinking
+	// parameter and Haiku 4.5 does not think there. The flag is what puts the
+	// two routes on par for a caller that wants no thinking; the HTTP providers
+	// ignore it.
+	DisableThinking bool
 }
 
 // Temp is a helper for setting Request.Temperature, which is a pointer so that
@@ -78,6 +85,16 @@ func Temp(v float64) *float64 { return &v }
 // Response is the text of a completion.
 type Response struct {
 	Text string
+	// Model is the model ID that actually answered, as the provider reported
+	// it — which is not always the ID that was asked for. An alias such as the
+	// CLI's "sonnet" resolves to a dated generation, and that generation can
+	// change without a commit. Empty when the provider did not say. The Claude
+	// Code CLI can report more than one model for a call; it then holds their
+	// IDs sorted and comma-joined.
+	//
+	// Nothing in the product reads it. The eval does: a measurement has to name
+	// the model that produced it, not the alias it was requested by.
+	Model string
 }
 
 // Client talks to exactly one provider.

@@ -359,3 +359,19 @@ func TestEnhanceBoundsTheCall(t *testing.T) {
 		t.Error("the HTTP client has no timeout")
 	}
 }
+
+// TestEnhanceThinkingFollowsTheMeasuredDefault: whether the silent fix lets the
+// CLI think is a measured product decision (fixThinking), and the request must
+// carry it — the CLI thinks unless told not to.
+func TestEnhanceThinkingFollowsTheMeasuredDefault(t *testing.T) {
+	cfg := settings.Default()
+	cfg.ActiveProvider = "claude-code"
+	svc, rec := newTestService(t, cfg, nil)
+
+	if _, err := svc.Enhance("text"); err != nil {
+		t.Fatalf("Enhance: %v", err)
+	}
+	if got, want := rec.client.gotRequest.DisableThinking, !fixThinking; got != want {
+		t.Errorf("DisableThinking = %v, want %v (fixThinking = %v)", got, want, fixThinking)
+	}
+}

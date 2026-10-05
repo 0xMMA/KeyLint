@@ -19,22 +19,20 @@ import (
 	"keylint/internal/llm"
 )
 
-// Evaluation for the silent Fix prompt. Real API calls; never part of a normal
-// `go test` run.
+// Evaluation for the silent Fix prompt. Real model calls; never part of a normal
+// `go test` run. By default pipeline and judge both go through the installed
+// Claude Code CLI and no API key is read; EVAL_PROVIDER=claude (and
+// EVAL_JUDGE_PROVIDER=claude) measure against the API with ANTHROPIC_API_KEY.
 //
-//	go test -tags eval ./internal/features/enhance/ -v -timeout 900s
+//	go test -tags eval ./internal/features/enhance/ -v -timeout 3600s
 //	./scripts/eval.sh --suite fix --runs 3
 //
 // The harness mirrors the Pyramidize one deliberately: same isolated settings,
 // same pinned judge, same summary.json shape, so scripts/eval-aggregate.sh works
 // on both without knowing which suite produced a run.
 
-// defaultEvalProvider is a constant rather than the machine's active provider:
-// a baseline that changes with whoever runs it is not a baseline.
-const defaultEvalProvider = llm.ProviderClaude
-
-// loadEvalEnv brings .env in for credentials and lets the command line win for
-// everything else. See the Pyramidize eval for why the reverse bit once.
+// loadEvalEnv brings .env in. What it takes, and why a CLI-only run takes no
+// key, is evalEnvFromFile's business.
 func loadEvalEnv(t *testing.T) {
 	t.Helper()
 	values, err := godotenv.Read(filepath.Join("..", "..", "..", ".env"))
@@ -42,10 +40,8 @@ func loadEvalEnv(t *testing.T) {
 		t.Logf("no .env loaded: %v", err)
 		return
 	}
-	for key, value := range values {
-		if strings.HasSuffix(key, "_API_KEY") || os.Getenv(key) == "" {
-			t.Setenv(key, value)
-		}
+	for key, value := range evalEnvFromFile(values, os.Getenv) {
+		t.Setenv(key, value)
 	}
 }
 
@@ -127,13 +123,10 @@ func loadFixSamples(t *testing.T, split Split) []fixSample {
 func TestEvalFix(t *testing.T) {
 	loadEvalEnv(t)
 
-	provider := os.Getenv("EVAL_PROVIDER")
-	if provider == "" {
-		provider = defaultEvalProvider
-	}
-	model := os.Getenv("EVAL_MODEL")
-	if model == "" {
-		model = llm.DefaultModel(provider, llm.FeatureFix)
+	provider, model := evalTarget(os.Getenv)
+	thinking, thinkingLabel, err := evalThinking(provider, os.Getenv)
+	if err != nil {
+		t.Fatal(err)
 	}
 	judge := JudgeConfigFromEnv(os.Getenv)
 
@@ -144,11 +137,24 @@ func TestEvalFix(t *testing.T) {
 	evalSettings.Models = map[string]settings.FeatureModels{provider: {Fix: model}}
 	settingsSvc := settings.NewServiceFrom(evalSettings, settings.EnvOnlyKeys)
 
-	if settingsSvc.GetKey(provider) == "" && provider != llm.ProviderOllama && provider != llm.ProviderClaudeCode {
-		t.Fatalf("no API key for %q in the environment or .env — the eval reads no keyring", provider)
+	for _, p := range []string{provider, judge.Provider} {
+		if llm.UsesAPIKey(p) && settingsSvc.GetKey(p) == "" {
+			t.Fatalf("no API key for %q in the environment or .env — the eval reads no keyring", p)
+		}
 	}
 
+	// What actually answered, pipeline and judge kept apart. The pipeline asks
+	// for an alias; summary.json records the ID it resolved to, and the
+	// configKey keys on it, so a silent generation change reads "not
+	// comparable" instead of looking like a prompt effect.
+	var pipelineModels, judgeModels llm.ResolvedModels
+	// Read at the start and again at the end: the CLI is part of the
+	// instrument, and an auto-update mid-run would otherwise go unrecorded.
+	cliVersionAtStart := evalCLIVersion(provider, judge.Provider)
 	svc := NewService(settingsSvc)
+	svc.newClient = pipelineModels.WrapFactory(llm.New)
+	svc.thinking = thinking
+	judgeClient := judgeModels.WrapFactory(llm.New)
 	split, err := SplitFromEnv(os.Getenv("EVAL_SPLIT"))
 	if err != nil {
 		t.Fatal(err)
@@ -199,7 +205,7 @@ func TestEvalFix(t *testing.T) {
 					t.Logf("  %s: %.2f pass=%v — %s", c.Name, c.Score, c.Pass, c.Detail)
 				}
 
-				score, jErr := RunJudge(settingsSvc, judge, sample.Input, sample.Reference, output)
+				score, jErr := RunJudge(settingsSvc, judge, judgeClient, sample.Input, sample.Reference, output)
 				if jErr != nil {
 					// Recorded, not just logged: a judge that dropped an answer
 					// leaves judgeCount below sampleCount, and the run folder
@@ -222,6 +228,7 @@ func TestEvalFix(t *testing.T) {
 		})
 	}
 
+	judge.ResolvedModel = judgeModels.String()
 	summary := map[string]any{
 		"suite":         "fix",
 		"timestamp":     timestamp,
@@ -236,9 +243,16 @@ func TestEvalFix(t *testing.T) {
 		// two five-sample holdouts with one swapped would compare cleanly; this
 		// is the record that says they were not the same five. Enforcement is a
 		// test against SPLIT.json, which fails before anything is measured.
-		"splitHash":        SplitHash(sampleNames(samples)),
-		"provider":         provider,
-		"model":            model,
+		"splitHash":     SplitHash(sampleNames(samples)),
+		"provider":      provider,
+		"model":         model,
+		"resolvedModel": pipelineModels.String(),
+		// The CLI is part of the instrument when either side runs through it: its
+		// defaults sit between the model and the score. Recorded, not keyed.
+		"claudeCodeVersion": cliVersionSpan(cliVersionAtStart, evalCLIVersion(provider, judge.Provider)),
+		// Whether the pipeline thought first: on/off through the CLI, n/a for an
+		// API provider, which KeyLint does not ask. In the configKey.
+		"thinking":         thinkingLabel,
 		"judge":            judge,
 		"promptVariant":    0, // the Fix prompt has no variants
 		"qualityThreshold": 0,
@@ -261,8 +275,8 @@ func TestEvalFix(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(runDir, "summary.json"), data, 0o644)
 
 	t.Logf("\n=== FIX EVAL SUMMARY ===")
-	t.Logf("Provider: %s | Model: %s | Prompt: %s", provider, model, promptHash())
-	t.Logf("Judge: %s / %s @ temp %.1f", judge.Provider, judge.Model, judge.Temperature)
+	t.Logf("Provider: %s | Model: %s (resolved: %s) | Thinking: %s | Prompt: %s", provider, model, pipelineModels.String(), thinkingLabel, promptHash())
+	t.Logf("Judge: %s / %s (resolved: %s) @ temp %s", judge.Provider, judge.Model, judge.ResolvedModel, judge.TemperatureLabel())
 	t.Logf("Samples: %d (split %s, membership %s)", len(samples), split, SplitHash(sampleNames(samples)))
 	t.Logf("Avg deterministic: %.2f (%d of %d samples scored)", totalDet/float64(max(scored, 1)), scored, len(samples))
 	if judgeCount > 0 {

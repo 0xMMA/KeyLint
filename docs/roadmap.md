@@ -102,6 +102,7 @@ echo "<text>" | claude -p --model haiku --output-format json \
 - [x] Welcome wizard: detect → one-click select; fallback to BYOK
 - [x] Pyramidize + Fix + `-fix` CLI use it
 - [x] Model picker for this provider uses aliases (`opus`, `sonnet`, `haiku`) — the CLI resolves the current generation
+- [x] **Isolation fix (2026-10-04, #105):** `--setting-sources ""` did not stop Claude Code's auto-memory — the memory file of `~/.claude/projects/<slug of KeyLint's working directory>` reached every Fix and Pyramidize call. Every spawn now runs in an empty KeyLint-owned directory (user cache dir) with `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, and inherited thinking/output-cap/alias-remapping variables are stripped. Still no `--bare`.
 - [ ] Follow-up (separate issue when E1 ships): same interface for Codex CLI (`codex exec`) and Gemini CLI (`gemini -p`) → OpenAI/ChatGPT and Google subscribers
 
 ### P1 — foundation
@@ -138,7 +139,7 @@ Issue: #34.
 
 Hypothesis: with Opus 5 / Sonnet 5 a single well-structured call matches the detect → foundation → self-QA → refine pipeline on the existing eval. If true, the refine stage and the quality-threshold setting go away, latency halves, and the code shrinks.
 
-- [x] **Prerequisite done (#53, #59):** the eval is trustworthy enough to compare against. Runs are isolated from the developer's settings and keyring, the judge is pinned to a dated snapshot at temperature 0, `summary.json` records the full effective config, and `--runs n` produces a baseline with a spread. The current default (`claude-sonnet-4-6`, schema off) is re-baselined in `quality-status.md` with its noise floor.
+- [x] **Prerequisite done (#53, #59):** the eval is trustworthy enough to compare against. Runs are isolated from the developer's settings and keyring, the judge is pinned to a dated snapshot at temperature 0 (since 2026-10-04 the judge runs through the Claude Code CLI, still on the dated snapshot but without a temperature pin; see `quality-status.md`), `summary.json` records the full effective config, and `--runs n` produces a baseline with a spread. The current default (`claude-sonnet-4-6`, schema off) is re-baselined in `quality-status.md` with its noise floor.
 - [x] Re-baseline on **Opus 5** — done 2026-09-25 (`quality-status.md`, three runs each): Sonnet 5 deterministic clearly up, judge inconclusive; Opus 5 deterministic 0.888, clearly above both, judge 0.820 — below Sonnet 4.6 with disjoint ranges. Opus 5 is the first with a judge regression by the three-run rule (Sonnet 5's lower judge mean overlaps 4.6 and stays inconclusive); the default-model decision now has all three rows in `quality-status.md`
 - [x] ~~Prompt variant `v3`: single call, no self-QA JSON~~ — **not built, see [ADR-002](pyramidize/adr-002-one-shot-vs-pipeline.md).** The typed email path has been a single call since v2, so a v3 would have compared two one-shot prompts. The pipeline-vs-one-shot question was answered with the existing v1 (pipeline) against v2 (one-shot): quality inconclusive, reliability clearly one-shot.
 - [ ] Still open from that line: **structured output** (`--json-schema` / `output_config.format`). All three baselines ran with `schemaEnforcement: false`, so enforcement remains unmeasured (#47 is closed; turning it on is this epic's call)
