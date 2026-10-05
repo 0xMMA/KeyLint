@@ -566,30 +566,33 @@ test.describe('Shell — active route highlight', () => {
 // ── Footer separator ──────────────────────────────────────────────────────────
 
 test.describe('Shell — footer separator', () => {
-  // The line separates the collapse button from everything above it. When it
+  // One line separates the collapse button from everything above it. When it
   // sat on the whole footer, the version row (shown only when expanded) pushed
   // it up on expand and it jumped back on collapse.
-  async function separatorTop(page: Page): Promise<{ top: number; border: string }> {
-    return page.locator('.collapse-btn').evaluate((el) => ({
-      top: el.getBoundingClientRect().top,
-      border: getComputedStyle(el).borderTopWidth,
-    }));
+
+  /** The y position of every top border inside the footer, footer included. */
+  async function footerLines(page: Page): Promise<number[]> {
+    return page.locator('.sidebar-footer').evaluate((footer) =>
+      [footer, ...Array.from(footer.querySelectorAll('*'))]
+        .filter((el) => parseFloat(getComputedStyle(el).borderTopWidth) > 0)
+        .map((el) => Math.round(el.getBoundingClientRect().top)),
+    );
   }
 
-  test('sits directly above the collapse button and stays put on collapse', async ({ page }) => {
+  test('is one line above the collapse button that stays put in every state', async ({ page }) => {
     await gotoFix(page);
-    const expanded = await separatorTop(page);
+    const expanded = await footerLines(page);
+    const button = await getRect(page, '.collapse-btn');
     const version = await getRect(page, '[data-testid="version-footer"]');
-    expect(expanded.border, 'the collapse button carries the separator').toBe('1px');
-    expect(version.bottom, 'the version sits above the separator').toBeLessThanOrEqual(expanded.top + 0.5);
+    expect(expanded, 'exactly one line, on the collapse button').toEqual([Math.round(button.top)]);
+    expect(version.bottom, 'the version sits above the line').toBeLessThanOrEqual(button.top + 0.5);
 
     await collapse(page);
-    // Off the sidebar, or hover-expand would show the expanded layout again.
-    await page.mouse.move(800, 300);
+    expect(await footerLines(page), 'collapsed').toEqual(expanded);
+
+    // Hover-expanded shows the version again; the line must not move for it.
+    await page.locator('.layout-sidebar').hover();
     await settle(page);
-    const collapsed = await separatorTop(page);
-    expect(collapsed.border).toBe('1px');
-    expect(Math.abs(collapsed.top - expanded.top), 'separator moved between expanded and collapsed').toBeLessThanOrEqual(0.5);
+    expect(await footerLines(page), 'hover-expanded').toEqual(expanded);
   });
 });
-
