@@ -132,7 +132,6 @@ describe('SettingsComponent', () => {
     await component.ngOnInit();
     expect(wailsMock.getKeyStatus).toHaveBeenCalledWith('openai');
     expect(wailsMock.getKeyStatus).toHaveBeenCalledWith('claude');
-    expect(wailsMock.getKeyStatus).toHaveBeenCalledWith('bedrock');
   });
 
   it('save() calls saveSettings with current settings', async () => {
@@ -217,6 +216,34 @@ describe('SettingsComponent', () => {
   });
 
   describe('About tab', () => {
+    // Same wording as the sidebar (#21): one "v", and "dev" stays "dev".
+    describe('version label', () => {
+      for (const [raw, shown] of [['v3.6.0', 'Version: v3.6.0'], ['3.6.0', 'Version: v3.6.0'], ['dev', 'Version: dev']] as const) {
+        it(`shows "${raw}" as "${shown}"`, async () => {
+          TestBed.resetTestingModule();
+          const wailsMock = createWailsMock();
+          wailsMock.getVersion.mockResolvedValue(raw);
+          await TestBed.configureTestingModule({
+            imports: [SettingsComponent],
+            providers: [
+              provideAnimationsAsync(),
+              { provide: WailsService, useValue: wailsMock },
+              { provide: ActivatedRoute, useValue: makeActivatedRoute('about') },
+            ],
+          }).compileComponents();
+          const fixture = TestBed.createComponent(SettingsComponent);
+          fixture.componentInstance.settings = { ...defaultSettings };
+          fixture.detectChanges();
+          await fixture.whenStable();
+          await fixture.whenStable();
+          fixture.detectChanges();
+
+          const text = fixture.nativeElement.querySelector('[data-testid="app-version"]')?.textContent?.trim();
+          expect(text).toBe(shown);
+        });
+      }
+    });
+
     it('displays app version after init', async () => {
       wailsMock.getVersion.mockResolvedValue('3.6.0');
       await component.ngOnInit();
@@ -713,5 +740,164 @@ describe('SettingsComponent — model selection', () => {
 
     expect(component.modelFor('claude', 'fix')).toBe('claude-haiku-4-5-20251001');
     expect(component.modelFor('claude', 'pyramidize')).toBe('claude-opus-4-6');
+  });
+});
+
+
+// Bedrock is a stub that only returns an error (#22) until #23 implements it.
+describe('SettingsComponent — AWS Bedrock is not offered yet', () => {
+  let fixture: ComponentFixture<SettingsComponent>;
+  let component: SettingsComponent;
+  let el: HTMLElement;
+  let wailsMock: ReturnType<typeof createWailsMock>;
+
+  async function render(activeProvider: string, tab?: string): Promise<void> {
+    TestBed.resetTestingModule();
+    wailsMock = createWailsMock();
+    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, active_provider: activeProvider });
+    wailsMock.getKeyStatus.mockResolvedValue({ ...defaultKeyStatus });
+
+    await TestBed.configureTestingModule({
+      imports: [SettingsComponent],
+      providers: [
+        provideAnimationsAsync(),
+        { provide: WailsService, useValue: wailsMock },
+        { provide: ActivatedRoute, useValue: makeActivatedRoute(tab) },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(SettingsComponent);
+    component = fixture.componentInstance;
+    component.settings = { ...defaultSettings, active_provider: activeProvider };
+    el = fixture.nativeElement;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  function openActiveProviderDropdown(): string[] {
+    el.querySelector<HTMLElement>('[data-testid="active-provider-select"]')!.click();
+    fixture.detectChanges();
+    return Array.from(document.querySelectorAll('.p-select-option'))
+      .map(o => o.textContent?.trim() ?? '');
+  }
+
+  it('leaves Bedrock out of the Active Provider dropdown', async () => {
+    await render('openai');
+
+    const options = openActiveProviderDropdown();
+    expect(options).toContain('OpenAI');
+    expect(options.some(o => /bedrock/i.test(o))).toBe(false);
+  });
+
+  it('has no AWS key field on the AI Providers tab', async () => {
+    await render('openai', 'providers');
+
+    // Positive first, so an unrendered tab cannot pass the absence checks.
+    expect(el.textContent).toContain('OpenAI API Key');
+    expect(el.textContent).toContain('Anthropic API Key');
+    expect(el.textContent).not.toMatch(/AWS/);
+    expect(wailsMock.getKeyStatus).not.toHaveBeenCalledWith('bedrock');
+  });
+
+  it('says nothing about availability when the saved provider works', async () => {
+    await render('openai');
+
+    expect(el.querySelector('[data-testid="provider-unavailable"]')).toBeNull();
+  });
+
+  // A user who picked Bedrock before it was hidden. The dropdown cannot show
+  // it any more, so the empty field needs a reason next to it.
+  it('explains an empty provider field when Bedrock was saved', async () => {
+    await render('bedrock');
+
+    const note = el.querySelector('[data-testid="provider-unavailable"]');
+    expect(note).not.toBeNull();
+    expect(note!.textContent).toContain('AWS Bedrock is not available yet');
+  });
+
+  // Switching on the user's behalf would send their text to a service they
+  // never chose, so the saved value stays until they pick one.
+  it('does not switch a saved Bedrock provider behind the user\'s back', async () => {
+    await render('bedrock');
+
+    await component.save();
+
+    expect(wailsMock.saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ active_provider: 'bedrock' }),
+    );
+  });
+
+  it('drops the explanation once the user picks a provider', async () => {
+    await render('bedrock');
+
+    openActiveProviderDropdown();
+    const openai = Array.from(document.querySelectorAll<HTMLElement>('.p-select-option'))
+      .find(o => o.textContent?.trim() === 'OpenAI')!;
+    openai.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(el.querySelector('[data-testid="provider-unavailable"]')).toBeNull();
+    await component.save();
+    expect(wailsMock.saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ active_provider: 'openai' }),
+    );
+  });
+});
+
+
+// Only the dark theme is styled (#24). A dropdown with one entry is not a
+// choice, so the control is gone until a light theme exists (#25).
+describe('SettingsComponent — theme', () => {
+  let fixture: ComponentFixture<SettingsComponent>;
+  let component: SettingsComponent;
+  let el: HTMLElement;
+  let wailsMock: ReturnType<typeof createWailsMock>;
+
+  async function render(themePreference: string): Promise<void> {
+    TestBed.resetTestingModule();
+    wailsMock = createWailsMock();
+    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, theme_preference: themePreference });
+    wailsMock.getKeyStatus.mockResolvedValue({ ...defaultKeyStatus });
+
+    await TestBed.configureTestingModule({
+      imports: [SettingsComponent],
+      providers: [
+        provideAnimationsAsync(),
+        { provide: WailsService, useValue: wailsMock },
+        { provide: ActivatedRoute, useValue: makeActivatedRoute() },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(SettingsComponent);
+    component = fixture.componentInstance;
+    component.settings = { ...defaultSettings, theme_preference: themePreference };
+    el = fixture.nativeElement;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  it('shows no theme control on the General tab', async () => {
+    await render('dark');
+
+    const labels = Array.from(el.querySelectorAll('label')).map(l => l.textContent?.trim());
+    expect(labels).toContain('Start on Boot');
+    expect(labels).not.toContain('Theme');
+  });
+
+  // The field stays in the model for #25; saving must not rewrite it.
+  it('saves a stored theme preference unchanged', async () => {
+    await render('light');
+
+    await component.save();
+
+    expect(wailsMock.saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ theme_preference: 'light' }),
+    );
   });
 });

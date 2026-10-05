@@ -5,19 +5,29 @@
   box-sizing: border-box;
 }
 
-// PrimeNG Aura defines --p-card-background in :root but does NOT override it in .app-dark.
-// We fill in those gaps here so dark mode works correctly across all components.
+// .app-dark sits on <html> (see index.html). PrimeNG declares component
+// tokens on :root as aliases of the theme tokens, and an alias resolves where
+// it is declared — so while the class sat on <body>, every aliased token came
+// out light (select panels, tab bars, disabled fields: #28). With the class on
+// <html> those aliases now resolve to Aura's dark values: dropdown panels,
+// tabs, checkboxes, focus rings and text colours all moved (see PR #94). The
+// overrides below were written against the old gap; they are kept so surfaces
+// that were already dark stay exactly as they were.
+// --p-surface-ground is KeyLint's own variable (Aura has none); the light
+// --p-card-background below loses to PrimeNG's later :root, so both light
+// values only matter once a light theme exists (#25).
 :root {
   --p-surface-ground: var(--p-surface-50);   // page bg in light mode
   --p-card-background: var(--p-surface-0);   // card bg in light mode
 }
-// PrimeNG Aura does not propagate all dark-mode CSS vars correctly.
-// We override the gaps here so components render dark in .app-dark mode.
-.app-dark {
-  // Page & card backgrounds
+// :root.app-dark, not .app-dark: PrimeNG's card tokens also sit on :root and
+// are injected after this file, so equal specificity would lose to them and
+// raise the settings card off the page.
+:root.app-dark {
   --p-surface-ground: var(--p-surface-950);
   --p-card-background: var(--p-surface-ground);
-
+}
+.app-dark {
   // Tabs (tablist bar + tabpanel content area) — match page background
   .p-tablist,
   .p-tabpanels {
@@ -31,6 +41,15 @@
     background: var(--p-surface-950);
     color: var(--p-text-color);
     border-color: var(--p-surface-700);
+  }
+  // Disabled fields (#28): Aura's dark disabled fill is zinc-700, a grey block
+  // that reads like a button on this near-black page. Keep them on a dark
+  // surface one step up from the enabled ones, with muted text.
+  .p-textarea:disabled,
+  .p-inputtext:disabled,
+  .p-select.p-disabled {
+    background: var(--p-surface-900);
+    color: var(--p-text-muted-color);
   }
   // .p-select-label is a square span 1px inside the rounded .p-select box.
   // An opaque background here paints over the border's corner arcs at
