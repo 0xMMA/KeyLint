@@ -78,6 +78,10 @@ Settings tests use `XDG_CONFIG_HOME` env override to redirect file I/O to a temp
 - CI runs the whole suite (`build-linux.yml`, job `e2e`): add a spec and it runs, no allowlist to update
 - Generated output — `e2e/screenshots/`, `playwright-report/`, `test-results/` — is gitignored; `git status` must stay clean after a run
 - Config auto-starts `ng serve` on port 4200
+- A spec that needs a configured app (keys set, CLI signed in, a saved active
+  provider) uses `e2e/support/fake-backend.ts`: it answers the settings
+  service's binding calls from in-memory state via `page.route()` and records
+  what the app saved. Every other service still 404s, as without it
 - No E2E test reaches a provider. The app calls Go through Wails, and `ng serve`
   has no Wails bridge, so anything needing a real completion cannot run under
   Playwright as the suite stands. `silent-fix.spec.ts` is skipped for that

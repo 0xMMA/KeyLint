@@ -66,3 +66,14 @@ body {
   background: var(--p-surface-ground);
   color: var(--p-text-color);
 }
+
+/* Visually hidden, still read by screen readers. Global so every component
+   can use it; emulated encapsulation would otherwise need a copy in each. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

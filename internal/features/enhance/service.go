@@ -187,7 +187,7 @@ func (s *Service) providerConfig(cfg settings.Settings) (llm.Config, string, err
 	case llm.ProviderClaude:
 		key := s.resolveKey(llm.ProviderClaude)
 		if key == "" {
-			return llm.Config{}, "", fmt.Errorf("Anthropic API key is not configured. Go to Settings → AI Providers → Anthropic API Key, and make sure 'Anthropic Claude' is selected as the Active Provider")
+			return llm.Config{}, "", fmt.Errorf("Anthropic API key is not configured. Go to Settings → AI Providers and set a key on the Anthropic API card")
 		}
 		return llm.Config{APIKey: key, HTTPClient: s.client, Feature: logFeature}, cfg.ModelFor(llm.ProviderClaude, llm.FeatureFix), nil
 	case llm.ProviderOllama:
