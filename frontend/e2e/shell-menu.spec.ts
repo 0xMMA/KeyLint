@@ -562,3 +562,34 @@ test.describe('Shell — active route highlight', () => {
     }
   });
 });
+
+// ── Footer separator ──────────────────────────────────────────────────────────
+
+test.describe('Shell — footer separator', () => {
+  // The line separates the collapse button from everything above it. When it
+  // sat on the whole footer, the version row (shown only when expanded) pushed
+  // it up on expand and it jumped back on collapse.
+  async function separatorTop(page: Page): Promise<{ top: number; border: string }> {
+    return page.locator('.collapse-btn').evaluate((el) => ({
+      top: el.getBoundingClientRect().top,
+      border: getComputedStyle(el).borderTopWidth,
+    }));
+  }
+
+  test('sits directly above the collapse button and stays put on collapse', async ({ page }) => {
+    await gotoFix(page);
+    const expanded = await separatorTop(page);
+    const version = await getRect(page, '[data-testid="version-footer"]');
+    expect(expanded.border, 'the collapse button carries the separator').toBe('1px');
+    expect(version.bottom, 'the version sits above the separator').toBeLessThanOrEqual(expanded.top + 0.5);
+
+    await collapse(page);
+    // Off the sidebar, or hover-expand would show the expanded layout again.
+    await page.mouse.move(800, 300);
+    await settle(page);
+    const collapsed = await separatorTop(page);
+    expect(collapsed.border).toBe('1px');
+    expect(Math.abs(collapsed.top - expanded.top), 'separator moved between expanded and collapsed').toBeLessThanOrEqual(0.5);
+  });
+});
+
