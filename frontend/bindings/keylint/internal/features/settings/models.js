@@ -240,6 +240,16 @@ export class Settings {
              */
             this["update_channel"] = "";
         }
+        if (!("developer_options" in $$source)) {
+            /**
+             * DeveloperOptions unlocks the dev channel in Settings → About: installable
+             * builds of open pull requests and of main. Off for everyone until the
+             * owner turns it on by tapping the version, and off again with a switch.
+             * @member
+             * @type {boolean}
+             */
+            this["developer_options"] = false;
+        }
         if (!("models" in $$source)) {
             /**
              * Models holds the model chosen per provider and feature. An absent key or
@@ -277,17 +287,17 @@ export class Settings {
      */
     static createFrom($$source = {}) {
         const $$createField1_0 = $$createType0;
-        const $$createField9_0 = $$createType2;
-        const $$createField10_0 = $$createType4;
+        const $$createField10_0 = $$createType2;
+        const $$createField11_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("providers" in $$parsedSource) {
             $$parsedSource["providers"] = $$createField1_0($$parsedSource["providers"]);
         }
         if ("models" in $$parsedSource) {
-            $$parsedSource["models"] = $$createField9_0($$parsedSource["models"]);
+            $$parsedSource["models"] = $$createField10_0($$parsedSource["models"]);
         }
         if ("app_presets" in $$parsedSource) {
-            $$parsedSource["app_presets"] = $$createField10_0($$parsedSource["app_presets"]);
+            $$parsedSource["app_presets"] = $$createField11_0($$parsedSource["app_presets"]);
         }
         return new Settings(/** @type {Partial<Settings>} */($$parsedSource));
     }

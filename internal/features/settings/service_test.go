@@ -454,3 +454,50 @@ func TestSettingsWithoutModelsNeedNoMigration(t *testing.T) {
 		t.Errorf("ModelFor = %q, want the built-in default", got)
 	}
 }
+
+func TestSetDeveloperOptions_ChangesOnlyThatFieldAndPersists(t *testing.T) {
+	tmp := t.TempDir()
+	svc := newServiceAt(t, tmp)
+	saved := settings.Default()
+	saved.UpdateChannel = "stable"
+	saved.ActiveProvider = "claude"
+	if err := svc.Save(saved); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	if err := svc.SetDeveloperOptions(true); err != nil {
+		t.Fatalf("SetDeveloperOptions: %v", err)
+	}
+	got := svc.Get()
+	if !got.DeveloperOptions {
+		t.Errorf("developer_options = false after turning it on")
+	}
+	if got.UpdateChannel != "stable" || got.ActiveProvider != "claude" {
+		t.Errorf("other fields changed: update_channel=%q active_provider=%q", got.UpdateChannel, got.ActiveProvider)
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmp, "KeyLint", "settings.json"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var onDisk settings.Settings
+	if err := json.Unmarshal(data, &onDisk); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if !onDisk.DeveloperOptions {
+		t.Errorf("developer_options not written to disk")
+	}
+
+	if err := svc.SetDeveloperOptions(false); err != nil {
+		t.Fatalf("SetDeveloperOptions(false): %v", err)
+	}
+	if svc.Get().DeveloperOptions {
+		t.Errorf("developer_options still on after turning it off")
+	}
+}
+
+func TestDefault_DeveloperOptionsOff(t *testing.T) {
+	if settings.Default().DeveloperOptions {
+		t.Error("developer options must be off by default")
+	}
+}

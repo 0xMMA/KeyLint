@@ -7,6 +7,247 @@
 import { Create as $Create } from "@wailsio/runtime";
 
 /**
+ * BuildIdentity is what the running build knows about itself from its version.
+ */
+export class BuildIdentity {
+    /**
+     * Creates a new BuildIdentity instance.
+     * @param {Partial<BuildIdentity>} [$$source = {}] - The source object to create the BuildIdentity.
+     */
+    constructor($$source = {}) {
+        if (!("is_dev_build" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["is_dev_build"] = false;
+        }
+        if (!("kind" in $$source)) {
+            /**
+             * "pr", "main", or "" for a normal build
+             * @member
+             * @type {string}
+             */
+            this["kind"] = "";
+        }
+        if (!("pr" in $$source)) {
+            /**
+             * 0 unless Kind is "pr"
+             * @member
+             * @type {number}
+             */
+            this["pr"] = 0;
+        }
+        if (!("commit" in $$source)) {
+            /**
+             * short SHA, when the version carries one
+             * @member
+             * @type {string}
+             */
+            this["commit"] = "";
+        }
+        if (!("tag" in $$source)) {
+            /**
+             * the release this build came from, for dev builds
+             * @member
+             * @type {string}
+             */
+            this["tag"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new BuildIdentity instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {BuildIdentity}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new BuildIdentity(/** @type {Partial<BuildIdentity>} */($$parsedSource));
+    }
+}
+
+/**
+ * DevBuild is one installable dev-channel build.
+ */
+export class DevBuild {
+    /**
+     * Creates a new DevBuild instance.
+     * @param {Partial<DevBuild>} [$$source = {}] - The source object to create the DevBuild.
+     */
+    constructor($$source = {}) {
+        if (!("tag" in $$source)) {
+            /**
+             * v0.0.0-pr.12 or v0.0.0-main
+             * @member
+             * @type {string}
+             */
+            this["tag"] = "";
+        }
+        if (!("kind" in $$source)) {
+            /**
+             * "pr" or "main"
+             * @member
+             * @type {string}
+             */
+            this["kind"] = "";
+        }
+        if (!("pr" in $$source)) {
+            /**
+             * 0 for main
+             * @member
+             * @type {number}
+             */
+            this["pr"] = 0;
+        }
+        if (!("title" in $$source)) {
+            /**
+             * PR title; empty for main
+             * @member
+             * @type {string}
+             */
+            this["title"] = "";
+        }
+        if (!("pr_url" in $$source)) {
+            /**
+             * empty for main
+             * @member
+             * @type {string}
+             */
+            this["pr_url"] = "";
+        }
+        if (!("commit" in $$source)) {
+            /**
+             * short SHA the build was made from
+             * @member
+             * @type {string}
+             */
+            this["commit"] = "";
+        }
+        if (!("date" in $$source)) {
+            /**
+             * RFC 3339, when this build was uploaded
+             * @member
+             * @type {string}
+             */
+            this["date"] = "";
+        }
+        if (!("installable" in $$source)) {
+            /**
+             * has an asset for this platform
+             * @member
+             * @type {boolean}
+             */
+            this["installable"] = false;
+        }
+        if (!("installed" in $$source)) {
+            /**
+             * this is the build that is running
+             * @member
+             * @type {boolean}
+             */
+            this["installed"] = false;
+        }
+        if (!("newer_build" in $$source)) {
+            /**
+             * same PR or main as the running build, newer commit
+             * @member
+             * @type {boolean}
+             */
+            this["newer_build"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new DevBuild instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {DevBuild}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new DevBuild(/** @type {Partial<DevBuild>} */($$parsedSource));
+    }
+}
+
+/**
+ * DevChannel is everything the dev-channel view shows. It never comes back as
+ * an error: GitHub being unreachable or rate-limited is reported in Error, next
+ * to whatever was last known, so the screen degrades instead of breaking.
+ */
+export class DevChannel {
+    /**
+     * Creates a new DevChannel instance.
+     * @param {Partial<DevChannel>} [$$source = {}] - The source object to create the DevChannel.
+     */
+    constructor($$source = {}) {
+        if (!("current" in $$source)) {
+            /**
+             * @member
+             * @type {BuildIdentity}
+             */
+            this["current"] = (new BuildIdentity());
+        }
+        if (!("builds" in $$source)) {
+            /**
+             * @member
+             * @type {DevBuild[]}
+             */
+            this["builds"] = [];
+        }
+        if (!("orphaned" in $$source)) {
+            /**
+             * Orphaned is true when the running build is a PR build whose release no
+             * longer exists: the PR was merged or closed. Only set on a definite answer
+             * from GitHub, never because GitHub could not be asked.
+             * @member
+             * @type {boolean}
+             */
+            this["orphaned"] = false;
+        }
+        if (!("latest_release" in $$source)) {
+            /**
+             * LatestRelease is the newest real release on the effective update
+             * channel, without the "v" — the second choice in the return offer.
+             * @member
+             * @type {string}
+             */
+            this["latest_release"] = "";
+        }
+        if (!("error" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["error"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new DevChannel instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {DevChannel}
+     */
+    static createFrom($$source = {}) {
+        const $$createField0_0 = $$createType0;
+        const $$createField1_0 = $$createType2;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("current" in $$parsedSource) {
+            $$parsedSource["current"] = $$createField0_0($$parsedSource["current"]);
+        }
+        if ("builds" in $$parsedSource) {
+            $$parsedSource["builds"] = $$createField1_0($$parsedSource["builds"]);
+        }
+        return new DevChannel(/** @type {Partial<DevChannel>} */($$parsedSource));
+    }
+}
+
+/**
  * InstallResult is returned by DownloadAndInstall to indicate the outcome.
  * On Windows, RestartRequired is true because the NSIS installer needs the app to exit.
  */
@@ -103,3 +344,8 @@ export class UpdateInfo {
         return new UpdateInfo(/** @type {Partial<UpdateInfo>} */($$parsedSource));
     }
 }
+
+// Private type creation functions
+const $$createType0 = BuildIdentity.createFrom;
+const $$createType1 = DevBuild.createFrom;
+const $$createType2 = $Create.Array($$createType1);
