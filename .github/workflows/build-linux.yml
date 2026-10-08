@@ -423,6 +423,10 @@ jobs:
   # fork's run a write token if they did. The PR title reaches the shell only
   # through an environment variable, never through an expression in the script.
   #
+  # What is published is built from the PR's head commit, while `test` and
+  # `e2e` above run on the merge ref: the same code unless main has moved on
+  # in a way that conflicts. The published binary itself is not tested here.
+  #
   # Releases created with GITHUB_TOKEN start no workflows, so these tags do not
   # trigger release.yml; it also excludes v0.0.0-* on its own.
   publish-dev-build:
@@ -435,7 +439,8 @@ jobs:
     # Shared with dev-channel-cleanup.yml, so a close waits for a publish in
     # flight rather than racing it.
     concurrency:
-      group: dev-build-${{ needs.test.outputs.tag }}
+      # run_id only when skipped, so skipped runs never share an empty group.
+      group: dev-build-${{ needs.test.outputs.tag || github.run_id }}
       cancel-in-progress: false
     env:
       GH_TOKEN: ${{ github.token }}
@@ -505,11 +510,14 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             # Replace in place rather than delete and recreate: an installed
             # build of this PR must never see its release missing, or it would
-            # offer to leave a PR that is still open.
+            # offer to leave a PR that is still open. Files first, the
+            # "Commit:" line last: a run cancelled in between leaves new files
+            # under the old commit, which the next run corrects, rather than a
+            # commit line naming files that are not there.
+            gh release upload "$TAG" "${assets[@]}" --clobber
             gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$TAG" -f sha="$SHA" -F force=true >/dev/null \
               || gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$SHA" >/dev/null
             gh release edit "$TAG" --title "$title" --notes-file notes.md --prerelease --latest=false
-            gh release upload "$TAG" "${assets[@]}" --clobber
           else
             gh release create "$TAG" "${assets[@]}" --target "$SHA" --title "$title" \
               --notes-file notes.md --prerelease --latest=false

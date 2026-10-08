@@ -46,7 +46,7 @@ Then go to **GitHub → Releases** and publish the draft once the workflow compl
 - Same-repo PRs (not Dependabot) and pushes to main also publish a **dev-channel
   prerelease** — see "The dev channel" below
 
-**`dev-channel-cleanup.yml`** (PR closed): deletes that PR's dev-channel prerelease and tag.
+**`dev-channel-cleanup.yml`** (PR closed, plus a daily sweep): deletes a closed PR's dev-channel prerelease and tag.
 
 **`release.yml`** (tag push):
 - Builds `KeyLint-vX.Y.Z-linux-amd64` and `KeyLint-vX.Y.Z-windows-amd64.exe`

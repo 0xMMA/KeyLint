@@ -171,6 +171,13 @@ func (s *Service) releases(force bool) ([]githubRelease, error) {
 	return releases, nil
 }
 
+// lastKnownReleases returns the last list fetched, however old, or nil.
+func (s *Service) lastKnownReleases() []githubRelease {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	return s.cached
+}
+
 // errNotFound is a 404 from the GitHub API.
 var errNotFound = errors.New("not found")
 
@@ -225,8 +232,11 @@ func rateLimited(resp *http.Response, now time.Time) (bool, time.Time) {
 			if reset := time.Unix(epoch, 0); reset.After(now) {
 				return true, reset
 			}
+			// A reset this clock already considers past: the clock runs
+			// fast, or the window has just turned. Wait briefly, not an hour.
+			return true, now.Add(time.Minute)
 		}
-		// Spent, but no usable reset time: back off for GitHub's window.
+		// Spent, but no reset time at all: back off for GitHub's window.
 		return true, now.Add(time.Hour)
 	}
 	if resp.StatusCode == http.StatusTooManyRequests {

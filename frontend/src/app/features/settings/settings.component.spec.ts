@@ -387,10 +387,30 @@ describe('SettingsComponent', () => {
         expect(q('dev-channel')).toBeNull();
       });
 
+      it('keep the switch on when turning them off fails', async () => {
+        const { f, q, mock } = await renderAbout({ developerOptions: true });
+        mock.setDeveloperOptions.mockRejectedValue(new Error('disk full'));
+
+        (q('developer-options-toggle')?.querySelector('input') as HTMLInputElement).click();
+        await f.whenStable();
+        f.detectChanges();
+        await f.whenStable();
+        f.detectChanges();
+
+        // NgModel writes a re-created control's value one microtask late.
+        await f.whenStable();
+        f.detectChanges();
+        expect(q('developer-options-error')?.textContent).toContain('disk full');
+        expect(q('dev-channel')).toBeTruthy();
+        // What the switch draws: PrimeNG mirrors its state onto the host.
+        expect(q('developer-options-toggle')?.getAttribute('data-p-checked')).toBe('true');
+      });
+
       it('replace the normal update check with the dev channel in a dev build, even when off', async () => {
         const { q, mock } = await renderAbout({ devBuild: true });
-        expect(q('update-channel-section')).toBeNull();
         expect(q('check-update-btn')).toBeNull();
+        // Still settable: it picks the release the "latest release" offer installs.
+        expect(q('update-channel-section')).toBeTruthy();
         expect(q('dev-channel')).toBeTruthy();
         expect(mock.listDevBuilds).toHaveBeenCalled();
       });

@@ -50,7 +50,8 @@ type BuildIdentity struct {
 
 // DevChannel is everything the dev-channel view shows. It never comes back as
 // an error: GitHub being unreachable or rate-limited is reported in Error, next
-// to whatever was last known, so the screen degrades instead of breaking.
+// to the last list fetched this session (if any), so the screen degrades
+// instead of breaking.
 type DevChannel struct {
 	Current BuildIdentity `json:"current"`
 	Builds  []DevBuild    `json:"builds"`
@@ -142,10 +143,13 @@ func devBuildFrom(r githubRelease) (DevBuild, bool) {
 	return b, true
 }
 
-// devChannelAllowed gates the dev channel's install methods. The frontend only
-// shows them behind developer options, but every exported method is callable
-// from the webview, so the backend checks too. A dev build is always allowed:
-// with the normal update check silenced, the dev channel is its only way off.
+// devChannelAllowed gates the dev channel's install methods, so a stray call
+// cannot install a test build for someone who never unlocked the channel. It
+// is not a defence against the webview itself: that can call the exported
+// SetDeveloperOptions first. What limits the exposure is that only dev tags
+// are accepted, and only the owner's branches publish them. A dev build is
+// always allowed: with the normal update check silenced, the dev channel is
+// its only way off.
 func (s *Service) devChannelAllowed() bool {
 	if parseBuildIdentity(s.currentVersion).IsDevBuild {
 		return true
@@ -165,7 +169,11 @@ func (s *Service) ListDevBuilds(force bool) DevChannel {
 	releases, err := s.releases(force)
 	if err != nil {
 		out.Error = friendlyError(err)
-		return out
+		// Show what was last known, marked by the error, rather than nothing.
+		// Orphan detection stays off: it needs a definite answer from GitHub.
+		if releases = s.lastKnownReleases(); releases == nil {
+			return out
+		}
 	}
 
 	for _, r := range releases {
@@ -188,7 +196,7 @@ func (s *Service) ListDevBuilds(force bool) DevChannel {
 		out.LatestRelease = strings.TrimPrefix(best.TagName, "v")
 	}
 
-	if out.Current.Kind == "pr" && !hasTag(out.Builds, out.Current.Tag) {
+	if err == nil && out.Current.Kind == "pr" && !hasTag(out.Builds, out.Current.Tag) {
 		// Not in the list. The list is one page, so ask for the tag itself
 		// before declaring the build orphaned: only a 404 says it is gone.
 		gone, err := s.tagGone(out.Current.Tag, force)

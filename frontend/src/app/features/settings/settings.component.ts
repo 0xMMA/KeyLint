@@ -1,10 +1,10 @@
-import { Component, OnInit, OnDestroy, ChangeDetectorRef, ElementRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef, ElementRef, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
-import { ToggleSwitchModule } from 'primeng/toggleswitch';
+import { ToggleSwitchModule, ToggleSwitch } from 'primeng/toggleswitch';
 import { Tabs, TabList, Tab, TabPanels, TabPanel } from 'primeng/tabs';
 import { MessageModule } from 'primeng/message';
 import { CardModule } from 'primeng/card';
@@ -452,6 +452,7 @@ interface ProviderKey {
                         <small class="hint-text">Shows the dev channel below. Turn off to hide it again; tapping the version seven times brings it back.</small>
                       </div>
                       <p-toggle-switch
+                        #developerOptionsToggle
                         inputId="developer-options-toggle"
                         data-testid="developer-options-toggle"
                         [ngModel]="settings.developer_options"
@@ -464,9 +465,8 @@ interface ProviderKey {
                   <p-message data-testid="developer-options-error" severity="error" [text]="devOptionsError" styleClass="mb-2" />
                 }
 
-                <!-- A dev build is 0.0.0, so every release would read as an
-                     update: the dev channel replaces the normal check there. -->
-                @if (!buildIdentity.is_dev_build) {
+                <!-- The channel stays settable in a dev build: it decides which
+                     release the dev channel's "latest release" offer installs. -->
                 <div class="form-group mt-3" data-testid="update-channel-section">
                   <label>Update Channel</label>
                   <p-select
@@ -475,9 +475,12 @@ interface ProviderKey {
                     optionLabel="label"
                     optionValue="value"
                   />
-                  <small class="hint-text">Auto detects from your current version: pre-release versions check for pre-releases, stable versions check for stable only.</small>
+                  <small class="hint-text">Auto detects from your current version: pre-release versions check for pre-releases, stable versions check for stable only. Test builds count as pre-release.</small>
                 </div>
 
+                <!-- A dev build is 0.0.0, so every release would read as an
+                     update: the dev channel replaces the normal check there. -->
+                @if (!buildIdentity.is_dev_build) {
                 <div class="mt-3">
                   <p-button
                     data-testid="check-update-btn"
@@ -686,6 +689,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly versionLabel = versionLabel;
   /** What the running build says about itself; a release build until asked. */
   buildIdentity: BuildIdentity = { is_dev_build: false, kind: '', pr: 0, commit: '', tag: '' };
+  @ViewChild('developerOptionsToggle') private developerOptionsToggle?: ToggleSwitch;
   /** Taps on the version so far, towards UNLOCK_TAPS. */
   private versionTaps = 0;
   unlockHint = '';
@@ -1159,6 +1163,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
       this.log.info(`settings: developer options ${enabled ? 'on' : 'off'}`);
       return true;
     } catch (e) {
+      // The switch has already moved, and its [ngModel] input has not
+      // changed, so Angular will not move it back: do it here, so it shows
+      // what is saved rather than what was asked for.
+      this.developerOptionsToggle?.writeValue(this.settings.developer_options);
       this.devOptionsError = `Could not change the developer options: ${e instanceof Error ? e.message : String(e)}`;
       return false;
     } finally {

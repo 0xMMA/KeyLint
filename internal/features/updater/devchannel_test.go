@@ -455,7 +455,36 @@ func TestRateLimited(t *testing.T) {
 	if ok, until := rateLimited(mk(403, map[string]string{"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1000600"}), now); !ok || until.Unix() != 1000600 {
 		t.Errorf("primary limit: %v %v", ok, until)
 	}
+	// A fast local clock sees the reset as past: a short wait, not an hour.
+	if ok, until := rateLimited(mk(403, map[string]string{"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "999000"}), now); !ok || until.Sub(now) != time.Minute {
+		t.Errorf("past reset: %v %v", ok, until.Sub(now))
+	}
 	if ok, until := rateLimited(mk(429, map[string]string{"Retry-After": "30"}), now); !ok || until.Sub(now) != 30*time.Second {
 		t.Errorf("secondary limit: %v %v", ok, until)
+	}
+}
+
+func TestListDevBuilds_KeepsTheLastListWhenGitHubStopsAnswering(t *testing.T) {
+	f := newFakeGitHub(t, nil)
+	f.releases = standardReleases(f)
+	svc := devService(f, "0.0.0-pr.99+abc1234", false)
+	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+
+	if first := svc.ListDevBuilds(false); len(first.Builds) != 3 || !first.Orphaned {
+		t.Fatalf("first list: %d builds, orphaned=%v", len(first.Builds), first.Orphaned)
+	}
+	f.rateLimit.Store(true)
+	now = now.Add(5 * time.Minute)
+
+	got := svc.ListDevBuilds(true)
+	if got.Error == "" {
+		t.Error("the rate limit is not reported")
+	}
+	if len(got.Builds) != 3 {
+		t.Errorf("%d builds, want the 3 last known", len(got.Builds))
+	}
+	if got.Orphaned {
+		t.Error("orphaned claimed without a fresh answer from GitHub")
 	}
 }

@@ -5,9 +5,16 @@ name: Dev channel cleanup
 # publish-dev-build; see the trust model there. An app running that build
 # notices the release is gone and offers to install main or the latest
 # release instead — it never installs anything on its own.
+#
+# The daily sweep catches what a close missed (a failed run has no retry):
+# leftovers would otherwise stay forever, and every dev prerelease takes one
+# of the 20 slots old clients read (see .claude/docs/versioning.md).
 on:
   pull_request:
     types: [closed]
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,6 +24,7 @@ jobs:
     # The same PRs the publisher serves: this repository's branches, not
     # Dependabot's. Anything else never had a release to delete.
     if: >-
+      github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
@@ -46,3 +54,29 @@ jobs:
           if gh api -X DELETE "repos/$GH_REPO/git/refs/tags/$TAG" >/dev/null 2>&1; then
             echo "deleted leftover tag $TAG"
           fi
+
+  sweep:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # delete prereleases and tags
+      pull-requests: read  # ask whether each PR is still open
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Delete PR builds whose PR is not open
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq '.[].tag_name' \
+            | { grep -E '^v0\.0\.0-pr\.[0-9]+$' || true; } \
+            | while read -r tag; do
+                n="${tag#v0.0.0-pr.}"
+                state=$(gh api "repos/$GH_REPO/pulls/$n" --jq .state 2>/dev/null || echo unknown)
+                if [[ "$state" == closed ]]; then
+                  gh release delete "$tag" --cleanup-tag --yes
+                  echo "deleted $tag (PR #$n closed)"
+                else
+                  echo "kept $tag (PR #$n $state)"
+                fi
+              done
