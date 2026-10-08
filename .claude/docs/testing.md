@@ -6,7 +6,7 @@ Runner: `@angular/build:unit-test` with `runner: vitest` (configured in `angular
 
 **Key constraints:**
 - Use `async/await`, NOT `fakeAsync`/`tick` (no zone.js)
-- `vi.mock()` is blocked by the Angular Vitest runner — use Angular DI mocking instead
+- `vi.mock()` of relative/absolute paths is blocked by the Angular Vitest runner (outright up to 21.2.0) — app modules are imported relatively, so use Angular DI mocking instead
 - For timer-dependent tests use `vi.useFakeTimers()` / `vi.runAllTimersAsync()`
 
 **Mock pattern:** `createWailsMock()` in `frontend/src/testing/wails-mock.ts` returns a fully-stubbed `WailsService` with `vi.fn()` spies. Inject via `{ provide: WailsService, useValue: wailsMock }` in `TestBed`.

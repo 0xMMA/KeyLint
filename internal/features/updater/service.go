@@ -1,6 +1,7 @@
 package updater
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,11 +11,26 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"keylint/internal/features/settings"
 )
 
-const defaultReleasesAPIURL = "https://api.github.com/repos/0xMMA/KeyLint/releases?per_page=20"
+// defaultReleasesAPIURL lists the newest releases. 100 rather than the 20 that
+// v4.4.3-beta and older ask for: the dev channel publishes one prerelease per
+// open pull request plus one for main, and those sort above real releases.
+const defaultReleasesAPIURL = "https://api.github.com/repos/0xMMA/KeyLint/releases?per_page=100"
+
+// apiTimeout bounds one call to the GitHub API. Downloads are not bounded by
+// it: an installer on a slow line takes longer, and the user is watching it.
+const apiTimeout = 15 * time.Second
+
+// releasesTTL is how long a fetched release list is reused. Unauthenticated
+// clients get 60 API calls an hour per IP; the shell, the About tab and an
+// install each want the list, so without this one session spends a dozen.
+const releasesTTL = time.Minute
 
 // Service checks for updates and can apply them using platform-specific strategies.
 type Service struct {
@@ -24,16 +40,30 @@ type Service struct {
 	settingsSvc    *settings.Service
 	quitFunc       func()                                                    // called after launching installer on Windows; set via SetQuitFunc
 	applyFunc      func(svc *Service, tmpPath string) (InstallResult, error) // override for testing; nil uses applyPlatformUpdate
+	now            func() time.Time                                          // override for testing
+
+	// cacheMu guards the release list and the rate-limit back-off below. Wails
+	// serves every RPC on its own goroutine, so the shell's startup check and
+	// the About tab can ask at the same moment.
+	cacheMu      sync.Mutex
+	cached       []githubRelease
+	cachedAt     time.Time
+	blockedUntil time.Time // GitHub said the anonymous quota is spent until then
+	goneTag      string    // a dev tag GitHub answered 404 for…
+	goneAt       time.Time // …and when
+
+	installing atomic.Bool // a download-and-apply is in flight
 }
 
 // NewService creates an updater Service with the given current version string.
 // The version is typically injected at build time via -ldflags "-X main.AppVersion=x.y.z".
 func NewService(version string, settingsSvc *settings.Service) *Service {
 	return &Service{
-		currentVersion:  version,
-		releasesAPIURL:  defaultReleasesAPIURL,
-		client:          &http.Client{},
-		settingsSvc:     settingsSvc,
+		currentVersion: version,
+		releasesAPIURL: defaultReleasesAPIURL,
+		client:         &http.Client{},
+		settingsSvc:    settingsSvc,
+		now:            time.Now,
 	}
 }
 
@@ -49,6 +79,10 @@ func (s *Service) SetQuitFunc(fn func()) {
 }
 
 // CheckForUpdate fetches the GitHub Releases API and finds the best available update.
+//
+// Dev builds (0.0.0-pr.N, 0.0.0-main) never get an answer here: at version
+// 0.0.0 every release would look like an update, forever. They are served by
+// ListDevBuilds instead, which knows where they came from.
 func (s *Service) CheckForUpdate() (UpdateInfo, error) {
 	info := UpdateInfo{CurrentVersion: s.currentVersion}
 
@@ -56,38 +90,45 @@ func (s *Service) CheckForUpdate() (UpdateInfo, error) {
 	if s.currentVersion == "dev" || s.currentVersion == "" {
 		return info, nil
 	}
+	if parseBuildIdentity(s.currentVersion).IsDevBuild {
+		info.Channel = "dev"
+		return info, nil
+	}
 
 	// Resolve effective channel from settings.
 	channel := s.resolveChannel()
 	info.Channel = channel
 
-	req, err := http.NewRequest("GET", s.releasesAPIURL, nil)
+	releases, err := s.releases(false)
 	if err != nil {
-		return info, fmt.Errorf("creating request: %w", err)
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "KeyLint")
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return info, fmt.Errorf("fetching releases: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return info, fmt.Errorf("releases API returned status %d", resp.StatusCode)
+		return info, err
 	}
 
-	var releases []githubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
-		return info, fmt.Errorf("parsing releases: %w", err)
+	best := bestRelease(releases, channel)
+	if best == nil {
+		return info, nil
 	}
 
-	// Find the highest-versioned candidate.
+	info.LatestVersion = strings.TrimPrefix(best.TagName, "v")
+	info.Notes = best.Body
+
+	// Match platform asset by filename substring.
+	info.ReleaseURL = matchPlatformAsset(best.Assets).BrowserDownloadURL
+
+	info.IsAvailable = isNewer(best.TagName, s.currentVersion)
+	return info, nil
+}
+
+// bestRelease picks the highest-versioned release a normal channel may offer:
+// no drafts, no prereleases on stable, and never a dev-channel build — those
+// are published as prereleases tagged v0.0.0-*, which only the dev channel
+// lists. Their version is 0.0.0 and so could never win on version alone; the
+// explicit filter is there so that stays true whatever they are tagged later.
+func bestRelease(releases []githubRelease, channel string) *githubRelease {
 	var best *githubRelease
 	for i := range releases {
 		r := &releases[i]
-		if r.Draft {
+		if r.Draft || isDevTag(r.TagName) {
 			continue
 		}
 		if channel == "stable" && r.Prerelease {
@@ -97,19 +138,115 @@ func (s *Service) CheckForUpdate() (UpdateInfo, error) {
 			best = r
 		}
 	}
+	return best
+}
 
-	if best == nil {
-		return info, nil
+// rateLimitError is GitHub refusing anonymous requests until reset.
+type rateLimitError struct{ reset time.Time }
+
+func (e rateLimitError) Error() string {
+	return fmt.Sprintf("GitHub's limit for anonymous requests is used up — try again after %s", e.reset.Local().Format("15:04"))
+}
+
+// releases returns the release list, from cache when it is younger than
+// releasesTTL unless force is set. Once GitHub has said the anonymous quota is
+// spent, nothing is sent until it resets, force or not: asking again only
+// costs time, and an empty-handed retry loop is what turns a rate limit into
+// a broken screen.
+func (s *Service) releases(force bool) ([]githubRelease, error) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	now := s.now()
+	// A fresh list needs no request, so a rate limit does not stand in its way.
+	if !force && s.cached != nil && now.Sub(s.cachedAt) < releasesTTL {
+		return s.cached, nil
+	}
+	if now.Before(s.blockedUntil) {
+		return nil, rateLimitError{reset: s.blockedUntil}
 	}
 
-	info.LatestVersion = strings.TrimPrefix(best.TagName, "v")
-	info.Notes = best.Body
+	var releases []githubRelease
+	if err := s.getJSON(s.releasesAPIURL, &releases); err != nil {
+		return nil, err
+	}
+	s.cached = releases
+	s.cachedAt = now
+	return releases, nil
+}
 
-	// Match platform asset by filename substring.
-	info.ReleaseURL = matchPlatformAsset(best.Assets)
+// lastKnownReleases returns the last list fetched, however old, or nil.
+func (s *Service) lastKnownReleases() []githubRelease {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	return s.cached
+}
 
-	info.IsAvailable = isNewer(best.TagName, s.currentVersion)
-	return info, nil
+// errNotFound is a 404 from the GitHub API.
+var errNotFound = errors.New("not found")
+
+// getJSON performs one bounded GitHub API call. The caller holds cacheMu, so
+// the rate-limit state it records cannot race with another call.
+func (s *Service) getJSON(url string, out any) error {
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "KeyLint")
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("fetching releases: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if limited, reset := rateLimited(resp, s.now()); limited {
+		s.blockedUntil = reset
+		return rateLimitError{reset: reset}
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return errNotFound
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("releases API returned status %d", resp.StatusCode)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("parsing releases: %w", err)
+	}
+	return nil
+}
+
+// rateLimited reports whether resp is GitHub's rate-limit answer, and until
+// when. Primary limits come as 403 or 429 with X-RateLimit-Remaining: 0 and a
+// reset epoch; secondary limits as 403 or 429 with Retry-After. A 403 with
+// neither is some other refusal and is reported as a plain status error.
+func rateLimited(resp *http.Response, now time.Time) (bool, time.Time) {
+	if resp.StatusCode != http.StatusForbidden && resp.StatusCode != http.StatusTooManyRequests {
+		return false, time.Time{}
+	}
+	if secs, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && secs > 0 {
+		return true, now.Add(time.Duration(secs) * time.Second)
+	}
+	if resp.Header.Get("X-RateLimit-Remaining") == "0" {
+		if epoch, err := strconv.ParseInt(resp.Header.Get("X-RateLimit-Reset"), 10, 64); err == nil {
+			if reset := time.Unix(epoch, 0); reset.After(now) {
+				return true, reset
+			}
+			// A reset this clock already considers past: the clock runs
+			// fast, or the window has just turned. Wait briefly, not an hour.
+			return true, now.Add(time.Minute)
+		}
+		// Spent, but no reset time at all: back off for GitHub's window.
+		return true, now.Add(time.Hour)
+	}
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return true, now.Add(time.Minute)
+	}
+	return false, time.Time{}
 }
 
 // resolveChannel determines the effective update channel.
@@ -128,8 +265,9 @@ func (s *Service) resolveChannel() string {
 	return "stable"
 }
 
-// matchPlatformAsset finds the download URL for the current platform from a list of assets.
-func matchPlatformAsset(assets []githubAsset) string {
+// matchPlatformAsset finds the asset for the current platform, or the zero
+// asset when there is none.
+func matchPlatformAsset(assets []githubAsset) githubAsset {
 	var substring string
 	switch runtime.GOOS {
 	case "windows":
@@ -143,10 +281,10 @@ func matchPlatformAsset(assets []githubAsset) string {
 
 	for _, a := range assets {
 		if strings.Contains(a.Name, substring) {
-			return a.BrowserDownloadURL
+			return a
 		}
 	}
-	return ""
+	return githubAsset{}
 }
 
 // DownloadAndInstall fetches the release asset for the current platform, saves it
@@ -165,7 +303,24 @@ func (s *Service) DownloadAndInstall() (InstallResult, error) {
 		return InstallResult{}, fmt.Errorf("no download URL for current platform")
 	}
 
-	resp, err := s.client.Get(updateInfo.ReleaseURL)
+	return s.downloadAndApply(updateInfo.ReleaseURL)
+}
+
+var errInstallRunning = errors.New("an install is already running")
+
+// downloadAndApply fetches an installer or binary, saves it to a temp file and
+// hands it to the platform-specific installer. Shared by the normal update
+// path and the dev channel, so both install the same way.
+//
+// One at a time: two installers racing to replace the same executable (a
+// double click, or the footer and About both asking) can leave neither.
+func (s *Service) downloadAndApply(url string) (InstallResult, error) {
+	if !s.installing.CompareAndSwap(false, true) {
+		return InstallResult{}, errInstallRunning
+	}
+	defer s.installing.Store(false)
+
+	resp, err := s.client.Get(url)
 	if err != nil {
 		return InstallResult{}, fmt.Errorf("downloading update: %w", err)
 	}

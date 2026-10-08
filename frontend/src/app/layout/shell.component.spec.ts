@@ -4,13 +4,13 @@ import { ComponentFixture } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { ShellComponent } from './shell.component';
 import { WailsService } from '../core/wails.service';
-import { createWailsMock, defaultSettings, defaultUpdateInfo } from '../../testing/wails-mock';
+import { createWailsMock, defaultSettings, defaultUpdateInfo, defaultDevChannel } from '../../testing/wails-mock';
 
 describe('ShellComponent — theme / body class', () => {
   let wailsMock: ReturnType<typeof createWailsMock>;
 
   beforeEach(async () => {
-    document.body.classList.remove('app-dark');
+    document.documentElement.classList.remove('app-dark');
 
     wailsMock = createWailsMock();
 
@@ -24,7 +24,7 @@ describe('ShellComponent — theme / body class', () => {
   });
 
   afterEach(() => {
-    document.body.classList.remove('app-dark');
+    document.documentElement.classList.remove('app-dark');
   });
 
   async function createAndWait(theme_preference: string): Promise<ComponentFixture<ShellComponent>> {
@@ -35,31 +35,29 @@ describe('ShellComponent — theme / body class', () => {
     return fixture;
   }
 
-  it('adds app-dark to body for dark theme', async () => {
+  it('adds app-dark to the root element for dark theme', async () => {
     await createAndWait('dark');
-    expect(document.body.classList.contains('app-dark')).toBe(true);
+    expect(document.documentElement.classList.contains('app-dark')).toBe(true);
   });
 
-  it('removes app-dark from body for light theme', async () => {
-    document.body.classList.add('app-dark');
-    await createAndWait('light');
-    expect(document.body.classList.contains('app-dark')).toBe(false);
-  });
+  // Only the dark theme is styled (#24). A value saved by an older version, or
+  // one a light theme (#25) will honour later, must not unstyle the app today.
+  for (const stored of ['light', 'system', '', 'something-else']) {
+    it(`stays dark when theme_preference is "${stored}"`, async () => {
+      await createAndWait(stored);
+      expect(document.documentElement.classList.contains('app-dark')).toBe(true);
+    });
+  }
 
-  it('keeps app-dark for system theme (dark-first app)', async () => {
-    await createAndWait('system');
-    expect(document.body.classList.contains('app-dark')).toBe(true);
-  });
-
-  it('re-applies theme when settingsChanged$ emits', async () => {
+  it('stays dark when settingsChanged$ brings a light preference', async () => {
     const fixture = await createAndWait('dark');
-    expect(document.body.classList.contains('app-dark')).toBe(true);
+    expect(document.documentElement.classList.contains('app-dark')).toBe(true);
 
     wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, theme_preference: 'light' });
     wailsMock._settingsChanged$.next();
     await fixture.whenStable();
 
-    expect(document.body.classList.contains('app-dark')).toBe(false);
+    expect(document.documentElement.classList.contains('app-dark')).toBe(true);
   });
 
   it('renders the sidebar nav', async () => {
@@ -81,6 +79,27 @@ describe('ShellComponent — theme / body class', () => {
     expect(footer!.textContent).toContain('v4.1.7');
   });
 
+  // Release builds get their version from the git tag, which already carries
+  // the "v" (#21); local builds may not, and dev builds say "dev".
+  for (const [raw, shown] of [
+    ['v3.6.0', 'v3.6.0'],
+    ['v3.7.0-alpha.2-5-gabc1234', 'v3.7.0-alpha.2-5-gabc1234'],
+    ['3.6.0', 'v3.6.0'],
+    ['dev', 'dev'],
+    // `git describe --always` without a reachable tag: a bare commit hash.
+    ['0a1b2c3', '0a1b2c3'],
+  ] as const) {
+    it(`shows version "${raw}" as "${shown}"`, async () => {
+      wailsMock.getVersion.mockResolvedValue(raw);
+      const fixture = await createAndWait('dark');
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      const text = fixture.nativeElement.querySelector('[data-testid="version-text"]')?.textContent?.trim();
+      expect(text).toBe(shown);
+    });
+  }
+
   it('shows update indicator when update is available', async () => {
     wailsMock.getVersion.mockResolvedValue('4.1.7');
     wailsMock.checkForUpdate.mockResolvedValue({ ...defaultUpdateInfo, is_available: true, latest_version: '4.1.8' });
@@ -101,6 +120,46 @@ describe('ShellComponent — theme / body class', () => {
     await fixture.whenStable();
     fixture.detectChanges();
     expect(el.querySelector('[data-testid="update-indicator"]')).toBeFalsy();
+  });
+
+  describe('in a dev build', () => {
+    const identity = { is_dev_build: true, kind: 'pr', pr: 12, commit: 'abc1234', tag: 'v0.0.0-pr.12' };
+
+    async function renderDevBuild(channel: Partial<typeof defaultDevChannel>): Promise<HTMLElement> {
+      wailsMock.getVersion.mockResolvedValue('0.0.0-pr.12+abc1234');
+      wailsMock.getBuildIdentity.mockResolvedValue({ ...identity });
+      wailsMock.listDevBuilds.mockResolvedValue({ ...defaultDevChannel, current: { ...identity }, ...channel });
+      const fixture = await createAndWait('dark');
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      return fixture.nativeElement;
+    }
+
+    it('names the build in the footer and never runs the normal update check', async () => {
+      const el = await renderDevBuild({});
+      expect(el.querySelector('[data-testid="version-text"]')?.textContent?.trim()).toBe('PR #12 · abc1234');
+      expect(wailsMock.checkForUpdate).not.toHaveBeenCalled();
+      expect(el.querySelector('[data-testid="update-indicator"]')).toBeFalsy();
+    });
+
+    it('points to About when the PR build is orphaned', async () => {
+      const el = await renderDevBuild({ orphaned: true });
+      const indicator = el.querySelector('[data-testid="update-indicator"]');
+      expect(indicator?.getAttribute('title')).toContain('This test build is gone');
+    });
+
+    it('points to About when a new release is out', async () => {
+      const el = await renderDevBuild({ new_release_since_build: true, latest_release: '4.5.0-beta' });
+      expect(el.querySelector('[data-testid="update-indicator"]')?.getAttribute('title')).toContain('A new release is out (v4.5.0-beta)');
+    });
+
+    it('points to About when a newer build of it is up', async () => {
+      const el = await renderDevBuild({
+        builds: [{ tag: 'v0.0.0-pr.12', kind: 'pr', pr: 12, title: '', pr_url: '', commit: 'fffffff', date: '', installable: true, installed: false, newer_build: true }],
+      });
+      expect(el.querySelector('[data-testid="update-indicator"]')?.getAttribute('title')).toBe('A newer test build is available');
+    });
   });
 
   it('goToAbout navigates to /settings with tab=about', async () => {

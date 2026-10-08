@@ -2,7 +2,7 @@
 
 ## What (The Map)
 
-**Stack:** Go 1.26 + Wails v3 (alpha.72) + Wire DI | Angular v21 + PrimeNG v21 + PrimeFlex + Vitest
+**Stack:** Go 1.27 + Wails v3 (alpha.72) + Wire DI | Angular v21 + PrimeNG v21 + PrimeFlex + Vitest
 
 **Key directories:**
 - `main.go` — Wails entry point, service registration, event loop
@@ -82,7 +82,7 @@ EVAL_JUDGE_MODEL=... ./scripts/eval.sh                 # override the pinned jud
 
 ## Why (The Context)
 
-KeyLint is a desktop app that fixes/enhances clipboard text via AI (OpenAI, Anthropic, the installed Claude Code CLI, Ollama, Bedrock). A global hotkey silently grabs clipboard text, enhances it, and writes it back. The main UI provides manual fix and advanced enhancement modes.
+KeyLint is a desktop app that fixes/enhances clipboard text via AI (OpenAI, Anthropic, the installed Claude Code CLI, Ollama). A global hotkey silently grabs clipboard text, enhances it, and writes it back. The main UI provides manual fix and advanced enhancement modes.
 
 **Architecture decisions:**
 - AI API calls go through the Go backend (`internal/features/enhance/service.go:1`) — WebKit2GTK on Linux blocks external HTTPS fetch from the webview

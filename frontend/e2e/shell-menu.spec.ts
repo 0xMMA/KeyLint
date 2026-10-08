@@ -562,3 +562,37 @@ test.describe('Shell — active route highlight', () => {
     }
   });
 });
+
+// ── Footer separator ──────────────────────────────────────────────────────────
+
+test.describe('Shell — footer separator', () => {
+  // One line separates the collapse button from everything above it. When it
+  // sat on the whole footer, the version row (shown only when expanded) pushed
+  // it up on expand and it jumped back on collapse.
+
+  /** The y position of every top border inside the footer, footer included. */
+  async function footerLines(page: Page): Promise<number[]> {
+    return page.locator('.sidebar-footer').evaluate((footer) =>
+      [footer, ...Array.from(footer.querySelectorAll('*'))]
+        .filter((el) => parseFloat(getComputedStyle(el).borderTopWidth) > 0)
+        .map((el) => Math.round(el.getBoundingClientRect().top)),
+    );
+  }
+
+  test('is one line above the collapse button that stays put in every state', async ({ page }) => {
+    await gotoFix(page);
+    const expanded = await footerLines(page);
+    const button = await getRect(page, '.collapse-btn');
+    const version = await getRect(page, '[data-testid="version-footer"]');
+    expect(expanded, 'exactly one line, on the collapse button').toEqual([Math.round(button.top)]);
+    expect(version.bottom, 'the version sits above the line').toBeLessThanOrEqual(button.top + 0.5);
+
+    await collapse(page);
+    expect(await footerLines(page), 'collapsed').toEqual(expanded);
+
+    // Hover-expanded shows the version again; the line must not move for it.
+    await page.locator('.layout-sidebar').hover();
+    await settle(page);
+    expect(await footerLines(page), 'hover-expanded').toEqual(expanded);
+  });
+});

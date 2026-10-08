@@ -18,8 +18,9 @@ func (s *Service) IsFirstRun() bool {
 }
 
 // CompleteSetup marks the setup wizard as done.
+//
+// Through settings.Update, so a save that lands meanwhile (a provider switch)
+// is not overwritten by settings read before it.
 func (s *Service) CompleteSetup() error {
-	cfg := s.settings.Get()
-	cfg.CompletedSetup = true
-	return s.settings.Save(cfg)
+	return settings.Update(s.settings, func(c *settings.Settings) { c.CompletedSetup = true })
 }

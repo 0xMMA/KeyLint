@@ -14,7 +14,7 @@ import { Tabs, TabList, Tab, TabPanels, TabPanel } from 'primeng/tabs';
 import { TooltipModule } from 'primeng/tooltip';
 import { WailsService } from '../../core/wails.service';
 import { noteForModelSource } from '../../core/model-source';
-import { DOCUMENT_TYPE_OPTIONS } from '../../core/constants';
+import { DOCUMENT_TYPE_OPTIONS, unavailableProviderName } from '../../core/constants';
 import { TextEnhancementService } from './text-enhancement.service';
 import { MarkdownPipe } from './markdown.pipe';
 
@@ -26,11 +26,13 @@ interface TraceEntry {
   timestamp: Date;
 }
 
+// Same names as Settings › AI Providers, so "Settings uses X" below reads as
+// the same X the user sees there.
 const PROVIDER_OPTIONS = [
-  { label: 'Anthropic', value: 'claude' },
+  { label: 'Anthropic API', value: 'claude' },
   { label: 'Claude Code (installed CLI)', value: 'claude-code' },
   { label: 'OpenAI', value: 'openai' },
-  { label: 'Ollama', value: 'ollama' },
+  { label: 'Ollama (local)', value: 'ollama' },
 ];
 
 /** Lets a user say "use what Settings says" without knowing the model name. */
@@ -64,6 +66,26 @@ let bannerDismissed = false; // session-only
 // it to a provider here made that branch unreachable, so the panel always
 // opened on Claude whatever the user had configured.
 let selectedProvider = '';
+// Whether the user picked a provider in this panel this session, other than
+// the one Settings names. Without such a pick the panel follows Settings on
+// every visit, so a switch made there is not ignored until a restart.
+let providerPickedThisSession = false;
+// What Settings named when that pick was made. A pick made because Settings
+// named a provider that cannot work (a saved AWS Bedrock) is no override of a
+// choice; it only stands until Settings names something usable.
+let pickedWhileSettingsWas = '';
+
+/**
+ * Puts the provider choice back to "follow Settings". For specs: the state is
+ * module-level and outlives every fixture, and the test runner shares modules
+ * between spec files (see .claude/rules/testing.md).
+ */
+export function resetPyramidizeProviderSession(): void {
+  selectedProvider = '';
+  selectedModel = '';
+  providerPickedThisSession = false;
+  pickedWhileSettingsWas = '';
+}
 // Empty means "whatever settings say for this provider" — the backend resolves it.
 let selectedModel = '';
 let qualityThreshold = 0.65;
@@ -127,8 +149,25 @@ function addTrace(label: string, snapshot: string): void {
             [options]="providerOptions"
             optionLabel="label"
             optionValue="value"
+            placeholder="Choose a provider"
             (onChange)="onProviderChange()"
           />
+          @if (sessionOverrideOf; as settingsLabel) {
+            <small class="session-override" data-testid="provider-session-override">
+              Session override — Settings uses {{ settingsLabel }}.
+              <button type="button" class="session-override-reset" data-testid="provider-follow-settings" (click)="followSettingsProvider()">Use {{ settingsLabel }}</button>
+            </small>
+          }
+          @if (settingsProviderUnusable; as name) {
+            <small class="session-override" data-testid="provider-forced-note">
+              Settings names {{ name }}, which is not available yet, so Pyramidize uses this provider for now.
+            </small>
+          }
+          @if (unavailableProviderView; as name) {
+            <p-message data-testid="provider-unavailable" severity="warn" size="small">
+              {{ name }} is not available yet. Choose another provider here, or in Settings to keep it.
+            </p-message>
+          }
         </div>
 
         <div class="form-group">
@@ -198,7 +237,7 @@ function addTrace(label: string, snapshot: string): void {
           data-testid="pyramidize-btn"
           label="Pyramidize"
           icon="pi pi-sparkles"
-          [disabled]="!originalTextView.trim() || isLoading"
+          [disabled]="!originalTextView.trim() || isLoading || !!unavailableProviderView"
           (onClick)="pyramidize()"
           [loading]="isLoading"
           class="pyramidize-btn-full"
@@ -345,7 +384,7 @@ function addTrace(label: string, snapshot: string): void {
                           icon="pi pi-sparkles"
                           label="Apply"
                           size="small"
-                          [disabled]="!selectionInstruction.trim()"
+                          [disabled]="!selectionInstruction.trim() || !!unavailableProviderView"
                           (onClick)="applySelectionInstruction()"
                         />
                         <p-button
@@ -410,7 +449,8 @@ function addTrace(label: string, snapshot: string): void {
             label="Apply"
             icon="pi pi-play"
             size="small"
-            [disabled]="!globalInstruction.trim() || !canvasTextView.trim() || isLoading"
+            [severity]="globalInstruction.trim() && !unavailableProviderView ? 'primary' : 'secondary'"
+            [disabled]="!globalInstruction.trim() || !canvasTextView.trim() || isLoading || !!unavailableProviderView"
             (onClick)="applyGlobalInstruction()"
           >
             <ng-template #content>
@@ -605,6 +645,20 @@ function addTrace(label: string, snapshot: string): void {
     }
     .detection-dot { font-size: 0.6rem; }
 
+    .session-override {
+      font-size: 0.8rem;
+      color: var(--p-text-muted-color);
+    }
+    .session-override-reset {
+      background: none;
+      border: none;
+      padding: 0;
+      margin-left: 0.25rem;
+      font: inherit;
+      cursor: pointer;
+      color: var(--p-primary-color);
+    }
+    .session-override-reset:hover { text-decoration: underline; }
     .form-group {
       display: flex;
       flex-direction: column;
@@ -994,6 +1048,30 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   get bannerDismissedView(): boolean { return bannerDismissed; }
 
   get providerView(): string { return selectedProvider; }
+  /**
+   * Settings' provider label while this session's pick differs from it, else
+   * null. A pick that silently differed from the marker on Settings › AI
+   * Providers is the confusion that page exists to remove.
+   */
+  get sessionOverrideOf(): string | null {
+    if (!this.pickDiffersFromSettings || unavailableProviderName(this.settingsProvider)) return null;
+    return PROVIDER_OPTIONS.find(p => p.value === this.settingsProvider)?.label ?? this.settingsProvider;
+  }
+
+  /**
+   * The name of the unusable provider Settings names, while the user is on
+   * another one because of it. Not an override, so no link back: going back
+   * would land on a provider that cannot run.
+   */
+  get settingsProviderUnusable(): string | null {
+    return this.pickDiffersFromSettings ? unavailableProviderName(this.settingsProvider) : null;
+  }
+
+  private get pickDiffersFromSettings(): boolean {
+    return providerPickedThisSession && !!this.settingsProvider && selectedProvider !== this.settingsProvider;
+  }
+  /** Name of a provider settings still names but nothing can use yet (#22). */
+  get unavailableProviderView(): string | null { return unavailableProviderName(selectedProvider); }
   set providerView(v: string) { selectedProvider = v; }
 
   get modelView(): string { return selectedModel; }
@@ -1005,6 +1083,8 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   get advancedOpenView(): boolean { return advancedOpen; }
 
   // ── Component-local state ──
+  /** The provider Settings names, read on every visit. */
+  settingsProvider = '';
   isLoading = false;
   stepLabel = '';
   errorMessage = '';
@@ -1085,9 +1165,24 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     sourceApp = await this.wails.getSourceApp();
     const settings = await this.wails.loadSettings();
 
-    // Initialise provider from settings if not already set this session
-    if (!selectedProvider && settings.active_provider) {
-      selectedProvider = settings.active_provider;
+    // Follow Settings unless the user picked another provider here this
+    // session. Re-read on every visit: the component is destroyed on
+    // navigation, and the backend never emits settings:changed, so this is
+    // where a switch made in Settings reaches this panel.
+    this.settingsProvider = settings.active_provider ?? '';
+    if (providerPickedThisSession) {
+      const caughtUp = selectedProvider === this.settingsProvider;
+      const forcedPickOutlived = !!unavailableProviderName(pickedWhileSettingsWas)
+        && this.settingsProvider !== pickedWhileSettingsWas;
+      // An override ends once Settings agrees with it, so the next switch made
+      // there is followed again; a forced pick ends once Settings names
+      // something else, because it was never the user's preference.
+      if (caughtUp || forcedPickOutlived) {
+        providerPickedThisSession = false;
+      }
+    }
+    if (!providerPickedThisSession && this.settingsProvider && selectedProvider !== this.settingsProvider) {
+      selectedProvider = this.settingsProvider;
       // Empty means "whatever Settings says for this provider".
       selectedModel = '';
     }
@@ -1144,6 +1239,9 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   }
 
   async onProviderChange(): Promise<void> {
+    // Picking Settings' own provider is no override; anything else is one.
+    providerPickedThisSession = selectedProvider !== this.settingsProvider;
+    pickedWhileSettingsWas = this.settingsProvider;
     // Back to "whatever settings say": a model from the previous provider would
     // not exist on this one.
     selectedModel = '';
@@ -1153,9 +1251,21 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     this.cdr.detectChanges();
   }
 
+  /** Drops this session's pick and goes back to the provider Settings names. */
+  async followSettingsProvider(): Promise<void> {
+    selectedProvider = this.settingsProvider;
+    await this.onProviderChange();
+  }
+
   /** Loads the current provider's models; the list is shared with Settings. */
   private async loadModelOptions(): Promise<void> {
     const provider = selectedProvider;
+    if (unavailableProviderName(provider)) {
+      // Nothing to list, and asking would only produce "could not be reached".
+      this.modelOptions = [DEFAULT_MODEL_OPTION];
+      this.modelListNote = '';
+      return;
+    }
     const list = await this.wails.listModels(provider);
     if (provider !== selectedProvider) return;
     this.modelOptions = [DEFAULT_MODEL_OPTION, ...(list.models ?? [])];
@@ -1194,7 +1304,8 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
       const status = await this.wails.getClaudeCodeStatus().catch(() => null);
       ok = !!status?.installed && !!status.loggedIn;
       message = status?.installed ? CLI_NOT_SIGNED_IN_MESSAGE : CLI_NOT_INSTALLED_MESSAGE;
-    } else if (KEYLESS_PROVIDERS.has(provider)) {
+    } else if (KEYLESS_PROVIDERS.has(provider) || unavailableProviderName(provider)) {
+      // An unavailable provider has its own note; a key banner would mislead.
       ok = true;
     } else {
       const keyStatus = await this.wails.getKeyStatus(provider);
@@ -1266,7 +1377,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   }
 
   async pyramidize(): Promise<void> {
-    if (!originalText.trim()) return;
+    if (!originalText.trim() || unavailableProviderName(selectedProvider)) return;
 
     if (canvasText.trim()) {
       if (!confirm('Re-pyramidize? The current editor content will be saved to the trace log.')) {
@@ -1348,6 +1459,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
 
   async applyGlobalInstruction(): Promise<void> {
     if (!this.globalInstruction.trim() || !canvasText.trim()) return;
+    if (unavailableProviderName(selectedProvider)) return; // the note explains why (#22)
 
     const instruction = this.globalInstruction;
     this.lastRequest = () => this.applyGlobalInstruction();
@@ -1409,6 +1521,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
 
   async applySelectionInstruction(): Promise<void> {
     if (!this.selectionInstruction.trim()) return;
+    if (unavailableProviderName(selectedProvider)) return; // the note explains why (#22)
 
     const textarea = this.canvasTextareaRef?.nativeElement;
     const start = textarea ? textarea.selectionStart : this.selectionStart;

@@ -100,6 +100,11 @@ func TestTheJudgeSendsItsTemperatureAndSchema(t *testing.T) {
 	if len(got.JSONSchema) == 0 {
 		t.Error("the judge sent no schema")
 	}
+	// Its own limit, not the pipeline's: the pipeline's went from 4096 to
+	// 16000, and the instrument must not move with it.
+	if got.MaxTokens != 4096 {
+		t.Errorf("MaxTokens = %d, want the judge's own 4096", got.MaxTokens)
+	}
 }
 
 // TestTheJudgeSchemaIgnoresThePipelineFlag: KEYLINT_PYRAMIDIZE_SCHEMA describes

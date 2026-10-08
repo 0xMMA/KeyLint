@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideRouter } from '@angular/router';
-import { TextEnhancementComponent } from './text-enhancement.component';
+import { TextEnhancementComponent, resetPyramidizeProviderSession } from './text-enhancement.component';
 import { TextEnhancementService } from './text-enhancement.service';
 import { WailsService } from '../../core/wails.service';
 import { createWailsMock, defaultSettings } from '../../../testing/wails-mock';
@@ -14,10 +14,10 @@ import { createWailsMock, defaultSettings } from '../../../testing/wails-mock';
   disconnect() {}
 };
 
-// Its own file on purpose: text-enhancement.component.ts keeps the selected
-// provider in a module-level variable that survives between tests, so a spec
-// sharing a file with others cannot choose which provider ngOnInit sees. This
-// one needs claude-code, which is the only provider that probes the CLI.
+// Needs claude-code, the only provider that probes the CLI. The selected
+// provider is module-level and survives between tests, so each test resets it
+// with resetPyramidizeProviderSession(); from a fresh session ngOnInit follows
+// the settings mock, which names claude-code.
 
 function makeEnhancementServiceMock() {
   return {
@@ -44,9 +44,15 @@ describe('TextEnhancementComponent — startup does not wait on the CLI probe', 
   let wailsMock: ReturnType<typeof createWailsMock>;
 
   beforeEach(() => {
+    // The provider choice is module-level and shared across spec files
+    // (isolate: false). From a fresh session the page follows Settings, so
+    // the settings mock below is what puts it on the CLI.
+    resetPyramidizeProviderSession();
     wailsMock = createWailsMock();
     wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, active_provider: 'claude-code' });
   });
+
+  afterEach(() => resetPyramidizeProviderSession());
 
   it('finishes starting up while the probe is still running', async () => {
     // A probe that never answers. Anything sequenced behind it never happens.
@@ -64,13 +70,7 @@ describe('TextEnhancementComponent — startup does not wait on the CLI probe', 
     }).compileComponents();
 
     const fixture = TestBed.createComponent(TextEnhancementComponent);
-    const component = fixture.componentInstance;
     const el: HTMLElement = fixture.nativeElement;
-    // Set before the first change detection, so ngOnInit's "adopt the active
-    // provider if none is chosen" branch leaves it alone. The variable behind
-    // this setter is module-level and shared across spec files, so it cannot be
-    // steered through the settings mock.
-    component.providerView = 'claude-code';
     fixture.detectChanges();
     // ngOnInit awaits several Wails calls before it reaches the work asserted
     // below. Drain them; with the probe awaited, draining never gets past it,
@@ -109,7 +109,6 @@ describe('TextEnhancementComponent — startup does not wait on the CLI probe', 
 
     const fixture = TestBed.createComponent(TextEnhancementComponent);
     const el: HTMLElement = fixture.nativeElement;
-    fixture.componentInstance.providerView = 'claude-code';
     fixture.detectChanges();
     for (let i = 0; i < 10; i++) {
       await fixture.whenStable();
@@ -142,7 +141,6 @@ describe('TextEnhancementComponent — startup does not wait on the CLI probe', 
     }).compileComponents();
 
     const fixture = TestBed.createComponent(TextEnhancementComponent);
-    fixture.componentInstance.providerView = 'claude-code';
     fixture.detectChanges();
     await fixture.whenStable();
     await fixture.whenStable();

@@ -13,10 +13,12 @@ import * as LoggerService from '../../../bindings/keylint/internal/features/logg
 import * as PyramidizeService from '../../../bindings/keylint/internal/features/pyramidize/service.js';
 import { Settings, KeyStatus } from '../../../bindings/keylint/internal/features/settings/models.js';
 import { UpdateInfo, InstallResult } from '../../../bindings/keylint/internal/features/updater/models.js';
+import type { BuildIdentity, DevBuild, DevChannel } from '../../../bindings/keylint/internal/features/updater/models.js';
 import type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset } from '../../../bindings/keylint/internal/features/pyramidize/models.js';
 import type { ClaudeCodeStatus, ModelList, ModelInfo } from '../../../bindings/keylint/internal/llm/models.js';
 
 export type { Settings, KeyStatus, UpdateInfo, InstallResult, ClaudeCodeStatus, ModelList, ModelInfo };
+export type { BuildIdentity, DevBuild, DevChannel };
 export type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset };
 
 
@@ -36,9 +38,30 @@ const BROWSER_MODE_DEFAULTS: Settings = {
   log_level: 'off',
   sensitive_logging: false,
   update_channel: '',
+  developer_options: false,
   app_presets: [],
   pyramidize_quality_threshold: 0.65,
 };
+
+/** What a build that is not from the dev channel says about itself. */
+const RELEASE_BUILD: BuildIdentity = { is_dev_build: false, kind: '', pr: 0, commit: '', tag: '' };
+
+/**
+ * The dev channel when the backend cannot be asked (browser dev / Playwright
+ * mode, or a rejected RPC): an empty list with a reason, never an exception —
+ * the About tab shows the reason instead of breaking.
+ */
+function unavailableDevChannel(): DevChannel {
+  return {
+    current: { ...RELEASE_BUILD },
+    builds: [],
+    orphaned: false,
+    latest_release: '',
+    latest_release_date: '',
+    new_release_since_build: false,
+    error: 'The dev channel is not available right now.',
+  };
+}
 
 // In browser dev / Playwright mode there is no machine to inspect, so the CLI
 // counts as absent and the UI falls back to the BYOK path.
@@ -101,6 +124,24 @@ export class WailsService implements OnDestroy {
 
   saveSettings(s: Settings): Promise<void> {
     return SettingsService.Save(s);
+  }
+
+  /**
+   * Switches the active provider and saves that one field, leaving anything
+   * else the settings screen has pending unsaved. Rejects with the backend's
+   * error, so the screen can keep its marker where it was.
+   */
+  setActiveProvider(provider: string): Promise<void> {
+    return SettingsService.SetActiveProvider(provider);
+  }
+
+  /**
+   * Turns the developer options on or off and saves that one field, leaving
+   * anything else the settings screen has pending unsaved. Rejects with the
+   * backend's error.
+   */
+  setDeveloperOptions(enabled: boolean): Promise<void> {
+    return SettingsService.SetDeveloperOptions(enabled);
   }
 
   isFirstRun(): Promise<boolean> {
@@ -230,6 +271,37 @@ export class WailsService implements OnDestroy {
     } catch {
       return Promise.resolve();
     }
+  }
+
+  /** Whether this is a dev-channel build, and which. No network call. */
+  getBuildIdentity(): Promise<BuildIdentity> {
+    try {
+      return UpdaterService.GetBuildIdentity().catch(() => ({ ...RELEASE_BUILD }));
+    } catch {
+      return Promise.resolve({ ...RELEASE_BUILD });
+    }
+  }
+
+  /**
+   * The dev channel's builds and the running build's place among them. Never
+   * rejects: GitHub being unreachable or rate-limited arrives in `error`.
+   * force skips the backend's one-minute cache (a Refresh button).
+   */
+  listDevBuilds(force = false): Promise<DevChannel> {
+    try {
+      return UpdaterService.ListDevBuilds(force).catch(() => unavailableDevChannel());
+    } catch {
+      return Promise.resolve(unavailableDevChannel());
+    }
+  }
+
+  installDevBuild(tag: string): Promise<InstallResult> {
+    return UpdaterService.InstallDevBuild(tag);
+  }
+
+  /** The way back from a dev build: the newest real release on the update channel. */
+  installLatestRelease(): Promise<InstallResult> {
+    return UpdaterService.InstallLatestRelease();
   }
 
   simulateShortcut(): Promise<void> {

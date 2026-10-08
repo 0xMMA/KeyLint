@@ -3,6 +3,7 @@ import { Router, RouterOutlet, RouterLink, RouterLinkActive } from '@angular/rou
 import { isDevMode } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { TooltipModule } from 'primeng/tooltip';
+import { versionLabel } from '../core/version-label';
 import { WailsService } from '../core/wails.service';
 import { LogService } from '../core/log.service';
 
@@ -72,13 +73,13 @@ let sidebarHovered   = false;
         <div class="sidebar-footer">
           <div class="version-row" data-testid="version-footer" (click)="goToAbout()">
             @if (!collapsedView || hoverExpanded) {
-              <span class="version-text">v{{ appVersion || '…' }}</span>
+              <span class="version-text" data-testid="version-text">{{ versionLabel(appVersion) }}</span>
               @if (updateAvailable) {
-                <i class="pi pi-arrow-circle-up update-indicator" data-testid="update-indicator" title="Update available"></i>
+                <i class="pi pi-arrow-circle-up update-indicator" data-testid="update-indicator" [title]="updateTitle"></i>
               }
             } @else {
               @if (updateAvailable) {
-                <i class="pi pi-arrow-circle-up update-indicator" data-testid="update-indicator" title="Update available"></i>
+                <i class="pi pi-arrow-circle-up update-indicator" data-testid="update-indicator" [title]="updateTitle"></i>
               }
             }
           </div>
@@ -98,8 +99,10 @@ let sidebarHovered   = false;
 })
 export class ShellComponent implements OnInit, OnDestroy {
   readonly dev = isDevMode();
+  readonly versionLabel = versionLabel;
   appVersion = '';
   updateAvailable = false;
+  updateTitle = 'Update available';
   private subs: Subscription[] = [];
   private silentFixInFlight = false;
   /** Safety net for a hung enhance call; overridable so tests need not wait. */
@@ -155,8 +158,26 @@ export class ShellComponent implements OnInit, OnDestroy {
     this.appVersion = await this.wails.getVersion();
     this.cdr.detectChanges();
     try {
-      const info = await this.wails.checkForUpdate();
-      this.updateAvailable = info.is_available;
+      // A dev build's normal check is silenced (it is 0.0.0, so every release
+      // would be newer); its news comes from the dev channel instead: its PR
+      // is gone, or a newer build of the same PR or of main is up.
+      const identity = await this.wails.getBuildIdentity();
+      if (identity.is_dev_build) {
+        const channel = await this.wails.listDevBuilds();
+        if (channel.orphaned) {
+          this.updateAvailable = true;
+          this.updateTitle = 'This test build is gone — see Settings › About';
+        } else if (channel.new_release_since_build) {
+          this.updateAvailable = true;
+          this.updateTitle = `A new release is out (v${channel.latest_release}) — see Settings › About`;
+        } else if (channel.builds.some(b => b.newer_build)) {
+          this.updateAvailable = true;
+          this.updateTitle = 'A newer test build is available';
+        }
+      } else {
+        const info = await this.wails.checkForUpdate();
+        this.updateAvailable = info.is_available;
+      }
     } catch {
       // Silently ignore — update check is best-effort.
     }
@@ -197,9 +218,11 @@ export class ShellComponent implements OnInit, OnDestroy {
     }
   }
 
-  private async applyTheme(): Promise<void> {
-    const settings = await this.wails.loadSettings();
-    const dark = settings.theme_preference !== 'light';
-    document.body.classList.toggle('app-dark', dark);
+  private applyTheme(): void {
+    // Only the dark theme is styled (#24). theme_preference is deliberately
+    // not read: a "light" or "system" saved by an older version would drop
+    // PrimeNG into its unstyled light mode. The light theme (#25) reads it again.
+    // On <html>, not <body>: see index.html.
+    document.documentElement.classList.add('app-dark');
   }
 }

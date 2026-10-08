@@ -4,7 +4,7 @@ import { ComponentFixture } from '@angular/core/testing';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { ActivatedRoute, convertToParamMap } from '@angular/router';
 import { SettingsComponent } from './settings.component';
-import { WailsService, ClaudeCodeStatus } from '../../core/wails.service';
+import { WailsService, ClaudeCodeStatus, KeyStatus } from '../../core/wails.service';
 import { createWailsMock, defaultSettings, defaultKeyStatus, defaultUpdateInfo, defaultClaudeCodeStatus, defaultModelList } from '../../../testing/wails-mock';
 
 function makeActivatedRoute(tab?: string): Partial<ActivatedRoute> {
@@ -131,7 +131,6 @@ describe('SettingsComponent', () => {
     await component.ngOnInit();
     expect(wailsMock.getKeyStatus).toHaveBeenCalledWith('openai');
     expect(wailsMock.getKeyStatus).toHaveBeenCalledWith('claude');
-    expect(wailsMock.getKeyStatus).toHaveBeenCalledWith('bedrock');
   });
 
   it('save() calls saveSettings with current settings', async () => {
@@ -216,6 +215,38 @@ describe('SettingsComponent', () => {
   });
 
   describe('About tab', () => {
+    // Same wording as the sidebar (#21): one "v", and "dev" stays "dev".
+    describe('version label', () => {
+      for (const [raw, shown] of [
+        ['v3.6.0', 'Version: v3.6.0'], ['3.6.0', 'Version: v3.6.0'], ['dev', 'Version: dev'],
+        // Dev-channel builds are named by what they were built from.
+        ['0.0.0-pr.12+abc1234def', 'Version: PR #12 · abc1234'], ['0.0.0-main+deadbee', 'Version: main · deadbee'],
+      ] as const) {
+        it(`shows "${raw}" as "${shown}"`, async () => {
+          TestBed.resetTestingModule();
+          const wailsMock = createWailsMock();
+          wailsMock.getVersion.mockResolvedValue(raw);
+          await TestBed.configureTestingModule({
+            imports: [SettingsComponent],
+            providers: [
+              provideAnimationsAsync(),
+              { provide: WailsService, useValue: wailsMock },
+              { provide: ActivatedRoute, useValue: makeActivatedRoute('about') },
+            ],
+          }).compileComponents();
+          const fixture = TestBed.createComponent(SettingsComponent);
+          fixture.componentInstance.settings = { ...defaultSettings };
+          fixture.detectChanges();
+          await fixture.whenStable();
+          await fixture.whenStable();
+          fixture.detectChanges();
+
+          const text = fixture.nativeElement.querySelector('[data-testid="app-version"]')?.textContent?.trim();
+          expect(text).toBe(shown);
+        });
+      }
+    });
+
     it('displays app version after init', async () => {
       wailsMock.getVersion.mockResolvedValue('3.6.0');
       await component.ngOnInit();
@@ -270,6 +301,118 @@ describe('SettingsComponent', () => {
       await component.installUpdate();
       expect(component.updateSuccess).toBe(true);
       expect(component.updateRestartRequired).toBe(true);
+    });
+
+    describe('developer options', () => {
+      // Renders Settings on the About tab with the given settings and build.
+      async function renderAbout(opts: { developerOptions?: boolean; devBuild?: boolean } = {}) {
+        TestBed.resetTestingModule();
+        const mock = createWailsMock();
+        mock.loadSettings.mockResolvedValue({ ...defaultSettings, developer_options: !!opts.developerOptions });
+        if (opts.devBuild) {
+          mock.getVersion.mockResolvedValue('0.0.0-pr.12+abc1234');
+          mock.getBuildIdentity.mockResolvedValue({ is_dev_build: true, kind: 'pr', pr: 12, commit: 'abc1234', tag: 'v0.0.0-pr.12' });
+        }
+        await TestBed.configureTestingModule({
+          imports: [SettingsComponent],
+          providers: [
+            provideAnimationsAsync(),
+            { provide: WailsService, useValue: mock },
+            { provide: ActivatedRoute, useValue: makeActivatedRoute('about') },
+          ],
+        }).compileComponents();
+        const f = TestBed.createComponent(SettingsComponent);
+        f.componentInstance.settings = { ...defaultSettings, developer_options: !!opts.developerOptions };
+        f.detectChanges();
+        await f.whenStable();
+        await f.whenStable();
+        f.detectChanges();
+        const root: HTMLElement = f.nativeElement;
+        const tap = async (times: number) => {
+          for (let i = 0; i < times; i++) {
+            (root.querySelector('[data-testid="version-tap"]') as HTMLButtonElement).click();
+            await f.whenStable();
+          }
+          f.detectChanges();
+          await f.whenStable();
+          f.detectChanges();
+        };
+        return { f, root, mock, tap, q: (id: string) => root.querySelector(`[data-testid="${id}"]`) };
+      }
+
+      it('are hidden by default: no toggle, no dev channel', async () => {
+        const { q } = await renderAbout();
+        expect(q('developer-options-section')).toBeNull();
+        expect(q('dev-channel')).toBeNull();
+        expect(q('update-channel-section')).toBeTruthy();
+      });
+
+      it('count down from the third tap and unlock on the seventh, saving at once', async () => {
+        const { q, tap, mock } = await renderAbout();
+
+        await tap(2);
+        expect(q('unlock-hint')?.textContent?.trim()).toBe('');
+        await tap(4);
+        expect(q('unlock-hint')?.textContent?.trim()).toBe('1 more tap to turn on the developer options.');
+        expect(mock.setDeveloperOptions).not.toHaveBeenCalled();
+        expect(q('dev-channel')).toBeNull();
+
+        await tap(1);
+        expect(mock.setDeveloperOptions).toHaveBeenCalledExactlyOnceWith(true);
+        expect(mock.saveSettings).not.toHaveBeenCalled();
+        expect(q('unlock-hint')?.textContent?.trim()).toBe('Developer options are on.');
+        expect(q('developer-options-section')).toBeTruthy();
+        expect(q('dev-channel')).toBeTruthy();
+      });
+
+      it('stay locked when the save fails, and say so', async () => {
+        const { q, tap, mock } = await renderAbout();
+        mock.setDeveloperOptions.mockRejectedValue(new Error('disk full'));
+        await tap(7);
+        expect(q('developer-options-error')?.textContent).toContain('disk full');
+        expect(q('dev-channel')).toBeNull();
+      });
+
+      it('switch off again and hide the dev channel', async () => {
+        const { f, q, mock } = await renderAbout({ developerOptions: true });
+        expect(q('dev-channel')).toBeTruthy();
+
+        (q('developer-options-toggle')?.querySelector('input') as HTMLInputElement).click();
+        await f.whenStable();
+        f.detectChanges();
+
+        expect(mock.setDeveloperOptions).toHaveBeenCalledExactlyOnceWith(false);
+        expect(q('developer-options-section')).toBeNull();
+        expect(q('dev-channel')).toBeNull();
+      });
+
+      it('keep the switch on when turning them off fails', async () => {
+        const { f, q, mock } = await renderAbout({ developerOptions: true });
+        mock.setDeveloperOptions.mockRejectedValue(new Error('disk full'));
+
+        (q('developer-options-toggle')?.querySelector('input') as HTMLInputElement).click();
+        await f.whenStable();
+        f.detectChanges();
+        await f.whenStable();
+        f.detectChanges();
+
+        // NgModel writes a re-created control's value one microtask late.
+        await f.whenStable();
+        f.detectChanges();
+        expect(q('developer-options-error')?.textContent).toContain('disk full');
+        expect(q('dev-channel')).toBeTruthy();
+        // What the switch draws: PrimeNG mirrors its state onto the host.
+        expect(q('developer-options-toggle')?.getAttribute('data-p-checked')).toBe('true');
+      });
+
+      it('replace the normal update check with the dev channel in a dev build, even when off', async () => {
+        const { q, mock } = await renderAbout({ devBuild: true });
+        expect(q('check-update-btn')).toBeNull();
+        // Still settable: it picks the release the "latest release" offer installs.
+        expect(q('update-channel-section')).toBeTruthy();
+        expect(q('dev-channel')).toBeTruthy();
+        expect(mock.listDevBuilds).toHaveBeenCalled();
+      });
     });
 
     it('installUpdate() shows standard success when restart_required is false', async () => {
@@ -643,7 +786,7 @@ describe('SettingsComponent — model selection', () => {
     expect(el.querySelector('[data-testid="models-note-claude-code"]')).toBeNull();
   });
 
-  it('uses the same provider labels as the Active Provider list', async () => {
+  it('uses the same provider labels as the provider cards', async () => {
     await render();
 
     for (const mp of component.modelProviders) {
@@ -712,5 +855,674 @@ describe('SettingsComponent — model selection', () => {
 
     expect(component.modelFor('claude', 'fix')).toBe('claude-haiku-4-5-20251001');
     expect(component.modelFor('claude', 'pyramidize')).toBe('claude-opus-4-6');
+  });
+});
+
+
+// "If I have both an Anthropic API key and the Claude Code CLI, I cannot see or
+// define which is prioritized." One provider is in use, the AI Providers tab
+// shows which, and switching is one click there.
+describe('SettingsComponent — which provider is in use', () => {
+  let fixture: ComponentFixture<SettingsComponent>;
+  let el: HTMLElement;
+  let wailsMock: ReturnType<typeof createWailsMock>;
+
+  interface Setup {
+    active: string;
+    tab?: string;
+    keys?: Record<string, KeyStatus['source']>;
+    cli?: Partial<ClaudeCodeStatus>;
+    ollamaSource?: string;
+    ollamaURL?: string;
+  }
+
+  async function render(setup: Setup): Promise<void> {
+    TestBed.resetTestingModule();
+    const settings = {
+      ...defaultSettings,
+      active_provider: setup.active,
+      providers: { ...defaultSettings.providers, ollama_url: setup.ollamaURL ?? '' },
+    };
+    const cli = { ...defaultClaudeCodeStatus, ...setup.cli };
+    wailsMock = createWailsMock();
+    wailsMock.loadSettings.mockImplementation(async () => structuredClone(settings));
+    wailsMock.getKeyStatus.mockImplementation(async (provider: string) => {
+      const source = setup.keys?.[provider];
+      return source ? { is_set: true, source } : { ...defaultKeyStatus };
+    });
+    wailsMock.getClaudeCodeStatus.mockResolvedValue(cli);
+    wailsMock.listModels.mockImplementation(async (provider: string) =>
+      provider === 'ollama'
+        ? { models: [], source: setup.ollamaSource ?? 'live' }
+        : { ...defaultModelList, source: 'live' });
+
+    await TestBed.configureTestingModule({
+      imports: [SettingsComponent],
+      providers: [
+        provideAnimationsAsync(),
+        { provide: WailsService, useValue: wailsMock },
+        { provide: ActivatedRoute, useValue: makeActivatedRoute(setup.tab ?? 'providers') },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(SettingsComponent);
+    // Pre-set the async results: letting them land mid-render trips NG0100.
+    fixture.componentInstance.settings = structuredClone(settings);
+    fixture.componentInstance.claudeCodeStatus = cli;
+    el = fixture.nativeElement;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  function q(testid: string): HTMLElement | null {
+    return el.querySelector<HTMLElement>(`[data-testid="${testid}"]`);
+  }
+
+  /** Which cards carry the "In use" marker, by provider ID. */
+  function inUse(): string[] {
+    return Array.from(el.querySelectorAll('[data-testid^="provider-in-use-"]'))
+      .map(t => t.getAttribute('data-testid')!.replace('provider-in-use-', ''));
+  }
+
+  /** Lets promise chains the fixture does not track run out, then repaints. */
+  async function settle(): Promise<void> {
+    await fixture.whenStable();
+    await new Promise(r => setTimeout(r));
+    fixture.detectChanges();
+  }
+
+  async function clickUse(provider: string): Promise<void> {
+    q(`provider-use-${provider}`)!.querySelector('button')!.click();
+    await settle();
+  }
+
+  const BOTH = { keys: { claude: 'keyring' as const }, cli: { installed: true, loggedIn: true } };
+
+  it('marks exactly the saved provider as in use, with both configured', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+
+    expect(inUse()).toEqual(['claude-code']);
+    for (const other of ['openai', 'claude', 'ollama']) {
+      expect(q(`provider-use-${other}`), other).not.toBeNull();
+    }
+    expect(q('provider-use-claude-code')).toBeNull();
+    expect(q('providers-summary')!.textContent).toContain('Claude Code (installed CLI)');
+  });
+
+  it('gives every offered provider a card, in a stable order', async () => {
+    await render({ active: 'openai' });
+
+    const cards = Array.from(el.querySelectorAll('[data-testid^="provider-card-"]'))
+      .map(c => c.getAttribute('data-testid'));
+    expect(cards).toEqual(['provider-card-openai', 'provider-card-claude', 'provider-card-claude-code', 'provider-card-ollama']);
+  });
+
+  it('switches with one click, saving only the provider', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+
+    await clickUse('claude');
+
+    expect(wailsMock.setActiveProvider).toHaveBeenCalledTimes(1);
+    expect(wailsMock.setActiveProvider).toHaveBeenCalledWith('claude');
+    expect(wailsMock.saveSettings).not.toHaveBeenCalled();
+    expect(inUse()).toEqual(['claude']);
+    expect(q('provider-use-claude-code')).not.toBeNull();
+    expect(q('providers-summary')!.textContent).toContain('Anthropic API');
+    expect(q('provider-announcement')!.textContent).toContain('KeyLint now uses Anthropic API.');
+  });
+
+  // A switch must not commit edits the user has not confirmed, least of all
+  // on a tab out of view (Sensitive Logging writes full payloads to the log).
+  it('leaves other unsaved edits pending, for the Save button', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    fixture.componentInstance.settings!.log_level = 'debug';
+    fixture.componentInstance.settings!.sensitive_logging = true;
+
+    await clickUse('claude');
+
+    expect(wailsMock.saveSettings).not.toHaveBeenCalled();
+    q('save-btn')!.querySelector('button')!.click();
+    await settle();
+    expect(wailsMock.saveSettings).toHaveBeenCalledWith(expect.objectContaining({
+      active_provider: 'claude',
+      sensitive_logging: true,
+    }));
+  });
+
+  it('keeps the marker where it was when the switch fails, with focus on it', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    document.body.appendChild(el);
+    wailsMock.setActiveProvider.mockRejectedValueOnce(new Error('disk full'));
+
+    await clickUse('claude');
+
+    expect(inUse()).toEqual(['claude-code']);
+    expect(q('provider-switch-error')!.textContent).toContain('disk full');
+    expect(document.activeElement).toBe(q('provider-heading-claude-code'));
+    el.remove();
+  });
+
+  it('shows progress on the pressed card and moves the marker once saved', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    let finish!: () => void;
+    wailsMock.setActiveProvider.mockImplementationOnce(() => new Promise<void>(r => { finish = r; }));
+
+    q('provider-use-claude')!.querySelector('button')!.click();
+    fixture.detectChanges();
+
+    expect(q('provider-use-claude')!.querySelector('.p-button-loading')).not.toBeNull();
+    expect(inUse()).toEqual(['claude-code']);
+    finish();
+    await settle();
+    expect(inUse()).toEqual(['claude']);
+  });
+
+  it('runs one switch at a time', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    let finish!: () => void;
+    wailsMock.setActiveProvider.mockImplementationOnce(() => new Promise<void>(r => { finish = r; }));
+
+    q('provider-use-claude')!.querySelector('button')!.click();
+    fixture.detectChanges();
+    expect(q('provider-use-openai')!.querySelector('button')!.disabled).toBe(true);
+    await fixture.componentInstance.useProvider('openai');
+    finish();
+    await settle();
+
+    expect(wailsMock.setActiveProvider).toHaveBeenCalledTimes(1);
+    expect(inUse()).toEqual(['claude']);
+  });
+
+  it('lets a provider without a key be chosen, and says why it will not work yet', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+
+    await clickUse('openai');
+
+    expect(inUse()).toEqual(['openai']);
+    expect(q('provider-not-ready-openai')!.textContent).toContain('no API key');
+  });
+
+  it('warns about a CLI that is not signed in', async () => {
+    await render({ active: 'claude-code', cli: { installed: true, loggedIn: false } });
+
+    expect(q('provider-not-ready-claude-code')!.textContent).toContain('not signed in');
+  });
+
+  it('warns about a CLI that is not installed', async () => {
+    await render({ active: 'claude-code', cli: { installed: false } });
+
+    expect(q('provider-not-ready-claude-code')!.textContent).toContain('not installed');
+  });
+
+  it('warns when Ollama cannot be reached, naming the default address for an empty URL', async () => {
+    await render({ active: 'ollama', ollamaSource: 'unreachable' });
+
+    expect(q('provider-not-ready-ollama')!.textContent).toContain('http://localhost:11434');
+  });
+
+  it('names the configured Ollama address when one is set', async () => {
+    await render({ active: 'ollama', ollamaSource: 'unreachable', ollamaURL: 'http://gpu-box:11434' });
+
+    expect(q('provider-not-ready-ollama')!.textContent).toContain('http://gpu-box:11434');
+  });
+
+  // An empty field is localhost on the default port, which is where Ollama
+  // listens. Warning about it would be a false alarm.
+  it('does not warn about a reachable Ollama with an empty URL', async () => {
+    await render({ active: 'ollama', ollamaSource: 'live' });
+
+    expect(inUse()).toEqual(['ollama']);
+    expect(q('provider-not-ready-ollama')).toBeNull();
+  });
+
+  it('does not warn about the provider in use when it works', async () => {
+    await render({ active: 'claude', ...BOTH });
+
+    expect(inUse()).toEqual(['claude']);
+    expect(el.querySelector('[data-testid^="provider-not-ready-"]')).toBeNull();
+  });
+
+  // The status tags already say "no key"; a warning on every unused card
+  // would bury the one that matters.
+  it('keeps warnings to the card in use', async () => {
+    await render({ active: 'claude-code', cli: { installed: true, loggedIn: true } });
+
+    expect(q('key-status-openai')!.textContent).toContain('no key');
+    expect(q('provider-not-ready-openai')).toBeNull();
+  });
+
+  it('says when an environment variable supplies the key, and which one', async () => {
+    await render({ active: 'claude', keys: { claude: 'env' } });
+
+    expect(q('key-status-claude')!.textContent).toContain('env var');
+    expect(q('key-env-hint-claude')!.textContent).toContain('ANTHROPIC_API_KEY');
+    expect(q('provider-card-claude')!.textContent).not.toContain('Set Key');
+    expect(q('provider-not-ready-claude')).toBeNull();
+  });
+
+  it('does not save a half-typed Ollama URL with a switch', async () => {
+    await render({ active: 'claude', ...BOTH });
+
+    const input = q('provider-card-ollama')!.querySelector<HTMLInputElement>('[data-testid="ollama-url-input"]')!;
+    input.value = 'http://gpu-bo';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    await clickUse('ollama');
+
+    expect(wailsMock.setActiveProvider).toHaveBeenCalledWith('ollama');
+    expect(wailsMock.saveSettings).not.toHaveBeenCalled();
+    expect((q('ollama-url-input') as HTMLInputElement).value).toBe('http://gpu-bo');
+  });
+
+  it('holds Save and Reset while a switch is saving', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    let finish!: () => void;
+    wailsMock.setActiveProvider.mockImplementationOnce(() => new Promise<void>(r => { finish = r; }));
+
+    q('provider-use-claude')!.querySelector('button')!.click();
+    fixture.detectChanges();
+
+    expect(q('save-btn')!.querySelector('button')!.disabled).toBe(true);
+    expect(q('reset-btn')!.querySelector('button')!.disabled).toBe(true);
+    finish();
+    await settle();
+    expect(q('save-btn')!.querySelector('button')!.disabled).toBe(false);
+  });
+
+  it('does not let a reset start in the middle of a switch', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    let finish!: () => void;
+    wailsMock.setActiveProvider.mockImplementationOnce(() => new Promise<void>(r => { finish = r; }));
+
+    q('provider-use-claude')!.querySelector('button')!.click();
+    fixture.detectChanges();
+    q('reset-btn')!.querySelector('button')!.click();
+    finish();
+    await settle();
+
+    expect(wailsMock.resetSettings).not.toHaveBeenCalled();
+    expect(inUse()).toEqual(['claude']);
+  });
+
+  it('holds every "Use this" while a reset runs', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    let finish!: () => void;
+    wailsMock.resetSettings.mockImplementationOnce(() => new Promise<void>(r => { finish = r; }));
+
+    q('reset-btn')!.querySelector('button')!.click();
+    fixture.detectChanges();
+
+    for (const p of ['openai', 'claude', 'ollama']) {
+      expect(q(`provider-use-${p}`)!.querySelector('button')!.disabled, p).toBe(true);
+    }
+    await fixture.componentInstance.useProvider('claude');
+    expect(wailsMock.setActiveProvider).not.toHaveBeenCalled();
+    finish();
+    await settle();
+    expect(q('provider-use-claude')!.querySelector('button')!.disabled).toBe(false);
+  });
+
+  it('holds every "Use this" while a save runs', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    let finish!: () => void;
+    wailsMock.saveSettings.mockImplementationOnce(() => new Promise<void>(r => { finish = r; }));
+
+    q('save-btn')!.querySelector('button')!.click();
+    fixture.detectChanges();
+
+    expect(q('provider-use-claude')!.querySelector('button')!.disabled).toBe(true);
+    finish();
+    await settle();
+    expect(q('provider-use-claude')!.querySelector('button')!.disabled).toBe(false);
+  });
+
+  it('names the provider on each "Use this" button, keeping the visible words first', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+
+    expect(q('provider-use-claude')!.querySelector('button')!.getAttribute('aria-label')).toBe('Use this: Anthropic API');
+  });
+
+  it('moves focus to the heading of the card it marks, since the pressed button goes away', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    document.body.appendChild(el);
+
+    await clickUse('claude');
+
+    expect(document.activeElement).toBe(q('provider-heading-claude'));
+    expect(document.activeElement!.textContent).toContain('Anthropic API');
+    el.remove();
+  });
+
+  it('clears a failed switch\'s error once a later save goes through', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    wailsMock.setActiveProvider.mockRejectedValueOnce(new Error('disk full'));
+    await clickUse('claude');
+    expect(q('provider-switch-error')).not.toBeNull();
+
+    q('save-btn')!.querySelector('button')!.click();
+    await settle();
+
+    expect(q('provider-switch-error')).toBeNull();
+  });
+
+  it('announces a failed switch once, through the error, not the live region too', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    wailsMock.setActiveProvider.mockRejectedValueOnce(new Error('disk full'));
+
+    await clickUse('claude');
+
+    expect(q('provider-switch-error')!.querySelector('[role="alert"]')).not.toBeNull();
+    expect(q('provider-announcement')!.textContent!.trim()).toBe('');
+  });
+
+  it('focuses the error after a failed switch when no card is in use', async () => {
+    await render({ active: 'bedrock', ...BOTH });
+    document.body.appendChild(el);
+    wailsMock.setActiveProvider.mockRejectedValueOnce(new Error('disk full'));
+
+    await clickUse('claude');
+
+    expect(document.activeElement).toBe(q('provider-switch-error'));
+    el.remove();
+  });
+
+  it('clears an earlier Save error once a switch goes through', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    wailsMock.saveSettings.mockRejectedValueOnce(new Error('disk full'));
+    await fixture.componentInstance.save();
+    fixture.detectChanges();
+    expect(q('save-error')).not.toBeNull();
+
+    await clickUse('claude');
+
+    expect(q('save-error')).toBeNull();
+  });
+
+  it('re-probes the CLI when switching to it, bypassing the cached answer', async () => {
+    await render({ active: 'claude', ...BOTH });
+    wailsMock.getClaudeCodeStatus.mockClear();
+
+    await clickUse('claude-code');
+
+    expect(wailsMock.getClaudeCodeStatus).toHaveBeenCalledWith(true);
+  });
+
+  it('re-reads the key status when switching to an API provider', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    wailsMock.getKeyStatus.mockClear();
+    wailsMock.getKeyStatus.mockResolvedValue({ is_set: true, source: 'keyring' });
+
+    await clickUse('openai');
+
+    expect(wailsMock.getKeyStatus).toHaveBeenCalledWith('openai');
+    expect(q('key-status-openai')!.textContent).toContain('key set');
+    expect(q('provider-not-ready-openai')).toBeNull();
+  });
+
+  it('shows a failed Save beside the button instead of throwing', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    wailsMock.saveSettings.mockRejectedValueOnce(new Error('disk full'));
+
+    await expect(fixture.componentInstance.save()).resolves.toBeUndefined();
+    fixture.detectChanges();
+
+    expect(q('save-error')!.textContent).toContain('disk full');
+    expect(q('saved-banner')).toBeNull();
+  });
+
+  // Presets are saved by the backend on their own. Save sends the whole
+  // settings object, so a stale preset list in it would undo the change.
+  it('does not undo a preset added in the same visit when saving', async () => {
+    await render({ active: 'claude-code', ...BOTH });
+    const added = { sourceApp: 'Outlook', documentType: 'email' };
+    wailsMock.getAppPresets.mockResolvedValue([added]);
+    fixture.componentInstance.startAddPreset();
+    fixture.componentInstance.addPresetDraft = { ...added };
+    await fixture.componentInstance.saveAddPreset();
+
+    await fixture.componentInstance.save();
+
+    expect(wailsMock.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      app_presets: [added],
+    }));
+  });
+
+  it('drops the old address\'s Ollama warning once a new URL is saved', async () => {
+    await render({ active: 'ollama', ollamaSource: 'unreachable' });
+    expect(q('provider-not-ready-ollama')).not.toBeNull();
+    // The new address has not answered yet.
+    wailsMock.listModels.mockImplementation(() => new Promise(() => {}));
+
+    const input = q('ollama-url-input') as HTMLInputElement;
+    input.value = 'http://gpu-box:11434';
+    input.dispatchEvent(new Event('input'));
+    q('save-btn')!.querySelector('button')!.click();
+    await settle();
+
+    expect(q('provider-not-ready-ollama')).toBeNull();
+  });
+
+  describe('General tab', () => {
+    it('names the provider in use instead of offering a dropdown', async () => {
+      await render({ active: 'claude-code', tab: 'general', ...BOTH });
+
+      expect(q('provider-pointer-text')!.textContent).toContain('Claude Code (installed CLI)');
+      expect(q('active-provider-select')).toBeNull();
+    });
+
+    it('opens the AI Providers tab from the pointer', async () => {
+      await render({ active: 'claude-code', tab: 'general', ...BOTH });
+      const providersPanel = () => el.querySelector<HTMLElement>('p-tabpanel[data-p-active="true"]');
+      expect(providersPanel()!.contains(q('provider-pointer'))).toBe(true);
+
+      q('provider-pointer-link')!.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(providersPanel()!.contains(q('provider-card-claude'))).toBe(true);
+    });
+
+    // The tabs are two-way bound. One-way, a deep link to AI Providers would
+    // leave the property on "providers" after the user clicked General, and
+    // the pointer setting it to "providers" again would change nothing.
+    it('opens AI Providers from the pointer after a deep link and a tab click', async () => {
+      await render({ active: 'claude-code', tab: 'providers', ...BOTH });
+      const activePanel = () => el.querySelector<HTMLElement>('p-tabpanel[data-p-active="true"]');
+      const generalTab = Array.from(el.querySelectorAll<HTMLElement>('[role="tab"]'))
+        .find(t => t.textContent?.trim() === 'General')!;
+
+      generalTab.click();
+      await settle();
+      expect(activePanel()!.contains(q('provider-pointer'))).toBe(true);
+
+      q('provider-pointer-link')!.click();
+      await settle();
+      expect(activePanel()!.contains(q('provider-card-claude'))).toBe(true);
+    });
+
+    it('moves focus to the AI Providers tab, out of the panel that hides', async () => {
+      await render({ active: 'claude-code', tab: 'general', ...BOTH });
+      document.body.appendChild(el);
+
+      q('provider-pointer-link')!.click();
+      await fixture.whenStable();
+
+      expect(document.activeElement).toBe(q('providers-summary'));
+      el.remove();
+    });
+
+    it('repeats the warning when the provider in use cannot work', async () => {
+      await render({ active: 'claude', tab: 'general' });
+
+      expect(q('provider-pointer-problem')!.textContent).toContain('no API key');
+    });
+
+    it('stays quiet when the provider in use works', async () => {
+      await render({ active: 'claude', tab: 'general', ...BOTH });
+
+      expect(q('provider-pointer-problem')).toBeNull();
+      expect(q('provider-unavailable')).toBeNull();
+    });
+  });
+});
+
+
+// Bedrock is a stub that only returns an error (#22) until #23 implements it.
+describe('SettingsComponent — AWS Bedrock is not offered yet', () => {
+  let fixture: ComponentFixture<SettingsComponent>;
+  let component: SettingsComponent;
+  let el: HTMLElement;
+  let wailsMock: ReturnType<typeof createWailsMock>;
+
+  async function render(activeProvider: string, tab?: string): Promise<void> {
+    TestBed.resetTestingModule();
+    wailsMock = createWailsMock();
+    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, active_provider: activeProvider });
+    wailsMock.getKeyStatus.mockResolvedValue({ ...defaultKeyStatus });
+
+    await TestBed.configureTestingModule({
+      imports: [SettingsComponent],
+      providers: [
+        provideAnimationsAsync(),
+        { provide: WailsService, useValue: wailsMock },
+        { provide: ActivatedRoute, useValue: makeActivatedRoute(tab) },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(SettingsComponent);
+    component = fixture.componentInstance;
+    component.settings = { ...defaultSettings, active_provider: activeProvider };
+    el = fixture.nativeElement;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  it('offers no Bedrock card among the providers', async () => {
+    await render('openai', 'providers');
+
+    // Positive first, so an unrendered tab cannot pass the absence check.
+    expect(el.querySelector('[data-testid="provider-card-openai"]')).not.toBeNull();
+    expect(el.querySelector('[data-testid="provider-card-bedrock"]')).toBeNull();
+    expect(el.querySelector('[data-testid="provider-use-bedrock"]')).toBeNull();
+  });
+
+  it('has no AWS key field on the AI Providers tab', async () => {
+    await render('openai', 'providers');
+
+    // Positive first, so an unrendered tab cannot pass the absence checks.
+    expect(el.querySelector('[data-testid="key-status-openai"]')).not.toBeNull();
+    expect(el.querySelector('[data-testid="key-status-claude"]')).not.toBeNull();
+    expect(el.textContent).not.toMatch(/AWS/);
+    expect(wailsMock.getKeyStatus).not.toHaveBeenCalledWith('bedrock');
+  });
+
+  it('says nothing about availability when the saved provider works', async () => {
+    await render('openai');
+
+    expect(el.querySelector('[data-testid="provider-unavailable"]')).toBeNull();
+  });
+
+  // A user who picked Bedrock before it was hidden. The dropdown cannot show
+  // it any more, so the empty field needs a reason next to it.
+  it('explains an empty provider field when Bedrock was saved', async () => {
+    await render('bedrock');
+
+    const note = el.querySelector('[data-testid="provider-unavailable"]');
+    expect(note).not.toBeNull();
+    expect(note!.textContent).toContain('AWS Bedrock is saved but not available yet');
+    expect(el.querySelector('[data-testid="provider-pointer-text"]')!.textContent).toContain('No provider in use');
+  });
+
+  // No card can carry the marker, so the tab itself has to say why.
+  it('says on the AI Providers tab that no offered provider is in use', async () => {
+    await render('bedrock', 'providers');
+
+    expect(el.querySelector('[data-testid="providers-tab-unavailable"]')?.textContent)
+      .toContain('AWS Bedrock');
+    expect(el.querySelector('[data-testid^="provider-in-use-"]')).toBeNull();
+  });
+
+  // Switching on the user's behalf would send their text to a service they
+  // never chose, so the saved value stays until they pick one.
+  it('does not switch a saved Bedrock provider behind the user\'s back', async () => {
+    await render('bedrock');
+
+    await component.save();
+
+    expect(wailsMock.saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ active_provider: 'bedrock' }),
+    );
+  });
+
+  it('drops the explanation once the user picks a provider', async () => {
+    await render('bedrock', 'providers');
+
+    el.querySelector<HTMLElement>('[data-testid="provider-use-openai"] button')!.click();
+    await fixture.whenStable();
+    await new Promise(r => setTimeout(r));
+    fixture.detectChanges();
+
+    expect(el.querySelector('[data-testid="provider-unavailable"]')).toBeNull();
+    expect(el.querySelector('[data-testid="providers-tab-unavailable"]')).toBeNull();
+    expect(wailsMock.setActiveProvider).toHaveBeenCalledWith('openai');
+  });
+});
+
+
+// Only the dark theme is styled (#24). A dropdown with one entry is not a
+// choice, so the control is gone until a light theme exists (#25).
+describe('SettingsComponent — theme', () => {
+  let fixture: ComponentFixture<SettingsComponent>;
+  let component: SettingsComponent;
+  let el: HTMLElement;
+  let wailsMock: ReturnType<typeof createWailsMock>;
+
+  async function render(themePreference: string): Promise<void> {
+    TestBed.resetTestingModule();
+    wailsMock = createWailsMock();
+    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, theme_preference: themePreference });
+    wailsMock.getKeyStatus.mockResolvedValue({ ...defaultKeyStatus });
+
+    await TestBed.configureTestingModule({
+      imports: [SettingsComponent],
+      providers: [
+        provideAnimationsAsync(),
+        { provide: WailsService, useValue: wailsMock },
+        { provide: ActivatedRoute, useValue: makeActivatedRoute() },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(SettingsComponent);
+    component = fixture.componentInstance;
+    component.settings = { ...defaultSettings, theme_preference: themePreference };
+    el = fixture.nativeElement;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  it('shows no theme control on the General tab', async () => {
+    await render('dark');
+
+    const labels = Array.from(el.querySelectorAll('label')).map(l => l.textContent?.trim());
+    expect(labels).toContain('Start on Boot');
+    expect(labels).not.toContain('Theme');
+  });
+
+  // The field stays in the model for #25; saving must not rewrite it.
+  it('saves a stored theme preference unchanged', async () => {
+    await render('light');
+
+    await component.save();
+
+    expect(wailsMock.saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ theme_preference: 'light' }),
+    );
   });
 });

@@ -1,6 +1,6 @@
 import { Subject } from 'rxjs';
 import { vi } from 'vitest';
-import type { Settings, KeyStatus, UpdateInfo, InstallResult, ClaudeCodeStatus, ModelList } from '../app/core/wails.service';
+import type { Settings, KeyStatus, UpdateInfo, InstallResult, ClaudeCodeStatus, ModelList, BuildIdentity, DevChannel } from '../app/core/wails.service';
 
 export const defaultSettings: Settings = {
   active_provider: 'openai',
@@ -20,6 +20,7 @@ export const defaultSettings: Settings = {
   log_level: 'off',
   sensitive_logging: false,
   update_channel: '',
+  developer_options: false,
   app_presets: [],
   pyramidize_quality_threshold: 0.65,
 };
@@ -52,6 +53,20 @@ export const defaultUpdateInfo: UpdateInfo = {
   channel: '',
 };
 
+/** Default: a release build, not one from the dev channel. */
+export const defaultBuildIdentity: BuildIdentity = { is_dev_build: false, kind: '', pr: 0, commit: '', tag: '' };
+
+/** Default: nothing published on the dev channel. */
+export const defaultDevChannel: DevChannel = {
+  current: { ...defaultBuildIdentity },
+  builds: [],
+  orphaned: false,
+  latest_release: '',
+  latest_release_date: '',
+  new_release_since_build: false,
+  error: '',
+};
+
 export function createWailsMock() {
   const shortcutFix$ = new Subject<string>();
   const shortcutPyramidize$ = new Subject<string>();
@@ -68,6 +83,7 @@ export function createWailsMock() {
 
     loadSettings: vi.fn().mockResolvedValue({ ...defaultSettings }),
     saveSettings: vi.fn().mockResolvedValue(undefined),
+    setActiveProvider: vi.fn().mockResolvedValue(undefined),
     isFirstRun: vi.fn().mockResolvedValue(false),
     completeSetup: vi.fn().mockResolvedValue(undefined),
     readClipboard: vi.fn().mockResolvedValue('clipboard text'),
@@ -85,6 +101,11 @@ export function createWailsMock() {
     getVersion: vi.fn().mockResolvedValue('3.6.0'),
     checkForUpdate: vi.fn().mockResolvedValue({ ...defaultUpdateInfo }),
     downloadAndInstall: vi.fn().mockResolvedValue({ restart_required: false }),
+    setDeveloperOptions: vi.fn().mockResolvedValue(undefined),
+    getBuildIdentity: vi.fn().mockResolvedValue({ ...defaultBuildIdentity }),
+    listDevBuilds: vi.fn().mockResolvedValue({ ...defaultDevChannel, builds: [] }),
+    installDevBuild: vi.fn().mockResolvedValue({ restart_required: true } as InstallResult),
+    installLatestRelease: vi.fn().mockResolvedValue({ restart_required: true } as InstallResult),
     log: vi.fn().mockResolvedValue(undefined),
     pasteToForeground: vi.fn().mockResolvedValue(undefined),
     ngOnDestroy: vi.fn(),
