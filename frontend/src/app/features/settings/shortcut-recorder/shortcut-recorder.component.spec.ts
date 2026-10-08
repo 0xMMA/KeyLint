@@ -79,4 +79,30 @@ describe('ShortcutRecorderComponent', () => {
     expect(spy).not.toHaveBeenCalled();
     expect(component.recording).toBe(true);
   });
+
+  it('resumes the shortcuts when destroyed mid-recording', () => {
+    el.querySelector<HTMLButtonElement>('[data-testid="record-btn"]')?.click();
+    wailsMock.setShortcutPaused.mockClear();
+
+    // Leaving the page, or switching mode, removes the recorder while it waits.
+    fixture.destroy();
+
+    expect(wailsMock.setShortcutPaused).toHaveBeenCalledWith(false);
+  });
+
+  it('does not touch the hook when destroyed while idle', () => {
+    wailsMock.setShortcutPaused.mockClear();
+    fixture.destroy();
+    expect(wailsMock.setShortcutPaused).not.toHaveBeenCalled();
+  });
+
+  it('records the digit, not the shifted symbol, for Shift+digit', () => {
+    el.querySelector<HTMLButtonElement>('[data-testid="record-btn"]')?.click();
+    const emitted: string[] = [];
+    component.valueChange.subscribe(v => emitted.push(v));
+
+    component.onKeyDown(new KeyboardEvent('keydown', { key: '!', code: 'Digit1', ctrlKey: true, shiftKey: true }));
+
+    expect(emitted).toEqual(['ctrl+shift+1']);
+  });
 });

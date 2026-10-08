@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, Input, Output, EventEmitter, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, Output, EventEmitter, OnDestroy, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
 import { WailsService } from '../../../core/wails.service';
@@ -79,7 +79,7 @@ function formatCombo(combo: string): string {
     }
   `],
 })
-export class ShortcutRecorderComponent {
+export class ShortcutRecorderComponent implements OnDestroy {
   @Input() value = '';
   @Output() valueChange = new EventEmitter<string>();
 
@@ -94,6 +94,15 @@ export class ShortcutRecorderComponent {
     this.recording = !this.recording;
     // Pause/resume the global shortcut hook so it doesn't intercept keypresses during recording.
     void this.wails.setShortcutPaused(this.recording);
+  }
+
+  ngOnDestroy(): void {
+    // Removed while waiting for a combo (the page was left, or the mode switch
+    // swapped the recorders): without this the hook stays paused until restart.
+    if (this.recording) {
+      this.recording = false;
+      void this.wails.setShortcutPaused(false);
+    }
   }
 
   onKeyDown(event: KeyboardEvent): void {
@@ -119,6 +128,12 @@ export class ShortcutRecorderComponent {
 
     // Map the key to our canonical name.
     let keyName = KEY_TO_NAME[event.key] ?? event.key.toLowerCase();
+    // Shift+digit reports the symbol ("!" on a US layout, "\"" on a German
+    // one); the hook triggers on the digit key, so take it from the code.
+    const digit = /^Digit(\d)$/.exec(event.code ?? '');
+    if (digit) {
+      keyName = digit[1];
+    }
     // Function keys come as "F1", "F12" etc.
     if (/^f\d{1,2}$/i.test(event.key)) {
       keyName = event.key.toLowerCase();
