@@ -1199,29 +1199,40 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
 
     this.cdr.detectChanges();
 
-    this.sub = this.wails.shortcutPyramidize$.subscribe(async () => {
-      const clipboardContent = await this.wails.readClipboard();
-      sourceApp = await this.wails.getSourceApp();
-
-      if (originalText && !confirm('Replace current session with new clipboard content?')) {
-        return;
-      }
-
-      wasCancelled = false;
-      originalText = clipboardContent;
-      pyramidizedText = '';
-      canvasText = '';
-      traceLog = [];
-      this.detectedTypeView = '';
-      activeTab = 'original';
-      this.errorMessage = '';
-      this.refinementWarning = '';
-
-      if (originalText.trim()) {
-        addTrace('Original', originalText);
-      }
-      this.cdr.detectChanges();
+    this.sub = this.wails.shortcutPyramidize$.subscribe(() => {
+      this.wails.takePendingPyramidize();
+      void this.loadShortcutClipboard();
     });
+    // A shortcut pressed on another page navigated here before this page was
+    // listening; the event is gone, the pending flag is not.
+    if (this.wails.takePendingPyramidize()) {
+      void this.loadShortcutClipboard();
+    }
+  }
+
+  /** Starts a session from the text the Pyramidize shortcut copied. */
+  private async loadShortcutClipboard(): Promise<void> {
+    const clipboardContent = await this.wails.readClipboard();
+    sourceApp = await this.wails.getSourceApp();
+
+    if (originalText && !confirm('Replace current session with new clipboard content?')) {
+      return;
+    }
+
+    wasCancelled = false;
+    originalText = clipboardContent;
+    pyramidizedText = '';
+    canvasText = '';
+    traceLog = [];
+    this.detectedTypeView = '';
+    activeTab = 'original';
+    this.errorMessage = '';
+    this.refinementWarning = '';
+
+    if (originalText.trim()) {
+      addTrace('Original', originalText);
+    }
+    this.cdr.detectChanges();
   }
 
   onOriginalChange(value: string): void {

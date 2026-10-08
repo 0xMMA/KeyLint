@@ -90,6 +90,7 @@ export function createWailsMock() {
     writeClipboard: vi.fn().mockResolvedValue(undefined),
     enhance: vi.fn().mockResolvedValue('Enhanced text.'),
     setShortcutPaused: vi.fn().mockResolvedValue(undefined),
+    takePendingPyramidize: vi.fn().mockReturnValue(false),
     simulateShortcut: vi.fn().mockResolvedValue(undefined),
     getKeyStatus: vi.fn().mockResolvedValue({ ...defaultKeyStatus }),
     getKey: vi.fn().mockResolvedValue(''),

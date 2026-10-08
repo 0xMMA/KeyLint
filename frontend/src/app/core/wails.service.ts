@@ -88,6 +88,12 @@ export class WailsService implements OnDestroy {
   private readonly shortcutPyramidize = new Subject<string>();
   private readonly settingsChanged = new Subject<void>();
   private readonly unsubscribers: Array<() => void> = [];
+  /**
+   * A Pyramidize shortcut no page has handled yet. The shell navigates to the
+   * Pyramidize page on the event, but that page subscribes only after its own
+   * async setup, by which time the event has gone; it takes this instead.
+   */
+  private pyramidizePending = false;
 
   /** Emits on fix shortcut (silent grammar fix). */
   readonly shortcutFix$: Observable<string> = this.shortcutFix.asObservable();
@@ -106,12 +112,24 @@ export class WailsService implements OnDestroy {
         this.shortcutFix.next(ev.data as string);
       }),
       Events.On('shortcut:pyramidize', (ev) => {
+        this.pyramidizePending = true;
         this.shortcutPyramidize.next(ev.data as string);
       }),
       Events.On('settings:changed', () => {
         this.settingsChanged.next();
       }),
     );
+  }
+
+  /**
+   * Whether a Pyramidize shortcut is waiting to be handled, and clears it: one
+   * shortcut loads the clipboard once, on whichever side of the page's
+   * subscription it arrived.
+   */
+  takePendingPyramidize(): boolean {
+    const pending = this.pyramidizePending;
+    this.pyramidizePending = false;
+    return pending;
   }
 
   loadSettings(): Promise<Settings> {

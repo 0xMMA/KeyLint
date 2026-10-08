@@ -336,6 +336,71 @@ describe('TextEnhancementComponent (Pyramidize)', () => {
   });
 });
 
+// The shell navigates here on a Pyramidize shortcut, but the event has already
+// gone by the time this page subscribes. WailsService keeps it pending until a
+// page takes it, so the clipboard text still arrives.
+describe('TextEnhancementComponent — Pyramidize shortcut from another page', () => {
+  let fixture: ComponentFixture<TextEnhancementComponent>;
+  let wailsMock: ReturnType<typeof createWailsMock>;
+
+  async function mount(): Promise<void> {
+    await TestBed.configureTestingModule({
+      imports: [TextEnhancementComponent],
+      providers: [
+        provideAnimationsAsync(),
+        provideRouter([]),
+        { provide: WailsService, useValue: wailsMock },
+        { provide: TextEnhancementService, useValue: makeEnhancementServiceMock() },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(TextEnhancementComponent);
+    fixture.componentInstance.originalTextView = '';
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await new Promise(r => setTimeout(r, 0));
+  }
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    wailsMock = createWailsMock();
+    wailsMock.readClipboard.mockResolvedValue('text copied before the page opened');
+  });
+
+  afterEach(() => {
+    fixture?.componentInstance.ngOnDestroy();
+    if (fixture) fixture.componentInstance.originalTextView = '';
+    vi.restoreAllMocks();
+  });
+
+  it('loads the clipboard when a shortcut is pending on arrival', async () => {
+    wailsMock.takePendingPyramidize.mockReturnValueOnce(true);
+
+    await mount();
+
+    expect(wailsMock.readClipboard).toHaveBeenCalled();
+    expect(fixture.componentInstance.originalTextView).toBe('text copied before the page opened');
+  });
+
+  it('leaves the page alone when nothing is pending', async () => {
+    await mount();
+
+    expect(wailsMock.readClipboard).not.toHaveBeenCalled();
+    expect(fixture.componentInstance.originalTextView).toBe('');
+  });
+
+  it('takes the pending flag when the shortcut arrives while mounted', async () => {
+    await mount();
+    wailsMock.takePendingPyramidize.mockClear();
+
+    wailsMock._shortcutPyramidize$.next('hotkey');
+    await new Promise(r => setTimeout(r, 0));
+
+    // Otherwise the next visit to this page would load the clipboard again.
+    expect(wailsMock.takePendingPyramidize).toHaveBeenCalled();
+    expect(fixture.componentInstance.originalTextView).toBe('text copied before the page opened');
+  });
+});
+
 describe('TextEnhancementComponent — Claude Code provider', () => {
   let fixture: ComponentFixture<TextEnhancementComponent>;
   let component: TextEnhancementComponent;
