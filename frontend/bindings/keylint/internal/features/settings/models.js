@@ -188,7 +188,7 @@ export class Settings {
         }
         if (!("shortcut_key" in $$source)) {
             /**
-             * LEGACY — migrated to ShortcutFix on load
+             * LEGACY — never applied (Ctrl+G was hard-wired); ignored, kept so old files round-trip
              * @member
              * @type {string}
              */

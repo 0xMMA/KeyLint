@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"keylint/internal/app"
@@ -13,6 +14,7 @@ import (
 	"keylint/internal/features/enhance"
 	featurelogger "keylint/internal/features/logger"
 	"keylint/internal/features/pyramidize"
+	"keylint/internal/features/settings"
 	"keylint/internal/features/shortcut"
 	"keylint/internal/features/updater"
 	"keylint/internal/logger"
@@ -121,32 +123,40 @@ func main() {
 
 	// Register the global shortcut (no-op on Linux).
 	// Unregister on shutdown so dev-mode restarts don't leave a stale registration.
-	shortcutCfg := shortcut.ShortcutConfig{
-		Mode:            cfg.ShortcutMode,
-		FixCombo:        cfg.ShortcutFix,
-		PyramidizeCombo: cfg.ShortcutPyramidize,
-		DoubleTapDelay:  time.Duration(cfg.ShortcutDoubleTapDelay) * time.Millisecond,
-	}
-	if err := services.Shortcut.Register(shortcutCfg); err != nil {
+	// hookActive is false while no hook is installed, so a save that fixes the
+	// shortcuts after a failed registration installs it instead of updating a
+	// hook that does not exist.
+	var hookActive atomic.Bool
+	if err := services.Shortcut.Register(shortcutConfigOf(cfg)); err != nil {
 		log.Printf("warn: shortcut registration failed: %v", err)
 		logger.Warn("shortcut: registration failed", "err", err)
 	} else {
+		hookActive.Store(true)
 		logger.Info("shortcut: registered", "mode", cfg.ShortcutMode, "fix", cfg.ShortcutFix)
 	}
 	wailsApp.OnShutdown(func() { services.Shortcut.Unregister() })
 
-	// Hot-reload shortcuts when settings change.
-	wailsApp.Event.On("settings:changed", func(ev *application.CustomEvent) {
-		newCfg := services.Settings.Get()
-		newShortcutCfg := shortcut.ShortcutConfig{
-			Mode:            newCfg.ShortcutMode,
-			FixCombo:        newCfg.ShortcutFix,
-			PyramidizeCombo: newCfg.ShortcutPyramidize,
-			DoubleTapDelay:  time.Duration(newCfg.ShortcutDoubleTapDelay) * time.Millisecond,
+	// Apply saved shortcuts straight away. Every write goes through the
+	// settings service, so this sees Save and Reset to defaults alike; writes
+	// that leave the shortcuts alone (a provider switch, say) are skipped, so
+	// they do not reset a double tap in progress.
+	settings.OnSaved(services.Settings, func(old, updated settings.Settings) {
+		next := shortcutConfigOf(updated)
+		if hookActive.Load() {
+			if next == shortcutConfigOf(old) {
+				return
+			}
+			if err := services.Shortcut.UpdateConfig(next); err != nil {
+				logger.Warn("shortcut: applying saved shortcuts failed", "err", err)
+			}
+			return
 		}
-		if err := services.Shortcut.UpdateConfig(newShortcutCfg); err != nil {
-			logger.Warn("shortcut: hot-reload failed", "err", err)
+		if err := services.Shortcut.Register(next); err != nil {
+			logger.Warn("shortcut: registration failed", "err", err)
+			return
 		}
+		hookActive.Store(true)
+		logger.Info("shortcut: registered", "mode", updated.ShortcutMode, "fix", updated.ShortcutFix)
 	})
 
 	// Forward classified shortcut events to the frontend.
@@ -193,4 +203,14 @@ func (s *simulateService) SimulateShortcut() {
 // SetShortcutPaused temporarily disables shortcut detection (e.g. while recording a new shortcut in settings).
 func (s *simulateService) SetShortcutPaused(paused bool) {
 	s.shortcut.SetPaused(paused)
+}
+
+// shortcutConfigOf is the part of the settings the shortcut hook runs on.
+func shortcutConfigOf(s settings.Settings) shortcut.ShortcutConfig {
+	return shortcut.ShortcutConfig{
+		Mode:            s.ShortcutMode,
+		FixCombo:        s.ShortcutFix,
+		PyramidizeCombo: s.ShortcutPyramidize,
+		DoubleTapDelay:  time.Duration(s.ShortcutDoubleTapDelay) * time.Millisecond,
+	}
 }

@@ -55,6 +55,8 @@ type Service struct {
 	// saveMu serialises Save and Update, which write the file and then swap
 	// current.
 	saveMu sync.Mutex
+	// onSaved runs after every successful save, under saveMu; see OnSaved.
+	onSaved func(old, updated Settings)
 
 	// claudeCode caches the CLI probe; see GetClaudeCodeStatus. Spawning
 	// processes on every screen that asks is what #55 was about.
@@ -165,14 +167,12 @@ func (s *Service) load() error {
 		}
 	}
 
-	// Migrate legacy shortcut_key → shortcut_fix + defaults.
-	if s.current.ShortcutFix == "" && s.current.ShortcutKey != "" {
-		s.current.ShortcutFix = s.current.ShortcutKey
-		s.current.ShortcutMode = "double_tap"
-		s.current.ShortcutPyramidize = "ctrl+shift+g"
-		s.current.ShortcutDoubleTapDelay = 200
-		logger.Info("settings: migrated shortcut_key to shortcut_fix", "key", s.current.ShortcutFix)
-	}
+	// shortcut_key is not migrated: up to v4.5.0-beta the hotkey was hard-wired
+	// to Ctrl+G and the field was free text that nothing read, so every user
+	// really had Ctrl+G. Copying an unvalidated value into shortcut_fix could
+	// only break that (an unparseable one disables every shortcut, a bare "g"
+	// swallows every g typed); a file without shortcut_fix keeps Default()'s.
+	normalizeShortcuts(&s.current)
 
 	logger.Info("settings: loaded", "path", s.filePath)
 	return nil
@@ -210,7 +210,27 @@ func (s *Service) Save(updated Settings) error {
 	// same save when two land together.
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
+	// The settings screen is the only place shortcuts change. A combo the hook
+	// cannot use is refused here, where the screen shows the error, instead of
+	// being written and then failing to apply.
+	if shortcutsChanged(s.Get(), updated) {
+		if err := validateShortcuts(updated); err != nil {
+			return fmt.Errorf("settings: %w", err)
+		}
+	}
 	return s.persistLocked(updated)
+}
+
+// OnSaved registers fn to run after every successful save — Save, Update and
+// everything built on them — with the settings before and after. It runs while
+// the save still holds saveMu, so calls arrive in save order; fn must not save
+// settings itself, or it deadlocks. One callback; a second call replaces it.
+//
+// A package function rather than a method, for the same reason as Update.
+func OnSaved(s *Service, fn func(old, updated Settings)) {
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	s.onSaved = fn
 }
 
 // SetActiveProvider makes provider the one KeyLint uses and saves that alone.
@@ -287,7 +307,8 @@ func (s *Service) persistLocked(updated Settings) error {
 	// only, because the only file it could write to is the user's real one.
 
 	s.currentMu.Lock()
-	ollamaMoved := updated.Providers.OllamaURL != s.current.Providers.OllamaURL
+	old := s.current
+	ollamaMoved := updated.Providers.OllamaURL != old.Providers.OllamaURL
 	// Cloned on the way in as well: the caller still holds `updated` and may
 	// edit its presets afterwards, which would otherwise mutate live settings.
 	s.current = updated.clone()
@@ -299,6 +320,10 @@ func (s *Service) persistLocked(updated Settings) error {
 	}
 	if s.filePath != "" {
 		logger.Info("settings: saved", "path", s.filePath)
+	}
+	if s.onSaved != nil {
+		// Fresh copies: the callback must not be able to reach live state.
+		s.onSaved(old.clone(), updated.clone())
 	}
 	return nil
 }

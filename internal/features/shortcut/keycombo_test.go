@@ -102,3 +102,21 @@ func TestKeyCombo_String(t *testing.T) {
 		t.Errorf("String() = %q, want %q", got, "ctrl+shift+g")
 	}
 }
+
+// A global shortcut swallows its trigger key everywhere. One without Ctrl, Alt
+// or Win would eat ordinary typing ("g", "shift+g"), so only function keys may
+// stand alone.
+func TestCheckCombo(t *testing.T) {
+	ok := []string{"ctrl+g", "ctrl+shift+g", "alt+k", "win+f", "f8", "shift+f8", "ctrl+1"}
+	bad := []string{"", "g", "shift+g", "strg+g", "ctrl+shift", "ctrl+!", "space", "shift+1"}
+	for _, c := range ok {
+		if err := CheckCombo(c); err != nil {
+			t.Errorf("CheckCombo(%q) = %v, want ok", c, err)
+		}
+	}
+	for _, c := range bad {
+		if err := CheckCombo(c); err == nil {
+			t.Errorf("CheckCombo(%q) = nil, want an error", c)
+		}
+	}
+}

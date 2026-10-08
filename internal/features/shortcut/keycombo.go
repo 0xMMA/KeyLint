@@ -137,3 +137,23 @@ func (kc KeyCombo) String() string {
 	parts = append(parts, kc.KeyName)
 	return strings.Join(parts, "+")
 }
+
+// CheckCombo reports whether s can serve as a global shortcut. It must parse,
+// and it needs Ctrl, Alt or Win unless the trigger is a function key: the hook
+// swallows the trigger system-wide, so "g" or "shift+g" would eat ordinary
+// typing in every application.
+func CheckCombo(s string) error {
+	kc, err := ParseKeyCombo(s)
+	if err != nil {
+		return err
+	}
+	if kc.Modifiers&(ModCtrl|ModAlt|ModWin) == 0 && !isFunctionKey(kc.KeyName) {
+		return fmt.Errorf("%q needs Ctrl, Alt or Win, or a function key", s)
+	}
+	return nil
+}
+
+func isFunctionKey(name string) bool {
+	vk := keyNames[name]
+	return vk >= 0x70 && vk <= 0x7B
+}

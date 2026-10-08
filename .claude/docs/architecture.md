@@ -35,7 +35,7 @@ Keys are NOT stored in `settings.json`. `GetKey(provider)` / `SetKey` / `DeleteK
 
 ## Platform Differences
 
-**Shortcut:** `internal/features/shortcut/service_linux.go` (build tag `!windows`) is a no-op with a `Simulate()` helper for dev. `service_windows.go` uses Win32 `RegisterHotKey`.
+**Shortcut:** `internal/features/shortcut/service_linux.go` (build tag `!windows`) is a no-op with a `Simulate()` helper for dev. `service_windows.go` installs a `WH_KEYBOARD_LL` hook (double-tap or two independent combos, see `docs/superpowers/specs/2026-04-06-keyboard-hook-configurable-shortcuts-design.md`) and emits `shortcut:fix` / `shortcut:pyramidize`. `ShellComponent` handles both on every route: it runs the silent fix itself and navigates to `/enhance` for Pyramidize, which picks the shortcut up through `WailsService.takePendingPyramidize()` because the event fires before that page subscribes. Saved shortcuts apply at once via `settings.OnSaved` in `main.go`; `settings.Save` refuses a shortcut change the hook could not use, and `load()` replaces unusable values from the file. `shortcut_key` is legacy and never read — up to v4.5.0-beta Ctrl+G was hard-wired.
 
 **Clipboard:** `clipboard.Write()` on Linux requires `xsel` or `xclip` installed; failure is silently swallowed (best-effort).
 
@@ -49,7 +49,7 @@ Keys are NOT stored in `settings.json`. `GetKey(provider)` / `SetKey` / `DeleteK
 
 ```
 /welcome              → WelcomeWizardComponent (first-run guard redirects here)
-/ → /fix              → FixComponent (default, silent clipboard fix)
+/ → /fix              → FixComponent (default; manual fix — the shortcut's silent fix runs in ShellComponent)
 /enhance              → TextEnhancementComponent (manual input/output)
 /settings             → SettingsComponent
 /dev-tools            → DevToolsComponent (dev mode only)

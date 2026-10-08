@@ -60,7 +60,7 @@ func (s Settings) ModelFor(provider, feature string) string {
 type Settings struct {
 	ActiveProvider         string   `json:"active_provider"` // "openai" | "claude" | "claude-code" | "ollama" | "bedrock"
 	Providers              Provider `json:"providers"`
-	ShortcutKey            string   `json:"shortcut_key"`              // LEGACY — migrated to ShortcutFix on load
+	ShortcutKey            string   `json:"shortcut_key"`              // LEGACY — never applied (Ctrl+G was hard-wired); ignored, kept so old files round-trip
 	ShortcutMode           string   `json:"shortcut_mode"`             // "double_tap" | "independent"
 	ShortcutFix            string   `json:"shortcut_fix"`              // e.g. "ctrl+g"
 	ShortcutPyramidize     string   `json:"shortcut_pyramidize"`       // e.g. "ctrl+shift+g" (independent mode only)
