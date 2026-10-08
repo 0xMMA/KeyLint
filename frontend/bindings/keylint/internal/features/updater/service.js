@@ -17,6 +17,10 @@ import * as $models from "./models.js";
 
 /**
  * CheckForUpdate fetches the GitHub Releases API and finds the best available update.
+ * 
+ * Dev builds (0.0.0-pr.N, 0.0.0-main) never get an answer here: at version
+ * 0.0.0 every release would look like an update, forever. They are served by
+ * ListDevBuilds instead, which knows where they came from.
  * @returns {$CancellablePromise<$models.UpdateInfo>}
  */
 export function CheckForUpdate() {
@@ -39,11 +43,61 @@ export function DownloadAndInstall() {
 }
 
 /**
+ * GetBuildIdentity tells the frontend whether it is running a dev build and
+ * which one. No network call.
+ * @returns {$CancellablePromise<$models.BuildIdentity>}
+ */
+export function GetBuildIdentity() {
+    return $Call.ByID(3907112600).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType2($result);
+    }));
+}
+
+/**
  * GetVersion returns the current application version.
  * @returns {$CancellablePromise<string>}
  */
 export function GetVersion() {
     return $Call.ByID(4045591078);
+}
+
+/**
+ * InstallDevBuild downloads and installs a dev-channel build by tag, through
+ * the same path as a normal update. Only dev tags are accepted, and only
+ * with developer options on or from a dev build.
+ * @param {string} tag
+ * @returns {$CancellablePromise<$models.InstallResult>}
+ */
+export function InstallDevBuild(tag) {
+    return $Call.ByID(2953585996, tag).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType1($result);
+    }));
+}
+
+/**
+ * InstallLatestRelease installs the newest real release on the effective
+ * update channel, whatever version is running — the way back from a dev
+ * build, which the normal update check deliberately ignores.
+ * @returns {$CancellablePromise<$models.InstallResult>}
+ */
+export function InstallLatestRelease() {
+    return $Call.ByID(2499356255).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType1($result);
+    }));
+}
+
+/**
+ * ListDevBuilds lists the dev-channel builds — main first, then open PRs,
+ * newest PR first — and says whether the running PR build has been orphaned.
+ * force skips the one-minute cache, as a Refresh button wants; it never
+ * skips a rate-limit back-off.
+ * @param {boolean} force
+ * @returns {$CancellablePromise<$models.DevChannel>}
+ */
+export function ListDevBuilds(force) {
+    return $Call.ByID(3149967204, force).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType3($result);
+    }));
 }
 
 /**
@@ -59,3 +113,5 @@ export function SetQuitFunc(fn) {
 // Private type creation functions
 const $$createType0 = $models.UpdateInfo.createFrom;
 const $$createType1 = $models.InstallResult.createFrom;
+const $$createType2 = $models.BuildIdentity.createFrom;
+const $$createType3 = $models.DevChannel.createFrom;

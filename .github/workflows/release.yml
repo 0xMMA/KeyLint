@@ -4,6 +4,10 @@ on:
   push:
     tags:
       - 'v*'
+      # Dev-channel tags (build-linux.yml, publish-dev-build) are not releases.
+      # They are pushed with GITHUB_TOKEN, which starts no workflow anyway;
+      # this keeps it that way if that ever changes.
+      - '!v0.0.0-*'
 
 # Read by default; only the job that publishes gets write. The build jobs
 # compile and upload artifacts, which needs no repository write at all — and a
@@ -255,9 +259,20 @@ jobs:
             echo "IS_PRERELEASE=false" >> $GITHUB_OUTPUT
           fi
 
+      # Pinned, so the generated notes start at the previous real release:
+      # left to GitHub, the newest release before this one can be a moving
+      # dev-channel prerelease (v0.0.0-main, v0.0.0-pr.N).
+      - name: Find the previous release tag
+        id: previous
+        run: |
+          PREV=$(git describe --tags --abbrev=0 --exclude 'v0.0.0-*' "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          echo "previous=$PREV"
+          echo "TAG=$PREV" >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
+          previous_tag: ${{ steps.previous.outputs.TAG }}
           draft: true
           prerelease: ${{ steps.prerelease.outputs.IS_PRERELEASE == 'true' }}
           generate_release_notes: true

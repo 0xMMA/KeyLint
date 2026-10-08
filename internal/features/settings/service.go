@@ -221,6 +221,17 @@ func (s *Service) SetActiveProvider(provider string) error {
 	return nil
 }
 
+// SetDeveloperOptions turns the developer options on or off and saves that one
+// field, leaving anything else the settings screen has pending unsaved — the
+// unlock happens by tapping the version, not by pressing Save.
+func (s *Service) SetDeveloperOptions(enabled bool) error {
+	if err := Update(s, func(c *Settings) { c.DeveloperOptions = enabled }); err != nil {
+		return err
+	}
+	logger.Info("settings: developer options set", "enabled", enabled)
+	return nil
+}
+
 // Update applies mutate to the current settings and saves the result, holding
 // saveMu from the read to the write. Backend code that changes one field uses
 // this rather than Get followed by Save: with a gap between the two, a save

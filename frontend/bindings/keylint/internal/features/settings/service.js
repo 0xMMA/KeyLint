@@ -135,6 +135,17 @@ export function SetActiveProvider(provider) {
 }
 
 /**
+ * SetDeveloperOptions turns the developer options on or off and saves that one
+ * field, leaving anything else the settings screen has pending unsaved — the
+ * unlock happens by tapping the version, not by pressing Save.
+ * @param {boolean} enabled
+ * @returns {$CancellablePromise<void>}
+ */
+export function SetDeveloperOptions(enabled) {
+    return $Call.ByID(4102253834, enabled);
+}
+
+/**
  * SetKey stores an API key for the given provider in the OS keyring.
  * Returns an error if the keyring is unavailable on this platform.
  * @param {string} provider

@@ -32,16 +32,18 @@ type InstallResult struct {
 
 // githubRelease represents a single release from the GitHub Releases API.
 type githubRelease struct {
-	TagName    string        `json:"tag_name"`
-	Name       string        `json:"name"`
-	Body       string        `json:"body"`
-	Draft      bool          `json:"draft"`
-	Prerelease bool          `json:"prerelease"`
-	Assets     []githubAsset `json:"assets"`
+	TagName     string        `json:"tag_name"`
+	Name        string        `json:"name"`
+	Body        string        `json:"body"`
+	Draft       bool          `json:"draft"`
+	Prerelease  bool          `json:"prerelease"`
+	PublishedAt string        `json:"published_at"`
+	Assets      []githubAsset `json:"assets"`
 }
 
 // githubAsset represents a single downloadable file attached to a GitHub release.
 type githubAsset struct {
 	Name               string `json:"name"`
 	BrowserDownloadURL string `json:"browser_download_url"`
+	UpdatedAt          string `json:"updated_at"`
 }

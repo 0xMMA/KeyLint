@@ -68,6 +68,11 @@ type Settings struct {
 	SensitiveLogging bool     `json:"sensitive_logging"` // logs full API payloads; never share the log file while enabled
 	UpdateChannel    string   `json:"update_channel"`    // "" (auto-detect), "stable", or "pre-release"
 
+	// DeveloperOptions unlocks the dev channel in Settings → About: installable
+	// builds of open pull requests and of main. Off for everyone until the
+	// owner turns it on by tapping the version, and off again with a switch.
+	DeveloperOptions bool `json:"developer_options"`
+
 	// Models holds the model chosen per provider and feature. An absent key or
 	// an empty string means the built-in default, so older settings files need
 	// no migration.

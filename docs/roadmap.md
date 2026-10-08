@@ -205,4 +205,5 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 - [x] `MicrosoftEdgeWebview2Setup.exe` was curled from a redirector with no checksum or signature check and bundled into the installer users run — now `scripts/fetch-webview2.sh` refuses any file without a valid Microsoft signature, in both `release.yml` and `build-linux.yml` (#66, #74)
 - [ ] Branch protection on `main` (required checks incl. `e2e`, `test` with race detector, bindings drift) — Michael, repo settings
 - [ ] Shortcut robustness under rapid input (#42, #44) after #31 lands
+- [x] Dev channel: CI publishes every open same-repo PR and main as an installable prerelease (`v0.0.0-pr.<N>`, `v0.0.0-main`); Settings › About lists them behind developer options (tap the version seven times) and offers main or the latest release once a PR build's PR is closed — see `.claude/docs/versioning.md#the-dev-channel`
 - [x] CLI `-fix` hangs on a never-closing stdin pipe (#46) — stdin moved after the inline argument, plus a 15 s idle timeout that also catches a pipe which speaks once and stays open
