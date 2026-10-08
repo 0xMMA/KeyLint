@@ -13,38 +13,12 @@ import { ActivatedRoute } from '@angular/router';
 import { versionLabel } from '../../core/version-label';
 import { ProviderCardComponent } from './provider-card/provider-card.component';
 import { DevChannelComponent } from './dev-channel/dev-channel.component';
+import { ActiveProviderComponent, FeatureChoice } from './active-provider/active-provider.component';
+import { DEFAULT_MODELS, Feature, ModelOption, defaultOption, effortNote, fixSkipsReasoning, toModelOption } from './model-options';
 import { WailsService, Settings as AppSettings, KeyStatus, UpdateInfo, AppPreset, ClaudeCodeStatus, ModelInfo, BuildIdentity } from '../../core/wails.service';
 import { noteForModelSource } from '../../core/model-source';
 import { DOCUMENT_TYPE_OPTIONS, unavailableProviderName } from '../../core/constants';
 import { LogService } from '../../core/log.service';
-
-/**
- * Lets a user defer to KeyLint's default without knowing a model name.
- * PrimeNG only renders a placeholder while the value is null or undefined and
- * this component writes "", so an explicit option is what makes it visible.
- */
-/**
- * One entry in a model picker.
- *
- * `label` is deliberately the model ID, not the display name: PrimeNG writes
- * optionLabel into the editable input and submits whatever stands there as the
- * value, so a display name there would be saved as a model ID that no provider
- * knows. The readable name lives in `display` and is rendered by the option
- * template instead.
- */
-interface ModelOption {
-  id: string;
-  label: string;
-  display: string;
-}
-
-const DEFAULT_MODEL_OPTION: ModelOption = { id: '', label: '', display: "KeyLint's default" };
-const DEFAULT_MODEL_ONLY: ModelOption[] = [DEFAULT_MODEL_OPTION];
-
-/** Picker entry for one model the provider reported. */
-function toModelOption(model: ModelInfo): ModelOption {
-  return { id: model.id, label: model.id, display: model.label || model.id };
-}
 
 /**
  * Which environment variable supplies each provider's key. The source of truth
@@ -54,6 +28,15 @@ function toModelOption(model: ModelInfo): ModelOption {
 const ENV_KEY_VARS: Readonly<Record<string, string>> = {
   openai: 'OPENAI_API_KEY',
   claude: 'ANTHROPIC_API_KEY',
+};
+
+/** A provider's stored choices; see FeatureModels in internal/features/settings/model.go. */
+type ProviderModels = NonNullable<NonNullable<AppSettings['models']>[string]>;
+
+/** What a picker shows before its provider's list has arrived. */
+const DEFAULT_ONLY: Readonly<Record<Feature, ModelOption[]>> = {
+  fix: [{ id: null, label: '', display: 'Default', secondary: '' }],
+  pyramidize: [{ id: null, label: '', display: 'Default', secondary: '' }],
 };
 
 /** Taps on the version that unlock the developer options, as on Android. */
@@ -71,7 +54,7 @@ interface ProviderKey {
   selector: 'app-settings',
   standalone: true,
   imports: [
-    ProviderCardComponent, DevChannelComponent,
+    ProviderCardComponent, DevChannelComponent, ActiveProviderComponent,
     CommonModule, FormsModule,
     ButtonModule, InputTextModule, SelectModule, ToggleSwitchModule,
     Tabs, TabList, Tab, TabPanels, TabPanel, MessageModule, CardModule, TagModule,
@@ -153,15 +136,14 @@ interface ProviderKey {
                 </div>
               </p-tabpanel>
 
-              <!-- AI Providers / Keys tab -->
+              <!-- AI Providers tab: what is in use on top, every connection below. -->
               <p-tabpanel value="providers">
                 <!-- Pyramidize follows this choice unless the user picked another
-                     there for the session, and says so on its own page. -->
+                     there for the session, and says so on its own page. Also the
+                     focus target of the General tab's pointer. -->
                 <p class="provider-summary" data-testid="providers-summary" tabindex="-1">
                   @if (activeProviderLabel; as label) {
-                    Fix sends your text to <strong>{{ label }}</strong>.
-                    Pyramidize uses it too, unless you pick another provider there for this session.
-                    To switch, press <em>Use this</em> on another provider.
+                    KeyLint sends your text to <strong>{{ label }}</strong>. Pyramidize can pick another provider for one session.
                   } @else {
                     No provider is in use. Press <em>Use this</em> on the one KeyLint should send your text to.
                   }
@@ -180,6 +162,32 @@ interface ProviderKey {
                     <p-message severity="error" size="small" styleClass="mb-3">{{ switchError }}</p-message>
                   </div>
                 }
+
+                @if (activeProviderLabel && settings.active_provider; as active) {
+                  <app-active-provider
+                    [providerId]="active"
+                    [label]="activeProviderLabel!"
+                    [fixOptions]="optionsFor(active, 'fix')"
+                    [pyramidizeOptions]="optionsFor(active, 'pyramidize')"
+                    [fixModel]="modelFor(active, 'fix')"
+                    [pyramidizeModel]="modelFor(active, 'pyramidize')"
+                    [fixEffort]="effortFor(active, 'fix')"
+                    [pyramidizeEffort]="effortFor(active, 'pyramidize')"
+                    [editable]="allowsFreeText(active)"
+                    [note]="modelListNote(active)"
+                    [showEffort]="effortNoteFor(active) !== null"
+                    [effortNote]="effortNoteFor(active)"
+                    [fixFastNote]="fixSkipsReasoningFor(active)"
+                    (modelChange)="onModelChange(active, $event)"
+                    (effortChange)="onEffortChange(active, $event)"
+                  >
+                    @if (activeProviderProblem; as why) {
+                      <p-message status data-testid="active-provider-problem" severity="warn" size="small">{{ why }}</p-message>
+                    }
+                  </app-active-provider>
+                }
+
+                <h2 class="connections-heading">Connections</h2>
                 <p class="hint-text">
                   Keys are stored in your OS keyring (Windows Credential Manager / libsecret on Linux).
                   Environment variables (<code>OPENAI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>) take priority and cannot be overridden here.
@@ -330,71 +338,6 @@ interface ProviderKey {
                     }
                   </app-provider-card>
                 }
-
-                <!-- Model selection per provider (#33 step 4) -->
-                <div class="form-group mt-4">
-                  <label>Models</label>
-                  <small class="hint-text">
-                    Which model each feature uses. Leave a field empty for KeyLint's default.
-                    The lists come from the provider; type a name to use one that is not listed.
-                  </small>
-                </div>
-
-                @for (mp of modelProviders; track mp.id) {
-                  <div class="key-row" [attr.data-testid]="'models-' + mp.id">
-                    <div class="key-header">
-                      <span class="key-label">{{ mp.label }}</span>
-                    </div>
-                    @if (modelListNote(mp.id); as note) {
-                      <small class="hint-text" [attr.data-testid]="'models-note-' + mp.id">{{ note }}</small>
-                    }
-                    <div class="form-group">
-                      <label>Fix model</label>
-                      <p-select
-                        [attr.data-testid]="'model-fix-' + mp.id"
-                        [editable]="allowsFreeText(mp.id)"
-                        [options]="optionsFor(mp.id)"
-                        optionLabel="label"
-                        optionValue="id"
-                        [ngModel]="modelFor(mp.id, 'fix')"
-                        (ngModelChange)="setModel(mp.id, 'fix', $event)"
-                      >
-                        <ng-template #item let-option>
-                          <span class="model-option-name">{{ option.display }}</span>
-                          @if (option.id && option.id !== option.display) {
-                            <small class="model-option-id">{{ option.id }}</small>
-                          }
-                        </ng-template>
-                        <ng-template #selectedItem let-option>
-                          {{ option?.display || option?.id }}
-                        </ng-template>
-                      </p-select>
-                    </div>
-                    <div class="form-group">
-                      <label>Pyramidize model</label>
-                      <p-select
-                        [attr.data-testid]="'model-pyramidize-' + mp.id"
-                        [editable]="allowsFreeText(mp.id)"
-                        [options]="optionsFor(mp.id)"
-                        optionLabel="label"
-                        optionValue="id"
-                        [ngModel]="modelFor(mp.id, 'pyramidize')"
-                        (ngModelChange)="setModel(mp.id, 'pyramidize', $event)"
-                      >
-                        <ng-template #item let-option>
-                          <span class="model-option-name">{{ option.display }}</span>
-                          @if (option.id && option.id !== option.display) {
-                            <small class="model-option-id">{{ option.id }}</small>
-                          }
-                        </ng-template>
-                        <ng-template #selectedItem let-option>
-                          {{ option?.display || option?.id }}
-                        </ng-template>
-                      </p-select>
-                    </div>
-                  </div>
-                }
-
               </p-tabpanel>
 
               <!-- App Defaults tab -->
@@ -651,10 +594,10 @@ interface ProviderKey {
       color: var(--p-text-muted-color);
       margin-bottom: 1rem;
     }
-    .model-option-id {
-      display: block;
-      font-size: 0.75rem;
-      color: var(--p-text-muted-color);
+    .connections-heading {
+      margin: 0 0 0.35rem;
+      font-size: 1rem;
+      font-weight: 600;
     }
     code {
       background: var(--p-content-hover-background);
@@ -750,8 +693,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly modelProviders = this.providers
     .map(p => ({ id: p.value, label: p.label }));
 
-  /** Picker contents including the leading default entry; see optionsFor. */
-  modelSelectOptions: Record<string, ModelOption[]> = {};
+  /** Picker contents per provider and feature, the default entry first; see optionsFor. */
+  modelSelectOptions: Record<string, Record<Feature, ModelOption[]>> = {};
 
   /** Picker contents per provider, and whether they are live or built-in. */
   modelOptions: Record<string, ModelInfo[]> = {};
@@ -964,28 +907,71 @@ export class SettingsComponent implements OnInit, OnDestroy {
   }
 
   /** Reads the configured model, or "" when the default applies. */
-  modelFor(provider: string, feature: 'fix' | 'pyramidize'): string {
+  modelFor(provider: string, feature: Feature): string {
     return this.settings?.models?.[provider]?.[feature] ?? '';
   }
 
+  /** Reads the configured effort, or "" when the model's default applies. */
+  effortFor(provider: string, feature: Feature): string {
+    return this.settings?.models?.[provider]?.[`${feature}_effort`] ?? '';
+  }
+
   /** Stores a model choice; an empty value means "use KeyLint's default". */
-  setModel(provider: string, feature: 'fix' | 'pyramidize', model: string): void {
+  setModel(provider: string, feature: Feature, model: string): void {
+    this.updateProviderModels(provider, entry => { entry[feature] = (model ?? '').trim(); });
+  }
+
+  /** Stores an effort choice; an empty value means "send none". */
+  setEffort(provider: string, feature: Feature, effort: string): void {
+    this.updateProviderModels(provider, entry => { entry[`${feature}_effort`] = effort ?? ''; });
+  }
+
+  onModelChange(provider: string, choice: FeatureChoice): void {
+    this.setModel(provider, choice.feature, choice.value);
+  }
+
+  onEffortChange(provider: string, choice: FeatureChoice): void {
+    this.setEffort(provider, choice.feature, choice.value);
+  }
+
+  /**
+   * Copies the provider's entry before changing it, so the object a pending
+   * change detection pass still holds is not edited under it.
+   */
+  private updateProviderModels(provider: string, change: (entry: ProviderModels) => void): void {
     if (!this.settings) return;
     const models = { ...(this.settings.models ?? {}) };
-    const entry = { fix: '', pyramidize: '', ...(models[provider] ?? {}) };
-    entry[feature] = (model ?? '').trim();
+    const entry: ProviderModels = { fix: '', pyramidize: '', fix_effort: '', pyramidize_effort: '', ...(models[provider] ?? {}) };
+    change(entry);
     models[provider] = entry;
     this.settings.models = models;
   }
 
   /**
-   * The provider's models, with a leading entry for KeyLint's own default.
-   * PrimeNG only renders a placeholder while the value is null or undefined,
-   * and this component writes "" — so an explicit option is what makes the
-   * default visible and selectable.
+   * The provider's models for one feature, with a leading entry naming
+   * KeyLint's default for it. PrimeNG only renders a placeholder while the
+   * value is null or undefined, and this component writes "" — so an explicit
+   * option is what makes the default visible and selectable.
    */
-  optionsFor(provider: string): ModelOption[] {
-    return this.modelSelectOptions[provider] ?? DEFAULT_MODEL_ONLY;
+  optionsFor(provider: string, feature: Feature): ModelOption[] {
+    return this.modelSelectOptions[provider]?.[feature] ?? DEFAULT_ONLY[feature];
+  }
+
+  /** What effort does on this provider, or null where it does nothing. */
+  effortNoteFor(provider: string): string | null {
+    return effortNote(provider);
+  }
+
+  /** Whether Fix will ask its model on this provider not to reason first. */
+  fixSkipsReasoningFor(provider: string): boolean {
+    if (this.effortFor(provider, 'fix') !== '') return false;
+    const model = this.modelFor(provider, 'fix') || (provider === 'claude' || provider === 'openai'
+      ? this.defaultModelId(provider, 'fix') : '');
+    return fixSkipsReasoning(provider, model);
+  }
+
+  private defaultModelId(provider: string, feature: Feature): string {
+    return DEFAULT_MODELS[provider]?.[feature] ?? '';
   }
 
   /**
@@ -1032,7 +1018,11 @@ export class SettingsComponent implements OnInit, OnDestroy {
       const list = await this.wails.listModels(mp.id).catch(() => null);
       if (round !== this.modelLoadRound) return;
       this.modelOptions[mp.id] = list?.models ?? [];
-      this.modelSelectOptions[mp.id] = [DEFAULT_MODEL_OPTION, ...(list?.models ?? []).map(toModelOption)];
+      const listed = (list?.models ?? []).map(toModelOption);
+      this.modelSelectOptions[mp.id] = {
+        fix: [defaultOption(mp.id, 'fix', listed), ...listed],
+        pyramidize: [defaultOption(mp.id, 'pyramidize', listed), ...listed],
+      };
       this.modelSource[mp.id] = list?.source ?? 'unreachable';
       if (!this.destroyed) {
         this.cdr.detectChanges();

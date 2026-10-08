@@ -55,7 +55,7 @@ type ModelInfo struct {
 	// Resolved is the model ID a family alias stands for right now, where that
 	// is known — the Anthropic API's live listing. Empty for a pinned ID, and
 	// for an alias whose resolution happens elsewhere (the Claude Code CLI).
-	Resolved string `json:"resolved,omitempty"`
+	Resolved string `json:"resolved"`
 }
 
 // ModelList is a picker's contents plus where they came from.

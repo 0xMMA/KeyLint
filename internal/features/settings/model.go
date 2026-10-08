@@ -31,8 +31,8 @@ type FeatureModels struct {
 	Fix        string `json:"fix"`
 	Pyramidize string `json:"pyramidize"`
 
-	FixEffort        string `json:"fix_effort,omitempty"`
-	PyramidizeEffort string `json:"pyramidize_effort,omitempty"`
+	FixEffort        string `json:"fix_effort"`
+	PyramidizeEffort string `json:"pyramidize_effort"`
 }
 
 // For returns the model configured for a feature, or "" when none is.

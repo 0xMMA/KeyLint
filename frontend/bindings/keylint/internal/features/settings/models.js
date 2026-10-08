@@ -73,19 +73,19 @@ export class FeatureModels {
              */
             this["pyramidize"] = "";
         }
-        if (/** @type {any} */(false)) {
+        if (!("fix_effort" in $$source)) {
             /**
              * @member
-             * @type {string | undefined}
+             * @type {string}
              */
-            this["fix_effort"] = undefined;
+            this["fix_effort"] = "";
         }
-        if (/** @type {any} */(false)) {
+        if (!("pyramidize_effort" in $$source)) {
             /**
              * @member
-             * @type {string | undefined}
+             * @type {string}
              */
-            this["pyramidize_effort"] = undefined;
+            this["pyramidize_effort"] = "";
         }
 
         Object.assign(this, $$source);

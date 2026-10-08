@@ -25,11 +25,36 @@ export interface FakeBackendState {
   claudeCode: { installed: boolean; path: string; version: string; loggedIn: boolean };
   /** ModelList.source per provider; anything absent answers "unreachable". */
   modelSources: Partial<Record<string, string>>;
+  /** ModelList.models per provider; anything absent answers an empty list. */
+  modelLists: Partial<Record<string, ModelEntry[]>>;
   /** Every settings object the app saved (Save, SetActiveProvider or SetDeveloperOptions), oldest first. */
   saves: Record<string, unknown>[];
   /** When set, SetActiveProvider fails with this message, as a failed write would. */
   failSetActiveProvider?: string;
 }
+
+/** One picker entry, as internal/llm ModelInfo serialises it. */
+export interface ModelEntry { id: string; label: string; resolved: string }
+
+/** What the real Anthropic listing looks like: aliases first, naming their model. */
+export const ANTHROPIC_MODELS: ModelEntry[] = [
+  { id: 'opus', label: 'Opus (latest)', resolved: 'claude-opus-5-5' },
+  { id: 'sonnet', label: 'Sonnet (latest)', resolved: 'claude-sonnet-5-5' },
+  { id: 'haiku', label: 'Haiku (latest)', resolved: 'claude-haiku-5-5' },
+  { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', resolved: '' },
+  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', resolved: '' },
+  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', resolved: '' },
+  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', resolved: '' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', resolved: '' },
+];
+
+/** The CLI's fixed alias list; see claudeCodeAliases in internal/llm/models.go. */
+export const CLI_ALIASES: ModelEntry[] = [
+  { id: 'opus', label: 'Opus (latest)', resolved: '' },
+  { id: 'sonnet', label: 'Sonnet (latest)', resolved: '' },
+  { id: 'haiku', label: 'Haiku (latest)', resolved: '' },
+  { id: 'fable', label: 'Fable (latest)', resolved: '' },
+];
 
 /** What the real SetActiveProvider accepts; see selectableProviders in settings/service.go. */
 const SELECTABLE_PROVIDERS = ['openai', 'claude', 'claude-code', 'ollama'];
@@ -64,6 +89,7 @@ export function fakeState(opts: {
   keys?: FakeBackendState['keys'];
   cliSignedIn?: boolean;
   modelSources?: FakeBackendState['modelSources'];
+  modelLists?: FakeBackendState['modelLists'];
 }): FakeBackendState {
   return {
     settings: { ...BASE_SETTINGS, active_provider: opts.activeProvider },
@@ -71,6 +97,7 @@ export function fakeState(opts: {
     claudeCode: opts.cliSignedIn ? { ...SIGNED_IN_CLI } : { ...NO_CLI },
     // The CLI has no model endpoint; "fixed" is what the real service answers.
     modelSources: { 'claude-code': 'fixed', ...opts.modelSources },
+    modelLists: { 'claude-code': CLI_ALIASES, ...opts.modelLists },
     saves: [],
   };
 }
@@ -141,7 +168,10 @@ export async function installFakeBackend(page: Page, state: FakeBackendState): P
       case 'GetClaudeCodeStatus':
         return json(state.claudeCode);
       case 'ListModels':
-        return json({ models: [], source: state.modelSources[args[0] as string] ?? 'unreachable' });
+        return json({
+          models: state.modelLists[args[0] as string] ?? [],
+          source: state.modelSources[args[0] as string] ?? 'unreachable',
+        });
       default:
         return route.fallback();
     }

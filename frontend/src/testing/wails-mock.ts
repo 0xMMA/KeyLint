@@ -26,8 +26,11 @@ export const defaultKeyStatus: KeyStatus = { is_set: false, source: 'none' };
 /** Default: the built-in list, which is what a picker shows offline. */
 export const defaultModelList: ModelList = {
   models: [
-    { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
-    { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
+    // An alias leads, as the Anthropic listing puts it, naming what it
+    // resolves to today.
+    { id: 'sonnet', label: 'Sonnet (latest)', resolved: 'claude-sonnet-5-5' },
+    { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', resolved: '' },
+    { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', resolved: '' },
   ],
   source: 'unreachable',
 };
