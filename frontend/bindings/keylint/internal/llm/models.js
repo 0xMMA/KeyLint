@@ -83,6 +83,16 @@ export class ModelInfo {
              */
             this["label"] = "";
         }
+        if (/** @type {any} */(false)) {
+            /**
+             * Resolved is the model ID a family alias stands for right now, where that
+             * is known — the Anthropic API's live listing. Empty for a pinned ID, and
+             * for an alias whose resolution happens elsewhere (the Claude Code CLI).
+             * @member
+             * @type {string | undefined}
+             */
+            this["resolved"] = undefined;
+        }
 
         Object.assign(this, $$source);
     }

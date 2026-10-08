@@ -511,6 +511,10 @@ func (svc *Service) callAISync(ctx context.Context, cfg settings.Settings, opts 
 		JSONMode:    true,
 		JSONSchema:  schema,
 		Temperature: opts.temperature,
+		// The provider's effort for Pyramidize; "" leaves the model on its
+		// default. No NoThinking here: Pyramidize has a 16000-token limit and
+		// is where reasoning is worth its time.
+		Effort: cfg.EffortFor(provider, llm.FeaturePyramidize),
 	})
 	if err != nil {
 		return "", err

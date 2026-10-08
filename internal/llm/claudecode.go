@@ -82,7 +82,29 @@ func newClaudeCode(cfg Config) Client { return &claudeCodeClient{cfg: cfg} }
 // Complete runs one print-mode call against the locally installed binary.
 // The prompt goes in on stdin and the system prompt via a file, so neither ever
 // reaches the command line.
+//
+// An effort level goes to the CLI as --effort (2.1.295 lists low, medium, high,
+// xhigh, max). The CLI has no model listing to check a level against, so a run
+// that fails naming the effort is tried once more without it — the same
+// fallback the Anthropic client makes — rather than failing the fix over a
+// setting. NoThinking has no CLI flag and is ignored here.
 func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response, error) {
+	if req.Effort != "" && !IsEffortLevel(req.Effort) {
+		logger.Warn("llm: unknown effort level ignored", "feature", c.cfg.Feature, "effort", req.Effort)
+		req.Effort = ""
+	}
+	resp, err := c.complete(ctx, req)
+	if err != nil && req.Effort != "" && ctx.Err() == nil &&
+		strings.Contains(strings.ToLower(err.Error()), "effort") {
+		logger.Warn("llm: claude code rejected the effort level, retried without it",
+			"feature", c.cfg.Feature, "model", req.Model, "effort", req.Effort)
+		req.Effort = ""
+		return c.complete(ctx, req)
+	}
+	return resp, err
+}
+
+func (c *claudeCodeClient) complete(ctx context.Context, req Request) (Response, error) {
 	name := claudeCodeProvider.name
 	if req.Model == "" {
 		return Response{}, fmt.Errorf("%s: model is required", name)
@@ -146,11 +168,14 @@ func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response,
 	if promptFile != "" {
 		args = append(args, "--system-prompt-file", promptFile)
 	}
+	if req.Effort != "" {
+		args = append(args, "--effort", req.Effort)
+	}
 
 	// The path carries the user's account name on Windows, so it stays out of
 	// the log level people attach to bug reports.
 	logger.Debug("llm: request", "feature", c.cfg.Feature, "provider", claudeCodeProvider.id,
-		"path", logger.Redact(path), "model", req.Model,
+		"path", logger.Redact(path), "model", req.Model, "effort", req.Effort,
 		"system", logger.Redact(req.System), "user", logger.Redact(req.User))
 
 	cmd := exec.CommandContext(ctx, path, args...)
@@ -238,10 +263,25 @@ func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response,
 		return Response{}, fmt.Errorf("%s returned an empty result", name)
 	}
 
+	answered := answeringModel(env)
 	logger.Info("llm: claude code call finished", "feature", c.cfg.Feature,
-		"model", req.Model, "duration_ms", env.DurationMS, "total_cost_usd", env.TotalCostUSD)
+		"model", req.Model, "resolved", answered, "duration_ms", env.DurationMS, "total_cost_usd", env.TotalCostUSD)
 
-	return Response{Text: text}, nil
+	return Response{Text: text, Model: answered}, nil
+}
+
+// answeringModel names the model behind the alias, from the envelope's usage
+// report — its keys are model IDs. Empty when the CLI reported none, or more
+// than one: a run that used two models has no single answer, and guessing one
+// would put a wrong ID into an eval record.
+func answeringModel(env claudeCodeEnvelope) string {
+	if len(env.ModelUsage) != 1 {
+		return ""
+	}
+	for id := range env.ModelUsage {
+		return id
+	}
+	return ""
 }
 
 // partialText summarises what a cut-off run produced, for the debug log only.

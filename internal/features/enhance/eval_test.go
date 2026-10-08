@@ -3,6 +3,7 @@
 package enhance
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -135,6 +136,13 @@ func TestEvalFix(t *testing.T) {
 	if model == "" {
 		model = llm.DefaultModel(provider, llm.FeatureFix)
 	}
+	// An alias is resolved once, up front, and the run pins what it resolved
+	// to: every sample then runs on the same model, and summary.json records
+	// an ID rather than "haiku" — the configKey names the model, so a new
+	// generation reads as "not comparable" instead of as a prompt effect.
+	requestedModel := model
+	model = llm.ResolveModel(context.Background(), provider, model,
+		llm.Config{APIKey: settings.EnvOnlyKeys(provider), Feature: "eval"})
 	judge := JudgeConfigFromEnv(os.Getenv)
 
 	// Explicit configuration and environment-only keys: the developer's own
@@ -149,6 +157,10 @@ func TestEvalFix(t *testing.T) {
 	}
 
 	svc := NewService(settingsSvc)
+	// The Claude Code CLI resolves its aliases itself, so what ran is read
+	// off the responses. The judge goes through its own client and is not seen.
+	var answered llm.ModelRecorder
+	svc.newClient = answered.Wrap(svc.newClient)
 	split, err := SplitFromEnv(os.Getenv("EVAL_SPLIT"))
 	if err != nil {
 		t.Fatal(err)
@@ -236,9 +248,11 @@ func TestEvalFix(t *testing.T) {
 		// two five-sample holdouts with one swapped would compare cleanly; this
 		// is the record that says they were not the same five. Enforcement is a
 		// test against SPLIT.json, which fails before anything is measured.
-		"splitHash":        SplitHash(sampleNames(samples)),
-		"provider":         provider,
-		"model":            model,
+		"splitHash": SplitHash(sampleNames(samples)),
+		"provider":  provider,
+		// What answered, never the alias; see ModelRecorder.
+		"model":            answered.Recorded(model),
+		"modelRequested":   requestedModel,
 		"judge":            judge,
 		"promptVariant":    0, // the Fix prompt has no variants
 		"qualityThreshold": 0,

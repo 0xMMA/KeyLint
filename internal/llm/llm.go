@@ -69,6 +69,53 @@ type Request struct {
 	// differently on each run cannot tell a prompt change from noise. The Claude
 	// Code CLI has no flag for it and ignores this field.
 	Temperature *float64
+	// Effort asks the model to think harder or less hard — one of the Effort*
+	// levels. "" sends nothing, which leaves the model on its own default and is
+	// what everyone gets who has not touched the setting.
+	//
+	// The Anthropic API takes it as output_config.effort and the Claude Code CLI
+	// as --effort. Not every model accepts every level (Haiku 4.5 takes none,
+	// the 4.6 generation no xhigh), and a level the model refuses is a 400 —
+	// so the Anthropic client checks the account's model listing first and
+	// leaves an unsupported level out, and both clients retry once without it
+	// if the model rejects it anyway. OpenAI and Ollama ignore it; see
+	// completeViaOpenAI.
+	//
+	// It interacts with MaxTokens: thinking counts against the output limit, so
+	// a high effort on a small limit (Fix's 2048) can end in the
+	// outputLimitThinkingMessage cut-off.
+	Effort string
+	// NoThinking asks the model to answer without reasoning first, where the
+	// model allows that. Fix sets it on a Haiku when no effort is chosen:
+	// Haiku 5.5 reasons by default and spent all of Fix's 2048 tokens doing so
+	// on a 3.8 KB selection (measured 2026-10-08), where Haiku 4.5 — the old
+	// default — never reasoned. Only the Anthropic API has a switch for it
+	// (thinking: disabled); the others ignore it. A model that cannot turn
+	// reasoning off (Sonnet 5.5, Opus 5.5) is not sent it.
+	NoThinking bool
+}
+
+// Effort levels, as both the Anthropic API and the Claude Code CLI name them.
+const (
+	EffortLow    = "low"
+	EffortMedium = "medium"
+	EffortHigh   = "high"
+	EffortXHigh  = "xhigh"
+	EffortMax    = "max"
+)
+
+// effortLevels in ascending order.
+var effortLevels = []string{EffortLow, EffortMedium, EffortHigh, EffortXHigh, EffortMax}
+
+// IsEffortLevel reports whether s is a level the providers know. "" is not a
+// level: it is the absence of one.
+func IsEffortLevel(s string) bool {
+	for _, level := range effortLevels {
+		if level == s {
+			return true
+		}
+	}
+	return false
 }
 
 // Temp is a helper for setting Request.Temperature, which is a pointer so that
@@ -78,6 +125,10 @@ func Temp(v float64) *float64 { return &v }
 // Response is the text of a completion.
 type Response struct {
 	Text string
+	// Model is the model that answered, as the provider reports it — the
+	// concrete ID behind an alias. Empty when the provider does not say. It is
+	// what a measurement records, never the alias that was asked for.
+	Model string
 }
 
 // Client talks to exactly one provider.
@@ -342,7 +393,10 @@ const outputLimitMessage = "the result exceeded the output limit — try a short
 // selection, so it names the remedy. Worded for every surface it reaches — the
 // GUI and the -fix / -pyramidize CLI — so it names the property that matters
 // (the model reasons first) and not a settings tab.
-const outputLimitThinkingMessage = "the model spent most of the output limit reasoning and was cut off — choose a model that does not reason first (such as Haiku 4.5), or shorten the text"
+//
+// Effort is the other remedy: a lower effort means less reasoning, and a high
+// one on Fix's 2048-token limit is the likeliest way to land here.
+const outputLimitThinkingMessage = "the model spent most of the output limit reasoning and was cut off — lower the effort, choose a model that does not reason first (such as Haiku 4.5), or shorten the text"
 
 // schemaName labels the schema for providers that require a name for it. It is
 // never shown to a user.

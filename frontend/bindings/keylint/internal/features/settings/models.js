@@ -45,8 +45,13 @@ export class AppPreset {
 }
 
 /**
- * FeatureModels is the model chosen per feature for one provider. An empty
- * string means "use the built-in default" — see llm.DefaultModel.
+ * FeatureModels is the model and effort chosen per feature for one provider.
+ * An empty model means "use the built-in default" — see llm.DefaultModel. An
+ * empty effort means "send none", which leaves the model on its own default.
+ * 
+ * Both live per provider, so switching to another provider and back restores
+ * what was chosen for each. Older settings files carry no effort fields and
+ * read as "", which is the behaviour they had — no migration.
  */
 export class FeatureModels {
     /**
@@ -67,6 +72,20 @@ export class FeatureModels {
              * @type {string}
              */
             this["pyramidize"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["fix_effort"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["pyramidize_effort"] = undefined;
         }
 
         Object.assign(this, $$source);

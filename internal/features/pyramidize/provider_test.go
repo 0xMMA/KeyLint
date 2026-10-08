@@ -186,12 +186,14 @@ func TestResolveAPIKeyNoKeyProvider(t *testing.T) {
 	}
 }
 
-// TestPyramidizeDefaultsUnchanged pins the models this pipeline shipped with;
-// moving them into settings must not move them.
+// TestPyramidizeDefaultsUnchanged pins the models this pipeline defaults to.
+// The Anthropic API moved from claude-sonnet-4-6 to the sonnet alias and OpenAI
+// from gpt-5.2 to gpt-6-astra with roadmap E2 step 5 — a deliberate quality
+// change, not a refactor's side effect; moving them again needs the same.
 func TestPyramidizeDefaultsUnchanged(t *testing.T) {
 	want := map[string]string{
-		llm.ProviderOpenAI:     "gpt-5.2",
-		llm.ProviderClaude:     "claude-sonnet-4-6",
+		llm.ProviderOpenAI:     "gpt-6-astra",
+		llm.ProviderClaude:     "sonnet",
 		llm.ProviderOllama:     "llama3.2",
 		llm.ProviderClaudeCode: "sonnet",
 	}
@@ -401,4 +403,22 @@ func TestCallAISyncAsksForJSONEvenWithoutASchema(t *testing.T) {
 func (svc *Service) callAIWithContextForTest(t *testing.T, cfg settings.Settings, system, user string) (string, error) {
 	t.Helper()
 	return svc.callAISync(context.Background(), cfg, aiOpts{}, "key", system, user, enforcedSchema(documentSchema))
+}
+
+// TestCallAISyncSendsTheProvidersPyramidizeEffort: the effort chosen for this
+// provider's Pyramidize reaches the request; the Fix effort does not, and
+// Pyramidize never asks a model not to reason.
+func TestCallAISyncSendsTheProvidersPyramidizeEffort(t *testing.T) {
+	svc, rec := newTestService()
+	cfg := settings.Default()
+	cfg.ActiveProvider = llm.ProviderClaude
+	cfg.Models = map[string]settings.FeatureModels{
+		llm.ProviderClaude: {FixEffort: "low", PyramidizeEffort: "high"},
+	}
+	if _, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "k", "system", "user", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := rec.client.gotRequest; got.Effort != "high" || got.NoThinking {
+		t.Errorf("Effort = %q NoThinking = %v, want high and false", got.Effort, got.NoThinking)
+	}
 }

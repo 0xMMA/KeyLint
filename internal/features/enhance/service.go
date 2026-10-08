@@ -87,8 +87,10 @@ Output: "Hallo Hans, das Release für morgen steht, einen neuen Build brauchen w
 // (Settings.ModelFor); only this limit is still a constant, because it is a
 // property of the flow rather than a choice a user makes.
 //
-// It includes thinking. Sonnet 5 and Opus 5 think by default, and on a long
-// selection they can spend all 2048 before writing a word — measured: a 3.7 KB
+// It includes thinking. Sonnet 5 and Opus 5 think by default — so do Haiku 5.5
+// and GPT-6 Luna, which is why Fix asks a fast-tier model not to (see
+// Enhance) — and on a long selection they can spend all 2048 before writing a
+// word — measured: a 3.7 KB
 // selection, twice out of two, and the same request needed 5361 tokens and
 // about 45 s once the limit was lifted. Pyramidize raised its limit; Fix
 // deliberately did not. A silent hotkey fix that succeeds after most of a
@@ -162,11 +164,21 @@ func (s *Service) Enhance(text string) (result string, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), enhanceTimeout)
 	defer cancel()
 
+	effort := cfg.EffortFor(cfg.ActiveProvider, llm.FeatureFix)
 	resp, err := client.Complete(ctx, llm.Request{
 		System:    systemPrompt,
 		User:      buildUserMessage(text),
 		Model:     model,
 		MaxTokens: maxTokens,
+		Effort:    effort,
+		// A fast-tier model is in Fix for speed. Its predecessors as Fix
+		// defaults (Haiku 4.5, gpt-4o-mini) never reasoned; Haiku 5.5 and GPT-6
+		// Luna do by default, and Haiku 5.5 spent all 2048 tokens on it for a
+		// 3.8 KB selection — at effort low as well (measured 2026-10-08). So
+		// unless the user chose an effort, Fix asks the fast tier to answer
+		// straight away, where the model allows it. Other models keep their
+		// default: whether reasoning helps the fix is E3's eval question.
+		NoThinking: effort == "" && llm.IsFastTier(model),
 	})
 	if err != nil {
 		return "", err
