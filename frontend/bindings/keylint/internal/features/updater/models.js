@@ -176,7 +176,8 @@ export class DevBuild {
 /**
  * DevChannel is everything the dev-channel view shows. It never comes back as
  * an error: GitHub being unreachable or rate-limited is reported in Error, next
- * to whatever was last known, so the screen degrades instead of breaking.
+ * to the last list fetched this session (if any), so the screen degrades
+ * instead of breaking.
  */
 export class DevChannel {
     /**
