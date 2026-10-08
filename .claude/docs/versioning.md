@@ -104,14 +104,29 @@ proves it and is written to compile at that tag too (instructions in its
 header). Newer clients also drop `v0.0.0-*` tags by name.
 
 **One limit on old clients.** v4.4.3-beta and older read only the first 20
-releases. Dev prereleases sort above real ones, so with 20 or more of them
-published at once an old client would not see a new real release. Newer clients
-read 100.
+releases, and dev prereleases sort above real ones. So `publish-dev-build` caps
+the PR builds at 10 (lowest PR numbers deleted first, never `v0.0.0-main` or the
+build just published), and a daily sweep deletes builds of closed PRs. Newer
+clients read 100.
+
+**Never "latest".** Clients up to v4.1.8-alpha and v3.5.0 update from
+`releases/latest/download/latest.json`. Dev prereleases are created and edited
+with `--prerelease --latest=false`; `workflow_guard_test.go` fails if either
+call loses it. Every dev release body opens with "Unreviewed test build … not
+for general use" and a link to the latest release, and the website links to
+`/releases/latest`, not `/releases`.
+
+**Previous tag.** Anything that computes "the last release" must skip the
+moving dev tags: `git describe --tags --abbrev=0 --exclude 'v0.0.0-*'`
+(`release.md`, `publish.md`), and `release.yml` pins `previous_tag` for the
+generated notes the same way.
 
 **Dev builds and updates.** A dev build's normal update check is silenced
-(every release would look newer than 0.0.0); the dev channel replaces it. When a
-PR build's release is gone the app offers main or the latest release, one click
-each, and installs nothing on its own.
+(every release would look newer than 0.0.0); the dev channel replaces it. It
+always offers "Back to latest release", says when a release came out after the
+running build, and when a PR build's release is gone offers main or the latest
+release. One click each; nothing installs on its own. Only builds that passed
+`test` and `e2e` are published.
 
 **Trust model** — written out above `publish-dev-build` in `build-linux.yml`:
 only that job and the cleanup job have `contents: write`, neither runs code from

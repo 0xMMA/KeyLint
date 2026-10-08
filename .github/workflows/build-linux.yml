@@ -5,7 +5,8 @@ on:
   push:
     branches: [main]
 
-# Nothing here writes to the repository.
+# Read-only by default. One job writes: publish-dev-build, which gets
+# contents: write for the dev-channel prereleases (see the trust model there).
 permissions:
   contents: read
 
@@ -430,7 +431,9 @@ jobs:
   # Releases created with GITHUB_TOKEN start no workflows, so these tags do not
   # trigger release.yml; it also excludes v0.0.0-* on its own.
   publish-dev-build:
-    needs: [test, build-linux, build-windows]
+    # e2e too: a build that failed E2E must never become what "Install main
+    # build" or a PR row installs.
+    needs: [test, e2e, build-linux, build-windows]
     if: needs.test.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -443,7 +446,6 @@ jobs:
       group: dev-build-${{ needs.test.outputs.tag || github.run_id }}
       cancel-in-progress: false
     env:
-      GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       TAG: ${{ needs.test.outputs.tag }}
       SHA: ${{ needs.test.outputs.sha }}
@@ -466,8 +468,14 @@ jobs:
       # The release body is read back by the app (updater.devBuildFrom): keep
       # the "Title:", "PR:" and "Commit:" lines as they are.
       - name: Publish the prerelease
+        # The write token goes to this step only, not to the artifact
+        # downloads above.
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+
+          LATEST_URL="https://github.com/$GH_REPO/releases/latest"
 
           # Never publish over newer work: main may have moved on, or the PR
           # may have been pushed to or closed while this run was building. A
@@ -480,6 +488,8 @@ jobs:
             fi
             title="main (latest)"
             {
+              echo "**Unreviewed test build of main — not for general use. Stable releases: $LATEST_URL**"
+              echo
               echo "Rolling build of main, made by CI. Not a release: it is replaced on every push to main."
               echo
               echo "Commit: $SHA"
@@ -492,6 +502,8 @@ jobs:
             fi
             title="PR #$PR_NUMBER: $PR_TITLE"
             {
+              echo "**Unreviewed test build for PR #$PR_NUMBER — not for general use. Stable releases: $LATEST_URL**"
+              echo
               echo "Test build of #$PR_NUMBER, made by CI. Not a release: it is replaced on every push and deleted when the pull request closes."
               echo
               echo "Title: $PR_TITLE"
@@ -523,3 +535,22 @@ jobs:
               --notes-file notes.md --prerelease --latest=false
           fi
           gh release view "$TAG" --json url,assets --jq '.url, (.assets[] | .name + "  " + .url)'
+
+          # Cap the PR builds at MAX_PR_BUILDS, deleting the lowest PR numbers
+          # first; v0.0.0-main and the build just published are never touched.
+          # Why: clients up to v4.4.3-beta read only the first 20 releases, and
+          # dev prereleases sort above real ones, so too many of them would
+          # hide a real release from those clients. A PR whose build is cut
+          # here gets a new one on its next push; until then its installed
+          # build reads as orphaned and offers main or the latest release.
+          MAX_PR_BUILDS=10
+          mapfile -t pr_tags < <(gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq '.[].tag_name' \
+            | { grep -E '^v0\.0\.0-pr\.[0-9]+$' || true; } | sort -t. -k4,4n)
+          excess=$(( ${#pr_tags[@]} - MAX_PR_BUILDS ))
+          for old in "${pr_tags[@]}"; do
+            (( excess > 0 )) || break
+            [[ "$old" == "$TAG" ]] && continue
+            gh release delete "$old" --cleanup-tag --yes
+            echo "cap: deleted $old (over $MAX_PR_BUILDS PR builds)"
+            excess=$(( excess - 1 ))
+          done

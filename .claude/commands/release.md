@@ -26,7 +26,7 @@ This command is run **after** a PR has been merged to `main`.
    - If diverged: tell the user to pull or resolve, then stop
 
 2. **Detect current version**
-   - Run `git describe --tags --abbrev=0 2>/dev/null || echo "none"` to get the last tag
+   - Run `git describe --tags --abbrev=0 --exclude 'v0.0.0-*' 2>/dev/null || echo "none"` to get the last tag (the exclude skips the moving dev-channel tags `v0.0.0-main` / `v0.0.0-pr.N`, which are not releases)
    - If "none": no previous tags — skip bump math, go to step 4
 
 3. **Analyze commits since last tag**

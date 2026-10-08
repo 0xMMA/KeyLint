@@ -39,8 +39,9 @@ Read and note: tag name, release title, current body/notes, `isPrerelease` flag,
 
 Derive the previous tag:
 ```
-git describe --tags --abbrev=0 <tag>^
+git describe --tags --abbrev=0 --exclude 'v0.0.0-*' <tag>^
 ```
+(`--exclude` skips the dev-channel tags `v0.0.0-main` / `v0.0.0-pr.N`, which are not releases.)
 
 Fetch commits since the previous tag:
 ```
