@@ -1,0 +1,48 @@
+name: Dev channel cleanup
+
+# Deletes a pull request's dev-channel prerelease (v0.0.0-pr.<N>) and its tag
+# when the PR is merged or closed. Published by build-linux.yml, job
+# publish-dev-build; see the trust model there. An app running that build
+# notices the release is gone and offers to install main or the latest
+# release instead — it never installs anything on its own.
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+jobs:
+  delete-dev-build:
+    # The same PRs the publisher serves: this repository's branches, not
+    # Dependabot's. Anything else never had a release to delete.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # delete the prerelease and its tag
+    # Shared with publish-dev-build: a publish in flight finishes first, then
+    # this deletes what it made. A publish queued after this one sees the PR
+    # closed and does nothing.
+    concurrency:
+      group: dev-build-v0.0.0-pr.${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: v0.0.0-pr.${{ github.event.pull_request.number }}
+    steps:
+      - name: Delete the prerelease and its tag
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release delete "$TAG" --cleanup-tag --yes
+            echo "deleted release $TAG"
+          else
+            echo "no release $TAG"
+          fi
+          # A tag can outlive its release (a run cancelled between the two).
+          if gh api -X DELETE "repos/$GH_REPO/git/refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "deleted leftover tag $TAG"
+          fi

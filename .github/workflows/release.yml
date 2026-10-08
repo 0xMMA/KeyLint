@@ -4,6 +4,10 @@ on:
   push:
     tags:
       - 'v*'
+      # Dev-channel tags (build-linux.yml, publish-dev-build) are not releases.
+      # They are pushed with GITHUB_TOKEN, which starts no workflow anyway;
+      # this keeps it that way if that ever changes.
+      - '!v0.0.0-*'
 
 # Read by default; only the job that publishes gets write. The build jobs
 # compile and upload artifacts, which needs no repository write at all — and a
