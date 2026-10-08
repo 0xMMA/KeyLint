@@ -33,12 +33,6 @@ const ENV_KEY_VARS: Readonly<Record<string, string>> = {
 /** A provider's stored choices; see FeatureModels in internal/features/settings/model.go. */
 type ProviderModels = NonNullable<NonNullable<AppSettings['models']>[string]>;
 
-/** What a picker shows before its provider's list has arrived. */
-const DEFAULT_ONLY: Readonly<Record<Feature, ModelOption[]>> = {
-  fix: [{ id: null, label: '', display: 'Default', secondary: '' }],
-  pyramidize: [{ id: null, label: '', display: 'Default', secondary: '' }],
-};
-
 /** Taps on the version that unlock the developer options, as on Android. */
 const UNLOCK_TAPS = 7;
 
@@ -695,6 +689,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   /** Picker contents per provider and feature, the default entry first; see optionsFor. */
   modelSelectOptions: Record<string, Record<Feature, ModelOption[]>> = {};
+  /** The default entry alone, per provider and feature, until a list arrives. */
+  private readonly fallbackOptions: Record<string, ModelOption[]> = {};
 
   /** Picker contents per provider, and whether they are live or built-in. */
   modelOptions: Record<string, ModelInfo[]> = {};
@@ -954,7 +950,13 @@ export class SettingsComponent implements OnInit, OnDestroy {
    * option is what makes the default visible and selectable.
    */
   optionsFor(provider: string, feature: Feature): ModelOption[] {
-    return this.modelSelectOptions[provider]?.[feature] ?? DEFAULT_ONLY[feature];
+    // Before the list arrives (or when it never does) the default entry still
+    // names the default, so the field and the Fix note never read a bare
+    // "Default".
+    // Kept, not rebuilt: a new array on every change-detection pass would
+    // read as a changed binding.
+    return this.modelSelectOptions[provider]?.[feature]
+      ?? (this.fallbackOptions[`${provider}/${feature}`] ??= [defaultOption(provider, feature, [])]);
   }
 
   /** What effort does on this provider, or null where it does nothing. */
@@ -975,7 +977,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Whether a model outside the list can be typed. The Claude Code CLI's three
+   * Whether a model outside the list can be typed. The Claude Code CLI's
    * aliases are the whole list the picker offers, because an alias follows the
    * generation where a pinned API model ID freezes it. The backend still
    * accepts a pinned ID from a hand-edited settings.json and only logs it —

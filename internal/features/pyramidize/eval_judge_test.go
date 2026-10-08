@@ -149,3 +149,20 @@ func TestTheJudgeReadsTheThreeTextsInAFixedOrder(t *testing.T) {
 		t.Errorf("order was raw=%d baseline=%d candidate=%d, want that sequence", raw, base, cand)
 	}
 }
+
+// TestTheJudgeNeverTakesTheUsersEffort: the judge is a pinned instrument. An
+// effort chosen for Pyramidize on the judge's provider must not reach it.
+func TestTheJudgeNeverTakesTheUsersEffort(t *testing.T) {
+	svc, rec := newTestService()
+	rec.client.reply = `{"pyramidStructure":0.8,"clarity":0.8,"completeness":0.8,"tonePreservation":0.8,"overall":0.8,"rationale":"ok"}`
+	cfg := settings.Default()
+	cfg.Models = map[string]settings.FeatureModels{"claude": {PyramidizeEffort: "max"}}
+	settingsSvc := settings.NewServiceFrom(cfg, func(string) string { return "key" })
+
+	if _, err := svc.runJudge(settingsSvc, JudgeConfigFromEnv(), "raw", "baseline", "candidate"); err != nil {
+		t.Fatalf("RunJudge: %v", err)
+	}
+	if got := rec.client.gotRequest.Effort; got != "" {
+		t.Errorf("judge effort = %q, want none", got)
+	}
+}

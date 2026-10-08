@@ -99,7 +99,7 @@ const FEATURES: readonly FeatureRow[] = [
 
       @if (fixFastNote()) {
         <p class="in-use-hint" data-testid="fix-fast-note">
-          Fix asks {{ fixModelName() }} to answer without reasoning first, so the hotkey stays quick. Choose an effort to let it reason.
+          Fix asks {{ fixModelName() }} to answer without reasoning first, so the hotkey stays quick. An effort lets it reason, but on a long text Fix can then run out of room.
         </p>
       }
       @if (showEffort() && effortNote(); as text) {

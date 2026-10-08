@@ -43,7 +43,7 @@ const (
 	// the fix is a different one and the wording has to say so.
 	ModelSourceNoCredentials = "no-credentials"
 	// ModelSourceFixed: there is nothing to ask. The Claude Code CLI has no
-	// model endpoint and its three aliases are the whole story, so flagging it
+	// model endpoint and its aliases are the whole story, so flagging it
 	// as "built-in" would be an alarm nobody can clear.
 	ModelSourceFixed = "fixed"
 )
@@ -228,7 +228,7 @@ func ListModels(ctx context.Context, provider string, cfg Config) (ModelList, er
 	case ProviderOllama:
 		models, listed, err = listOllamaModels(ctx, cfg)
 	case ProviderClaudeCode:
-		// The CLI has no model endpoint, and these three are the whole story.
+		// The CLI has no model endpoint, and these aliases are the whole story.
 		return ModelList{Models: slices.Clone(claudeCodeAliases), Source: ModelSourceFixed}, nil
 	default:
 		return CuratedModels(provider, ModelSourceUnreachable), fmt.Errorf("unsupported provider: %q", provider)

@@ -49,6 +49,15 @@ export function toModelOption(model: ModelInfo): ModelOption {
 const FAMILY_ALIASES = new Set(['opus', 'sonnet', 'haiku', 'fable']);
 
 /**
+ * An alias as the backend labels it ("Haiku (latest)", familyLabel in
+ * internal/llm/families.go), for when no list has arrived to say so; any other
+ * ID as it is.
+ */
+function aliasLabel(id: string): string {
+  return FAMILY_ALIASES.has(id) ? `${id[0].toUpperCase()}${id.slice(1)} (latest)` : id;
+}
+
+/**
  * The leading "KeyLint default" entry for one feature, naming what the default
  * is today.
  *
@@ -62,7 +71,7 @@ const FAMILY_ALIASES = new Set(['opus', 'sonnet', 'haiku', 'fable']);
 export function defaultOption(provider: string, feature: Feature, listed: ModelOption[]): ModelOption {
   const id = DEFAULT_MODELS[provider]?.[feature] ?? '';
   const match = listed.find(o => o.id === id);
-  const name = match?.display ?? id;
+  const name = match?.display ?? aliasLabel(id);
   return {
     id: null,
     label: '',

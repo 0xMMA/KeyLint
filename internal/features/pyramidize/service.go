@@ -361,6 +361,10 @@ type aiOpts struct {
 	// the pipeline's own. Only the eval judge sets it: an instrument must not
 	// move when the product's limit does.
 	maxTokens int
+	// noEffort sends no effort whatever settings say. The eval judge sets it
+	// for the same reason as maxTokens: a pinned instrument must not pick up
+	// the effort a user (or a later eval configuration) chose for Pyramidize.
+	noEffort bool
 }
 
 // --- internal pipeline helpers ---
@@ -514,7 +518,7 @@ func (svc *Service) callAISync(ctx context.Context, cfg settings.Settings, opts 
 		// The provider's effort for Pyramidize; "" leaves the model on its
 		// default. No NoThinking here: Pyramidize has a 16000-token limit and
 		// is where reasoning is worth its time.
-		Effort: cfg.EffortFor(provider, llm.FeaturePyramidize),
+		Effort: pyramidizeEffort(cfg, provider, opts),
 	})
 	if err != nil {
 		return "", err
@@ -560,4 +564,13 @@ func isValidDocType(s string) bool {
 		return true
 	}
 	return false
+}
+
+// pyramidizeEffort is the effort a call sends: the provider's Pyramidize
+// effort from settings, or none for a call that must not take it.
+func pyramidizeEffort(cfg settings.Settings, provider string, opts aiOpts) string {
+	if opts.noEffort {
+		return ""
+	}
+	return cfg.EffortFor(provider, llm.FeaturePyramidize)
 }

@@ -33,9 +33,11 @@ func (c *anthropicClient) Complete(ctx context.Context, req Request) (Response, 
 
 	// An alias is resolved here, and the effort and thinking options are
 	// checked against what the model accepts. Both need the account's model
-	// listing, which is cached; a request naming a pinned ID with neither
-	// option set never asks for it, so it costs nothing it did not cost before.
-	model := req.Model
+	// listing, which is cached (ten minutes; thirty seconds after a failure).
+	// A request naming a pinned ID with neither option set never asks for it.
+	// Fix on a pinned Haiku does ask — it sets NoThinking — and pays at most
+	// one bounded listing call per cache lifetime for it.
+	model := NormalizeFamily(req.Model)
 	effort := req.Effort
 	if effort != "" && !IsEffortLevel(effort) {
 		// A hand-edited settings file is the only way here. Sending it would

@@ -32,8 +32,19 @@ const (
 var modelFamilies = []string{FamilyOpus, FamilySonnet, FamilyHaiku, FamilyFable}
 
 // IsModelFamily reports whether m is a family alias rather than a model ID.
+// Exact and lower-case; NormalizeFamily turns a typed "Sonnet" into one.
 func IsModelFamily(m string) bool {
 	return slices.Contains(modelFamilies, m)
+}
+
+// NormalizeFamily lower-cases a typed alias ("Sonnet ", "HAIKU") so it is
+// recognised rather than sent verbatim and refused. Anything that is not an
+// alias in any case is returned unchanged — model IDs are case-sensitive.
+func NormalizeFamily(m string) string {
+	if lowered := strings.ToLower(strings.TrimSpace(m)); IsModelFamily(lowered) {
+		return lowered
+	}
+	return m
 }
 
 // familyLabel is how the picker names an alias: what it follows, not which

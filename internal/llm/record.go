@@ -34,11 +34,19 @@ func (r *ModelRecorder) Wrap(newClient func(string, Config) (Client, error)) fun
 
 // Recorded is what a run should record as its model: the one model that
 // answered; several joined with "+" when the generation moved mid-run, which a
-// comparison must then refuse; or requested when nothing answered.
+// comparison must then refuse; or requested when no response named a model.
+//
+// A requested alias is never recorded bare: "sonnet" in a configKey would
+// compare cleanly across a generation change, which is the one thing the
+// record exists to prevent. It is marked unresolved instead, so --compare
+// reads "not comparable" rather than a prompt effect.
 func (r *ModelRecorder) Recorded(requested string) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if len(r.seen) == 0 {
+		if IsModelFamily(requested) {
+			return requested + " (unresolved)"
+		}
 		return requested
 	}
 	return strings.Join(r.seen, "+")

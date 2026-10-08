@@ -598,12 +598,13 @@ describe('SettingsComponent — model selection', () => {
     source: string = 'live',
     models: StoredModels = {},
     active: string = 'claude',
+    listed = defaultModelList.models,
   ): Promise<void> {
     const settings = { ...defaultSettings, active_provider: active, models: stored(models) };
     wailsMock = createWailsMock();
     wailsMock.loadSettings.mockResolvedValue(structuredClone(settings));
     wailsMock.getKeyStatus.mockResolvedValue({ ...defaultKeyStatus });
-    wailsMock.listModels.mockResolvedValue({ ...defaultModelList, source });
+    wailsMock.listModels.mockResolvedValue({ models: listed, source });
 
     await TestBed.configureTestingModule({
       imports: [SettingsComponent],
@@ -938,6 +939,14 @@ describe('SettingsComponent — model selection', () => {
     pick('effort-fix-claude', 'Low');
     expect(component.effortFor('claude', 'fix')).toBe('low');
     expect(q('fix-fast-note')).toBeNull();
+  });
+
+  it('names the default alias even when no list could be loaded', async () => {
+    await render('unreachable', {}, 'claude', []);
+
+    const input = q('model-fix-claude')!.querySelector<HTMLInputElement>('input')!;
+    expect(input.getAttribute('placeholder')).toBe('Default: Haiku (latest)');
+    expect(q('fix-fast-note')?.textContent).toContain('Fix asks Haiku (latest)');
   });
 
   it('does not promise a quick Fix where the model keeps its own default', async () => {

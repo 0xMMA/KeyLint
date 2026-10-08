@@ -124,6 +124,7 @@ func (svc *Service) runJudge(settingsSvc *settings.Service, judge JudgeConfig, r
 	}
 
 	opts := aiOpts{
+		noEffort:    true,
 		provider:    judge.Provider,
 		model:       judge.Model,
 		temperature: llm.Temp(judge.Temperature),

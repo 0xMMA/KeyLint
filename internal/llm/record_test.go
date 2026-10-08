@@ -16,7 +16,7 @@ func (a answeringClient) Complete(context.Context, Request) (Response, error) {
 // answered at all.
 func TestModelRecorderRecordsWhatAnswered(t *testing.T) {
 	var r ModelRecorder
-	if got := r.Recorded("haiku"); got != "haiku" {
+	if got := r.Recorded("haiku"); got != "haiku (unresolved)" {
 		t.Errorf("nothing answered: %q", got)
 	}
 	answer := "claude-haiku-5-5"

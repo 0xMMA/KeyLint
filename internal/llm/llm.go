@@ -78,8 +78,9 @@ type Request struct {
 	// the 4.6 generation no xhigh), and a level the model refuses is a 400 —
 	// so the Anthropic client checks the account's model listing first and
 	// leaves an unsupported level out, and both clients retry once without it
-	// if the model rejects it anyway. OpenAI and Ollama ignore it; see
-	// completeViaOpenAI.
+	// if the model rejects it anyway. OpenAI sends it as reasoning_effort, but
+	// only to the model families whose support is documented (see
+	// openAIReasoningModels); Ollama ignores it.
 	//
 	// It interacts with MaxTokens: thinking counts against the output limit, so
 	// a high effort on a small limit (Fix's 2048) can end in the
@@ -89,9 +90,11 @@ type Request struct {
 	// model allows that. Fix sets it on a Haiku when no effort is chosen:
 	// Haiku 5.5 reasons by default and spent all of Fix's 2048 tokens doing so
 	// on a 3.8 KB selection (measured 2026-10-08), where Haiku 4.5 — the old
-	// default — never reasoned. Only the Anthropic API has a switch for it
-	// (thinking: disabled); the others ignore it. A model that cannot turn
-	// reasoning off (Sonnet 5.5, Opus 5.5) is not sent it.
+	// default — never reasoned. The Anthropic API takes it as
+	// thinking: disabled, and OpenAI as reasoning_effort "none" on the models
+	// documented to accept that; the Claude Code CLI has no flag for it and
+	// Ollama ignores it. A model that cannot turn reasoning off (Sonnet 5.5,
+	// Opus 5.5, GPT-6 Astra) is not sent it.
 	NoThinking bool
 }
 
@@ -394,9 +397,10 @@ const outputLimitMessage = "the result exceeded the output limit — try a short
 // GUI and the -fix / -pyramidize CLI — so it names the property that matters
 // (the model reasons first) and not a settings tab.
 //
-// Effort is the other remedy: a lower effort means less reasoning, and a high
-// one on Fix's 2048-token limit is the likeliest way to land here.
-const outputLimitThinkingMessage = "the model spent most of the output limit reasoning and was cut off — lower the effort, choose a model that does not reason first (such as Haiku 4.5), or shorten the text"
+// Lowering the effort is NOT named as the remedy: Haiku 5.5 at effort low
+// still spent 2047 of Fix's 2048 tokens reasoning (measured 2026-10-08). What
+// works is a Haiku with no effort set, which Fix asks not to reason at all.
+const outputLimitThinkingMessage = "the model spent most of the output limit reasoning and was cut off — use a model that does not reason first (a Haiku with the effort on Model default), or shorten the text"
 
 // schemaName labels the schema for providers that require a name for it. It is
 // never shown to a user.
