@@ -58,6 +58,8 @@ export const defaultDevChannel: DevChannel = {
   builds: [],
   orphaned: false,
   latest_release: '',
+  latest_release_date: '',
+  new_release_since_build: false,
   error: '',
 };
 

@@ -133,6 +133,68 @@ describe('DevChannelComponent', () => {
     expect(wailsMock.listDevBuilds).toHaveBeenLastCalledWith(true);
   });
 
+  describe('back to a release', () => {
+    const onMain: Partial<DevChannel> = {
+      current: { is_dev_build: true, kind: 'main', pr: 0, commit: '1111111', tag: 'v0.0.0-main' },
+      builds: [{ ...MAIN, installed: true }, PR12],
+      latest_release: '4.4.3-beta',
+      latest_release_date: '2026-10-05T12:00:00Z',
+    };
+
+    it('is always offered on a dev build whose PR is still there, and installs on click', async () => {
+      await render(onMain, '0.0.0-main+1111111');
+      expect(text('latest-release-line')).toBe('Latest release: v4.4.3-beta, released 5 Oct 2026.');
+      expect(text('back-to-release-btn')).toBe('Back to latest release (v4.4.3-beta)');
+      expect(wailsMock.installLatestRelease).not.toHaveBeenCalled();
+
+      await click('back-to-release-btn');
+      expect(wailsMock.installLatestRelease).toHaveBeenCalledTimes(1);
+      expect(wailsMock.installDevBuild).not.toHaveBeenCalled();
+    });
+
+    it('announces a release that came out after this build', async () => {
+      await render({ ...onMain, new_release_since_build: true }, '0.0.0-main+1111111');
+      expect(text('new-release-msg')).toBe('A new release is out: v4.4.3-beta on 5 Oct 2026.');
+      expect(q('back-to-release-btn')).toBeTruthy();
+    });
+
+    it('is not shown on a release build, which has the normal update check', async () => {
+      await render({ ...onMain, current: { ...defaultBuildIdentity }, builds: [MAIN, PR12] });
+      expect(q('back-to-release')).toBeNull();
+    });
+
+    it('leaves it to the return offer when the PR build is gone', async () => {
+      await render({ ...onMain, orphaned: true, current: { is_dev_build: true, kind: 'pr', pr: 99, commit: 'abc1234', tag: 'v0.0.0-pr.99' } });
+      expect(q('back-to-release')).toBeNull();
+      expect(q('return-release-btn')).toBeTruthy();
+    });
+  });
+
+  describe('identity while unsure', () => {
+    it('says it is checking until the list arrives', async () => {
+      wailsMock = createWailsMock();
+      wailsMock.listDevBuilds.mockReturnValue(new Promise(() => {}));
+      await TestBed.configureTestingModule({
+        imports: [DevChannelComponent],
+        providers: [provideAnimationsAsync(), { provide: WailsService, useValue: wailsMock }],
+      }).compileComponents();
+      fixture = TestBed.createComponent(DevChannelComponent);
+      el = fixture.nativeElement;
+      fixture.detectChanges();
+      expect(text('dev-identity')).toBe('Checking which build is running…');
+    });
+
+    it('does not claim "not a test build" when the backend could not be asked', async () => {
+      await render({ builds: [], error: 'The dev channel is not available right now.' }, '');
+      expect(text('dev-identity')).toBe('Could not tell which build is running.');
+    });
+
+    it('names a dev build from its version when the backend could not be asked', async () => {
+      await render({ builds: [], error: 'The dev channel is not available right now.' }, '0.0.0-pr.12+abc1234');
+      expect(text('dev-identity')).toBe('Running the test build PR #12 · abc1234.');
+    });
+  });
+
   describe('return offer', () => {
     const orphaned: Partial<DevChannel> = {
       current: { is_dev_build: true, kind: 'pr', pr: 99, commit: 'abc1234', tag: 'v0.0.0-pr.99' },

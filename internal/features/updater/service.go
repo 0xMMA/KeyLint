@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"keylint/internal/features/settings"
@@ -50,6 +51,8 @@ type Service struct {
 	blockedUntil time.Time // GitHub said the anonymous quota is spent until then
 	goneTag      string    // a dev tag GitHub answered 404 for…
 	goneAt       time.Time // …and when
+
+	installing atomic.Bool // a download-and-apply is in flight
 }
 
 // NewService creates an updater Service with the given current version string.
@@ -155,11 +158,12 @@ func (s *Service) releases(force bool) ([]githubRelease, error) {
 	defer s.cacheMu.Unlock()
 
 	now := s.now()
-	if now.Before(s.blockedUntil) {
-		return nil, rateLimitError{reset: s.blockedUntil}
-	}
+	// A fresh list needs no request, so a rate limit does not stand in its way.
 	if !force && s.cached != nil && now.Sub(s.cachedAt) < releasesTTL {
 		return s.cached, nil
+	}
+	if now.Before(s.blockedUntil) {
+		return nil, rateLimitError{reset: s.blockedUntil}
 	}
 
 	var releases []githubRelease
@@ -302,10 +306,20 @@ func (s *Service) DownloadAndInstall() (InstallResult, error) {
 	return s.downloadAndApply(updateInfo.ReleaseURL)
 }
 
+var errInstallRunning = errors.New("an install is already running")
+
 // downloadAndApply fetches an installer or binary, saves it to a temp file and
 // hands it to the platform-specific installer. Shared by the normal update
 // path and the dev channel, so both install the same way.
+//
+// One at a time: two installers racing to replace the same executable (a
+// double click, or the footer and About both asking) can leave neither.
 func (s *Service) downloadAndApply(url string) (InstallResult, error) {
+	if !s.installing.CompareAndSwap(false, true) {
+		return InstallResult{}, errInstallRunning
+	}
+	defer s.installing.Store(false)
+
 	resp, err := s.client.Get(url)
 	if err != nil {
 		return InstallResult{}, fmt.Errorf("downloading update: %w", err)

@@ -14,6 +14,11 @@
 // only words it, so a version it does not recognise falls through unchanged.
 const DEV_VERSION = /^v?0\.0\.0-(?:pr\.([1-9]\d{0,8})|main)(?:\+([0-9a-f]{7,40}))?$/;
 
+/** True when raw is a dev-channel version (0.0.0-pr.N+sha, 0.0.0-main+sha). */
+export function isDevVersion(raw: string): boolean {
+  return DEV_VERSION.test(raw);
+}
+
 export function versionLabel(raw: string): string {
   if (!raw) return '…';
   const dev = DEV_VERSION.exec(raw);

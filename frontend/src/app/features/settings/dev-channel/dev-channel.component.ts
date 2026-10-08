@@ -4,7 +4,7 @@ import { Button } from 'primeng/button';
 import { Tag } from 'primeng/tag';
 import { Message } from 'primeng/message';
 import { WailsService, DevBuild, DevChannel, BuildIdentity, InstallResult } from '../../../core/wails.service';
-import { versionLabel } from '../../../core/version-label';
+import { versionLabel, isDevVersion } from '../../../core/version-label';
 
 /**
  * Settings › About › Dev channel: installable CI builds of main and of every
@@ -58,6 +58,33 @@ import { versionLabel } from '../../../core/version-label';
               />
             }
           </div>
+        </div>
+      }
+
+      <!-- The way back, whenever a dev build runs: its normal update check is
+           silenced, so this is also where it hears about a new release.
+           The return offer above already carries it when the PR is gone. -->
+      @if (runningDevBuild() && channel && !channel.orphaned && channel.latest_release) {
+        <div class="back-to-release" data-testid="back-to-release">
+          @if (channel.new_release_since_build) {
+            <p-message
+              data-testid="new-release-msg"
+              severity="info"
+              [text]="'A new release is out: v' + channel.latest_release + releasedOn(' on ') + '.'"
+              styleClass="mb-2"
+            />
+          } @else {
+            <p class="hint-text" data-testid="latest-release-line">Latest release: v{{ channel.latest_release }}{{ releasedOn(', released ') }}.</p>
+          }
+          <p-button
+            data-testid="back-to-release-btn"
+            [label]="'Back to latest release (v' + channel.latest_release + ')'"
+            icon="pi pi-replay"
+            severity="secondary"
+            [loading]="installing === LATEST"
+            [disabled]="installing !== null"
+            (onClick)="installLatest()"
+          />
         </div>
       }
 
@@ -143,6 +170,7 @@ import { versionLabel } from '../../../core/version-label';
     .hint-text { display: block; font-size: 0.8rem; color: var(--p-text-muted-color); margin-bottom: 0.75rem; }
     .dev-identity { margin: 0 0 0.75rem; font-size: 0.9rem; }
     .return-offer { margin-bottom: 1rem; }
+    .back-to-release { margin-bottom: 1rem; }
     .return-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
     .dev-build-list { list-style: none; margin: 0 0 0.5rem; padding: 0; }
     .dev-build {
@@ -195,13 +223,32 @@ export class DevChannelComponent implements OnInit, OnDestroy {
     return this.channel?.builds.find(b => b.kind === 'main');
   }
 
+  /** Whether the running build is from this channel, by the backend or by its version. */
+  runningDevBuild(): boolean {
+    return !!this.channel?.current.is_dev_build || isDevVersion(this.version());
+  }
+
   identityText(): string {
-    const cur: BuildIdentity | undefined = this.channel?.current;
-    if (cur?.is_dev_build) {
+    if (this.channel === null) return 'Checking which build is running…';
+    const cur: BuildIdentity = this.channel.current;
+    if (cur.is_dev_build) {
       const what = cur.kind === 'pr' ? `the test build of PR #${cur.pr}` : 'the latest main build';
       return `Running ${what}${cur.commit ? ` (commit ${cur.commit})` : ''}.`;
     }
-    return `Running ${this.version() ? versionLabel(this.version()) : 'a release build'}, not a test build.`;
+    const version = this.version();
+    if (isDevVersion(version)) return `Running the test build ${versionLabel(version)}.`;
+    // Only claim "not a test build" on a version that says so.
+    if (!version || version === 'dev') return 'Could not tell which build is running.';
+    return `Running ${versionLabel(version)}, not a test build.`;
+  }
+
+  /** "<prefix>5 Oct 2026" for the latest release, or "" without a date. */
+  releasedOn(prefix: string): string {
+    const raw = this.channel?.latest_release_date;
+    if (!raw) return '';
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) return '';
+    return prefix + d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
   }
 
   async load(force: boolean): Promise<void> {

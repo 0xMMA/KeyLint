@@ -488,3 +488,84 @@ func TestListDevBuilds_KeepsTheLastListWhenGitHubStopsAnswering(t *testing.T) {
 		t.Error("orphaned claimed without a fresh answer from GitHub")
 	}
 }
+
+func TestListDevBuilds_TellsADevBuildAboutANewerRelease(t *testing.T) {
+	f := newFakeGitHub(t, nil)
+	f.releases = standardReleases(f) // dev builds uploaded 2026-10-02T10:00:00Z
+	for i := range f.releases {
+		if f.releases[i].TagName == "v4.4.3-beta" {
+			f.releases[i].PublishedAt = "2026-10-05T09:00:00Z"
+		}
+	}
+
+	got := devService(f, "0.0.0-pr.12+abc1234", false).ListDevBuilds(false)
+	if got.LatestRelease != "4.4.3-beta" || got.LatestReleaseDate != "2026-10-05T09:00:00Z" {
+		t.Errorf("latest release = %q %q", got.LatestRelease, got.LatestReleaseDate)
+	}
+	if !got.NewReleaseSinceBuild {
+		t.Error("a release published after the running build is not reported as news")
+	}
+
+	for i := range f.releases {
+		if f.releases[i].TagName == "v4.4.3-beta" {
+			f.releases[i].PublishedAt = "2026-09-01T09:00:00Z"
+		}
+	}
+	if older := devService(f, "0.0.0-pr.12+abc1234", false).ListDevBuilds(false); older.NewReleaseSinceBuild {
+		t.Error("an older release reported as news")
+	}
+	if rel := devService(f, "v4.4.3-beta", true).ListDevBuilds(false); rel.NewReleaseSinceBuild {
+		t.Error("news reported to a release build, which has its normal update check")
+	}
+}
+
+func TestReleases_FreshCacheServedDuringRateLimit(t *testing.T) {
+	f := newFakeGitHub(t, nil)
+	f.releases = standardReleases(f)
+	svc := devService(f, "v4.4.3-beta", true)
+	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+
+	svc.ListDevBuilds(false)
+	svc.cacheMu.Lock()
+	svc.blockedUntil = now.Add(time.Hour) // a tag lookup hit the limit since
+	svc.cacheMu.Unlock()
+
+	if got := svc.ListDevBuilds(false); got.Error != "" || len(got.Builds) != 3 {
+		t.Errorf("fresh cache not served while blocked: error=%q builds=%d", got.Error, len(got.Builds))
+	}
+}
+
+func TestDownloadAndApply_OneInstallAtATime(t *testing.T) {
+	f := newFakeGitHub(t, nil)
+	f.releases = standardReleases(f)
+	svc := devService(f, "v4.4.3-beta", true)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	svc.applyFunc = func(*Service, string) (InstallResult, error) {
+		close(entered)
+		<-release
+		return InstallResult{RestartRequired: true}, nil
+	}
+
+	first := make(chan error, 1)
+	go func() {
+		_, err := svc.InstallDevBuild("v0.0.0-pr.12")
+		first <- err
+	}()
+	<-entered
+
+	if _, err := svc.InstallLatestRelease(); err == nil || !strings.Contains(err.Error(), "already running") {
+		t.Errorf("second install while the first runs: %v", err)
+	}
+	close(release)
+	if err := <-first; err != nil {
+		t.Fatalf("first install: %v", err)
+	}
+
+	// Free again once the first is done.
+	svc.applyFunc = func(*Service, string) (InstallResult, error) { return InstallResult{}, nil }
+	if _, err := svc.InstallLatestRelease(); err != nil {
+		t.Errorf("install after the first finished: %v", err)
+	}
+}

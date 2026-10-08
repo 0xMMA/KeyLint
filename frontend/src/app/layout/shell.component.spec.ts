@@ -149,6 +149,11 @@ describe('ShellComponent — theme / body class', () => {
       expect(indicator?.getAttribute('title')).toContain('This test build is gone');
     });
 
+    it('points to About when a new release is out', async () => {
+      const el = await renderDevBuild({ new_release_since_build: true, latest_release: '4.5.0-beta' });
+      expect(el.querySelector('[data-testid="update-indicator"]')?.getAttribute('title')).toContain('A new release is out (v4.5.0-beta)');
+    });
+
     it('points to About when a newer build of it is up', async () => {
       const el = await renderDevBuild({
         builds: [{ tag: 'v0.0.0-pr.12', kind: 'pr', pr: 12, title: '', pr_url: '', commit: 'fffffff', date: '', installable: true, installed: false, newer_build: true }],

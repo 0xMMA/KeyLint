@@ -154,6 +154,9 @@ export class ShellComponent implements OnInit, OnDestroy {
         if (channel.orphaned) {
           this.updateAvailable = true;
           this.updateTitle = 'This test build is gone — see Settings › About';
+        } else if (channel.new_release_since_build) {
+          this.updateAvailable = true;
+          this.updateTitle = `A new release is out (v${channel.latest_release}) — see Settings › About`;
         } else if (channel.builds.some(b => b.newer_build)) {
           this.updateAvailable = true;
           this.updateTitle = 'A newer test build is available';

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // The dev channel: installable builds of open pull requests and of main.
@@ -36,7 +37,12 @@ type DevBuild struct {
 	Date        string `json:"date"`        // RFC 3339, when this build was uploaded
 	Installable bool   `json:"installable"` // has an asset for this platform
 	Installed   bool   `json:"installed"`   // this is the build that is running
-	NewerBuild  bool   `json:"newer_build"` // same PR or main as the running build, newer commit
+	// NewerBuild: same PR or main as the running build, but a different
+	// commit. Strictly that is "different", not "newer"; it reads as newer
+	// because CI only ever replaces a dev release with a later push, so the
+	// published commit is the newest one unless the running build came from
+	// somewhere else.
+	NewerBuild bool `json:"newer_build"`
 }
 
 // BuildIdentity is what the running build knows about itself from its version.
@@ -62,7 +68,13 @@ type DevChannel struct {
 	// LatestRelease is the newest real release on the effective update
 	// channel, without the "v" — the second choice in the return offer.
 	LatestRelease string `json:"latest_release"`
-	Error         string `json:"error"`
+	// LatestReleaseDate is when that release was published (RFC 3339).
+	LatestReleaseDate string `json:"latest_release_date"`
+	// NewReleaseSinceBuild is true when the running build is a dev build
+	// and LatestRelease was published after that build was uploaded: news a
+	// dev build would otherwise never hear, its normal check being silenced.
+	NewReleaseSinceBuild bool   `json:"new_release_since_build"`
+	Error                string `json:"error"`
 }
 
 var (
@@ -194,6 +206,10 @@ func (s *Service) ListDevBuilds(force bool) DevChannel {
 
 	if best := bestRelease(releases, s.resolveChannel()); best != nil {
 		out.LatestRelease = strings.TrimPrefix(best.TagName, "v")
+		out.LatestReleaseDate = best.PublishedAt
+		if built := runningBuildDate(out.Builds); built != "" && best.PublishedAt != "" {
+			out.NewReleaseSinceBuild = laterThan(best.PublishedAt, built)
+		}
 	}
 
 	if err == nil && out.Current.Kind == "pr" && !hasTag(out.Builds, out.Current.Tag) {
@@ -221,6 +237,24 @@ func (s *Service) markAgainstCurrent(b *DevBuild, cur BuildIdentity) {
 		return
 	}
 	b.NewerBuild = true
+}
+
+// runningBuildDate is the upload date of the build that is running, when the
+// list has it.
+func runningBuildDate(builds []DevBuild) string {
+	for _, b := range builds {
+		if b.Installed {
+			return b.Date
+		}
+	}
+	return ""
+}
+
+// laterThan compares two RFC 3339 times; anything unparsable is not later.
+func laterThan(a, b string) bool {
+	ta, errA := time.Parse(time.RFC3339, a)
+	tb, errB := time.Parse(time.RFC3339, b)
+	return errA == nil && errB == nil && ta.After(tb)
 }
 
 func hasTag(builds []DevBuild, tag string) bool {

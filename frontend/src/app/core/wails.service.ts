@@ -53,6 +53,8 @@ function unavailableDevChannel(): DevChannel {
     builds: [],
     orphaned: false,
     latest_release: '',
+    latest_release_date: '',
+    new_release_since_build: false,
     error: 'The dev channel is not available right now.',
   };
 }

@@ -152,7 +152,11 @@ export class DevBuild {
         }
         if (!("newer_build" in $$source)) {
             /**
-             * same PR or main as the running build, newer commit
+             * NewerBuild: same PR or main as the running build, but a different
+             * commit. Strictly that is "different", not "newer"; it reads as newer
+             * because CI only ever replaces a dev release with a later push, so the
+             * published commit is the newest one unless the running build came from
+             * somewhere else.
              * @member
              * @type {boolean}
              */
@@ -217,6 +221,24 @@ export class DevChannel {
              * @type {string}
              */
             this["latest_release"] = "";
+        }
+        if (!("latest_release_date" in $$source)) {
+            /**
+             * LatestReleaseDate is when that release was published (RFC 3339).
+             * @member
+             * @type {string}
+             */
+            this["latest_release_date"] = "";
+        }
+        if (!("new_release_since_build" in $$source)) {
+            /**
+             * NewReleaseSinceBuild is true when the running build is a dev build
+             * and LatestRelease was published after that build was uploaded: news a
+             * dev build would otherwise never hear, its normal check being silenced.
+             * @member
+             * @type {boolean}
+             */
+            this["new_release_since_build"] = false;
         }
         if (!("error" in $$source)) {
             /**
