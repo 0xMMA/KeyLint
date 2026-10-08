@@ -163,7 +163,6 @@
 .sidebar-footer {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--p-surface-700, #3f3f46);
   overflow: hidden;
 }
 
@@ -196,6 +195,9 @@
 .collapse-btn {
   background: none;
   border: none;
+  // The separator belongs to the button, not the footer: the version row above
+  // only shows when expanded, and a footer border moved up and down with it.
+  border-top: 1px solid var(--p-surface-700, #3f3f46);
   cursor: pointer;
   display: flex;
   align-items: center;
