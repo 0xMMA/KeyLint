@@ -13,6 +13,9 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 
 /**
  * CompleteSetup marks the setup wizard as done.
+ * 
+ * Through settings.Update, so a save that lands meanwhile (a provider switch)
+ * is not overwritten by settings read before it.
  * @returns {$CancellablePromise<void>}
  */
 export function CompleteSetup() {

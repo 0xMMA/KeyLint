@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
@@ -7,7 +7,7 @@ import { Component, OnDestroy } from '@angular/core';
 import { ShellComponent } from './shell.component';
 import { SettingsComponent } from '../features/settings/settings.component';
 import { FixComponent } from '../features/fix/fix.component';
-import { TextEnhancementComponent } from '../features/text-enhancement/text-enhancement.component';
+import { TextEnhancementComponent, resetPyramidizeProviderSession } from '../features/text-enhancement/text-enhancement.component';
 import { WailsService } from '../core/wails.service';
 import { createWailsMock, defaultSettings } from '../../testing/wails-mock';
 
@@ -33,6 +33,11 @@ if (!window.matchMedia) {
 // These drive the real router through the real shell, so "the page was
 // replaced" means what it means in the app: exactly one routed component in the
 // outlet.
+// Pyramidize keeps its provider choice in module state, which outlives every
+// fixture and is shared across spec files (isolate: false).
+beforeEach(() => resetPyramidizeProviderSession());
+afterEach(() => resetPyramidizeProviderSession());
+
 describe('ShellComponent — routing away from Settings', () => {
   let wailsMock: ReturnType<typeof createWailsMock>;
   let router: Router;

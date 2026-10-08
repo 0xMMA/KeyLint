@@ -35,21 +35,23 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
-      # cache-apt-pkgs never refreshes the package lists on GitHub runners, and
-      # the image's lists go stale: on a cache miss apt then 404s on superseded
-      # debs, the action carries on, and caches an empty result under the final
-      # key. Refreshing first costs a few seconds and keeps the cache honest.
+      # cache-apt-pkgs never refreshes the package lists on GitHub runners (it only
+      # does under `act`), so stale lists 404 on a cache miss — and the action then
+      # caches the empty result. Keep this step.
       - name: Refresh apt package lists
-        run: sudo apt-get update
+        run: sudo apt-get update -o Acquire::Retries=3
 
       - name: Install system deps
         uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
         with:
           packages: pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev gcc
-          version: 1.0
+          version: "1.1"
 
-      # The action above caches whatever it managed to install, including nothing.
-      # Fail here, at the cause, rather than later at the first cgo package.
+      # The action above caches whatever it managed to install, including nothing
+      # (version 1.0 was cached empty on 2026-10-04). Fail here, at the cause. The save
+      # already happened inside the action, so this does not stop a broken cache from
+      # being restored next time: recover by bumping `version` above (or deleting the
+      # cache with `gh cache delete <id>`).
       - name: Check GTK3 headers are present
         run: pkg-config --exists --print-errors gtk+-3.0 webkit2gtk-4.1
 
@@ -196,21 +198,23 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
-      # cache-apt-pkgs never refreshes the package lists on GitHub runners, and
-      # the image's lists go stale: on a cache miss apt then 404s on superseded
-      # debs, the action carries on, and caches an empty result under the final
-      # key. Refreshing first costs a few seconds and keeps the cache honest.
+      # cache-apt-pkgs never refreshes the package lists on GitHub runners (it only
+      # does under `act`), so stale lists 404 on a cache miss — and the action then
+      # caches the empty result. Keep this step.
       - name: Refresh apt package lists
-        run: sudo apt-get update
+        run: sudo apt-get update -o Acquire::Retries=3
 
       - name: Install system deps
         uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
         with:
           packages: pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev gcc
-          version: 1.0
+          version: "1.1"
 
-      # The action above caches whatever it managed to install, including nothing.
-      # Fail here, at the cause, rather than later at the first cgo package.
+      # The action above caches whatever it managed to install, including nothing
+      # (version 1.0 was cached empty on 2026-10-04). Fail here, at the cause. The save
+      # already happened inside the action, so this does not stop a broken cache from
+      # being restored next time: recover by bumping `version` above (or deleting the
+      # cache with `gh cache delete <id>`).
       - name: Check GTK3 headers are present
         run: pkg-config --exists --print-errors gtk+-3.0 webkit2gtk-4.1
 
@@ -272,21 +276,23 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
-      # cache-apt-pkgs never refreshes the package lists on GitHub runners, and
-      # the image's lists go stale: on a cache miss apt then 404s on superseded
-      # debs, the action carries on, and caches an empty result under the final
-      # key. Refreshing first costs a few seconds and keeps the cache honest.
+      # cache-apt-pkgs never refreshes the package lists on GitHub runners (it only
+      # does under `act`), so stale lists 404 on a cache miss — and the action then
+      # caches the empty result. Keep this step.
       - name: Refresh apt package lists
-        run: sudo apt-get update
+        run: sudo apt-get update -o Acquire::Retries=3
 
       - name: Install system deps
         uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
         with:
           packages: pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev gcc gcc-mingw-w64
-          version: 1.0
+          version: "1.1"
 
-      # The action above caches whatever it managed to install, including nothing.
-      # Fail here, at the cause, rather than later at the first cgo package.
+      # The action above caches whatever it managed to install, including nothing
+      # (version 1.0 was cached empty on 2026-10-04). Fail here, at the cause. The save
+      # already happened inside the action, so this does not stop a broken cache from
+      # being restored next time: recover by bumping `version` above (or deleting the
+      # cache with `gh cache delete <id>`).
       - name: Check GTK3 headers are present
         run: pkg-config --exists --print-errors gtk+-3.0 webkit2gtk-4.1
 
@@ -319,12 +325,11 @@ jobs:
             go build -tags production -trimpath \
             -ldflags="-w -s -H windowsgui -X main.AppVersion=${VERSION}" \
             -o bin/KeyLint.exe .
-
       - name: Install NSIS
         uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
         with:
           packages: nsis
-          version: 1.0
+          version: "1.1"
 
       # The bootstrapper is bundled into the installer end users run, so it is
       # fetched through a script that refuses anything not signed by Microsoft.
@@ -333,7 +338,7 @@ jobs:
         uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
         with:
           packages: osslsigncode
-          version: 1.0
+          version: "1.0"
 
       - name: Download and verify the WebView2 bootstrapper
         run: ./scripts/fetch-webview2.sh
@@ -345,16 +350,18 @@ jobs:
             -DINFO_PRODUCTVERSION="${VERSION#v}" \
             build/windows/nsis/project.nsi
 
+      # 14 days, not 3: these are what gets smoke-tested on a real Windows
+      # machine, and that test rarely happens the same week as the push.
       - name: Upload Windows binary
         uses: actions/upload-artifact@v7
         with:
           name: KeyLint-windows-amd64
           path: bin/KeyLint.exe
-          retention-days: 3
+          retention-days: 14
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v7
         with:
           name: KeyLint-windows-amd64-setup
           path: bin/KeyLint-amd64-installer.exe
-          retention-days: 3
+          retention-days: 14

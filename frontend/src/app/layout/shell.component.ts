@@ -3,6 +3,7 @@ import { Router, RouterOutlet, RouterLink, RouterLinkActive } from '@angular/rou
 import { isDevMode } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { TooltipModule } from 'primeng/tooltip';
+import { versionLabel } from '../core/version-label';
 import { WailsService } from '../core/wails.service';
 
 // Persists across navigation
@@ -71,7 +72,7 @@ let sidebarHovered   = false;
         <div class="sidebar-footer">
           <div class="version-row" data-testid="version-footer" (click)="goToAbout()">
             @if (!collapsedView || hoverExpanded) {
-              <span class="version-text">v{{ appVersion || '…' }}</span>
+              <span class="version-text" data-testid="version-text">{{ versionLabel(appVersion) }}</span>
               @if (updateAvailable) {
                 <i class="pi pi-arrow-circle-up update-indicator" data-testid="update-indicator" title="Update available"></i>
               }
@@ -97,6 +98,7 @@ let sidebarHovered   = false;
 })
 export class ShellComponent implements OnInit, OnDestroy {
   readonly dev = isDevMode();
+  readonly versionLabel = versionLabel;
   appVersion = '';
   updateAvailable = false;
   private sub?: Subscription;
@@ -154,9 +156,11 @@ export class ShellComponent implements OnInit, OnDestroy {
     this.sub?.unsubscribe();
   }
 
-  private async applyTheme(): Promise<void> {
-    const settings = await this.wails.loadSettings();
-    const dark = settings.theme_preference !== 'light';
-    document.body.classList.toggle('app-dark', dark);
+  private applyTheme(): void {
+    // Only the dark theme is styled (#24). theme_preference is deliberately
+    // not read: a "light" or "system" saved by an older version would drop
+    // PrimeNG into its unstyled light mode. The light theme (#25) reads it again.
+    // On <html>, not <body>: see index.html.
+    document.documentElement.classList.add('app-dark');
   }
 }

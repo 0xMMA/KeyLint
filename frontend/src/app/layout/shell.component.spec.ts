@@ -10,7 +10,7 @@ describe('ShellComponent — theme / body class', () => {
   let wailsMock: ReturnType<typeof createWailsMock>;
 
   beforeEach(async () => {
-    document.body.classList.remove('app-dark');
+    document.documentElement.classList.remove('app-dark');
 
     wailsMock = createWailsMock();
 
@@ -24,7 +24,7 @@ describe('ShellComponent — theme / body class', () => {
   });
 
   afterEach(() => {
-    document.body.classList.remove('app-dark');
+    document.documentElement.classList.remove('app-dark');
   });
 
   async function createAndWait(theme_preference: string): Promise<ComponentFixture<ShellComponent>> {
@@ -35,31 +35,29 @@ describe('ShellComponent — theme / body class', () => {
     return fixture;
   }
 
-  it('adds app-dark to body for dark theme', async () => {
+  it('adds app-dark to the root element for dark theme', async () => {
     await createAndWait('dark');
-    expect(document.body.classList.contains('app-dark')).toBe(true);
+    expect(document.documentElement.classList.contains('app-dark')).toBe(true);
   });
 
-  it('removes app-dark from body for light theme', async () => {
-    document.body.classList.add('app-dark');
-    await createAndWait('light');
-    expect(document.body.classList.contains('app-dark')).toBe(false);
-  });
+  // Only the dark theme is styled (#24). A value saved by an older version, or
+  // one a light theme (#25) will honour later, must not unstyle the app today.
+  for (const stored of ['light', 'system', '', 'something-else']) {
+    it(`stays dark when theme_preference is "${stored}"`, async () => {
+      await createAndWait(stored);
+      expect(document.documentElement.classList.contains('app-dark')).toBe(true);
+    });
+  }
 
-  it('keeps app-dark for system theme (dark-first app)', async () => {
-    await createAndWait('system');
-    expect(document.body.classList.contains('app-dark')).toBe(true);
-  });
-
-  it('re-applies theme when settingsChanged$ emits', async () => {
+  it('stays dark when settingsChanged$ brings a light preference', async () => {
     const fixture = await createAndWait('dark');
-    expect(document.body.classList.contains('app-dark')).toBe(true);
+    expect(document.documentElement.classList.contains('app-dark')).toBe(true);
 
     wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, theme_preference: 'light' });
     wailsMock._settingsChanged$.next();
     await fixture.whenStable();
 
-    expect(document.body.classList.contains('app-dark')).toBe(false);
+    expect(document.documentElement.classList.contains('app-dark')).toBe(true);
   });
 
   it('renders the sidebar nav', async () => {
@@ -80,6 +78,27 @@ describe('ShellComponent — theme / body class', () => {
     expect(footer).toBeTruthy();
     expect(footer!.textContent).toContain('v4.1.7');
   });
+
+  // Release builds get their version from the git tag, which already carries
+  // the "v" (#21); local builds may not, and dev builds say "dev".
+  for (const [raw, shown] of [
+    ['v3.6.0', 'v3.6.0'],
+    ['v3.7.0-alpha.2-5-gabc1234', 'v3.7.0-alpha.2-5-gabc1234'],
+    ['3.6.0', 'v3.6.0'],
+    ['dev', 'dev'],
+    // `git describe --always` without a reachable tag: a bare commit hash.
+    ['0a1b2c3', '0a1b2c3'],
+  ] as const) {
+    it(`shows version "${raw}" as "${shown}"`, async () => {
+      wailsMock.getVersion.mockResolvedValue(raw);
+      const fixture = await createAndWait('dark');
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      const text = fixture.nativeElement.querySelector('[data-testid="version-text"]')?.textContent?.trim();
+      expect(text).toBe(shown);
+    });
+  }
 
   it('shows update indicator when update is available', async () => {
     wailsMock.getVersion.mockResolvedValue('4.1.7');

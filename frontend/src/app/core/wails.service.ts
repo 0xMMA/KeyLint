@@ -93,6 +93,15 @@ export class WailsService implements OnDestroy {
     return SettingsService.Save(s);
   }
 
+  /**
+   * Switches the active provider and saves that one field, leaving anything
+   * else the settings screen has pending unsaved. Rejects with the backend's
+   * error, so the screen can keep its marker where it was.
+   */
+  setActiveProvider(provider: string): Promise<void> {
+    return SettingsService.SetActiveProvider(provider);
+  }
+
   isFirstRun(): Promise<boolean> {
     try {
       return WelcomeService.IsFirstRun().catch(() => false);

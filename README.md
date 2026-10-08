@@ -32,7 +32,8 @@ Perfect for professional emails, chat messages, documents, and social media post
 - **Anthropic** (Claude)
 - **Claude Code** — uses the Claude Code CLI you already installed and signed in to, with your own subscription. No API key to enter. KeyLint runs the unmodified binary and never reads or stores your credentials; you sign in in your own terminal.
 - **Ollama** (local, fully offline)
-- **AWS Bedrock** (Claude, Titan, etc.)
+
+AWS Bedrock is not available yet — it is planned ([#23](https://github.com/0xMMA/KeyLint/issues/23)).
 
 ## Installation
 

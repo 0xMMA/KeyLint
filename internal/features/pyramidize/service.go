@@ -299,38 +299,35 @@ func (svc *Service) GetAppPresets() []AppPreset {
 
 // SetAppPreset saves or updates an app preset matched by SourceApp name (case-insensitive).
 func (svc *Service) SetAppPreset(preset AppPreset) error {
-	cfg := svc.settings.Get()
-	found := false
-	for i, p := range cfg.AppPresets {
-		if strings.EqualFold(p.SourceApp, preset.SourceApp) {
-			cfg.AppPresets[i] = settings.AppPreset{
-				SourceApp:    preset.SourceApp,
-				DocumentType: preset.DocumentType,
+	// Through settings.Update, so a save landing meanwhile is not overwritten.
+	return settings.Update(svc.settings, func(cfg *settings.Settings) {
+		for i, p := range cfg.AppPresets {
+			if strings.EqualFold(p.SourceApp, preset.SourceApp) {
+				cfg.AppPresets[i] = settings.AppPreset{
+					SourceApp:    preset.SourceApp,
+					DocumentType: preset.DocumentType,
+				}
+				return
 			}
-			found = true
-			break
 		}
-	}
-	if !found {
 		cfg.AppPresets = append(cfg.AppPresets, settings.AppPreset{
 			SourceApp:    preset.SourceApp,
 			DocumentType: preset.DocumentType,
 		})
-	}
-	return svc.settings.Save(cfg)
+	})
 }
 
 // DeleteAppPreset removes an app preset by source app name (case-insensitive).
 func (svc *Service) DeleteAppPreset(sourceApp string) error {
-	cfg := svc.settings.Get()
-	filtered := make([]settings.AppPreset, 0, len(cfg.AppPresets))
-	for _, p := range cfg.AppPresets {
-		if !strings.EqualFold(p.SourceApp, sourceApp) {
-			filtered = append(filtered, p)
+	return settings.Update(svc.settings, func(cfg *settings.Settings) {
+		filtered := make([]settings.AppPreset, 0, len(cfg.AppPresets))
+		for _, p := range cfg.AppPresets {
+			if !strings.EqualFold(p.SourceApp, sourceApp) {
+				filtered = append(filtered, p)
+			}
 		}
-	}
-	cfg.AppPresets = filtered
-	return svc.settings.Save(cfg)
+		cfg.AppPresets = filtered
+	})
 }
 
 // GetQualityThreshold returns the configured quality threshold, defaulting to 0.65.
@@ -347,9 +344,9 @@ func (svc *Service) SetQualityThreshold(v float64) error {
 	if v < 0 || v > 1 {
 		return fmt.Errorf("threshold must be between 0 and 1, got %.2f", v)
 	}
-	cfg := svc.settings.Get()
-	cfg.PyramidizeQualityThreshold = v
-	return svc.settings.Save(cfg)
+	return settings.Update(svc.settings, func(cfg *settings.Settings) {
+		cfg.PyramidizeQualityThreshold = v
+	})
 }
 
 // aiOpts carries optional provider/model overrides for a single pipeline run.
