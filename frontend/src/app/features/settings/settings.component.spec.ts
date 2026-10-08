@@ -218,7 +218,11 @@ describe('SettingsComponent', () => {
   describe('About tab', () => {
     // Same wording as the sidebar (#21): one "v", and "dev" stays "dev".
     describe('version label', () => {
-      for (const [raw, shown] of [['v3.6.0', 'Version: v3.6.0'], ['3.6.0', 'Version: v3.6.0'], ['dev', 'Version: dev']] as const) {
+      for (const [raw, shown] of [
+        ['v3.6.0', 'Version: v3.6.0'], ['3.6.0', 'Version: v3.6.0'], ['dev', 'Version: dev'],
+        // Dev-channel builds are named by what they were built from.
+        ['0.0.0-pr.12+abc1234def', 'Version: PR #12 · abc1234'], ['0.0.0-main+deadbee', 'Version: main · deadbee'],
+      ] as const) {
         it(`shows "${raw}" as "${shown}"`, async () => {
           TestBed.resetTestingModule();
           const wailsMock = createWailsMock();
@@ -298,6 +302,98 @@ describe('SettingsComponent', () => {
       await component.installUpdate();
       expect(component.updateSuccess).toBe(true);
       expect(component.updateRestartRequired).toBe(true);
+    });
+
+    describe('developer options', () => {
+      // Renders Settings on the About tab with the given settings and build.
+      async function renderAbout(opts: { developerOptions?: boolean; devBuild?: boolean } = {}) {
+        TestBed.resetTestingModule();
+        const mock = createWailsMock();
+        mock.loadSettings.mockResolvedValue({ ...defaultSettings, developer_options: !!opts.developerOptions });
+        if (opts.devBuild) {
+          mock.getVersion.mockResolvedValue('0.0.0-pr.12+abc1234');
+          mock.getBuildIdentity.mockResolvedValue({ is_dev_build: true, kind: 'pr', pr: 12, commit: 'abc1234', tag: 'v0.0.0-pr.12' });
+        }
+        await TestBed.configureTestingModule({
+          imports: [SettingsComponent],
+          providers: [
+            provideAnimationsAsync(),
+            { provide: WailsService, useValue: mock },
+            { provide: ActivatedRoute, useValue: makeActivatedRoute('about') },
+          ],
+        }).compileComponents();
+        const f = TestBed.createComponent(SettingsComponent);
+        f.componentInstance.settings = { ...defaultSettings, developer_options: !!opts.developerOptions };
+        f.detectChanges();
+        await f.whenStable();
+        await f.whenStable();
+        f.detectChanges();
+        const root: HTMLElement = f.nativeElement;
+        const tap = async (times: number) => {
+          for (let i = 0; i < times; i++) {
+            (root.querySelector('[data-testid="version-tap"]') as HTMLButtonElement).click();
+            await f.whenStable();
+          }
+          f.detectChanges();
+          await f.whenStable();
+          f.detectChanges();
+        };
+        return { f, root, mock, tap, q: (id: string) => root.querySelector(`[data-testid="${id}"]`) };
+      }
+
+      it('are hidden by default: no toggle, no dev channel', async () => {
+        const { q } = await renderAbout();
+        expect(q('developer-options-section')).toBeNull();
+        expect(q('dev-channel')).toBeNull();
+        expect(q('update-channel-section')).toBeTruthy();
+      });
+
+      it('count down from the third tap and unlock on the seventh, saving at once', async () => {
+        const { q, tap, mock } = await renderAbout();
+
+        await tap(2);
+        expect(q('unlock-hint')?.textContent?.trim()).toBe('');
+        await tap(4);
+        expect(q('unlock-hint')?.textContent?.trim()).toBe('1 more tap to turn on the developer options.');
+        expect(mock.setDeveloperOptions).not.toHaveBeenCalled();
+        expect(q('dev-channel')).toBeNull();
+
+        await tap(1);
+        expect(mock.setDeveloperOptions).toHaveBeenCalledExactlyOnceWith(true);
+        expect(mock.saveSettings).not.toHaveBeenCalled();
+        expect(q('unlock-hint')?.textContent?.trim()).toBe('Developer options are on.');
+        expect(q('developer-options-section')).toBeTruthy();
+        expect(q('dev-channel')).toBeTruthy();
+      });
+
+      it('stay locked when the save fails, and say so', async () => {
+        const { q, tap, mock } = await renderAbout();
+        mock.setDeveloperOptions.mockRejectedValue(new Error('disk full'));
+        await tap(7);
+        expect(q('developer-options-error')?.textContent).toContain('disk full');
+        expect(q('dev-channel')).toBeNull();
+      });
+
+      it('switch off again and hide the dev channel', async () => {
+        const { f, q, mock } = await renderAbout({ developerOptions: true });
+        expect(q('dev-channel')).toBeTruthy();
+
+        (q('developer-options-toggle')?.querySelector('input') as HTMLInputElement).click();
+        await f.whenStable();
+        f.detectChanges();
+
+        expect(mock.setDeveloperOptions).toHaveBeenCalledExactlyOnceWith(false);
+        expect(q('developer-options-section')).toBeNull();
+        expect(q('dev-channel')).toBeNull();
+      });
+
+      it('replace the normal update check with the dev channel in a dev build, even when off', async () => {
+        const { q, mock } = await renderAbout({ devBuild: true });
+        expect(q('update-channel-section')).toBeNull();
+        expect(q('check-update-btn')).toBeNull();
+        expect(q('dev-channel')).toBeTruthy();
+        expect(mock.listDevBuilds).toHaveBeenCalled();
+      });
     });
 
     it('installUpdate() shows standard success when restart_required is false', async () => {

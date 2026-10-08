@@ -74,11 +74,11 @@ let sidebarHovered   = false;
             @if (!collapsedView || hoverExpanded) {
               <span class="version-text" data-testid="version-text">{{ versionLabel(appVersion) }}</span>
               @if (updateAvailable) {
-                <i class="pi pi-arrow-circle-up update-indicator" data-testid="update-indicator" title="Update available"></i>
+                <i class="pi pi-arrow-circle-up update-indicator" data-testid="update-indicator" [title]="updateTitle"></i>
               }
             } @else {
               @if (updateAvailable) {
-                <i class="pi pi-arrow-circle-up update-indicator" data-testid="update-indicator" title="Update available"></i>
+                <i class="pi pi-arrow-circle-up update-indicator" data-testid="update-indicator" [title]="updateTitle"></i>
               }
             }
           </div>
@@ -101,6 +101,7 @@ export class ShellComponent implements OnInit, OnDestroy {
   readonly versionLabel = versionLabel;
   appVersion = '';
   updateAvailable = false;
+  updateTitle = 'Update available';
   private sub?: Subscription;
 
   get collapsedView(): boolean  { return sidebarCollapsed; }
@@ -144,8 +145,23 @@ export class ShellComponent implements OnInit, OnDestroy {
     this.appVersion = await this.wails.getVersion();
     this.cdr.detectChanges();
     try {
-      const info = await this.wails.checkForUpdate();
-      this.updateAvailable = info.is_available;
+      // A dev build's normal check is silenced (it is 0.0.0, so every release
+      // would be newer); its news comes from the dev channel instead: its PR
+      // is gone, or a newer build of the same PR or of main is up.
+      const identity = await this.wails.getBuildIdentity();
+      if (identity.is_dev_build) {
+        const channel = await this.wails.listDevBuilds();
+        if (channel.orphaned) {
+          this.updateAvailable = true;
+          this.updateTitle = 'This test build is gone — see Settings › About';
+        } else if (channel.builds.some(b => b.newer_build)) {
+          this.updateAvailable = true;
+          this.updateTitle = 'A newer test build is available';
+        }
+      } else {
+        const info = await this.wails.checkForUpdate();
+        this.updateAvailable = info.is_available;
+      }
     } catch {
       // Silently ignore — update check is best-effort.
     }

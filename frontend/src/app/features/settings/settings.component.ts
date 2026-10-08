@@ -12,7 +12,8 @@ import { TagModule } from 'primeng/tag';
 import { ActivatedRoute } from '@angular/router';
 import { versionLabel } from '../../core/version-label';
 import { ProviderCardComponent } from './provider-card/provider-card.component';
-import { WailsService, Settings as AppSettings, KeyStatus, UpdateInfo, AppPreset, ClaudeCodeStatus, ModelInfo } from '../../core/wails.service';
+import { DevChannelComponent } from './dev-channel/dev-channel.component';
+import { WailsService, Settings as AppSettings, KeyStatus, UpdateInfo, AppPreset, ClaudeCodeStatus, ModelInfo, BuildIdentity } from '../../core/wails.service';
 import { noteForModelSource } from '../../core/model-source';
 import { DOCUMENT_TYPE_OPTIONS, unavailableProviderName } from '../../core/constants';
 import { LogService } from '../../core/log.service';
@@ -55,6 +56,9 @@ const ENV_KEY_VARS: Readonly<Record<string, string>> = {
   claude: 'ANTHROPIC_API_KEY',
 };
 
+/** Taps on the version that unlock the developer options, as on Android. */
+const UNLOCK_TAPS = 7;
+
 interface ProviderKey {
   id: string;
   status: KeyStatus | null;
@@ -67,7 +71,7 @@ interface ProviderKey {
   selector: 'app-settings',
   standalone: true,
   imports: [
-    ProviderCardComponent,
+    ProviderCardComponent, DevChannelComponent,
     CommonModule, FormsModule,
     ButtonModule, InputTextModule, SelectModule, ToggleSwitchModule,
     Tabs, TabList, Tab, TabPanels, TabPanel, MessageModule, CardModule, TagModule,
@@ -435,8 +439,34 @@ interface ProviderKey {
               <p-tabpanel value="about">
                 <p>KeyLint — Wails v3 + Angular v21</p>
                 <p>Built with Go, Angular, and PrimeNG.</p>
-                <p data-testid="app-version">Version: {{ versionLabel(appVersion) }}</p>
+                <!-- Tapping the version seven times unlocks the developer options,
+                     as on Android. A button, so it also works from the keyboard. -->
+                <p data-testid="app-version">Version: <button type="button" class="version-tap" data-testid="version-tap" (click)="onVersionTap()">{{ versionLabel(appVersion) }}</button></p>
+                <p class="hint-text unlock-hint" data-testid="unlock-hint" aria-live="polite">{{ unlockHint }}</p>
 
+                @if (settings.developer_options) {
+                  <div class="form-group" data-testid="developer-options-section">
+                    <div class="toggle-row">
+                      <div class="toggle-label-group">
+                        <label for="developer-options-toggle">Developer options</label>
+                        <small class="hint-text">Shows the dev channel below. Turn off to hide it again; tapping the version seven times brings it back.</small>
+                      </div>
+                      <p-toggle-switch
+                        inputId="developer-options-toggle"
+                        data-testid="developer-options-toggle"
+                        [ngModel]="settings.developer_options"
+                        (ngModelChange)="setDeveloperOptions($event)"
+                      />
+                    </div>
+                  </div>
+                }
+                @if (devOptionsError) {
+                  <p-message data-testid="developer-options-error" severity="error" [text]="devOptionsError" styleClass="mb-2" />
+                }
+
+                <!-- A dev build is 0.0.0, so every release would read as an
+                     update: the dev channel replaces the normal check there. -->
+                @if (!buildIdentity.is_dev_build) {
                 <div class="form-group mt-3" data-testid="update-channel-section">
                   <label>Update Channel</label>
                   <p-select
@@ -458,6 +488,7 @@ interface ProviderKey {
                     (onClick)="checkForUpdate()"
                   />
                 </div>
+                }
 
                 @if (updateInfo?.is_available) {
                   <div class="mt-3">
@@ -495,6 +526,10 @@ interface ProviderKey {
                     [text]="updateError"
                     styleClass="mt-3"
                   />
+                }
+
+                @if (settings.developer_options || buildIdentity.is_dev_build) {
+                  <app-dev-channel [version]="appVersion" />
                 }
               </p-tabpanel>
             </p-tabpanels>
@@ -599,6 +634,15 @@ interface ProviderKey {
       display: flex;
       gap: 0.5rem;
     }
+    .version-tap {
+      background: none;
+      border: none;
+      padding: 0;
+      font: inherit;
+      color: inherit;
+      cursor: default;
+    }
+    .unlock-hint { min-height: 1em; }
     .hint-text {
       font-size: 0.8rem;
       color: var(--p-text-muted-color);
@@ -640,6 +684,12 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   appVersion = '';
   readonly versionLabel = versionLabel;
+  /** What the running build says about itself; a release build until asked. */
+  buildIdentity: BuildIdentity = { is_dev_build: false, kind: '', pr: 0, commit: '', tag: '' };
+  /** Taps on the version so far, towards UNLOCK_TAPS. */
+  private versionTaps = 0;
+  unlockHint = '';
+  devOptionsError = '';
   updateInfo: UpdateInfo | null = null;
   updateChecking = false;
   updateInstalling = false;
@@ -743,6 +793,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.log.info('settings: loaded');
     await this.refreshKeyStatuses();
     this.appVersion = await this.wails.getVersion();
+    this.buildIdentity = await this.wails.getBuildIdentity();
     this.presets = await this.wails.getAppPresets();
     this.qualityThreshold = await this.wails.getQualityThreshold();
     this.cdr.detectChanges();
@@ -1070,6 +1121,49 @@ export class SettingsComponent implements OnInit, OnDestroy {
     }
     // The model list depends on this key.
     void this.loadModelOptions();
+  }
+
+  /**
+   * One tap on the version. The last few taps count down, Android-style, and
+   * the seventh turns the developer options on and saves that at once — there
+   * is no Save to press for an unlock.
+   */
+  async onVersionTap(): Promise<void> {
+    if (!this.settings) return;
+    if (this.settings.developer_options) {
+      this.unlockHint = 'Developer options are already on.';
+      return;
+    }
+    this.versionTaps++;
+    const left = UNLOCK_TAPS - this.versionTaps;
+    if (left > 0) {
+      if (left <= UNLOCK_TAPS - 3) {
+        this.unlockHint = `${left} more ${left === 1 ? 'tap' : 'taps'} to turn on the developer options.`;
+      }
+      return;
+    }
+    this.versionTaps = 0;
+    if (await this.setDeveloperOptions(true)) {
+      this.unlockHint = 'Developer options are on.';
+    }
+  }
+
+  /** Saves the developer options switch on its own; reports whether it stuck. */
+  async setDeveloperOptions(enabled: boolean): Promise<boolean> {
+    if (!this.settings) return false;
+    this.devOptionsError = '';
+    try {
+      await this.wails.setDeveloperOptions(enabled);
+      this.settings.developer_options = enabled;
+      if (!enabled) this.unlockHint = '';
+      this.log.info(`settings: developer options ${enabled ? 'on' : 'off'}`);
+      return true;
+    } catch (e) {
+      this.devOptionsError = `Could not change the developer options: ${e instanceof Error ? e.message : String(e)}`;
+      return false;
+    } finally {
+      if (!this.destroyed) this.cdr.detectChanges();
+    }
   }
 
   async checkForUpdate(): Promise<void> {

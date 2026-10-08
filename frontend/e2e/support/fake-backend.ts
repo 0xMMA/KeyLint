@@ -25,7 +25,7 @@ export interface FakeBackendState {
   claudeCode: { installed: boolean; path: string; version: string; loggedIn: boolean };
   /** ModelList.source per provider; anything absent answers "unreachable". */
   modelSources: Partial<Record<string, string>>;
-  /** Every settings object the app saved (Save or SetActiveProvider), oldest first. */
+  /** Every settings object the app saved (Save, SetActiveProvider or SetDeveloperOptions), oldest first. */
   saves: Record<string, unknown>[];
   /** When set, SetActiveProvider fails with this message, as a failed write would. */
   failSetActiveProvider?: string;
@@ -45,6 +45,7 @@ export const BASE_SETTINGS: Record<string, unknown> = {
   log_level: 'off',
   sensitive_logging: false,
   update_channel: '',
+  developer_options: false,
   app_presets: [],
   pyramidize_quality_threshold: 0.65,
 };
@@ -123,6 +124,10 @@ export async function installFakeBackend(page: Page, state: FakeBackendState): P
         state.saves.push(state.settings);
         return empty();
       }
+      case 'SetDeveloperOptions':
+        state.settings = { ...state.settings, developer_options: args[0] as boolean };
+        state.saves.push(state.settings);
+        return empty();
       case 'GetKeyStatus': {
         const source = state.keys[args[0] as string];
         return json(source ? { is_set: true, source } : { is_set: false, source: 'none' });

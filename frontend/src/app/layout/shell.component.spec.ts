@@ -4,7 +4,7 @@ import { ComponentFixture } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { ShellComponent } from './shell.component';
 import { WailsService } from '../core/wails.service';
-import { createWailsMock, defaultSettings, defaultUpdateInfo } from '../../testing/wails-mock';
+import { createWailsMock, defaultSettings, defaultUpdateInfo, defaultDevChannel } from '../../testing/wails-mock';
 
 describe('ShellComponent — theme / body class', () => {
   let wailsMock: ReturnType<typeof createWailsMock>;
@@ -120,6 +120,41 @@ describe('ShellComponent — theme / body class', () => {
     await fixture.whenStable();
     fixture.detectChanges();
     expect(el.querySelector('[data-testid="update-indicator"]')).toBeFalsy();
+  });
+
+  describe('in a dev build', () => {
+    const identity = { is_dev_build: true, kind: 'pr', pr: 12, commit: 'abc1234', tag: 'v0.0.0-pr.12' };
+
+    async function renderDevBuild(channel: Partial<typeof defaultDevChannel>): Promise<HTMLElement> {
+      wailsMock.getVersion.mockResolvedValue('0.0.0-pr.12+abc1234');
+      wailsMock.getBuildIdentity.mockResolvedValue({ ...identity });
+      wailsMock.listDevBuilds.mockResolvedValue({ ...defaultDevChannel, current: { ...identity }, ...channel });
+      const fixture = await createAndWait('dark');
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      return fixture.nativeElement;
+    }
+
+    it('names the build in the footer and never runs the normal update check', async () => {
+      const el = await renderDevBuild({});
+      expect(el.querySelector('[data-testid="version-text"]')?.textContent?.trim()).toBe('PR #12 · abc1234');
+      expect(wailsMock.checkForUpdate).not.toHaveBeenCalled();
+      expect(el.querySelector('[data-testid="update-indicator"]')).toBeFalsy();
+    });
+
+    it('points to About when the PR build is orphaned', async () => {
+      const el = await renderDevBuild({ orphaned: true });
+      const indicator = el.querySelector('[data-testid="update-indicator"]');
+      expect(indicator?.getAttribute('title')).toContain('This test build is gone');
+    });
+
+    it('points to About when a newer build of it is up', async () => {
+      const el = await renderDevBuild({
+        builds: [{ tag: 'v0.0.0-pr.12', kind: 'pr', pr: 12, title: '', pr_url: '', commit: 'fffffff', date: '', installable: true, installed: false, newer_build: true }],
+      });
+      expect(el.querySelector('[data-testid="update-indicator"]')?.getAttribute('title')).toBe('A newer test build is available');
+    });
   });
 
   it('goToAbout navigates to /settings with tab=about', async () => {
