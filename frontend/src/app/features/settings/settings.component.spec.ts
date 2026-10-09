@@ -1297,6 +1297,8 @@ describe('SettingsComponent — which provider is in use', () => {
 
     q('reset-btn')!.querySelector('button')!.click();
     fixture.detectChanges();
+    q('reset-confirm-btn')!.querySelector('button')!.click();
+    fixture.detectChanges();
 
     for (const p of ['openai', 'claude', 'ollama']) {
       expect(q(`provider-use-${p}`)!.querySelector('button')!.disabled, p).toBe(true);
@@ -1306,6 +1308,51 @@ describe('SettingsComponent — which provider is in use', () => {
     finish();
     await settle();
     expect(q('provider-use-claude')!.querySelector('button')!.disabled).toBe(false);
+  });
+
+  describe('Reset to Defaults asks first', () => {
+    beforeEach(async () => render({ active: 'claude-code', ...BOTH }));
+
+    async function clickBtn(testid: string): Promise<void> {
+      q(testid)!.querySelector('button')!.click();
+      await settle();
+    }
+
+    it('shows what is reset and what is kept, and does nothing yet', async () => {
+      await clickBtn('reset-btn');
+      expect(q('reset-confirm')).toBeTruthy();
+      const detail = q('reset-confirm-detail')!.textContent!;
+      expect(detail).toContain('Shortcuts');
+      expect(detail).toContain('API keys');
+      expect(detail).toContain('provider in use');
+      expect(detail).toContain('completed setup');
+      expect(wailsMock.resetSettings).not.toHaveBeenCalled();
+      // Cancel has focus, so a stray Enter does not reset.
+      expect(document.activeElement).toBe(q('reset-cancel-btn')!.querySelector('button'));
+    });
+
+    it('Cancel leaves everything untouched', async () => {
+      await clickBtn('reset-btn');
+      await clickBtn('reset-cancel-btn');
+      expect(q('reset-confirm')).toBeFalsy();
+      expect(q('reset-btn')).toBeTruthy();
+      expect(wailsMock.resetSettings).not.toHaveBeenCalled();
+    });
+
+    it('Escape cancels too', async () => {
+      await clickBtn('reset-btn');
+      q('reset-confirm')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await settle();
+      expect(q('reset-confirm')).toBeFalsy();
+      expect(wailsMock.resetSettings).not.toHaveBeenCalled();
+    });
+
+    it('Reset resets, once', async () => {
+      await clickBtn('reset-btn');
+      await clickBtn('reset-confirm-btn');
+      expect(wailsMock.resetSettings).toHaveBeenCalledTimes(1);
+      expect(q('reset-confirm')).toBeFalsy();
+    });
   });
 
   it('holds every "Use this" while a save runs', async () => {
