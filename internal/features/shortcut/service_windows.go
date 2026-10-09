@@ -111,7 +111,7 @@ type windowsService struct {
 
 // NewPlatformService returns the Windows WH_KEYBOARD_LL implementation.
 func NewPlatformService() Service {
-	return &windowsService{ch: make(chan ShortcutEvent, 2), indepPending: -1}
+	return &windowsService{ch: make(chan ShortcutEvent, eventBuffer), indepPending: -1}
 }
 
 func (s *windowsService) Register(cfg ShortcutConfig) error {
@@ -416,14 +416,14 @@ func (s *windowsService) messageLoop() {
 				action = "pyramidize"
 			}
 			logger.Info("shortcut: action detected", "action", action)
-			s.ch <- ShortcutEvent{Source: "hotkey", Action: action}
+			deliver(s.ch, ShortcutEvent{Source: "hotkey", Action: action})
 		}
 	}
 }
 
 // Simulate fires a synthetic shortcut event (used by --simulate-shortcut and dev UI).
 func (s *windowsService) Simulate() {
-	s.ch <- ShortcutEvent{Source: "simulate", Action: "fix"}
+	deliver(s.ch, ShortcutEvent{Source: "simulate", Action: "fix"})
 }
 
 // vkToModifier maps virtual key codes to modifier flags.
