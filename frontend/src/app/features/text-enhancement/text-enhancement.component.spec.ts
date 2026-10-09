@@ -255,28 +255,28 @@ describe('TextEnhancementComponent (Pyramidize)', () => {
     expect(wailsMock.writeClipboard).toHaveBeenCalledWith('# Hello\n\nWorld');
   });
 
-  // ── 13. shortcutTriggered$ with empty originalText sets originalText from clipboard ──
+  // ── 13. shortcutPyramidize$ with empty originalText sets originalText from clipboard ──
 
-  it('shortcutTriggered$ with empty originalText sets originalText from clipboard', async () => {
+  it('shortcutPyramidize$ with empty originalText sets originalText from clipboard', async () => {
     component.originalTextView = '';
     wailsMock.readClipboard.mockResolvedValue('clipboard hotkey content');
     wailsMock.getSourceApp.mockResolvedValue('TestApp');
 
-    wailsMock._shortcutTriggered$.next('hotkey');
+    wailsMock._shortcutPyramidize$.next('hotkey');
     await new Promise(r => setTimeout(r, 0));
 
     expect(wailsMock.readClipboard).toHaveBeenCalled();
     expect(component.originalTextView).toBe('clipboard hotkey content');
   });
 
-  // ── 14. shortcutTriggered$ with existing originalText shows confirm dialog ──
+  // ── 14. shortcutPyramidize$ with existing originalText shows confirm dialog ──
 
-  it('shortcutTriggered$ with existing originalText shows confirm dialog', async () => {
+  it('shortcutPyramidize$ with existing originalText shows confirm dialog', async () => {
     component.originalTextView = 'existing content';
     wailsMock.readClipboard.mockResolvedValue('new clipboard content');
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
 
-    wailsMock._shortcutTriggered$.next('hotkey');
+    wailsMock._shortcutPyramidize$.next('hotkey');
     await new Promise(r => setTimeout(r, 0));
 
     expect(confirmSpy).toHaveBeenCalled();
@@ -284,12 +284,12 @@ describe('TextEnhancementComponent (Pyramidize)', () => {
     expect(component.originalTextView).toBe('existing content');
   });
 
-  it('shortcutTriggered$ with existing originalText and confirm=true replaces content', async () => {
+  it('shortcutPyramidize$ with existing originalText and confirm=true replaces content', async () => {
     component.originalTextView = 'existing content';
     wailsMock.readClipboard.mockResolvedValue('new clipboard content');
     vi.spyOn(window, 'confirm').mockReturnValue(true);
 
-    wailsMock._shortcutTriggered$.next('hotkey');
+    wailsMock._shortcutPyramidize$.next('hotkey');
     await new Promise(r => setTimeout(r, 0));
 
     expect(component.originalTextView).toBe('new clipboard content');
@@ -330,9 +330,74 @@ describe('TextEnhancementComponent (Pyramidize)', () => {
   it('ngOnDestroy unsubscribes from shortcut events', async () => {
     component.ngOnDestroy();
     const prevReadCount = (wailsMock.readClipboard as ReturnType<typeof vi.fn>).mock.calls.length;
-    wailsMock._shortcutTriggered$.next('hotkey');
+    wailsMock._shortcutPyramidize$.next('hotkey');
     await new Promise(r => setTimeout(r, 0));
     expect((wailsMock.readClipboard as ReturnType<typeof vi.fn>).mock.calls.length).toBe(prevReadCount);
+  });
+});
+
+// The shell navigates here on a Pyramidize shortcut, but the event has already
+// gone by the time this page subscribes. WailsService keeps it pending until a
+// page takes it, so the clipboard text still arrives.
+describe('TextEnhancementComponent — Pyramidize shortcut from another page', () => {
+  let fixture: ComponentFixture<TextEnhancementComponent>;
+  let wailsMock: ReturnType<typeof createWailsMock>;
+
+  async function mount(): Promise<void> {
+    await TestBed.configureTestingModule({
+      imports: [TextEnhancementComponent],
+      providers: [
+        provideAnimationsAsync(),
+        provideRouter([]),
+        { provide: WailsService, useValue: wailsMock },
+        { provide: TextEnhancementService, useValue: makeEnhancementServiceMock() },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(TextEnhancementComponent);
+    fixture.componentInstance.originalTextView = '';
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await new Promise(r => setTimeout(r, 0));
+  }
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    wailsMock = createWailsMock();
+    wailsMock.readClipboard.mockResolvedValue('text copied before the page opened');
+  });
+
+  afterEach(() => {
+    fixture?.componentInstance.ngOnDestroy();
+    if (fixture) fixture.componentInstance.originalTextView = '';
+    vi.restoreAllMocks();
+  });
+
+  it('loads the clipboard when a shortcut is pending on arrival', async () => {
+    wailsMock.takePendingPyramidize.mockReturnValueOnce(true);
+
+    await mount();
+
+    expect(wailsMock.readClipboard).toHaveBeenCalled();
+    expect(fixture.componentInstance.originalTextView).toBe('text copied before the page opened');
+  });
+
+  it('leaves the page alone when nothing is pending', async () => {
+    await mount();
+
+    expect(wailsMock.readClipboard).not.toHaveBeenCalled();
+    expect(fixture.componentInstance.originalTextView).toBe('');
+  });
+
+  it('takes the pending flag when the shortcut arrives while mounted', async () => {
+    await mount();
+    wailsMock.takePendingPyramidize.mockClear();
+
+    wailsMock._shortcutPyramidize$.next('hotkey');
+    await new Promise(r => setTimeout(r, 0));
+
+    // Otherwise the next visit to this page would load the clipboard again.
+    expect(wailsMock.takePendingPyramidize).toHaveBeenCalled();
+    expect(fixture.componentInstance.originalTextView).toBe('text copied before the page opened');
   });
 });
 
