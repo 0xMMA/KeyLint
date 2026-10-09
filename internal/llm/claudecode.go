@@ -224,6 +224,9 @@ func (c *claudeCodeClient) complete(ctx context.Context, req Request) (Response,
 	// as such and keep it unwrappable. stderr rides along because it is often
 	// the only place the CLI says why it went quiet.
 	if ctxErr := ctx.Err(); ctxErr != nil {
+		if errors.Is(ctxErr, context.DeadlineExceeded) {
+			return Response{}, &TimeoutError{Provider: name, Detail: lastNonEmptyLine(stderr.String()), err: ctxErr}
+		}
 		if detail := lastNonEmptyLine(stderr.String()); detail != "" {
 			return Response{}, fmt.Errorf("%s request failed (%s): %w", name, detail, ctxErr)
 		}
@@ -233,12 +236,12 @@ func (c *claudeCodeClient) complete(ctx context.Context, req Request) (Response,
 	env, parsed := parseClaudeCodeEnvelope(out)
 
 	if parsed && env.IsError {
-		return Response{}, markEffortRejection(fmt.Errorf("%s: %s", name, claudeCodeFailure(env)),
+		return Response{}, markEffortRejection(claudeCodeError(name, env),
 			req.Effort, env.Result+"\n"+stderr.String())
 	}
 	if runErr != nil {
 		if parsed && env.Result != "" {
-			return Response{}, markEffortRejection(fmt.Errorf("%s: %s", name, claudeCodeFailure(env)),
+			return Response{}, markEffortRejection(claudeCodeError(name, env),
 				req.Effort, stderr.String())
 		}
 		return Response{}, markEffortRejection(fmt.Errorf("%s failed: %s", name, cliFailureDetail(runErr, stderr.String())),
@@ -258,7 +261,7 @@ func (c *claudeCodeClient) complete(ctx context.Context, req Request) (Response,
 	// The HTTP providers refuse a truncated answer; this path does the same
 	// rather than silently differing.
 	if env.StopReason == stopReasonMaxTokens {
-		return Response{}, fmt.Errorf("%s: %s", name, outputLimitMessage)
+		return Response{}, fmt.Errorf("%s: %w", name, ErrOutputLimit)
 	}
 
 	if env.TerminalReason != "" && env.TerminalReason != terminalReasonCompleted {
@@ -443,6 +446,16 @@ func decodeEnvelope(chunk []byte) (claudeCodeEnvelope, bool) {
 		return claudeCodeEnvelope{}, false
 	}
 	return env, true
+}
+
+// claudeCodeError is the error for a failed envelope. A signed-out account
+// wraps ErrNotSignedIn, so a caller can send the user to the one place that
+// explains it without matching the wording.
+func claudeCodeError(name string, env claudeCodeEnvelope) error {
+	if isNotSignedIn(env.Result) || isNotSignedIn(env.TerminalReason) {
+		return fmt.Errorf("%s: %w", name, ErrNotSignedIn)
+	}
+	return fmt.Errorf("%s: %s", name, claudeCodeFailure(env))
 }
 
 // claudeCodeFailure turns an error envelope into something the user can act on.

@@ -95,7 +95,7 @@ func (c *anthropicClient) Complete(ctx context.Context, req Request) (Response, 
 
 	logRequest(c.cfg, anthropicProvider, model, params)
 
-	attempts := &httpAttempts{cfg: c.cfg, provider: anthropicProvider}
+	attempts := newHTTPAttempts(ctx, c.cfg, anthropicProvider)
 	// The service method has a pointer receiver, so the client needs a variable.
 	client := c.client(attempts)
 	message, err := client.Messages.New(ctx, params)
@@ -109,7 +109,7 @@ func (c *anthropicClient) Complete(ctx context.Context, req Request) (Response, 
 			"feature", c.cfg.Feature, "model", model, "effort", effort, "no_thinking", noThinking)
 		params.OutputConfig.Effort = ""
 		params.Thinking = anthropic.ThinkingConfigParamUnion{}
-		attempts = &httpAttempts{cfg: c.cfg, provider: anthropicProvider}
+		attempts = newHTTPAttempts(ctx, c.cfg, anthropicProvider)
 		client = c.client(attempts)
 		message, err = client.Messages.New(ctx, params)
 	}
@@ -142,9 +142,9 @@ func (c *anthropicClient) Complete(ctx context.Context, req Request) (Response, 
 			"model", model, "stop_reason", string(message.StopReason), "max_tokens", req.MaxTokens,
 			"output_tokens", message.Usage.OutputTokens, "thinking", thinking, "answer_bytes", len(text))
 		if message.StopReason == anthropic.StopReasonMaxTokens && thinking {
-			return Response{}, fmt.Errorf("%s: %s", anthropicProvider.name, outputLimitThinkingMessage)
+			return Response{}, fmt.Errorf("%s: %w", anthropicProvider.name, ErrOutputLimitThinking)
 		}
-		return Response{}, fmt.Errorf("%s: %s", anthropicProvider.name, outputLimitMessage)
+		return Response{}, fmt.Errorf("%s: %w", anthropicProvider.name, ErrOutputLimit)
 	case anthropic.StopReasonRefusal:
 		return Response{}, fmt.Errorf("%s declined the request", anthropicProvider.name)
 	}
