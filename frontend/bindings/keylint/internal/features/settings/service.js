@@ -105,6 +105,7 @@ export function ListModels(provider) {
 
 /**
  * ResetToDefaults resets settings to their default values and saves to disk.
+ * API keys stay in the keyring and the setup stays complete; see Save.
  * @returns {$CancellablePromise<void>}
  */
 export function ResetToDefaults() {
