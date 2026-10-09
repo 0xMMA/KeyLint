@@ -34,8 +34,10 @@ export interface FakeBackendState {
   /** When set, SetActiveProvider fails with this message, as a failed write would. */
   failSetActiveProvider?: string;
   /**
-   * What IsFirstRun answers. Undefined leaves the welcome service unanswered
-   * (it 404s and the app treats that as "not first run"), as before.
+   * What IsFirstRun answers while setup is not complete. The decision itself
+   * (first start, or nothing usable) is welcome.Service's and is tested in Go;
+   * this only says whether the wizard opens. Undefined leaves the welcome
+   * service unanswered (it 404s and the app treats that as "not first run").
    */
   firstRun?: boolean;
   /** How many times the app called CompleteSetup. */
@@ -161,7 +163,8 @@ export async function installFakeBackend(page: Page, state: FakeBackendState): P
       case 'Get':
         return json(state.settings);
       case 'Save':
-        state.settings = structuredClone(args[0] as Record<string, unknown>);
+        // Like the real Save, completed_setup is not the screen's to change.
+        state.settings = { ...structuredClone(args[0] as Record<string, unknown>), completed_setup: state.settings['completed_setup'] };
         state.saves.push(state.settings);
         return empty();
       case 'SetActiveProvider': {

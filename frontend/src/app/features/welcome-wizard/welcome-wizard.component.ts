@@ -5,7 +5,8 @@ import { InputText } from 'primeng/inputtext';
 import { Tag } from 'primeng/tag';
 import { Message } from 'primeng/message';
 import { WailsService, ClaudeCodeStatus, KeyStatus, Settings } from '../../core/wails.service';
-import { ENV_KEY_VARS, PROVIDER_OPTIONS, cliTag, isKeyProvider, keyPlaceholder, keyTag } from '../../core/providers';
+import { ENV_KEY_VARS, KEY_PROVIDERS, PROVIDER_OPTIONS, cliTag, isKeyProvider, keyPlaceholder, keyTag } from '../../core/providers';
+import { comboKeys } from '../../core/shortcut-format';
 
 /** One line under each provider's name: what it is, in the user's terms. */
 const PROVIDER_BLURBS: Readonly<Record<string, string>> = {
@@ -20,9 +21,9 @@ type Screen = 'welcome' | 'provider';
 /**
  * First-run setup: what KeyLint does, then which AI it uses.
  *
- * Only someone with nothing usable gets here — the backend skips the wizard
- * for anyone with a key, a signed-in CLI or a working saved provider (see
- * welcome.Service.IsFirstRun). Even so, nothing in here blocks: "Set up later"
+ * The backend opens it on a first start (no settings file) and for an existing
+ * setup with nothing usable; anyone else with a key, a signed-in CLI or a
+ * working saved provider skips it (see welcome.Service.IsFirstRun). Even so, nothing in here blocks: "Set up later"
  * is on every screen, a key that is already stored is never asked for again,
  * and what already works is selected before the user touches anything.
  */
@@ -52,7 +53,7 @@ type Screen = 'welcome' | 'provider';
               </p>
               @if (doubleTap()) {
                 <p class="lede secondary">
-                  Press {{ triggerKey() }} twice instead to open Pyramidize, which restructures longer text.
+                  Hold {{ modifierKeys() }} and press {{ triggerKey() }} twice instead to open Pyramidize, which restructures longer text.
                 </p>
               }
 
@@ -91,7 +92,7 @@ type Screen = 'welcome' | 'provider';
                         <span class="option-name">{{ p.label }}</span>
                         <span class="option-blurb">{{ blurbs[p.value] }}</span>
                       </span>
-                      <span class="option-status" [attr.data-testid]="'wizard-status-' + p.value">
+                      <span class="option-status" aria-live="polite" [attr.data-testid]="'wizard-status-' + p.value">
                         @if (p.value === 'claude-code') {
                           @if (cli(); as status) {
                             @let tag = cliTag(status);
@@ -149,7 +150,7 @@ type Screen = 'welcome' | 'provider';
                             } @else if (keys()[p.value]?.is_set && !replacing()) {
                               <p class="note" data-testid="wizard-key-stored">
                                 A key is already saved for {{ p.label }}.
-                                <button type="button" class="inline-action" data-testid="wizard-replace-key" (click)="replacing.set(true)">Replace it</button>
+                                <button type="button" class="inline-action" data-testid="wizard-replace-key" (click)="startReplacing()">Replace it</button>
                               </p>
                             } @else {
                               <label class="key-label" for="wizard-key">Paste your API key</label>
@@ -162,9 +163,14 @@ type Screen = 'welcome' | 'provider';
                                 spellcheck="false"
                                 [placeholder]="keyPlaceholder(p.value)"
                                 [value]="apiKey()"
-                                (input)="apiKey.set($any($event.target).value)"
+                                (input)="typeKey($any($event.target).value)"
                               />
-                              <p class="note">Saved in your system's keyring, never in a file.</p>
+                              <p class="note">
+                                Saved in your system's keyring, never in a file.
+                                @if (replacing()) {
+                                  <button type="button" class="inline-action" data-testid="wizard-keep-key" (click)="keepSavedKey()">Keep the saved key</button>
+                                }
+                              </p>
                             }
                           }
                         }
@@ -401,10 +407,11 @@ export class WelcomeWizardComponent implements OnInit {
   readonly cliReady = computed(() => !!this.cli()?.installed && !!this.cli()?.loggedIn);
 
   readonly shortcutKeys = computed(() => {
-    const combo = this.settings()?.shortcut_fix || 'ctrl+g';
-    return combo.split('+').filter(Boolean).map(formatKey);
+    const keys = comboKeys(this.settings()?.shortcut_fix || 'ctrl+g');
+    return keys.length ? keys : ['Ctrl', 'G'];
   });
   readonly triggerKey = computed(() => this.shortcutKeys().at(-1) ?? 'G');
+  readonly modifierKeys = computed(() => this.shortcutKeys().slice(0, -1).join('+') || 'the modifier keys');
   readonly doubleTap = computed(() => (this.settings()?.shortcut_mode ?? 'double_tap') === 'double_tap');
 
   /**
@@ -430,7 +437,7 @@ export class WelcomeWizardComponent implements OnInit {
     // shortcut on the first screen.
     void this.wails.loadSettings().then(s => { this.settings.set(s); this.applyDefault(); }).catch(() => {});
     void Promise.all(
-      ['openai', 'claude'].map(async p => [p, await this.wails.getKeyStatus(p)] as const),
+      KEY_PROVIDERS.map(async p => [p, await this.wails.getKeyStatus(p)] as const),
     ).then(entries => { this.keys.set(Object.fromEntries(entries)); this.applyDefault(); }).catch(() => {});
     void this.wails.getClaudeCodeStatus().then(st => { this.cli.set(st); this.applyDefault(); }).catch(() => {});
   }
@@ -464,7 +471,23 @@ export class WelcomeWizardComponent implements OnInit {
       if (saved === 'ollama') return saved;
     }
     if (this.cliReady()) return 'claude-code';
-    return ['openai', 'claude'].find(p => keys[p]?.is_set) ?? null;
+    return KEY_PROVIDERS.find(p => keys[p]?.is_set) ?? null;
+  }
+
+  /** Typing a key, or asking to replace one, is a choice: detection must not move it. */
+  typeKey(value: string): void {
+    this.userPicked = true;
+    this.apiKey.set(value);
+  }
+
+  startReplacing(): void {
+    this.userPicked = true;
+    this.replacing.set(true);
+  }
+
+  keepSavedKey(): void {
+    this.replacing.set(false);
+    this.apiKey.set('');
   }
 
   envVar(provider: string): string {
@@ -486,13 +509,13 @@ export class WelcomeWizardComponent implements OnInit {
     this.finishing.set(true);
     this.error.set(null);
     try {
-      // The one field, not a whole Settings object: a save of everything would
-      // write back whatever this screen happened to load.
-      await this.wails.setActiveProvider(provider);
+      // The key first: if the keyring refuses it, nothing has moved yet, and
+      // "Set up later" leaves the previous provider in place.
       const key = this.apiKey().trim();
       if (key && isKeyProvider(provider)) {
+        // Rejects when the keyring refuses; the status check below also catches
+        // a backend that reports success without storing anything.
         await this.wails.setKey(provider, key);
-        // setKey swallows a keyring failure; asking afterwards is how it shows.
         const status = await this.wails.getKeyStatus(provider);
         if (!status.is_set) {
           throw new Error('the key could not be saved to your system keyring');
@@ -501,6 +524,9 @@ export class WelcomeWizardComponent implements OnInit {
         this.apiKey.set('');
         this.replacing.set(false);
       }
+      // The one field, not a whole Settings object: a save of everything would
+      // write back whatever this screen happened to load.
+      await this.wails.setActiveProvider(provider);
       await this.wails.completeSetup();
       await this.router.navigate(['/']);
     } catch (err) {
@@ -523,12 +549,6 @@ export class WelcomeWizardComponent implements OnInit {
       this.skipping.set(false);
     }
   }
-}
-
-/** "ctrl" → "Ctrl", "g" → "G". */
-function formatKey(key: string): string {
-  const k = key.trim();
-  return k.length === 1 ? k.toUpperCase() : k.charAt(0).toUpperCase() + k.slice(1);
 }
 
 function describe(err: unknown): string {

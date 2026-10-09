@@ -234,9 +234,54 @@ describe('WelcomeWizardComponent', () => {
       await settle();
 
       await click('wizard-finish');
-      await settle(); // three awaits deep: save, key, status
+      await settle(); // several awaits deep: key, status
       expect(wails.completeSetup).not.toHaveBeenCalled();
+      // Nothing moved: the provider without a working key was not made active.
+      expect(wails.setActiveProvider).not.toHaveBeenCalled();
       expect(q('wizard-error')?.textContent).toContain('keyring');
+    });
+
+    it('surfaces a keyring that refused a replacement key', async () => {
+      await render({ keys: { claude: { is_set: true, source: 'keyring' } } });
+      await toProviders();
+      await click('wizard-replace-key');
+      const input = q('wizard-key-input') as HTMLInputElement;
+      input.value = 'sk-ant-new';
+      input.dispatchEvent(new Event('input'));
+      await settle();
+
+      // The old key is still there, so only the rejection can tell.
+      wails.setKey.mockRejectedValue(new Error('keyring locked'));
+      await click('wizard-finish');
+      await settle();
+      expect(q('wizard-error')?.textContent).toContain('keyring locked');
+      expect(wails.setActiveProvider).not.toHaveBeenCalled();
+      expect(wails.completeSetup).not.toHaveBeenCalled();
+    });
+
+    it('can go back to the saved key after choosing to replace it', async () => {
+      await render({ keys: { claude: { is_set: true, source: 'keyring' } } });
+      await toProviders();
+      await click('wizard-replace-key');
+      expect(finishButton().disabled).toBe(true);
+      await click('wizard-keep-key');
+      expect(q('wizard-key-stored')).toBeTruthy();
+      expect(finishButton().disabled).toBe(false);
+    });
+
+    it('keeps the selection once the user starts replacing a key', async () => {
+      let release!: (s: ClaudeCodeStatus) => void;
+      await render({
+        keys: { claude: { is_set: true, source: 'keyring' } },
+        cli: new Promise(r => { release = r; }),
+      });
+      await toProviders();
+      expect(radio('claude').checked).toBe(true);
+      await click('wizard-replace-key');
+
+      release(SIGNED_IN);
+      await settle();
+      expect(radio('claude').checked).toBe(true);
     });
 
     it('needs no key for Ollama', async () => {

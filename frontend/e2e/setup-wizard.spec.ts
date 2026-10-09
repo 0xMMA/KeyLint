@@ -4,10 +4,11 @@
  * The owner met the old wizard after a reinstall with an Anthropic key in the
  * keyring and the Claude Code CLI signed in, and it would not let him past the
  * key field: "das ist so ne art von bevormundung". The backend now skips the
- * wizard for anyone with something usable (welcome.Service.IsFirstRun, tested
- * in Go). These cover the wizard itself for those who still see it — what
- * already works is preselected, a stored key is never asked for again, and
- * "Set up later" always gets you into the app.
+ * wizard for an existing setup with anything usable, and opens it on a first
+ * start (no settings file) even when a key or the CLI is already on the
+ * machine — welcome.Service.IsFirstRun, tested in Go. These cover the wizard
+ * itself in those states: what already works is preselected, a stored key is
+ * never asked for again, and "Set up later" always gets you into the app.
  */
 import { test, expect } from '@playwright/test';
 import { installFakeBackend, fakeState, FakeBackendState } from './support/fake-backend';

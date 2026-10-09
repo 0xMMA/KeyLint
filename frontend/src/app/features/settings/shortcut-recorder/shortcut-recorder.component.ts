@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, Input, Output, EventEmitter, OnDest
 import { CommonModule } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
 import { WailsService } from '../../../core/wails.service';
+import { formatCombo } from '../../../core/shortcut-format';
 
 const MODIFIER_KEYS = new Set(['Control', 'Shift', 'Alt', 'Meta']);
 
@@ -11,18 +12,6 @@ const KEY_TO_NAME: Record<string, string> = {
   'Home': 'home', 'End': 'end', 'PageUp': 'pageup', 'PageDown': 'pagedown',
   'ArrowUp': 'up', 'ArrowDown': 'down', 'ArrowLeft': 'left', 'ArrowRight': 'right',
 };
-
-function formatCombo(combo: string): string {
-  if (!combo) return '';
-  const parts = combo.split('+');
-  return parts.map(p => {
-    if (p === 'ctrl') return 'Ctrl';
-    if (p === 'shift') return 'Shift';
-    if (p === 'alt') return 'Alt';
-    if (p === 'win') return 'Win';
-    return p.length === 1 ? p.toUpperCase() : p.charAt(0).toUpperCase() + p.slice(1).toUpperCase();
-  }).join(' + ');
-}
 
 @Component({
   selector: 'app-shortcut-recorder',
