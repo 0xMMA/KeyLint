@@ -18,7 +18,7 @@
 | Latest release | `v4.4.3-beta` (2026-04-05) |
 | Last commit on `main` | 2026-09-18 — restart sprint (#39–#88) |
 | Build / tests | `go build` ✅ · `go test ./internal/...` ✅ · Vitest 198/198 ✅ (2026-09-24) |
-| Open PR | #31 shortcut single/double press — branch frozen, waiting on the Windows retest |
+| Open PR | #108 model families + effort + AI Providers redesign · #105 evals via Claude Code · #95 Wails beta · Dependabot #100–#102 |
 | Open issues | April triage #21–#30 · shortcut robustness #42 #44 · #34 E3 · #35 E4 · #36 Fix page · #38 shell · #56 shell specs · #61 model-list refresh · #80 #83 Fix prompt |
 | Stale remote branches | `feat/pyramidize`, `fix/updater-platform-aware-install` (both already merged, safe to delete) |
 
@@ -51,12 +51,12 @@
 
 ### P0 — unblock
 
-#### E0 · Land PR #31 (shortcut single/double press, configurable shortcuts)
-The branch went further than the PR body says: `RegisterHotKey` was replaced by a `WH_KEYBOARD_LL` low-level hook, shortcuts are configurable with a recorder UI (see `.worktrees/shortcut-double-press/docs/superpowers/specs/2026-04-06-keyboard-hook-configurable-shortcuts-design.md`). Windows retest 2026-09-17 found double-tap running the fix twice; root cause was a leaked Win32 timer (`SetTimer(NULL, …)` ignores the passed ID). Fixed on the branch in five commits (timer ID, pump-thread reset, in-flight guard with safety timeout, held-key absorption); follow-ups in #42 and #44. Branch frozen for the final retest.
+#### E0 · Land PR #31 (shortcut single/double press, configurable shortcuts) — ✅ merged 2026-10-09 (613798f)
+The branch went further than the PR body says: `RegisterHotKey` was replaced by a `WH_KEYBOARD_LL` low-level hook, shortcuts are configurable with a recorder UI (see `.worktrees/shortcut-double-press/docs/superpowers/specs/2026-04-06-keyboard-hook-configurable-shortcuts-design.md`). Windows retest 2026-09-17 found double-tap running the fix twice; root cause was a leaked Win32 timer (`SetTimer(NULL, …)` ignores the passed ID). Fixed on the branch in five commits (timer ID, pump-thread reset, in-flight guard with safety timeout, held-key absorption); follow-ups in #42 and #44. Branch frozen for the final retest. Revived 2026-10-08: merged with main, review fixes (hot-reload via `settings.OnSaved`, shortcut validation on save, pending shortcut for Pyramidize from any page, recorder resumes the hook on leave), retested on Windows through the dev channel, merged.
 
-- [ ] Windows smoke test: single Ctrl+G → silent fix, hold-Ctrl-double-tap → Pyramidize + focus, recorder saves/reloads, no stray "g" typed into the foreground app
+- [x] Windows smoke test: single Ctrl+G → silent fix, hold-Ctrl-double-tap → Pyramidize + focus, recorder saves/reloads, no stray "g" typed into the foreground app
 - [x] Update PR body to match the branch (hook + configurable shortcuts)
-- [ ] `review-pr`, merge, close #30, delete worktree + branch
+- [x] `review-pr`, merge, close #30, delete worktree + branch
 - [ ] Delete merged remotes `feat/pyramidize`, `fix/updater-platform-aware-install` (after #31 lands)
 
 Why first: it touches `main.go`, settings model, `wails.service.ts`, and every component that subscribes to shortcuts. Everything below conflicts with it if it sits longer.
@@ -183,7 +183,7 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 
 | Release | Contents |
 |---|---|
-| `v4.5.0-beta` | E0 (PR #31) · ~~E2 step 1~~ ✅ · ~~E1 Claude Code provider~~ ✅ · quick UI bugs #21 #24 #26 #28 — waiting on E0 and the UI bugs |
+| `v4.5.0-beta` | ✅ released 2026-10-08: ~~E2 step 1~~ · ~~E1 Claude Code provider~~ · quick UI bugs #21 #24 #26 #28 · provider switch (#104) · dev channel (#107). E0 (#31) landed after the tag, ships next |
 | `v4.6.0-beta` | ~~E2 steps 3–4 (vendor SDKs, data-driven models)~~ ✅ · E3 one-shot overhaul with eval |
 | `v4.7.0-beta` | E4 upgrade wave · Fix page redesign · border glitch |
 | `v5.0.0` | Bedrock UI · light theme · HTML clipboard · Codex/Gemini CLI providers |
