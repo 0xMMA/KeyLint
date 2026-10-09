@@ -125,10 +125,10 @@ export class FixComponent implements OnInit, OnDestroy {
     // The hotkey fix runs in Go with the window hidden. This page only hears
     // of it when the user clicks its notification: then it shows what
     // happened, with the text the fix ran on ready to try again.
-    const pending = this.silentNotices.take();
+    const pending = this.silentNotices.take('fix');
     if (pending) this.showSilentNotice(pending);
     this.sub = this.silentNotices.notices$.subscribe(() => {
-      const notice = this.silentNotices.take();
+      const notice = this.silentNotices.take('fix');
       if (notice) {
         this.showSilentNotice(notice);
         this.cdr.detectChanges();
@@ -178,6 +178,7 @@ export class FixComponent implements OnInit, OnDestroy {
     this.loading = true;
     this.error = '';
     this.done = false;
+    this.silentNotice = null;
     this.log.info('fix: clipboard enhance started');
     try {
       this.inputText = await this.wails.readClipboard();

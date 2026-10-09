@@ -194,11 +194,13 @@ export class ShellComponent implements OnInit, OnDestroy {
    */
   private openSilentFixNotice(notice: SilentFixNotice): void {
     this.log.info(`shell: silent fix notification opened (${notice.target})`);
+    // Presented first: a page already on screen switches on the notice
+    // itself, because the router ignores a navigation to the URL it is on.
+    this.silentNotices.present(notice);
     if (notice.target === 'providers') {
       void this.router.navigate(['/settings'], { queryParams: { tab: 'providers' } });
       return;
     }
-    this.silentNotices.present(notice);
     void this.router.navigate(['/fix']);
   }
 

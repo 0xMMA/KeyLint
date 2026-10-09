@@ -4,6 +4,8 @@ package notify
 
 import (
 	"bytes"
+	"errors"
+	"syscall"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -159,7 +161,9 @@ func (w *windowsToasts) register(icon []byte, activated func(string)) error {
 // registerActivator registers go-toast's activation class under
 // activatorGUID, in the multithreaded apartment this thread joins.
 func registerActivator() error {
-	if err := windows.CoInitializeEx(0, windows.COINIT_MULTITHREADED); err != nil {
+	// S_FALSE: this thread was already in the multithreaded apartment, which
+	// is what we want. x/sys reports it as an error.
+	if err := windows.CoInitializeEx(0, windows.COINIT_MULTITHREADED); err != nil && !errors.Is(err, syscall.Errno(1)) {
 		return fmt.Errorf("CoInitializeEx: %w", err)
 	}
 	const (

@@ -89,15 +89,21 @@ func (s *Service) CopyFromForeground() error {
 		}
 	}
 
-	// Timeout — clipboard didn't change. Might still work (some apps don't update the sequence number).
+	// The sequence number changes on every clipboard write, whoever makes it,
+	// so a second without a change means nothing was copied.
 	logger.Warn("clipboard: CopyFromForeground timed out waiting for clipboard change")
-	return nil
+	return ErrNothingCopied
 }
 
-// PasteToForeground sends Ctrl+V to the foreground window via Win32 SendInput.
-// A 150 ms delay is applied first to let the clipboard write settle.
+// PasteToForeground sends Ctrl+V to the foreground window via Win32 SendInput,
+// after PasteSettle to let the clipboard write settle.
 func (s *Service) PasteToForeground() error {
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(PasteSettle)
+	return s.SendPaste()
+}
+
+// SendPaste sends Ctrl+V to the foreground window now, with no settle delay.
+func (s *Service) SendPaste() error {
 	hwnd, _, _ := clipGetForegroundWindow.Call()
 	logger.Info("clipboard: PasteToForeground sending Ctrl+V", "foreground_hwnd", hwnd)
 	// Release Shift and Alt before Ctrl+V (same reason as CopyFromForeground).

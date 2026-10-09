@@ -39,8 +39,8 @@ func (xdotoolDesktop) Exists(w Window) bool {
 	return windowPID(uint64(w.Handle)) == w.PID
 }
 
-func (d xdotoolDesktop) Copy() error  { return d.clip.CopyFromForeground() }
-func (d xdotoolDesktop) Paste() error { return d.clip.PasteToForeground() }
+func (d xdotoolDesktop) Copy() error      { return d.clip.CopyFromForeground() }
+func (d xdotoolDesktop) SendPaste() error { return d.clip.SendPaste() }
 
 // windowPID is 0 when xdotool cannot say, on both sides of the comparison.
 func windowPID(id uint64) uint32 {

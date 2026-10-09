@@ -21,8 +21,8 @@ type Service struct {
 
 	mu   sync.Mutex
 	tray *application.SystemTray
-	// busyMu keeps one SetBusy's icon and tooltip from interleaving with
-	// another's, so the icon always ends in the state of the last call.
+	// busyMu keeps SetBusy calls posting to the main thread in the order
+	// they were made; the main thread runs them in that order.
 	busyMu sync.Mutex
 	// busy is the icon with the working dot, built on first use; nil after a
 	// failed build, in which case only the tooltip changes.
@@ -74,6 +74,10 @@ func (s *Service) Setup(window application.Window) {
 // the icon and "fixing…" in its tooltip. It is the only sign of a fix in
 // progress — nothing pops up and nothing takes focus. Safe from any goroutine;
 // a no-op before Setup.
+//
+// It never waits for the main thread: the change is posted there and the call
+// returns. The silent fix calls this with its own lock held, and a stalled or
+// panicking main-thread call must not hold every later key press with it.
 func (s *Service) SetBusy(busy bool) {
 	s.mu.Lock()
 	tray := s.tray
@@ -81,19 +85,21 @@ func (s *Service) SetBusy(busy bool) {
 	if tray == nil {
 		return
 	}
+	tip, icon := tooltip, s.icon
+	if busy {
+		tip = busyTooltip
+		if b := s.busyIcon(); b != nil {
+			icon = b
+		}
+	}
 	s.busyMu.Lock()
 	defer s.busyMu.Unlock()
-	if busy {
-		tray.SetTooltip(busyTooltip)
-		if icon := s.busyIcon(); icon != nil {
+	application.InvokeAsync(func() {
+		tray.SetTooltip(tip)
+		if len(icon) > 0 {
 			tray.SetIcon(icon)
 		}
-		return
-	}
-	tray.SetTooltip(tooltip)
-	if len(s.icon) > 0 {
-		tray.SetIcon(s.icon)
-	}
+	})
 }
 
 func (s *Service) busyIcon() []byte {

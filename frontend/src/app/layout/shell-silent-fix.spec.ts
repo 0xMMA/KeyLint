@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Component } from '@angular/core';
+import { By } from '@angular/platform-browser';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router, ActivatedRoute } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
@@ -9,6 +10,7 @@ import { SettingsComponent } from '../features/settings/settings.component';
 import { FixComponent } from '../features/fix/fix.component';
 import { WailsService, type SilentFixNotice } from '../core/wails.service';
 import { createWailsMock } from '../../testing/wails-mock';
+import { SilentFixNoticeService } from '../features/fix/silent-fix-notice.service';
 
 // jsdom gaps that PrimeNG reaches for (the Settings tabs). Set here, not
 // borrowed from another file: see .claude/rules/testing.md.
@@ -85,6 +87,78 @@ describe('ShellComponent — a clicked hotkey-fix notification', () => {
     await settle(harness);
 
     expect(selectedTab(el)).toBe('AI Providers');
+    expect(el.querySelector('[data-testid="silent-fix-note"]')?.textContent?.trim())
+      .toBe("Fix didn't run: No API key for Anthropic.");
+  });
+
+  // The router ignores a navigation to the URL it is already on, so a second
+  // click while Settings sits on ?tab=providers must still bring the tab back.
+  it('brings AI Providers back on a second click with the URL unchanged', async () => {
+    const harness = await RouterTestingHarness.create();
+    await router.navigate(['/settings']);
+    await settle(harness);
+    const el: HTMLElement = harness.fixture.nativeElement;
+
+    wailsMock._silentFixOpen$.next(notice({ body: "Claude Code CLI isn't signed in.", target: 'providers' }));
+    await settle(harness);
+    expect(router.url).toBe('/settings?tab=providers');
+
+    // The user wanders off to another tab; the URL stays as it was.
+    const general = Array.from(el.querySelectorAll<HTMLElement>('[role="tab"]')).find(t => t.textContent?.trim() === 'General');
+    general!.click();
+    await settle(harness);
+    expect(selectedTab(el)).toBe('General');
+
+    wailsMock._silentFixOpen$.next(notice({ id: 'silentfix-2', body: "Claude Code CLI isn't signed in.", target: 'providers' }));
+    await settle(harness);
+    expect(selectedTab(el)).toBe('AI Providers');
+  });
+
+  it('lets the user dismiss the note', async () => {
+    const harness = await RouterTestingHarness.create();
+    await router.navigate(['/settings']);
+    await settle(harness);
+    const el: HTMLElement = harness.fixture.nativeElement;
+
+    wailsMock._silentFixOpen$.next(notice({ body: 'No API key for Anthropic.', target: 'providers' }));
+    await settle(harness);
+    el.querySelector<HTMLElement>('[data-testid="silent-fix-note"] button')!.click();
+    await settle(harness);
+
+    expect(el.querySelector('[data-testid="silent-fix-note"]')).toBeFalsy();
+  });
+
+  it('drops the note once the user saves a key', async () => {
+    const harness = await RouterTestingHarness.create();
+    await router.navigate(['/settings']);
+    await settle(harness);
+    const settings: SettingsComponent = harness.fixture.debugElement.query(By.directive(SettingsComponent)).componentInstance;
+    const el: HTMLElement = harness.fixture.nativeElement;
+
+    wailsMock._silentFixOpen$.next(notice({ body: 'No API key for Anthropic.', target: 'providers' }));
+    await settle(harness);
+    expect(el.querySelector('[data-testid="silent-fix-note"]')).toBeTruthy();
+
+    wailsMock.getKeyStatus.mockResolvedValue({ is_set: true, source: 'keyring' } as never);
+    const anthropic = settings.providerKeys.find(k => k.id === 'claude')!;
+    anthropic.draftKey = 'sk-ant-new';
+    await settings.saveKey(anthropic);
+    await settle(harness);
+
+    expect(el.querySelector('[data-testid="silent-fix-note"]')).toBeFalsy();
+  });
+
+  it('does not show a notice meant for AI Providers on the Fix page', async () => {
+    const harness = await RouterTestingHarness.create();
+    await router.navigate(['/fix']);
+    await settle(harness);
+
+    // Settings never takes it in this test — the stand-in case of a click
+    // whose page was not reached.
+    TestBed.inject(SilentFixNoticeService).present(notice({ body: 'No API key for Anthropic.', target: 'providers' }));
+    await settle(harness);
+
+    expect(harness.fixture.nativeElement.querySelector('[data-testid="silent-fix-notice"]')).toBeFalsy();
   });
 
   it('opens the Fix page with the reason and the text for anything else', async () => {

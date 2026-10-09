@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"keylint/internal/features/clipboard"
 	"keylint/internal/features/enhance"
 	"keylint/internal/llm"
 )
@@ -22,6 +23,7 @@ type fakeDesktop struct {
 	foreground Window
 	closed     map[Window]bool
 	copies     int
+	copyErr    error
 	pastes     int
 	pasteErr   error
 }
@@ -40,9 +42,9 @@ func (d *fakeDesktop) Copy() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.copies++
-	return nil
+	return d.copyErr
 }
-func (d *fakeDesktop) Paste() error {
+func (d *fakeDesktop) SendPaste() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.pastes++
@@ -142,6 +144,7 @@ func newHarness(t *testing.T) *harness {
 			h.mu.Unlock()
 		},
 	})
+	h.svc.sleep = func(time.Duration) {} // no settle delay in tests
 	return h
 }
 
@@ -162,6 +165,24 @@ func (h *harness) waitIdle(n int) {
 		}
 	}
 }
+
+// waitNotices waits until n notices were shown. The guard is released
+// before the notification goes out, so waitIdle alone can be early.
+func (h *harness) waitNotices(n int) []Notice {
+	h.t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if got := h.shown(); len(got) >= n {
+			return got
+		}
+		time.Sleep(time.Millisecond)
+	}
+	h.t.Fatalf("waited for %d notice(s), got %+v", n, h.shown())
+	return nil
+}
+
+// settleQuiet gives a notification that should not come a moment to show up.
+func (h *harness) settleQuiet() { time.Sleep(20 * time.Millisecond) }
 
 func (h *harness) shown() []Notice {
 	h.mu.Lock()
@@ -190,6 +211,7 @@ func TestSuccessPastesIntoTheSourceWindowSilently(t *testing.T) {
 	if got := h.clip.written(); len(got) != 1 || got[0] != "They're going home." {
 		t.Errorf("clipboard writes = %q, want the fix once", got)
 	}
+	h.settleQuiet()
 	if n := h.shown(); len(n) != 0 {
 		t.Errorf("a successful fix showed %d notification(s): %+v", len(n), n)
 	}
@@ -241,7 +263,7 @@ func TestLateRunCannotClearANewerGuard(t *testing.T) {
 	}
 	h.waitIdle(1) // the safety timer released A
 
-	if n := h.shown(); len(n) != 1 || n[0].Title != titleTooLong {
+	if n := h.waitNotices(1); len(n) != 1 || n[0].Title != titleTooLong {
 		t.Fatalf("notices after the safety release = %+v, want one %q", n, titleTooLong)
 	}
 
@@ -273,6 +295,7 @@ func TestLateRunCannotClearANewerGuard(t *testing.T) {
 	if _, pastes := h.desk.counts(); pastes != 1 {
 		t.Errorf("pastes = %d, want 1 (B only)", pastes)
 	}
+	h.settleQuiet()
 	if n := h.shown(); len(n) != 1 {
 		t.Errorf("notices = %+v, want only the safety one — the late run must stay quiet", n)
 	}
@@ -297,7 +320,7 @@ func TestSwitchedWindowLeavesTheFixOnTheClipboard(t *testing.T) {
 	if got := h.clip.written(); len(got) != 1 || got[0] != "Fixed." {
 		t.Errorf("clipboard = %q, want the fix waiting there", got)
 	}
-	n := h.shown()
+	n := h.waitNotices(1)
 	if len(n) != 1 || n[0].Title != titleNotPasted || !strings.Contains(n[0].Body, "switched windows") {
 		t.Fatalf("notices = %+v, want one saying the fix was not pasted because of the switch", n)
 	}
@@ -320,7 +343,7 @@ func TestClosedSourceWindowIsNotPastedAnywhere(t *testing.T) {
 	if _, pastes := h.desk.counts(); pastes != 0 {
 		t.Error("pasted although the source window is gone")
 	}
-	n := h.shown()
+	n := h.waitNotices(1)
 	if len(n) != 1 || !strings.Contains(n[0].Body, "closed") {
 		t.Fatalf("notices = %+v, want one saying the window was closed", n)
 	}
@@ -335,9 +358,76 @@ func TestEmptySelectionDoesNotCallTheModel(t *testing.T) {
 	if got := h.enhanceCalls(); got != 0 {
 		t.Errorf("enhance calls = %d, want 0", got)
 	}
-	if n := h.shown(); len(n) != 1 || n[0].Title != titleNothingSel {
+	if n := h.waitNotices(1); len(n) != 1 || n[0].Title != titleNothingSel {
 		t.Errorf("notices = %+v, want one %q", n, titleNothingSel)
 	}
+}
+
+// TestNothingCopiedDoesNotFixTheOldClipboard: with nothing selected the copy
+// leaves the clipboard as it was. That old text — this run's own last fix, or
+// something private — must not be sent to the provider or pasted.
+func TestNothingCopiedDoesNotFixTheOldClipboard(t *testing.T) {
+	h := newHarness(t)
+	h.clip.text = "They're going home." // the previous fix, still on the clipboard
+	h.desk.copyErr = fmt.Errorf("copy: %w", clipboard.ErrNothingCopied)
+	h.svc.Trigger()
+	h.waitIdle(1)
+
+	if got := h.enhanceCalls(); got != 0 {
+		t.Errorf("enhance calls = %d, want 0 — the old clipboard was sent to the provider", got)
+	}
+	if _, pastes := h.desk.counts(); pastes != 0 {
+		t.Error("pasted although nothing was selected")
+	}
+	if n := h.waitNotices(1); n[0].Title != titleNothingSel || n[0].Input != "" {
+		t.Errorf("notice = %+v, want %q without the old clipboard text", n[0], titleNothingSel)
+	}
+}
+
+// TestFocusIsCheckedAfterTheSettleDelay: the check and the keystroke must be
+// back to back. A switch during the clipboard's settle delay must stop the
+// paste, not land it in the new window.
+func TestFocusIsCheckedAfterTheSettleDelay(t *testing.T) {
+	h := newHarness(t)
+	h.svc.sleep = func(time.Duration) { h.desk.focus(chat) } // the switch lands mid-settle
+	h.svc.Trigger()
+	h.waitIdle(1)
+
+	if _, pastes := h.desk.counts(); pastes != 0 {
+		t.Error("pasted into the window the user switched to during the settle delay")
+	}
+	if n := h.waitNotices(1); !strings.Contains(n[0].Body, "switched windows") {
+		t.Errorf("notice = %+v, want the switched-windows one", n[0])
+	}
+}
+
+// TestAnotherFieldOfTheSameWindowCountsAsMovingAway: where the platform can
+// tell the focused control, moving to another field is moving away.
+func TestAnotherFieldOfTheSameWindowCountsAsMovingAway(t *testing.T) {
+	body := Window{Handle: 0x1001, PID: 42, Focus: 0x10}
+	subject := Window{Handle: 0x1001, PID: 42, Focus: 0x11}
+	if got := decidePaste(body, subject, true); got != skipSourceInBackground {
+		t.Errorf("decidePaste = %v, want skipSourceInBackground", got)
+	}
+}
+
+// TestPanicInARunIsContained: a panic below the run (a provider SDK, say)
+// must not take the app — and its keyboard hook — down, and must release the
+// guard.
+func TestPanicInARunIsContained(t *testing.T) {
+	h := newHarness(t)
+	h.setEnhance(func(string) (string, error) { panic("boom") })
+	h.svc.Trigger()
+	h.waitIdle(1)
+
+	if n := h.waitNotices(1); n[0].Title != titleNotRun {
+		t.Errorf("notice = %+v, want a %q", n[0], titleNotRun)
+	}
+	h.setEnhance(func(string) (string, error) { return "Fixed.", nil })
+	if !h.svc.Trigger() {
+		t.Fatal("the guard was not released after the panic")
+	}
+	h.waitIdle(1)
 }
 
 // TestRepeatedFailuresDoNotStack: a user pressing the hotkey again and again
@@ -354,6 +444,8 @@ func TestRepeatedFailuresDoNotStack(t *testing.T) {
 		h.svc.Trigger()
 		h.waitIdle(1)
 	}
+	h.waitNotices(1)
+	h.settleQuiet()
 	if n := h.shown(); len(n) != 1 {
 		t.Fatalf("three identical failures showed %d notifications, want 1", len(n))
 	}
@@ -362,7 +454,7 @@ func TestRepeatedFailuresDoNotStack(t *testing.T) {
 	h.setEnhance(func(string) (string, error) { return "", fmt.Errorf("Claude: %w", llm.ErrOutputLimit) })
 	h.svc.Trigger()
 	h.waitIdle(1)
-	if n := h.shown(); len(n) != 2 {
+	if n := h.waitNotices(2); len(n) != 2 {
 		t.Fatalf("a different failure showed %d notifications in total, want 2", len(n))
 	}
 
@@ -373,7 +465,7 @@ func TestRepeatedFailuresDoNotStack(t *testing.T) {
 	})
 	h.svc.Trigger()
 	h.waitIdle(1)
-	if n := h.shown(); len(n) != 3 {
+	if n := h.waitNotices(3); len(n) != 3 {
 		t.Fatalf("after the quiet period: %d notifications, want 3", len(n))
 	}
 }
@@ -384,7 +476,7 @@ func TestNoticeCanBeLookedUpForAClick(t *testing.T) {
 	h.svc.Trigger()
 	h.waitIdle(1)
 
-	n := h.shown()
+	n := h.waitNotices(1)
 	if len(n) != 1 || n[0].ID == "" {
 		t.Fatalf("notices = %+v, want one with an ID", n)
 	}
@@ -394,6 +486,38 @@ func TestNoticeCanBeLookedUpForAClick(t *testing.T) {
 	}
 	if _, ok := h.svc.Notice("silentfix-unknown"); ok {
 		t.Error("an unknown ID was found")
+	}
+	// Another process numbers its notices from 1 too; a toast an earlier
+	// session left in the Action Center must not open this session's text.
+	if !strings.Contains(n[0].ID, fmt.Sprint(h.svc.boot)) {
+		t.Errorf("ID %q does not carry the process nonce", n[0].ID)
+	}
+}
+
+// TestSuppressedRepeatUpdatesTheVisibleToast: a click on the one toast on
+// screen opens the latest run's text, whose fix is on the clipboard.
+func TestSuppressedRepeatUpdatesTheVisibleToast(t *testing.T) {
+	h := newHarness(t)
+	release := make(chan struct{}, 2)
+	h.setEnhance(func(text string) (string, error) { <-release; return "fix of " + text, nil })
+	for _, sel := range []string{"first", "second"} {
+		h.clip.mu.Lock()
+		h.clip.text = sel
+		h.clip.mu.Unlock()
+		h.desk.focus(editor)
+		h.svc.Trigger()
+		h.desk.focus(chat)
+		release <- struct{}{}
+		h.waitIdle(1)
+	}
+	n := h.waitNotices(1)
+	h.settleQuiet()
+	if got := h.shown(); len(got) != 1 {
+		t.Fatalf("notices = %+v, want one on screen", got)
+	}
+	got, ok := h.svc.Notice(n[0].ID)
+	if !ok || got.Input != "second" || got.Output != "fix of second" {
+		t.Errorf("Notice(%q) = %+v, want the second run's text", n[0].ID, got)
 	}
 }
 
@@ -437,10 +561,12 @@ func TestDescribe(t *testing.T) {
 		{"timeout", &llm.TimeoutError{Provider: "Claude"}, titleTooLong, "The model took too long — try a shorter selection or a faster model.", TargetFix},
 		{"cut off", fmt.Errorf("Claude: %w", llm.ErrOutputLimit), titleCutOff, "The answer was cut off — try a shorter selection.", TargetFix},
 		{"cut off while reasoning", fmt.Errorf("Claude: %w", llm.ErrOutputLimitThinking), titleCutOff, "The model used its answer on reasoning — pick one that doesn't reason first.", TargetProviders},
-		{"key rejected", statusErr(t, http.StatusUnauthorized), titleNotRun, "Claude didn't accept the API key.", TargetProviders},
+		{"key rejected", statusErr(t, http.StatusUnauthorized), titleNotRun, "Anthropic didn't accept the API key.", TargetProviders},
 		{"model gone", statusErr(t, http.StatusNotFound), titleNotRun, "The model wasn't found — check it in AI Providers.", TargetProviders},
 		{"rate limited", statusErr(t, http.StatusTooManyRequests), titleNotRun, "Rate limited — try again shortly.", TargetFix},
-		{"provider down", statusErr(t, http.StatusBadGateway), titleNotRun, "Claude isn't available right now.", TargetFix},
+		{"provider down", statusErr(t, http.StatusBadGateway), titleNotRun, "Anthropic isn't available right now.", TargetFix},
+		{"provider timed out", statusErr(t, http.StatusRequestTimeout), titleNotRun, "Anthropic timed out — try again.", TargetFix},
+		{"too large", statusErr(t, http.StatusRequestEntityTooLarge), titleNotRun, "The text is too long for the provider — try a shorter selection.", TargetFix},
 		{"unreachable", fmt.Errorf("Ollama request failed: %w", &url.Error{Op: "Post", URL: "http://localhost:11434", Err: errors.New("connection refused")}), titleNotRun, "Couldn't reach the AI provider.", TargetFix},
 		{"anything else", errors.New("Claude Code CLI failed: exited with status 3"), titleNotRun, "Something went wrong — click for details.", TargetFix},
 	}

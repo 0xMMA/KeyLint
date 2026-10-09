@@ -34,9 +34,11 @@ type StatusError struct {
 	Provider string // display name, as in the message
 	Status   int
 	msg      string
+	err      error // what ended the call, when that was not the status itself
 }
 
 func (e *StatusError) Error() string { return e.msg }
+func (e *StatusError) Unwrap() error { return e.err }
 
 // timeoutAdvice is what a user can do about a model that took too long. Worded
 // for every surface it reaches — the GUI, the hotkey and the CLI — so it names

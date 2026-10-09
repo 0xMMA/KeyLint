@@ -11,13 +11,14 @@ import { MessageModule } from 'primeng/message';
 import { CardModule } from 'primeng/card';
 import { TagModule } from 'primeng/tag';
 import { ActivatedRoute } from '@angular/router';
-import { Subscription, skip } from 'rxjs';
+import { Subscription } from 'rxjs';
 import { versionLabel } from '../../core/version-label';
 import { ProviderCardComponent } from './provider-card/provider-card.component';
 import { DevChannelComponent } from './dev-channel/dev-channel.component';
 import { ActiveProviderComponent, FeatureChoice } from './active-provider/active-provider.component';
 import { DEFAULT_MODELS, Feature, ModelOption, defaultOption, effortNote, fixSkipsReasoning, toModelOption } from './model-options';
-import { WailsService, Settings as AppSettings, KeyStatus, UpdateInfo, AppPreset, ClaudeCodeStatus, ModelInfo, BuildIdentity } from '../../core/wails.service';
+import { SilentFixNoticeService } from '../fix/silent-fix-notice.service';
+import { WailsService, type SilentFixNotice, Settings as AppSettings, KeyStatus, UpdateInfo, AppPreset, ClaudeCodeStatus, ModelInfo, BuildIdentity } from '../../core/wails.service';
 import { noteForModelSource } from '../../core/model-source';
 import { DOCUMENT_TYPE_OPTIONS, unavailableProviderName } from '../../core/constants';
 import { LogService } from '../../core/log.service';
@@ -199,6 +200,14 @@ interface ProviderKey {
                     No provider is in use. Press <em>Use this</em> on the one KeyLint should send your text to.
                   }
                 </p>
+                <!-- A clicked hotkey-fix notification sent the user here: say why,
+                     once, until it is dismissed or something here changes. -->
+                @if (silentFixNote; as note) {
+                  <p-message data-testid="silent-fix-note" severity="warn" size="small" styleClass="mb-3"
+                    [closable]="true" (onClose)="silentFixNote = null">
+                    {{ note.title }}: {{ note.body }}
+                  </p-message>
+                }
                 @if (unavailableProvider; as name) {
                   <p-message data-testid="providers-tab-unavailable" severity="warn" size="small" styleClass="mb-3">
                     {{ name }} is saved but not available yet, so KeyLint has no provider in use.
@@ -772,7 +781,9 @@ export class SettingsComponent implements OnInit, OnDestroy {
   claudeCodeChecking = false;
   /** Detection can take seconds; the user may navigate away meanwhile. */
   private destroyed = false;
-  private tabParamSub?: Subscription;
+  private noticeSub?: Subscription;
+  /** Why a hotkey-fix notification sent the user to this tab, if one did. */
+  silentFixNote: SilentFixNotice | null = null;
 
   providerKeys: ProviderKey[] = [
     { id: 'openai', status: null, editing: false, draftKey: '', saving: false },
@@ -785,17 +796,20 @@ export class SettingsComponent implements OnInit, OnDestroy {
     private readonly cdr: ChangeDetectorRef,
     private readonly log: LogService,
     private readonly host: ElementRef<HTMLElement>,
+    private readonly silentNotices: SilentFixNoticeService,
   ) {}
 
   async ngOnInit(): Promise<void> {
     this.activeTab = this.route.snapshot.queryParamMap.get('tab') ?? 'general';
-    // Asked for a tab while already open — a hotkey-fix notification sends
-    // the user to AI Providers wherever they are — Angular keeps this
-    // instance, so the snapshot above never sees it.
-    this.tabParamSub = this.route.queryParamMap.pipe(skip(1)).subscribe(params => {
-      const tab = params.get('tab');
-      if (tab && tab !== this.activeTab) {
-        this.activeTab = tab;
+    // A hotkey-fix notification clicked to get here — or clicked while this
+    // page is already open, which the router does not report as a new
+    // navigation.
+    const pendingNote = this.silentNotices.take('providers');
+    if (pendingNote) this.showSilentFixNote(pendingNote);
+    this.noticeSub = this.silentNotices.notices$.subscribe(() => {
+      const note = this.silentNotices.take('providers');
+      if (note) {
+        this.showSilentFixNote(note);
         this.cdr.detectChanges();
       }
     });
@@ -817,7 +831,19 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.destroyed = true;
-    this.tabParamSub?.unsubscribe();
+    this.noticeSub?.unsubscribe();
+  }
+
+  private showSilentFixNote(note: SilentFixNotice): void {
+    this.silentFixNote = note;
+    this.activeTab = 'providers';
+  }
+
+  /** The note's problem was acted on. Called after an await, so it marks the view. */
+  private dropSilentFixNote(): void {
+    if (!this.silentFixNote) return;
+    this.silentFixNote = null;
+    this.cdr.markForCheck();
   }
 
   /** See UNAVAILABLE_PROVIDERS: the saved value is explained, not switched. */
@@ -913,6 +939,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
     }
     if (switched && this.settings === target) {
       target.active_provider = provider;
+      // The user acted on what the note said; it is no longer the news.
+      this.dropSilentFixNote();
       // The switch saved, so whatever the last Save said is no longer the news.
       this.saveError = '';
       this.refreshProviderStatus(provider);
@@ -1114,6 +1142,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.cdr.detectChanges();
     try {
       this.claudeCodeStatus = await this.wails.getClaudeCodeStatus(force);
+      // "Check again" after signing in: the problem the note was about is gone.
+      if (force && this.claudeCodeStatus.installed && this.claudeCodeStatus.loggedIn) {
+        this.dropSilentFixNote();
+      }
     } finally {
       this.claudeCodeChecking = false;
       // Detection can outlive the screen. Refreshing a destroyed view does NOT
@@ -1163,6 +1195,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       pk.draftKey = '';
       pk.status = await this.wails.getKeyStatus(pk.id);
       this.log.info(`settings: key saved for ${pk.id}`);
+      this.dropSilentFixNote();
     } catch (e) {
       this.keyError = `Failed to save key: ${e instanceof Error ? e.message : String(e)}`;
     } finally {

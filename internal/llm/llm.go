@@ -249,6 +249,12 @@ func (a *httpAttempts) middleware(req *http.Request, next func(*http.Request) (*
 		logger.Info("llm: retry skipped, the time left cannot fit another attempt",
 			"feature", a.cfg.Feature, "provider", a.provider.id, "attempt", attempt,
 			"remaining_ms", time.Until(a.deadline).Milliseconds())
+		// The attempt can have timed out with no error of its own: a response
+		// arrived just as its context expired, and the SDK dropped it. A nil
+		// error with a nil response would make the SDK read a status off nil.
+		if a.lastErr == nil {
+			return nil, context.DeadlineExceeded
+		}
 		return nil, a.lastErr
 	}
 
@@ -354,6 +360,20 @@ func apiErrorForModel(p provider, status int, model, rawBody string) error {
 			p.name, status, model)}
 	}
 	return &StatusError{Provider: p.name, Status: status, msg: fmt.Sprintf("%s error %d: %s", p.name, status, statusMessage(status))}
+}
+
+// rateLimitedPastDeadline is a rate limit the SDK was still waiting out when
+// the caller's deadline passed: the provider answered 429 with a Retry-After
+// longer than the time left. "Took too long" would send the user to a shorter
+// selection; what they need to know is that they were rate limited. Still
+// unwraps to the deadline, for callers that test for it.
+func rateLimitedPastDeadline(p provider, attempts *httpAttempts, model string, err error) (error, bool) {
+	if !errors.Is(err, context.DeadlineExceeded) || attempts.statusOrZero() != http.StatusTooManyRequests {
+		return nil, false
+	}
+	se := apiErrorForModel(p, http.StatusTooManyRequests, model, "").(*StatusError)
+	se.err = err
+	return se, true
 }
 
 // transportError is the wording for a provider we could not reach at all.

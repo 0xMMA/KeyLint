@@ -236,9 +236,12 @@ func environmentCustomHeaders() []string {
 // mapOpenAIError turns an SDK error into the wording the user sees. The raw body
 // stays out of it — see statusMessage.
 func mapOpenAIError(p provider, attempts *httpAttempts, model string, err error) error {
+	if limited, ok := rateLimitedPastDeadline(p, attempts, model, err); ok {
+		return limited
+	}
 	// The caller giving up is not a provider failure, and callers test for it
 	// with errors.Is — so it must not become a status even if an earlier
-	// attempt saw one.
+	// attempt saw one (a rate limit waited out past the deadline aside).
 	if isContextError(err) {
 		return transportError(p, err)
 	}

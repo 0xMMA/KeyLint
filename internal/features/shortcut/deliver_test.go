@@ -29,11 +29,21 @@ func TestDeliverNeverBlocks(t *testing.T) {
 	}
 }
 
-// TestEventBufferCoversABusyConsumer: the old buffer of 2 filled while the
-// consumer copied from the foreground window for a Pyramidize press, and the
-// hook thread then waited on it.
-func TestEventBufferCoversABusyConsumer(t *testing.T) {
-	if eventBuffer < 8 {
-		t.Errorf("eventBuffer = %d, want room for a burst of presses during a one-second copy", eventBuffer)
+// TestBurstWhileTheConsumerIsBusyArrives: the old buffer of 2 filled while
+// the consumer copied for a Pyramidize press (up to a second), and the hook
+// thread then waited on it. A burst of presses in that second must all be
+// delivered, in order, once the consumer is back.
+func TestBurstWhileTheConsumerIsBusyArrives(t *testing.T) {
+	ch := make(chan ShortcutEvent, eventBuffer)
+	actions := []string{"pyramidize", "fix", "fix", "pyramidize", "fix", "fix", "fix", "fix"}
+	for _, a := range actions { // nobody is reading
+		if !deliver(ch, ShortcutEvent{Source: "hotkey", Action: a}) {
+			t.Fatalf("press %q dropped during a busy second", a)
+		}
+	}
+	for i, want := range actions {
+		if got := (<-ch).Action; got != want {
+			t.Errorf("event %d = %q, want %q", i, got, want)
+		}
 	}
 }

@@ -17,11 +17,13 @@
 package silentfix
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
+	"keylint/internal/features/clipboard"
 	"keylint/internal/logger"
 )
 
@@ -32,6 +34,10 @@ type Window struct {
 	// PID is the window's process. A closed window's handle can be reused by
 	// another window; the process is what tells the two apart.
 	PID uint32
+	// Focus is the control inside the window that has the keyboard focus,
+	// where the platform can tell (0 otherwise). Moving to another field of
+	// the same window counts as moving away.
+	Focus uintptr
 }
 
 func (w Window) known() bool { return w.Handle != 0 }
@@ -42,10 +48,11 @@ type Desktop interface {
 	Foreground() Window
 	// Exists reports whether w is still open, and still the same window.
 	Exists(w Window) bool
-	// Copy sends the copy shortcut to the foreground window.
+	// Copy sends the copy shortcut to the foreground window. It returns
+	// clipboard.ErrNothingCopied when the clipboard did not change.
 	Copy() error
-	// Paste sends the paste shortcut to the foreground window.
-	Paste() error
+	// SendPaste sends the paste shortcut to the foreground window, now.
+	SendPaste() error
 }
 
 // Clipboard is the system clipboard.
@@ -86,7 +93,12 @@ type Service struct {
 	deps   Deps
 	safety time.Duration
 	quiet  time.Duration
+	settle time.Duration
+	sleep  func(time.Duration)
 	now    func() time.Time
+	// boot tells this process's notice IDs from an earlier one's: a toast
+	// left in the Action Center can be clicked after a restart.
+	boot int64
 
 	mu sync.Mutex
 	// current is the token of the run in flight, 0 when none is. Only the
@@ -96,7 +108,7 @@ type Service struct {
 	current uint64
 	runs    uint64
 
-	lastShown map[string]time.Time
+	lastShown map[string]shownNotice
 	notices   []Notice
 	noticeSeq uint64
 }
@@ -107,8 +119,11 @@ func New(deps Deps) *Service {
 		deps:      deps,
 		safety:    safetyTimeout,
 		quiet:     quietPeriod,
+		settle:    clipboard.PasteSettle,
+		sleep:     time.Sleep,
 		now:       time.Now,
-		lastShown: map[string]time.Time{},
+		boot:      time.Now().UnixNano(),
+		lastShown: map[string]shownNotice{},
 	}
 }
 
@@ -148,9 +163,24 @@ func (s *Service) begin() (uint64, bool) {
 }
 
 func (s *Service) run(token uint64, source Window) {
+	defer func() {
+		// A panic below the run — a provider SDK, a Win32 call — would
+		// otherwise end the process, keyboard hook and all.
+		if r := recover(); r != nil {
+			logger.Error("silentfix: run panicked", "run", token, "panic", fmt.Sprint(r))
+			s.fail(token, noticeInternal(fmt.Sprint(r)))
+		}
+	}()
 	if err := s.deps.Desktop.Copy(); err != nil {
-		// The clipboard may still hold the selection (the copy can report a
-		// failure it recovered from), so carry on and let Read decide.
+		if errors.Is(err, clipboard.ErrNothingCopied) {
+			// What the clipboard holds is from before — possibly this
+			// run's own last fix, or a password copied an hour ago. Not
+			// the user's selection, so not sent anywhere.
+			s.fail(token, noticeEmptySelection())
+			return
+		}
+		// The keystroke may still have gone through, so carry on and let
+		// Read decide.
 		logger.Warn("silentfix: copy failed", "run", token, "err", err)
 	}
 	text, err := s.deps.Clipboard.Read()
@@ -177,10 +207,14 @@ func (s *Service) run(token uint64, source Window) {
 			n.Input, n.Output = text, result
 			return &n
 		}
+		// Let the write settle first, and only then look at the focus: the
+		// decision and the keystroke must be as close together as possible,
+		// or a window switch in between gets the paste.
+		s.sleep(s.settle)
 		decision := decidePaste(source, s.deps.Desktop.Foreground(), s.deps.Desktop.Exists(source))
 		var pasteErr error
 		if decision == pasteNow {
-			if pasteErr = s.deps.Desktop.Paste(); pasteErr == nil {
+			if pasteErr = s.deps.Desktop.SendPaste(); pasteErr == nil {
 				pasted = true
 				return nil
 			}
@@ -213,24 +247,29 @@ func (s *Service) fail(token uint64, n Notice) {
 // run halfway through its paste. fn may return a notice to show. It reports
 // whether the run was still current.
 func (s *Service) finish(token uint64, fn func() *Notice) bool {
-	s.mu.Lock()
-	if s.current != token {
-		s.mu.Unlock()
-		return false
-	}
-	n := fn()
-	s.current = 0
-	s.setBusyLocked()
-	var show *Notice
-	if n != nil {
-		show = s.recordLocked(*n)
-	}
-	s.mu.Unlock()
-
+	show, current := s.finishLocked(token, fn)
 	if show != nil {
 		s.deps.Notify(*show)
 	}
-	return true
+	return current
+}
+
+func (s *Service) finishLocked(token uint64, fn func() *Notice) (show *Notice, current bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.current != token {
+		return nil, false
+	}
+	// Released even if fn panics, so a panic mid-paste cannot leave the
+	// guard taken for good.
+	defer func() {
+		s.current = 0
+		s.setBusyLocked()
+	}()
+	if n := fn(); n != nil {
+		show = s.recordLocked(*n)
+	}
+	return show, true
 }
 
 func (s *Service) setBusyLocked() {
@@ -239,24 +278,44 @@ func (s *Service) setBusyLocked() {
 	}
 }
 
+// shownNotice is when an identical notice was last on screen, and its ID.
+type shownNotice struct {
+	id string
+	at time.Time
+}
+
 // recordLocked gives n an ID and keeps it for a click, and returns it unless
-// an identical one was shown within the quiet period.
+// an identical one was shown within the quiet period. A repeat that is not
+// shown takes over the ID of the one on screen, so a click on that toast
+// opens the latest run's text — the one whose fix is on the clipboard.
 func (s *Service) recordLocked(n Notice) *Notice {
+	key := n.Title + "\n" + n.Body
+	now := s.now()
+	if last, ok := s.lastShown[key]; ok && now.Sub(last.at) < s.quiet {
+		logger.Info("silentfix: same notification shown moments ago, not repeated", "title", n.Title)
+		n.ID = last.id
+		s.keepLocked(n)
+		return nil
+	}
 	s.noticeSeq++
-	n.ID = fmt.Sprintf("silentfix-%d", s.noticeSeq)
+	n.ID = fmt.Sprintf("silentfix-%d-%d", s.boot, s.noticeSeq)
+	s.lastShown[key] = shownNotice{id: n.ID, at: now}
+	s.keepLocked(n)
+	return &n
+}
+
+// keepLocked stores n for a click, replacing an older notice with its ID.
+func (s *Service) keepLocked(n Notice) {
+	for i := range s.notices {
+		if s.notices[i].ID == n.ID {
+			s.notices = append(s.notices[:i], s.notices[i+1:]...)
+			break
+		}
+	}
 	s.notices = append(s.notices, n)
 	if len(s.notices) > keptNotices {
 		s.notices = s.notices[len(s.notices)-keptNotices:]
 	}
-
-	key := n.Title + "\n" + n.Body
-	now := s.now()
-	if last, ok := s.lastShown[key]; ok && now.Sub(last) < s.quiet {
-		logger.Info("silentfix: same notification shown moments ago, not repeated", "title", n.Title)
-		return nil
-	}
-	s.lastShown[key] = now
-	return &n
 }
 
 // Notice returns a recent notice by ID, for a click on its notification.

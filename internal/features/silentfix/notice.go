@@ -47,7 +47,7 @@ const (
 	titleTooLong    = "Fix took too long"
 	titleCutOff     = "Fix was cut off"
 	titleNotPasted  = "Fixed, not pasted"
-	titleNothingSel = "Nothing to fix"
+	titleNothingSel = "Nothing selected"
 )
 
 // describe turns a failed enhance into a notice: a short reason in plain words
@@ -89,22 +89,37 @@ func describe(err error) Notice {
 	return n
 }
 
+// providerLabel is the name the AI Providers tab gives a provider, so a toast
+// and the page it opens agree ("Anthropic", as on the key card, not the
+// "Claude" the llm package reports).
+func providerLabel(name string) string {
+	if name == "Claude" {
+		return "Anthropic"
+	}
+	return name
+}
+
 func describeStatus(e *llm.StatusError) (string, Target) {
+	provider := providerLabel(e.Provider)
 	switch {
 	case e.Status == http.StatusUnauthorized:
-		return fmt.Sprintf("%s didn't accept the API key.", e.Provider), TargetProviders
+		return fmt.Sprintf("%s didn't accept the API key.", provider), TargetProviders
 	case e.Status == http.StatusForbidden:
 		return "This key can't use the chosen model.", TargetProviders
 	case e.Status == http.StatusNotFound:
 		return "The model wasn't found — check it in AI Providers.", TargetProviders
 	case e.Status == http.StatusPaymentRequired:
-		return fmt.Sprintf("The %s account is out of credit.", e.Provider), TargetFix
+		return fmt.Sprintf("The %s account is out of credit.", provider), TargetFix
+	case e.Status == http.StatusRequestTimeout:
+		return fmt.Sprintf("%s timed out — try again.", provider), TargetFix
+	case e.Status == http.StatusRequestEntityTooLarge:
+		return "The text is too long for the provider — try a shorter selection.", TargetFix
 	case e.Status == http.StatusTooManyRequests:
 		return "Rate limited — try again shortly.", TargetFix
 	case e.Status >= 500:
-		return fmt.Sprintf("%s isn't available right now.", e.Provider), TargetFix
+		return fmt.Sprintf("%s isn't available right now.", provider), TargetFix
 	default:
-		return fmt.Sprintf("%s rejected the request.", e.Provider), TargetFix
+		return fmt.Sprintf("%s rejected the request.", provider), TargetFix
 	}
 }
 
@@ -116,8 +131,13 @@ func isUnreachable(err error) bool {
 }
 
 // Notices that are not an enhance failure.
+// noticeEmptySelection names no key: the fix shortcut is configurable.
 func noticeEmptySelection() Notice {
-	return Notice{Title: titleNothingSel, Body: "No text was selected.", Target: TargetFix}
+	return Notice{Title: titleNothingSel, Body: "Select text and press the fix shortcut again.", Target: TargetFix}
+}
+
+func noticeInternal(detail string) Notice {
+	return Notice{Title: titleNotRun, Body: "Something went wrong — click for details.", Target: TargetFix, Detail: detail}
 }
 
 func noticeClipboardRead(err error) Notice {
