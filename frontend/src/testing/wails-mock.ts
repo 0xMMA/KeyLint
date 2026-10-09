@@ -10,6 +10,10 @@ export const defaultSettings: Settings = {
     aws_region: '',
   },
   shortcut_key: 'ctrl+g',
+  shortcut_mode: 'double_tap',
+  shortcut_fix: 'ctrl+g',
+  shortcut_pyramidize: 'ctrl+shift+g',
+  shortcut_double_tap_delay: 200,
   start_on_boot: false,
   theme_preference: 'dark',
   completed_setup: false,
@@ -64,14 +68,17 @@ export const defaultDevChannel: DevChannel = {
 };
 
 export function createWailsMock() {
-  const shortcutTriggered$ = new Subject<string>();
+  const shortcutFix$ = new Subject<string>();
+  const shortcutPyramidize$ = new Subject<string>();
   const settingsChanged$ = new Subject<void>();
 
   return {
-    shortcutTriggered$: shortcutTriggered$.asObservable(),
+    shortcutFix$: shortcutFix$.asObservable(),
+    shortcutPyramidize$: shortcutPyramidize$.asObservable(),
     settingsChanged$: settingsChanged$.asObservable(),
     // Expose subjects so tests can trigger events
-    _shortcutTriggered$: shortcutTriggered$,
+    _shortcutFix$: shortcutFix$,
+    _shortcutPyramidize$: shortcutPyramidize$,
     _settingsChanged$: settingsChanged$,
 
     loadSettings: vi.fn().mockResolvedValue({ ...defaultSettings }),
@@ -82,6 +89,8 @@ export function createWailsMock() {
     readClipboard: vi.fn().mockResolvedValue('clipboard text'),
     writeClipboard: vi.fn().mockResolvedValue(undefined),
     enhance: vi.fn().mockResolvedValue('Enhanced text.'),
+    setShortcutPaused: vi.fn().mockResolvedValue(undefined),
+    takePendingPyramidize: vi.fn().mockReturnValue(false),
     simulateShortcut: vi.fn().mockResolvedValue(undefined),
     getKeyStatus: vi.fn().mockResolvedValue({ ...defaultKeyStatus }),
     getKey: vi.fn().mockResolvedValue(''),

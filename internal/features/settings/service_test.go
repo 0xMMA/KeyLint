@@ -501,3 +501,36 @@ func TestDefault_DeveloperOptionsOff(t *testing.T) {
 		t.Error("developer options must be off by default")
 	}
 }
+
+// A settings.json written by v4.5.0-beta and earlier has shortcut_key and none
+// of the shortcut_* fields. That key was free text nothing read — the hotkey
+// was Ctrl+G whatever it said — so the user keeps Ctrl+G, and a value the hook
+// cannot use does not get to switch every shortcut off.
+func TestLegacyShortcutKey_IsNotApplied(t *testing.T) {
+	for _, legacy := range []string{"ctrl+g", "strg+g", "g", "ctrl+shift+f"} {
+		tmp := t.TempDir()
+		writeLegacySettings(t, tmp, `{"active_provider": "claude", "shortcut_key": "`+legacy+`", "log_level": "off"}`)
+
+		got := newServiceAt(t, tmp).Get()
+
+		if got.ShortcutFix != "ctrl+g" || got.ShortcutMode != "double_tap" ||
+			got.ShortcutPyramidize != "ctrl+shift+g" || got.ShortcutDoubleTapDelay != 200 {
+			t.Errorf("shortcut_key %q: got fix=%q mode=%q pyr=%q delay=%d, want the defaults",
+				legacy, got.ShortcutFix, got.ShortcutMode, got.ShortcutPyramidize, got.ShortcutDoubleTapDelay)
+		}
+	}
+}
+
+// Once shortcut_fix is in the file, it is the user's choice and shortcut_key —
+// still written alongside it — is ignored.
+func TestMigration_ShortcutFixPresent_LegacyKeyIgnored(t *testing.T) {
+	tmp := t.TempDir()
+	writeLegacySettings(t, tmp, `{"shortcut_key": "ctrl+g", "shortcut_mode": "independent", "shortcut_fix": "ctrl+alt+k", "shortcut_pyramidize": "ctrl+alt+p", "shortcut_double_tap_delay": 300}`)
+
+	got := newServiceAt(t, tmp).Get()
+
+	if got.ShortcutFix != "ctrl+alt+k" || got.ShortcutMode != "independent" ||
+		got.ShortcutPyramidize != "ctrl+alt+p" || got.ShortcutDoubleTapDelay != 300 {
+		t.Errorf("saved shortcut settings changed on load: %+v", got)
+	}
+}

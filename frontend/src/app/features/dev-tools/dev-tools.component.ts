@@ -14,7 +14,7 @@ import { WailsService, Settings as AppSettings } from '../../core/wails.service'
       <p class="note">This panel is only visible in development mode.</p>
 
       <p-card header="Shortcut Simulation">
-        <p>Fires a synthetic <code>shortcut:triggered</code> event — same as pressing Ctrl+G on Windows.</p>
+        <p>Fires a synthetic shortcut event — same as pressing Ctrl+G on Windows.</p>
         <p-button
           label="Simulate Shortcut (Ctrl+G)"
           icon="pi pi-bolt"
