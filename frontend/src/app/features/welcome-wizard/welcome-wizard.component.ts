@@ -1,314 +1,537 @@
-import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, computed, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { FormsModule } from '@angular/forms';
-import { CommonModule } from '@angular/common';
-import { ButtonModule } from 'primeng/button';
-import { InputTextModule } from 'primeng/inputtext';
-import { SelectModule } from 'primeng/select';
-import { WailsService, ClaudeCodeStatus } from '../../core/wails.service';
+import { Button } from 'primeng/button';
+import { InputText } from 'primeng/inputtext';
+import { Tag } from 'primeng/tag';
+import { Message } from 'primeng/message';
+import { WailsService, ClaudeCodeStatus, KeyStatus, Settings } from '../../core/wails.service';
+import { ENV_KEY_VARS, PROVIDER_OPTIONS, cliTag, isKeyProvider, keyPlaceholder, keyTag } from '../../core/providers';
 
+/** One line under each provider's name: what it is, in the user's terms. */
+const PROVIDER_BLURBS: Readonly<Record<string, string>> = {
+  'openai': 'Pay as you go with an OpenAI API key.',
+  'claude': 'Pay as you go with an Anthropic API key.',
+  'claude-code': 'Uses your Claude subscription through the installed Claude Code CLI. No key needed.',
+  'ollama': 'Runs on this computer. Free, no key, needs Ollama installed.',
+};
+
+type Screen = 'welcome' | 'provider';
+
+/**
+ * First-run setup: what KeyLint does, then which AI it uses.
+ *
+ * Only someone with nothing usable gets here — the backend skips the wizard
+ * for anyone with a key, a signed-in CLI or a working saved provider (see
+ * welcome.Service.IsFirstRun). Even so, nothing in here blocks: "Set up later"
+ * is on every screen, a key that is already stored is never asked for again,
+ * and what already works is selected before the user touches anything.
+ */
 @Component({
   selector: 'app-welcome-wizard',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, SelectModule],
+  imports: [Button, InputText, Tag, Message],
   template: `
-    <div class="wizard-wrapper">
-      <div class="wizard-card">
-        <h1>Welcome to <span class="brand">KeyLint</span></h1>
-        <p class="subtitle">Let's get you set up in a few quick steps.</p>
+    <main class="wizard">
+      <div class="wizard-column">
+        <p class="wordmark" aria-hidden="true">KeyLint</p>
 
-        <!-- Step indicators -->
-        <div class="wizard-steps">
-          @for (s of stepDefs; track s.value) {
-            <div class="wizard-step" [class.active]="step === s.value" [class.done]="step > s.value">
-              <span class="step-circle">{{ step > s.value ? '✓' : s.value }}</span>
-              <span class="step-label">{{ s.label }}</span>
-            </div>
-            @if (!$last) {
-              <div class="step-line" [class.done]="step > s.value"></div>
-            }
-          }
-        </div>
-
-        <!-- Step content -->
-        <div class="wizard-content">
-          @switch (step) {
-            @case (1) {
-              <div data-testid="step-1-content">
-                <p>KeyLint uses AI to fix grammar, spelling, and improve your writing — triggered by a global keyboard shortcut.</p>
-                <div class="step-footer">
-                  <p-button data-testid="wizard-next" label="Get Started" icon="pi pi-arrow-right" iconPos="right" (onClick)="step = 2" />
-                </div>
-              </div>
-            }
-            @case (2) {
-              <div data-testid="step-2-content">
-                @if (claudeCode) {
-                  <button
-                    type="button"
-                    class="cli-option"
-                    data-testid="wizard-claude-code"
-                    [disabled]="!claudeCodeReady"
-                    (click)="useClaudeCode()"
-                  >
-                    <span class="cli-option-title">Use Claude Code (installed CLI)</span>
-                    <span class="cli-option-hint" data-testid="wizard-claude-code-hint">{{ claudeCodeHint }}</span>
-                  </button>
-                  <p class="or-divider">or use a provider with an API key:</p>
-                } @else {
-                  <p>Choose which AI provider to use for text enhancement:</p>
+        @switch (screen()) {
+          @case ('welcome') {
+            <section data-testid="wizard-welcome" class="screen" aria-labelledby="welcome-title">
+              <div class="keys" role="img" [attr.aria-label]="'Shortcut: ' + shortcutKeys().join(' + ')">
+                @for (key of shortcutKeys(); track $index) {
+                  @if (!$first) { <span class="keys-plus" aria-hidden="true">+</span> }
+                  <kbd class="keycap" [class.trigger]="$last">{{ key }}</kbd>
                 }
-                <p-select
-                  [(ngModel)]="selectedProvider"
-                  [options]="providers"
-                  optionLabel="label"
-                  optionValue="value"
-                  placeholder="Select a provider"
+              </div>
+
+              <h1 id="welcome-title">Fix any text right where you wrote it.</h1>
+              <p class="lede">
+                Select text in any app and press <strong>{{ shortcutKeys().join('+') }}</strong>.
+                KeyLint corrects the grammar and spelling and puts the result back in place.
+              </p>
+              @if (doubleTap()) {
+                <p class="lede secondary">
+                  Press {{ triggerKey() }} twice instead to open Pyramidize, which restructures longer text.
+                </p>
+              }
+
+              <div class="actions">
+                <p-button
+                  data-testid="wizard-skip"
+                  label="Set up later"
+                  [text]="true"
+                  severity="secondary"
+                  [loading]="skipping()"
+                  (onClick)="skip()"
                 />
-                <div class="step-footer">
-                  <p-button data-testid="wizard-back" label="Back" severity="secondary" (onClick)="step = 1" />
-                  <p-button data-testid="wizard-next" label="Next" icon="pi pi-arrow-right" iconPos="right" (onClick)="step = usesClaudeCode ? 4 : 3" [disabled]="!selectedProvider" />
-                </div>
+                <p-button data-testid="wizard-next" label="Choose an AI" (onClick)="screen.set('provider')" />
               </div>
-            }
-            @case (3) {
-              <div data-testid="step-3-content">
-                <p>Enter your API key for <strong>{{ providerLabel }}</strong>:</p>
-                <input pInputText [(ngModel)]="apiKey" type="password" [placeholder]="apiKeyPlaceholder" style="width: 100%" />
-                <div class="step-footer">
-                  <p-button data-testid="wizard-back" label="Back" severity="secondary" (onClick)="step = 2" />
-                  <p-button data-testid="wizard-next" label="Next" icon="pi pi-arrow-right" iconPos="right" (onClick)="step = 4" [disabled]="!apiKey && selectedProvider !== 'ollama'" />
-                </div>
-              </div>
-            }
-            @case (4) {
-              <div data-testid="step-4-content">
-                <p>You're all set! Press <kbd>Ctrl+G</kbd> anywhere to enhance selected text.</p>
-                <div class="step-footer">
-                  <p-button data-testid="wizard-back" label="Back" severity="secondary" (onClick)="step = usesClaudeCode ? 2 : 3" />
-                  <p-button data-testid="wizard-finish" label="Start Using KeyLint" icon="pi pi-check" (onClick)="finish()" [loading]="finishing" />
-                </div>
-              </div>
-            }
+            </section>
           }
-        </div>
+
+          @case ('provider') {
+            <section data-testid="wizard-provider" class="screen" aria-labelledby="provider-title">
+              <h1 id="provider-title">Which AI should fix your text?</h1>
+              <p class="lede">You can change this any time under Settings › AI Providers.</p>
+
+              <div class="options" role="radiogroup" aria-labelledby="provider-title">
+                @for (p of providers; track p.value) {
+                  <div class="option" [class.selected]="selected() === p.value" [attr.data-testid]="'wizard-option-' + p.value">
+                    <label class="option-head">
+                      <input
+                        type="radio"
+                        name="provider"
+                        [value]="p.value"
+                        [checked]="selected() === p.value"
+                        [attr.data-testid]="'wizard-radio-' + p.value"
+                        (change)="choose(p.value)"
+                      />
+                      <span class="option-text">
+                        <span class="option-name">{{ p.label }}</span>
+                        <span class="option-blurb">{{ blurbs[p.value] }}</span>
+                      </span>
+                      <span class="option-status" [attr.data-testid]="'wizard-status-' + p.value">
+                        @if (p.value === 'claude-code') {
+                          @if (cli(); as status) {
+                            @let tag = cliTag(status);
+                            <p-tag [value]="tag.value" [severity]="tag.severity" />
+                          } @else {
+                            <span class="checking" data-testid="wizard-cli-checking">
+                              <i class="pi pi-spin pi-spinner" aria-hidden="true"></i> checking
+                            </span>
+                          }
+                        } @else if (keys()[p.value]; as status) {
+                          @if (status.is_set) {
+                            @let tag = keyTag(status);
+                            <p-tag [value]="tag.value" [severity]="tag.severity" />
+                          }
+                        }
+                      </span>
+                    </label>
+
+                    @if (selected() === p.value) {
+                      <div class="option-detail" [attr.data-testid]="'wizard-detail-' + p.value">
+                        @switch (p.value) {
+                          @case ('claude-code') {
+                            @if (!cli()) {
+                              <p class="note">Looking for the CLI on this computer…</p>
+                            } @else if (cliReady()) {
+                              <p class="note">KeyLint runs the CLI with your own login and never sees your credentials.</p>
+                            } @else {
+                              <p class="note" data-testid="wizard-cli-hint">
+                                @if (cli()!.installed) {
+                                  The CLI is installed but not signed in. Open a terminal, run <code>claude</code>, sign in, then check again.
+                                } @else {
+                                  The Claude Code CLI is not on this computer. Install it, sign in, then check again — or pick another option.
+                                }
+                              </p>
+                              <p-button
+                                data-testid="wizard-recheck"
+                                label="Check again"
+                                icon="pi pi-refresh"
+                                size="small"
+                                severity="secondary"
+                                [outlined]="true"
+                                [loading]="rechecking()"
+                                (onClick)="recheck()"
+                              />
+                            }
+                          }
+                          @case ('ollama') {
+                            <p class="note">Make sure Ollama is running. KeyLint looks for it at <code>localhost:11434</code>; a different address goes in Settings.</p>
+                          }
+                          @default {
+                            @if (keys()[p.value]?.source === 'env' && !replacing()) {
+                              <p class="note" data-testid="wizard-key-stored">
+                                Using the key from the <code>{{ envVar(p.value) }}</code> environment variable.
+                              </p>
+                            } @else if (keys()[p.value]?.is_set && !replacing()) {
+                              <p class="note" data-testid="wizard-key-stored">
+                                A key is already saved for {{ p.label }}.
+                                <button type="button" class="inline-action" data-testid="wizard-replace-key" (click)="replacing.set(true)">Replace it</button>
+                              </p>
+                            } @else {
+                              <label class="key-label" for="wizard-key">Paste your API key</label>
+                              <input
+                                pInputText
+                                id="wizard-key"
+                                data-testid="wizard-key-input"
+                                type="password"
+                                autocomplete="off"
+                                spellcheck="false"
+                                [placeholder]="keyPlaceholder(p.value)"
+                                [value]="apiKey()"
+                                (input)="apiKey.set($any($event.target).value)"
+                              />
+                              <p class="note">Saved in your system's keyring, never in a file.</p>
+                            }
+                          }
+                        }
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+
+              <div class="actions">
+                <p-button data-testid="wizard-back" label="Back" [text]="true" severity="secondary" (onClick)="screen.set('welcome')" />
+                <span class="actions-spacer"></span>
+                <p-button
+                  data-testid="wizard-skip"
+                  label="Set up later"
+                  [text]="true"
+                  severity="secondary"
+                  [loading]="skipping()"
+                  [disabled]="finishing()"
+                  (onClick)="skip()"
+                />
+                <p-button
+                  data-testid="wizard-finish"
+                  label="Start using KeyLint"
+                  [loading]="finishing()"
+                  [disabled]="!canFinish() || skipping()"
+                  (onClick)="finish()"
+                />
+              </div>
+            </section>
+          }
+        }
+
+        @if (error(); as message) {
+          <p-message data-testid="wizard-error" severity="error" size="small" styleClass="wizard-error">{{ message }}</p-message>
+        }
       </div>
-    </div>
+    </main>
   `,
   styles: [`
-    .wizard-wrapper {
-      display: flex;
-      align-items: center;
-      justify-content: center;
+    :host { display: block; }
+
+    .wizard {
       min-height: 100vh;
-      background: var(--p-surface-950, #09090b);
-    }
-    .wizard-card {
-      background: var(--p-surface-900, #18181b);
-      border: 1px solid var(--p-surface-700, #3f3f46);
-      border-radius: 12px;
-      padding: 2.5rem;
-      width: 520px;
-      color: var(--p-surface-100, #f4f4f5);
-    }
-    h1 { margin: 0 0 0.5rem; }
-    .brand { color: var(--p-primary-color, #f97316); }
-    .subtitle { color: var(--p-surface-400, #a1a1aa); margin-bottom: 2rem; }
-
-    .wizard-steps {
-      display: flex;
-      align-items: center;
-      margin-bottom: 2rem;
-    }
-    .wizard-step {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 4px;
-      flex-shrink: 0;
-    }
-    .step-circle {
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 0.875rem;
-      font-weight: 600;
-      border: 2px solid var(--p-surface-600, #52525b);
-      background: transparent;
-      color: var(--p-surface-400, #a1a1aa);
-      transition: all 0.2s;
+      padding: 2rem 1rem;
+      background: var(--p-surface-950, #09090b);
+      color: var(--p-text-color, #f4f4f5);
     }
-    .wizard-step.active .step-circle {
-      border-color: var(--p-primary-color, #f97316);
-      background: var(--p-primary-color, #f97316);
-      color: #fff;
+    .wizard-column {
+      width: 100%;
+      max-width: 34rem;
     }
-    .wizard-step.done .step-circle {
-      border-color: var(--p-primary-color, #f97316);
-      background: var(--p-primary-color, #f97316);
-      color: #fff;
-    }
-    .step-label {
-      font-size: 0.75rem;
-      color: var(--p-surface-400, #a1a1aa);
-      white-space: nowrap;
-    }
-    .wizard-step.active .step-label,
-    .wizard-step.done .step-label {
-      color: var(--p-primary-color, #f97316);
-    }
-    .step-line {
-      flex: 1;
-      height: 2px;
-      background: var(--p-surface-600, #52525b);
-      margin: 0 8px;
-      margin-bottom: 20px;
-      transition: background 0.2s;
-    }
-    .step-line.done {
-      background: var(--p-primary-color, #f97316);
+    .wordmark {
+      margin: 0 0 2.5rem;
+      font-weight: 700;
+      font-size: 1.05rem;
+      letter-spacing: -0.025em;
+      color: var(--p-text-muted-color, #a1a1aa);
     }
 
-    .wizard-content {
-      min-height: 140px;
+    h1 {
+      margin: 0 0 0.75rem;
+      font-size: 1.75rem;
+      line-height: 1.2;
+      font-weight: 650;
+      letter-spacing: -0.02em;
     }
-    .step-footer {
+    .lede {
+      margin: 0 0 0.75rem;
+      font-size: 1rem;
+      line-height: 1.55;
+      color: var(--p-text-color, #f4f4f5);
+      max-width: 32rem;
+    }
+    .lede.secondary { color: var(--p-text-muted-color, #a1a1aa); }
+
+    /* The shortcut is the product, so it is the picture: real keycaps. */
+    .keys {
       display: flex;
+      align-items: center;
       gap: 0.75rem;
-      margin-top: 1.5rem;
-      justify-content: flex-end;
+      margin-bottom: 2.25rem;
     }
-    .cli-option {
+    .keys-plus { color: var(--p-text-muted-color, #a1a1aa); font-size: 1.25rem; }
+    .keycap {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 4rem;
+      height: 4rem;
+      padding: 0 1.1rem;
+      border-radius: 0.75rem;
+      font-family: inherit;
+      font-size: 1.25rem;
+      font-weight: 600;
+      line-height: 1;
+      color: var(--p-text-color, #f4f4f5);
+      background: linear-gradient(180deg, var(--p-surface-800, #27272a), var(--p-surface-900, #18181b));
+      border: 1px solid var(--p-surface-600, #52525b);
+      box-shadow: 0 5px 0 var(--p-surface-700, #3f3f46), 0 8px 18px rgba(0, 0, 0, 0.45);
+      transform: translateY(0);
+    }
+    .keycap.trigger {
+      border-color: var(--p-primary-color, #f97316);
+      color: var(--p-primary-color, #f97316);
+      animation: press 1.4s ease-in-out 0.6s 1 both;
+    }
+    /* One press, once, when the screen opens: this is what the user will do. */
+    @keyframes press {
+      0%, 30%, 100% { transform: translateY(0); box-shadow: 0 5px 0 var(--p-surface-700, #3f3f46), 0 8px 18px rgba(0, 0, 0, 0.45); }
+      12% { transform: translateY(4px); box-shadow: 0 1px 0 var(--p-surface-700, #3f3f46), 0 2px 6px rgba(0, 0, 0, 0.45); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .keycap.trigger { animation: none; }
+    }
+
+    /* One list with dividers rather than a stack of cards: it is one choice. */
+    .options {
+      margin: 1.5rem 0 1rem;
+      border: 1px solid var(--p-surface-700, #3f3f46);
+      border-radius: 0.75rem;
+      overflow: hidden;
+      background: var(--p-surface-900, #18181b);
+    }
+    .option + .option { border-top: 1px solid var(--p-surface-800, #27272a); }
+    /* The same marker as the provider in use on Settings › AI Providers. */
+    .option.selected {
+      box-shadow: inset 3px 0 0 var(--p-primary-color, #f97316);
+      background: color-mix(in srgb, var(--p-primary-color, #f97316) 5%, var(--p-surface-900, #18181b));
+    }
+    .option-head {
       display: flex;
-      flex-direction: column;
-      gap: 2px;
-      width: 100%;
-      text-align: left;
-      padding: 0.75rem 1rem;
-      margin-bottom: 1rem;
-      border-radius: 8px;
-      border: 1px solid var(--p-primary-color, #f97316);
-      background: transparent;
-      color: var(--p-surface-100, #f4f4f5);
+      align-items: center;
+      gap: 0.85rem;
+      padding: 0.85rem 1rem;
       cursor: pointer;
     }
-    .cli-option:disabled {
-      border-color: var(--p-surface-600, #52525b);
-      color: var(--p-surface-400, #a1a1aa);
-      cursor: not-allowed;
+    .option-head input[type="radio"] {
+      flex: none;
+      width: 1.05rem;
+      height: 1.05rem;
+      margin: 0;
+      accent-color: var(--p-primary-color, #f97316);
     }
-    .cli-option-title { font-weight: 600; }
-    .cli-option-hint { font-size: 0.8rem; color: var(--p-surface-400, #a1a1aa); }
-    .or-divider {
+    .option-head input[type="radio"]:focus-visible {
+      outline: 2px solid var(--p-primary-color, #f97316);
+      outline-offset: 3px;
+    }
+    .option-text { flex: 1; display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+    .option-name { font-weight: 600; font-size: 0.95rem; }
+    .option-blurb { font-size: 0.85rem; line-height: 1.4; color: var(--p-text-muted-color, #a1a1aa); }
+    .option-status { flex: none; }
+    .checking { font-size: 0.8rem; color: var(--p-text-muted-color, #a1a1aa); white-space: nowrap; }
+
+    .option-detail {
+      padding: 0 1rem 1rem 2.9rem;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.6rem;
+    }
+    .option-detail input { width: 100%; }
+    .key-label { font-size: 0.85rem; font-weight: 600; }
+    .note {
+      margin: 0;
+      font-size: 0.85rem;
+      line-height: 1.5;
+      color: var(--p-text-muted-color, #a1a1aa);
+    }
+    code {
       font-size: 0.8rem;
-      color: var(--p-surface-400, #a1a1aa);
-      margin: 0 0 0.5rem;
-    }
-    kbd {
-      background: var(--p-surface-800, #27272a);
-      padding: 2px 6px;
+      padding: 0.05rem 0.3rem;
       border-radius: 4px;
-      font-family: monospace;
+      background: var(--p-surface-800, #27272a);
+    }
+    .inline-action {
+      background: none;
+      border: 0;
+      padding: 0;
+      font: inherit;
+      color: var(--p-primary-color, #f97316);
+      cursor: pointer;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .inline-action:focus-visible { outline: 2px solid var(--p-primary-color, #f97316); outline-offset: 2px; }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0.5rem;
+      margin-top: 2rem;
+      flex-wrap: wrap;
+    }
+    .actions-spacer { flex: 1; }
+    :host ::ng-deep .wizard-error { margin-top: 1rem; }
+
+    @media (max-width: 480px) {
+      h1 { font-size: 1.45rem; }
+      .keycap { min-width: 3.25rem; height: 3.25rem; }
+      .option-detail { padding-left: 1rem; }
     }
   `],
 })
 export class WelcomeWizardComponent implements OnInit {
-  step = 1;
-  selectedProvider = 'openai';
-  apiKey = '';
-  finishing = false;
-  /** Null until detection finishes; the CLI option only appears once known. */
-  claudeCode: ClaudeCodeStatus | null = null;
+  readonly providers = PROVIDER_OPTIONS;
+  readonly blurbs = PROVIDER_BLURBS;
+  readonly cliTag = cliTag;
+  readonly keyTag = keyTag;
+  readonly keyPlaceholder = keyPlaceholder;
 
-  readonly stepDefs = [
-    { value: 1, label: 'Welcome' },
-    { value: 2, label: 'AI Provider' },
-    { value: 3, label: 'API Key' },
-    { value: 4, label: 'Done' },
-  ];
+  readonly screen = signal<Screen>('welcome');
+  /** The provider picked, or null while nothing is. */
+  readonly selected = signal<string | null>(null);
+  /** Null while detection runs: the option shows "checking", it does not vanish. */
+  readonly cli = signal<ClaudeCodeStatus | null>(null);
+  readonly keys = signal<Record<string, KeyStatus | undefined>>({});
+  readonly settings = signal<Settings | null>(null);
+  readonly apiKey = signal('');
+  /** The user asked to replace a key that is already stored. */
+  readonly replacing = signal(false);
+  readonly rechecking = signal(false);
+  readonly finishing = signal(false);
+  readonly skipping = signal(false);
+  readonly error = signal<string | null>(null);
 
-  readonly providers = [
-    { label: 'OpenAI (GPT)', value: 'openai' },
-    { label: 'Anthropic Claude', value: 'claude' },
-    { label: 'Ollama (local, free)', value: 'ollama' },
-  ];
+  /** Once the user picks something, the defaults stop moving the selection. */
+  private userPicked = false;
+
+  readonly cliReady = computed(() => !!this.cli()?.installed && !!this.cli()?.loggedIn);
+
+  readonly shortcutKeys = computed(() => {
+    const combo = this.settings()?.shortcut_fix || 'ctrl+g';
+    return combo.split('+').filter(Boolean).map(formatKey);
+  });
+  readonly triggerKey = computed(() => this.shortcutKeys().at(-1) ?? 'G');
+  readonly doubleTap = computed(() => (this.settings()?.shortcut_mode ?? 'double_tap') === 'double_tap');
+
+  /**
+   * Whether "Start using KeyLint" can go: something is picked, and a provider
+   * that needs a key has one — stored, from the environment, or typed. Never a
+   * dead end: "Set up later" is always next to it.
+   */
+  readonly canFinish = computed(() => {
+    const p = this.selected();
+    if (!p) return false;
+    if (!isKeyProvider(p)) return true;
+    if (this.apiKey().trim()) return true;
+    return !!this.keys()[p]?.is_set && !this.replacing();
+  });
 
   constructor(
     private readonly wails: WailsService,
     private readonly router: Router,
-    private readonly cdr: ChangeDetectorRef,
   ) {}
 
-  async ngOnInit(): Promise<void> {
-    const isFirst = await this.wails.isFirstRun();
-    if (!isFirst) {
-      await this.router.navigate(['/']);
-      return;
+  ngOnInit(): void {
+    // Independent, so a slow CLI probe cannot hold up the keys or the
+    // shortcut on the first screen.
+    void this.wails.loadSettings().then(s => { this.settings.set(s); this.applyDefault(); }).catch(() => {});
+    void Promise.all(
+      ['openai', 'claude'].map(async p => [p, await this.wails.getKeyStatus(p)] as const),
+    ).then(entries => { this.keys.set(Object.fromEntries(entries)); this.applyDefault(); }).catch(() => {});
+    void this.wails.getClaudeCodeStatus().then(st => { this.cli.set(st); this.applyDefault(); }).catch(() => {});
+  }
+
+  choose(provider: string): void {
+    this.userPicked = true;
+    if (provider !== this.selected()) {
+      this.apiKey.set('');
+      this.replacing.set(false);
     }
-    this.claudeCode = await this.wails.getClaudeCodeStatus();
-    // The app is zoneless: without this the option never appears, because
-    // nothing else triggers change detection after detection finishes.
-    this.cdr.detectChanges();
+    this.selected.set(provider);
+    this.error.set(null);
   }
 
-  /** True when the CLI can be used right now — installed and already signed in. */
-  get claudeCodeReady(): boolean {
-    return !!this.claudeCode?.installed && !!this.claudeCode?.loggedIn;
+  /**
+   * Preselects what already works: the saved provider if it can run, then a
+   * signed-in CLI, then a provider with a stored key. Nothing at all when
+   * nothing works — the user picks; OpenAI is not assumed.
+   */
+  private applyDefault(): void {
+    if (this.userPicked) return;
+    this.selected.set(this.defaultProvider());
   }
 
-  get usesClaudeCode(): boolean {
-    return this.selectedProvider === 'claude-code';
-  }
-
-  get claudeCodeHint(): string {
-    if (!this.claudeCode?.installed) {
-      return 'Not found on this machine.';
+  private defaultProvider(): string | null {
+    const keys = this.keys();
+    const saved = this.settings()?.active_provider;
+    if (saved) {
+      if (isKeyProvider(saved) && keys[saved]?.is_set) return saved;
+      if (saved === 'claude-code' && this.cliReady()) return saved;
+      if (saved === 'ollama') return saved;
     }
-    if (!this.claudeCode.loggedIn) {
-      return 'Installed but not signed in. Open a terminal, run `claude`, and sign in.';
-    }
-    return 'Signed in — uses your own subscription, no API key needed.';
+    if (this.cliReady()) return 'claude-code';
+    return ['openai', 'claude'].find(p => keys[p]?.is_set) ?? null;
   }
 
-  /** One-click path: pick the CLI and skip the API key step entirely. */
-  useClaudeCode(): void {
-    if (!this.claudeCodeReady) return;
-    this.selectedProvider = 'claude-code';
-    this.apiKey = '';
-    this.step = 4;
+  envVar(provider: string): string {
+    return ENV_KEY_VARS[provider] ?? '';
   }
 
-  get providerLabel(): string {
-    if (this.usesClaudeCode) return 'Claude Code (installed CLI)';
-    return this.providers.find(p => p.value === this.selectedProvider)?.label ?? '';
-  }
-
-  get apiKeyPlaceholder(): string {
-    switch (this.selectedProvider) {
-      case 'openai': return 'sk-…';
-      case 'claude': return 'sk-ant-…';
-      case 'claude-code': return 'No key required — you are signed in to the CLI';
-      default: return 'No key required for Ollama';
+  async recheck(): Promise<void> {
+    this.rechecking.set(true);
+    try {
+      this.cli.set(await this.wails.getClaudeCodeStatus(true));
+    } finally {
+      this.rechecking.set(false);
     }
   }
 
   async finish(): Promise<void> {
-    this.finishing = true;
+    const provider = this.selected();
+    if (!provider || !this.canFinish()) return;
+    this.finishing.set(true);
+    this.error.set(null);
     try {
-      const settings = await this.wails.loadSettings();
-      settings.active_provider = this.selectedProvider;
-      await this.wails.saveSettings(settings);
-      // Store API key securely in the OS keyring (not in settings.json)
-      if (this.apiKey && this.selectedProvider !== 'ollama' && this.selectedProvider !== 'claude-code') {
-        await this.wails.setKey(this.selectedProvider, this.apiKey);
+      // The one field, not a whole Settings object: a save of everything would
+      // write back whatever this screen happened to load.
+      await this.wails.setActiveProvider(provider);
+      const key = this.apiKey().trim();
+      if (key && isKeyProvider(provider)) {
+        await this.wails.setKey(provider, key);
+        // setKey swallows a keyring failure; asking afterwards is how it shows.
+        const status = await this.wails.getKeyStatus(provider);
+        if (!status.is_set) {
+          throw new Error('the key could not be saved to your system keyring');
+        }
+        this.keys.update(k => ({ ...k, [provider]: status }));
+        this.apiKey.set('');
+        this.replacing.set(false);
       }
       await this.wails.completeSetup();
       await this.router.navigate(['/']);
+    } catch (err) {
+      this.error.set(`Could not save your choice: ${describe(err)}. Try again, or set it up later.`);
     } finally {
-      this.finishing = false;
+      this.finishing.set(false);
     }
   }
+
+  /** Leaves setup without choosing anything; Settings › AI Providers has it all. */
+  async skip(): Promise<void> {
+    this.skipping.set(true);
+    this.error.set(null);
+    try {
+      await this.wails.completeSetup();
+      await this.router.navigate(['/']);
+    } catch (err) {
+      this.error.set(`Could not close setup: ${describe(err)}.`);
+    } finally {
+      this.skipping.set(false);
+    }
+  }
+}
+
+/** "ctrl" → "Ctrl", "g" → "G". */
+function formatKey(key: string): string {
+  const k = key.trim();
+  return k.length === 1 ? k.toUpperCase() : k.charAt(0).toUpperCase() + k.slice(1);
+}
+
+function describe(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return typeof err === 'string' && err ? err : 'unknown error';
 }

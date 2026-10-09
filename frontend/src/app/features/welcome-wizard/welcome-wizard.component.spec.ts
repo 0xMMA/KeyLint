@@ -1,406 +1,289 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { TestBed } from '@angular/core/testing';
-import { ComponentFixture } from '@angular/core/testing';
-import { Router } from '@angular/router';
-import { provideRouter } from '@angular/router';
+import { TestBed, ComponentFixture } from '@angular/core/testing';
+import { Router, provideRouter } from '@angular/router';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { WelcomeWizardComponent } from './welcome-wizard.component';
-import { WailsService, ClaudeCodeStatus } from '../../core/wails.service';
-import { createWailsMock, defaultSettings, defaultClaudeCodeStatus } from '../../../testing/wails-mock';
+import { WailsService, ClaudeCodeStatus, KeyStatus, Settings } from '../../core/wails.service';
+import { createWailsMock, defaultSettings, defaultClaudeCodeStatus, WailsMock } from '../../../testing/wails-mock';
+
+const SIGNED_IN: ClaudeCodeStatus = { installed: true, path: '/usr/local/bin/claude', version: '2.1.0', loggedIn: true };
+const SIGNED_OUT: ClaudeCodeStatus = { ...SIGNED_IN, loggedIn: false };
+
+interface Setup {
+  cli?: ClaudeCodeStatus | Promise<ClaudeCodeStatus>;
+  keys?: Partial<Record<string, KeyStatus>>;
+  settings?: Partial<Settings>;
+}
 
 describe('WelcomeWizardComponent', () => {
   let fixture: ComponentFixture<WelcomeWizardComponent>;
-  let component: WelcomeWizardComponent;
   let el: HTMLElement;
-  let wailsMock: ReturnType<typeof createWailsMock>;
+  let wails: WailsMock;
   let router: Router;
 
-  beforeEach(async () => {
-    wailsMock = createWailsMock();
-    wailsMock.isFirstRun.mockResolvedValue(true);
+  async function render(setup: Setup = {}): Promise<void> {
+    wails = createWailsMock();
+    wails.loadSettings.mockResolvedValue({ ...defaultSettings, ...setup.settings });
+    wails.getKeyStatus.mockImplementation(async (p: string) => setup.keys?.[p] ?? { is_set: false, source: 'none' });
+    if (setup.cli instanceof Promise) {
+      wails.getClaudeCodeStatus.mockReturnValue(setup.cli);
+    } else {
+      wails.getClaudeCodeStatus.mockResolvedValue(setup.cli ?? { ...defaultClaudeCodeStatus });
+    }
 
+    TestBed.resetTestingModule();
     await TestBed.configureTestingModule({
       imports: [WelcomeWizardComponent],
       providers: [
-        provideRouter([{ path: 'enhance', component: WelcomeWizardComponent }]),
+        provideRouter([]),
         provideAnimationsAsync(),
-        { provide: WailsService, useValue: wailsMock },
+        { provide: WailsService, useValue: wails },
       ],
     }).compileComponents();
 
     router = TestBed.inject(Router);
-    fixture = TestBed.createComponent(WelcomeWizardComponent);
-    component = fixture.componentInstance;
-    el = fixture.nativeElement;
-    fixture.detectChanges();
-    await fixture.whenStable();
-  });
-
-  // Click the native button inside a p-button with a given data-testid.
-  async function clickBtn(testid: string): Promise<void> {
-    const btn = el.querySelector<HTMLButtonElement>(`[data-testid="${testid}"] button`);
-    if (!btn) throw new Error(`Button [data-testid="${testid}"] button not found`);
-    btn.click();
-    fixture.detectChanges();
-    await fixture.whenStable();
-  }
-
-  // Navigate from step 1 to the target step via button clicks.
-  async function goToStep(target: number): Promise<void> {
-    for (let s = 1; s < target; s++) {
-      await clickBtn('wizard-next');
-    }
-  }
-
-  // --- DOM tests ---
-
-  it('shows step 1 content initially', () => {
-    expect(el.querySelector('[data-testid="step-1-content"]')).toBeTruthy();
-    expect(el.querySelector('[data-testid="step-2-content"]')).toBeFalsy();
-    expect(el.querySelector('[data-testid="step-3-content"]')).toBeFalsy();
-    expect(el.querySelector('[data-testid="step-4-content"]')).toBeFalsy();
-  });
-
-  it('shows step 2 content after clicking Get Started', async () => {
-    await clickBtn('wizard-next');
-    expect(el.querySelector('[data-testid="step-2-content"]')).toBeTruthy();
-    expect(el.querySelector('[data-testid="step-1-content"]')).toBeFalsy();
-  });
-
-  it('shows step 3 content after clicking Next twice', async () => {
-    await goToStep(3);
-    expect(el.querySelector('[data-testid="step-3-content"]')).toBeTruthy();
-    expect(el.querySelector('[data-testid="step-2-content"]')).toBeFalsy();
-  });
-
-  it('goes back to step 1 from step 2 via Back button', async () => {
-    await clickBtn('wizard-next'); // → step 2
-    await clickBtn('wizard-back'); // → step 1
-    expect(el.querySelector('[data-testid="step-1-content"]')).toBeTruthy();
-    expect(el.querySelector('[data-testid="step-2-content"]')).toBeFalsy();
-  });
-
-  it('shows step 4 content with a Finish button', async () => {
-    await clickBtn('wizard-next'); // → step 2
-    await clickBtn('wizard-next'); // → step 3
-    // Set key so the step-3 Next button is enabled
-    component.apiKey = 'sk-test';
-    fixture.detectChanges();
-    await fixture.whenStable();
-    await clickBtn('wizard-next'); // → step 4
-    expect(el.querySelector('[data-testid="step-4-content"]')).toBeTruthy();
-    expect(el.querySelector('[data-testid="wizard-finish"]')).toBeTruthy();
-  });
-
-  it('step 3 Next button is disabled when API key is blank and provider is not ollama', async () => {
-    await goToStep(3);
-    // apiKey is '' and selectedProvider is 'openai' by default
-    const btn = el.querySelector<HTMLButtonElement>('[data-testid="wizard-next"] button');
-    expect(btn?.disabled).toBe(true);
-  });
-
-  it('step 3 Next button is enabled for ollama without API key', async () => {
-    component.selectedProvider = 'ollama';
-    fixture.detectChanges();
-    await fixture.whenStable();
-    await goToStep(3);
-    const btn = el.querySelector<HTMLButtonElement>('[data-testid="wizard-next"] button');
-    expect(btn?.disabled).toBe(false);
-  });
-
-  // --- Logic tests ---
-
-  it('creates successfully', () => {
-    expect(component).toBeTruthy();
-  });
-
-  it('starts on step 1', () => {
-    expect(component.step).toBe(1);
-  });
-
-  it('redirects away when not first run', async () => {
-    wailsMock.isFirstRun.mockResolvedValue(false);
-    const navSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
-    await component.ngOnInit();
-    expect(navSpy).toHaveBeenCalledWith(['/']);
-  });
-
-  it('does not redirect when first run', async () => {
-    wailsMock.isFirstRun.mockResolvedValue(true);
-    const navSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
-    await component.ngOnInit();
-    expect(navSpy).not.toHaveBeenCalled();
-  });
-
-  it('returns correct providerLabel', () => {
-    component.selectedProvider = 'claude';
-    expect(component.providerLabel).toBe('Anthropic Claude');
-  });
-
-  it('returns correct apiKeyPlaceholder for ollama', () => {
-    component.selectedProvider = 'ollama';
-    expect(component.apiKeyPlaceholder).toBe('No key required for Ollama');
-  });
-
-  it('finish() saves settings, completes setup, and navigates', async () => {
-    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings });
-    const navSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
-    component.selectedProvider = 'openai';
-    component.apiKey = 'sk-abc123';
-    await component.finish();
-    expect(wailsMock.saveSettings).toHaveBeenCalled();
-    expect(wailsMock.completeSetup).toHaveBeenCalled();
-    expect(navSpy).toHaveBeenCalledWith(['/']);
-  });
-
-  it('finish() stores API key in keyring (not in settings)', async () => {
-    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings });
     vi.spyOn(router, 'navigate').mockResolvedValue(true);
-    component.selectedProvider = 'openai';
-    component.apiKey = 'sk-test-key';
-    await component.finish();
-    expect(wailsMock.setKey).toHaveBeenCalledWith('openai', 'sk-test-key');
-    // key must NOT be in saved settings
-    const saved = wailsMock.saveSettings.mock.calls[0][0];
-    expect(saved.providers?.openai_key).toBeUndefined();
-  });
-
-  it('finish() resets finishing flag after completion', async () => {
-    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings });
-    vi.spyOn(router, 'navigate').mockResolvedValue(true);
-    await component.finish();
-    expect(component.finishing).toBe(false);
-  });
-});
-
-describe('WelcomeWizardComponent — Claude Code fast path', () => {
-  let fixture: ComponentFixture<WelcomeWizardComponent>;
-  let component: WelcomeWizardComponent;
-  let el: HTMLElement;
-  let wailsMock: ReturnType<typeof createWailsMock>;
-
-  // Renders the wizard on the provider step with a given detection result.
-  async function renderStep2(status: Partial<ClaudeCodeStatus>): Promise<void> {
-    wailsMock = createWailsMock();
-    wailsMock.isFirstRun.mockResolvedValue(true);
-    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings });
-    wailsMock.getClaudeCodeStatus.mockResolvedValue({ ...defaultClaudeCodeStatus, ...status });
-
-    await TestBed.configureTestingModule({
-      imports: [WelcomeWizardComponent],
-      providers: [
-        provideRouter([{ path: 'enhance', component: WelcomeWizardComponent }]),
-        provideAnimationsAsync(),
-        { provide: WailsService, useValue: wailsMock },
-      ],
-    }).compileComponents();
-
     fixture = TestBed.createComponent(WelcomeWizardComponent);
-    component = fixture.componentInstance;
-    // Pre-set async state: letting it land mid-render trips NG0100.
-    component.claudeCode = { ...defaultClaudeCodeStatus, ...status };
-    component.step = 2;
     el = fixture.nativeElement;
-    fixture.detectChanges();
-    await fixture.whenStable();
+    await settle();
   }
 
-  beforeEach(() => {
-    TestBed.resetTestingModule();
-  });
+  async function settle(): Promise<void> {
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
 
-  function cliOption(): HTMLButtonElement {
-    const btn = el.querySelector<HTMLButtonElement>('[data-testid="wizard-claude-code"]');
-    if (!btn) throw new Error('Claude Code option not rendered');
+  const q = (testid: string) => el.querySelector<HTMLElement>(`[data-testid="${testid}"]`);
+
+  async function click(testid: string): Promise<void> {
+    const host = q(testid);
+    if (!host) throw new Error(`[data-testid="${testid}"] not found`);
+    (host.querySelector('button') ?? host).click();
+    await settle();
+  }
+
+  function finishButton(): HTMLButtonElement {
+    const btn = q('wizard-finish')?.querySelector('button');
+    if (!btn) throw new Error('finish button not rendered');
     return btn;
   }
 
-  function hint(): string {
-    return el.querySelector('[data-testid="wizard-claude-code-hint"]')?.textContent?.trim() ?? '';
+  function radio(provider: string): HTMLInputElement {
+    return q(`wizard-radio-${provider}`) as HTMLInputElement;
   }
 
-  it('offers a signed-in CLI as a one-click option', async () => {
-    await renderStep2({ installed: true, loggedIn: true, path: '/usr/local/bin/claude', version: '2.1.274' });
-
-    expect(cliOption().disabled).toBe(false);
-    expect(cliOption().textContent).toContain('Use Claude Code (installed CLI)');
-    expect(hint()).toContain('no API key needed');
-  });
-
-  it('skips the API key step when the CLI is chosen', async () => {
-    await renderStep2({ installed: true, loggedIn: true, path: '/usr/local/bin/claude' });
-
-    cliOption().click();
-    fixture.detectChanges();
-    await fixture.whenStable();
-
-    expect(el.querySelector('[data-testid="step-4-content"]')).not.toBeNull();
-    expect(el.querySelector('[data-testid="step-3-content"]')).toBeNull();
-    expect(component.selectedProvider).toBe('claude-code');
-  });
-
-  it('saves the CLI as the provider without storing any key', async () => {
-    await renderStep2({ installed: true, loggedIn: true, path: '/usr/local/bin/claude' });
-
-    cliOption().click();
-    fixture.detectChanges();
-    await fixture.whenStable();
-
-    await component.finish();
-
-    expect(wailsMock.saveSettings).toHaveBeenCalledWith(
-      expect.objectContaining({ active_provider: 'claude-code' }),
-    );
-    // The user signed in through Anthropic's own flow; KeyLint holds no credential.
-    expect(wailsMock.setKey).not.toHaveBeenCalled();
-    expect(wailsMock.completeSetup).toHaveBeenCalled();
-  });
-
-  it('disables the option when the CLI is installed but signed out', async () => {
-    await renderStep2({ installed: true, loggedIn: false, path: '/usr/local/bin/claude' });
-
-    expect(cliOption().disabled).toBe(true);
-    expect(hint()).toContain('not signed in');
-    expect(hint()).toContain('sign in');
-  });
-
-  it('disables the option when the CLI is not installed', async () => {
-    await renderStep2({ installed: false });
-
-    expect(cliOption().disabled).toBe(true);
-    expect(hint()).toContain('Not found on this machine');
-  });
-
-  it('keeps the API key providers available alongside the CLI', async () => {
-    await renderStep2({ installed: true, loggedIn: true });
-
-    expect(el.querySelector('p-select')).not.toBeNull();
-    expect(component.providers.map(p => p.value)).toContain('openai');
-  });
-
-  it('goes back to the provider step from the finish step on the CLI path', async () => {
-    await renderStep2({ installed: true, loggedIn: true });
-
-    cliOption().click();
-    fixture.detectChanges();
-    await fixture.whenStable();
-
-    const back = el.querySelector<HTMLButtonElement>('[data-testid="wizard-back"] button');
-    back!.click();
-    fixture.detectChanges();
-    await fixture.whenStable();
-
-    expect(el.querySelector('[data-testid="step-2-content"]')).not.toBeNull();
-  });
-});
-
-describe('WelcomeWizardComponent — Claude Code detection reaches the screen', () => {
-  let fixture: ComponentFixture<WelcomeWizardComponent>;
-  let el: HTMLElement;
-  let wailsMock: ReturnType<typeof createWailsMock>;
-
-  // Renders from step 1 and lets ngOnInit do the detection itself — no
-  // pre-setting, because the point is whether the option ever becomes visible.
-  // The app is zoneless, so a component that assigns after an await without
-  // asking for change detection renders nothing.
-  async function renderFromStart(status: Partial<ClaudeCodeStatus>): Promise<void> {
-    wailsMock = createWailsMock();
-    wailsMock.isFirstRun.mockResolvedValue(true);
-    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings });
-    wailsMock.getClaudeCodeStatus.mockResolvedValue({ ...defaultClaudeCodeStatus, ...status });
-
-    await TestBed.configureTestingModule({
-      imports: [WelcomeWizardComponent],
-      providers: [
-        provideRouter([{ path: 'enhance', component: WelcomeWizardComponent }]),
-        provideAnimationsAsync(),
-        { provide: WailsService, useValue: wailsMock },
-      ],
-    }).compileComponents();
-
-    fixture = TestBed.createComponent(WelcomeWizardComponent);
-    el = fixture.nativeElement;
-    fixture.detectChanges();
-    await fixture.whenStable();
+  async function pick(provider: string): Promise<void> {
+    const input = radio(provider);
+    input.checked = true;
+    input.dispatchEvent(new Event('change'));
+    await settle();
   }
 
-  beforeEach(() => {
-    TestBed.resetTestingModule();
+  async function toProviders(): Promise<void> {
+    await click('wizard-next');
+  }
+
+  describe('welcome screen', () => {
+    beforeEach(async () => render());
+
+    it('opens on what KeyLint does, with the shortcut as keycaps', () => {
+      expect(q('wizard-welcome')).toBeTruthy();
+      const caps = [...el.querySelectorAll('.keycap')].map(k => k.textContent?.trim());
+      expect(caps).toEqual(['Ctrl', 'G']);
+    });
+
+    it('moves on to the provider choice', async () => {
+      await toProviders();
+      expect(q('wizard-provider')).toBeTruthy();
+      expect(q('wizard-welcome')).toBeFalsy();
+    });
+
+    it('lets the user skip setup straight from the first screen', async () => {
+      await click('wizard-skip');
+      expect(wails.completeSetup).toHaveBeenCalled();
+      expect(router.navigate).toHaveBeenCalledWith(['/']);
+      expect(wails.setActiveProvider).not.toHaveBeenCalled();
+    });
   });
 
-  it('asks the backend whether the CLI is available', async () => {
-    await renderFromStart({ installed: true, loggedIn: true });
+  describe('provider choice', () => {
+    it('offers the CLI as a normal option, preselected when signed in, with no key field', async () => {
+      await render({ cli: SIGNED_IN });
+      await toProviders();
 
-    expect(wailsMock.getClaudeCodeStatus).toHaveBeenCalled();
-  });
+      expect(radio('claude-code').checked).toBe(true);
+      expect(q('wizard-status-claude-code')?.textContent).toContain('signed in');
+      expect(q('wizard-key-input')).toBeFalsy();
+      expect(finishButton().disabled).toBe(false);
 
-  it('shows the option when detection finishes after the user moved on', async () => {
-    // The realistic Windows case: detection goes through the claude.cmd shim
-    // and takes seconds, so it lands after the user clicked past step 1.
-    //
-    // This pins the behaviour, not the mechanism: TestBed's whenStable() runs a
-    // change-detection pass that production does not, so the test still passes
-    // if the component drops its own detectChanges(). The app is zoneless, so
-    // in the real app that assignment would render nothing until the user
-    // happened to click something else.
-    let resolveStatus: (s: ClaudeCodeStatus) => void = () => {};
-    wailsMock = createWailsMock();
-    wailsMock.isFirstRun.mockResolvedValue(true);
-    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings });
-    wailsMock.getClaudeCodeStatus.mockReturnValue(
-      new Promise<ClaudeCodeStatus>(resolve => { resolveStatus = resolve; }),
-    );
+      await click('wizard-finish');
+      expect(wails.setActiveProvider).toHaveBeenCalledWith('claude-code');
+      expect(wails.setKey).not.toHaveBeenCalled();
+      expect(wails.completeSetup).toHaveBeenCalled();
+      expect(router.navigate).toHaveBeenCalledWith(['/']);
+    });
 
-    await TestBed.configureTestingModule({
-      imports: [WelcomeWizardComponent],
-      providers: [
-        provideRouter([{ path: 'enhance', component: WelcomeWizardComponent }]),
-        provideAnimationsAsync(),
-        { provide: WailsService, useValue: wailsMock },
-      ],
-    }).compileComponents();
+    it('shows the CLI option as checking while detection runs, then updates it', async () => {
+      let release!: (s: ClaudeCodeStatus) => void;
+      await render({ cli: new Promise(r => { release = r; }) });
+      await toProviders();
 
-    fixture = TestBed.createComponent(WelcomeWizardComponent);
-    el = fixture.nativeElement;
-    fixture.detectChanges();
-    await fixture.whenStable();
+      expect(q('wizard-option-claude-code')).toBeTruthy();
+      expect(q('wizard-cli-checking')).toBeTruthy();
+      expect(radio('claude-code').checked).toBe(false);
 
-    el.querySelector<HTMLButtonElement>('[data-testid="wizard-next"] button')!.click();
-    fixture.detectChanges();
-    await fixture.whenStable();
-    expect(el.querySelector('[data-testid="wizard-claude-code"]')).toBeNull();
+      release(SIGNED_IN);
+      await settle();
+      expect(q('wizard-cli-checking')).toBeFalsy();
+      expect(radio('claude-code').checked).toBe(true);
+    });
 
-    resolveStatus({ ...defaultClaudeCodeStatus, installed: true, loggedIn: true, path: '/usr/local/bin/claude' });
-    await fixture.whenStable();
+    it('does not move a selection the user made when detection lands later', async () => {
+      let release!: (s: ClaudeCodeStatus) => void;
+      await render({ cli: new Promise(r => { release = r; }) });
+      await toProviders();
+      await pick('ollama');
 
-    const option = el.querySelector<HTMLButtonElement>('[data-testid="wizard-claude-code"]');
-    expect(option).not.toBeNull();
-    expect(option!.disabled).toBe(false);
-  });
+      release(SIGNED_IN);
+      await settle();
+      expect(radio('ollama').checked).toBe(true);
+    });
 
-  it('leaves no dead end: Next after choosing the CLI skips the key step', async () => {
-    await renderFromStart({ installed: true, loggedIn: true, path: '/usr/local/bin/claude' });
+    it('preselects nothing when nothing works — OpenAI is not assumed', async () => {
+      await render();
+      await toProviders();
+      for (const p of ['openai', 'claude', 'claude-code', 'ollama']) {
+        expect(radio(p).checked, p).toBe(false);
+      }
+      expect(finishButton().disabled).toBe(true);
+      // ...and Set up later is still right there.
+      expect(q('wizard-skip')?.querySelector('button')?.disabled).toBe(false);
+    });
 
-    // Step 1 → 2, pick the CLI, then Back to 2 and forward again with Next.
-    el.querySelector<HTMLButtonElement>('[data-testid="wizard-next"] button')!.click();
-    fixture.detectChanges();
-    await fixture.whenStable();
+    it('preselects the saved provider when it works', async () => {
+      await render({
+        cli: SIGNED_IN,
+        settings: { active_provider: 'claude' },
+        keys: { claude: { is_set: true, source: 'keyring' } },
+      });
+      await toProviders();
+      expect(radio('claude').checked).toBe(true);
+    });
 
-    el.querySelector<HTMLButtonElement>('[data-testid="wizard-claude-code"]')!.click();
-    fixture.detectChanges();
-    await fixture.whenStable();
+    it('preselects a provider with a stored key when the CLI is absent', async () => {
+      await render({ keys: { claude: { is_set: true, source: 'keyring' } } });
+      await toProviders();
+      expect(radio('claude').checked).toBe(true);
+    });
 
-    el.querySelector<HTMLButtonElement>('[data-testid="wizard-back"] button')!.click();
-    fixture.detectChanges();
-    await fixture.whenStable();
-    expect(el.querySelector('[data-testid="step-2-content"]')).not.toBeNull();
+    it('says a stored key is there and lets the user through without typing it', async () => {
+      await render({ keys: { claude: { is_set: true, source: 'keyring' } } });
+      await toProviders();
 
-    el.querySelector<HTMLButtonElement>('[data-testid="wizard-next"] button')!.click();
-    fixture.detectChanges();
-    await fixture.whenStable();
+      expect(q('wizard-key-stored')?.textContent).toContain('already saved');
+      expect(q('wizard-key-input')).toBeFalsy();
+      expect(finishButton().disabled).toBe(false);
 
-    // Step 3 would ask for an API key the CLI does not need, with Next disabled.
-    expect(el.querySelector('[data-testid="step-3-content"]')).toBeNull();
-    expect(el.querySelector('[data-testid="step-4-content"]')).not.toBeNull();
+      await click('wizard-finish');
+      expect(wails.setActiveProvider).toHaveBeenCalledWith('claude');
+      expect(wails.setKey).not.toHaveBeenCalled();
+      expect(wails.completeSetup).toHaveBeenCalled();
+    });
+
+    it('names the environment variable when the key comes from there', async () => {
+      await render({ keys: { openai: { is_set: true, source: 'env' } } });
+      await toProviders();
+      expect(q('wizard-key-stored')?.textContent).toContain('OPENAI_API_KEY');
+      expect(q('wizard-replace-key')).toBeFalsy();
+    });
+
+    it('offers to replace a stored key', async () => {
+      await render({ keys: { claude: { is_set: true, source: 'keyring' } } });
+      await toProviders();
+      await click('wizard-replace-key');
+      expect(q('wizard-key-input')).toBeTruthy();
+    });
+
+    it('asks for a key when none is stored, and saves the typed one to the keyring', async () => {
+      await render();
+      await toProviders();
+      await pick('openai');
+      expect(finishButton().disabled).toBe(true);
+
+      const input = q('wizard-key-input') as HTMLInputElement;
+      input.value = 'sk-test';
+      input.dispatchEvent(new Event('input'));
+      await settle();
+      expect(finishButton().disabled).toBe(false);
+
+      wails.getKeyStatus.mockResolvedValue({ is_set: true, source: 'keyring' });
+      await click('wizard-finish');
+      expect(wails.setActiveProvider).toHaveBeenCalledWith('openai');
+      expect(wails.setKey).toHaveBeenCalledWith('openai', 'sk-test');
+      expect(wails.completeSetup).toHaveBeenCalled();
+    });
+
+    it('does not finish when the keyring refused the key, and says so', async () => {
+      await render();
+      await toProviders();
+      await pick('openai');
+      const input = q('wizard-key-input') as HTMLInputElement;
+      input.value = 'sk-test';
+      input.dispatchEvent(new Event('input'));
+      await settle();
+
+      await click('wizard-finish');
+      await settle(); // three awaits deep: save, key, status
+      expect(wails.completeSetup).not.toHaveBeenCalled();
+      expect(q('wizard-error')?.textContent).toContain('keyring');
+    });
+
+    it('needs no key for Ollama', async () => {
+      await render();
+      await toProviders();
+      await pick('ollama');
+      expect(q('wizard-key-input')).toBeFalsy();
+      expect(finishButton().disabled).toBe(false);
+    });
+
+    it('explains a signed-out CLI and checks again on request', async () => {
+      await render({ cli: SIGNED_OUT });
+      await toProviders();
+      await pick('claude-code');
+      expect(q('wizard-cli-hint')?.textContent).toContain('not signed in');
+
+      wails.getClaudeCodeStatus.mockResolvedValue(SIGNED_IN);
+      await click('wizard-recheck');
+      expect(wails.getClaudeCodeStatus).toHaveBeenLastCalledWith(true);
+      expect(q('wizard-cli-hint')).toBeFalsy();
+      expect(q('wizard-status-claude-code')?.textContent).toContain('signed in');
+    });
+
+    it('finishes setup without a provider via Set up later', async () => {
+      await render();
+      await toProviders();
+      await click('wizard-skip');
+      expect(wails.completeSetup).toHaveBeenCalled();
+      expect(wails.setActiveProvider).not.toHaveBeenCalled();
+      expect(router.navigate).toHaveBeenCalledWith(['/']);
+    });
+
+    it('shows an error and stays when saving the choice fails', async () => {
+      await render({ cli: SIGNED_IN });
+      await toProviders();
+      wails.setActiveProvider.mockRejectedValue(new Error('disk full'));
+      await click('wizard-finish');
+      expect(q('wizard-error')?.textContent).toContain('disk full');
+      expect(wails.completeSetup).not.toHaveBeenCalled();
+      expect(router.navigate).not.toHaveBeenCalled();
+    });
+
+    it('never saves a whole settings object', async () => {
+      await render({ cli: SIGNED_IN });
+      await toProviders();
+      await click('wizard-finish');
+      expect(wails.saveSettings).not.toHaveBeenCalled();
+    });
   });
 });
