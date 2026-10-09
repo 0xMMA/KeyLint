@@ -153,7 +153,10 @@ func NewServiceFrom(cfg Settings, keys KeyLookup) *Service {
 		// No lookup means no keys — never the ambient ones.
 		keys = func(string) string { return "" }
 	}
-	return &Service{current: cfg.clone(), keys: keys, isolated: true}
+	// An explicit configuration stands in for a file that was found: it is
+	// somebody's settings, not a first start.
+	loaded := LoadInfo{Found: true, CompletedSetup: cfg.CompletedSetup}
+	return &Service{current: cfg.clone(), keys: keys, isolated: true, loaded: loaded}
 }
 
 func (s *Service) load() error {
@@ -228,7 +231,9 @@ func (s Settings) clone() Settings {
 	return out
 }
 
-// Save persists the provided settings to disk.
+// Save persists the provided settings to disk — all of them except
+// completed_setup, which keeps its current value: only the welcome service
+// moves it.
 func (s *Service) Save(updated Settings) error {
 	// One save at a time, so the file and the in-memory copy end up holding the
 	// same save when two land together.
@@ -671,7 +676,14 @@ func (s *Service) runClaudeCodeProbe() (status llm.ClaudeCodeStatus, timedOut bo
 }
 
 // ResetToDefaults resets settings to their default values and saves to disk.
-// API keys stay in the keyring and the setup stays complete; see Save.
+//
+// What makes the app work survives: API keys stay in the keyring, the setup
+// stays complete (see Save), and the active provider stays the one in use.
+// Resetting it to the default (OpenAI) would leave someone on the CLI or the
+// Anthropic API with a hotkey that fails on a key they never had, and with
+// setup complete nothing would put it right.
 func (s *Service) ResetToDefaults() error {
-	return s.Save(Default())
+	reset := Default()
+	reset.ActiveProvider = s.Get().ActiveProvider
+	return s.Save(reset)
 }

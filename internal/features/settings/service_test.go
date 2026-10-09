@@ -101,11 +101,19 @@ func TestSave_LeavesCompletedSetupAlone(t *testing.T) {
 		t.Errorf("after Save: completed_setup=%v log_level=%q, want true and debug", got.CompletedSetup, got.LogLevel)
 	}
 
+	if err := svc.SetActiveProvider("claude-code"); err != nil {
+		t.Fatal(err)
+	}
 	if err := svc.ResetToDefaults(); err != nil {
 		t.Fatalf("ResetToDefaults: %v", err)
 	}
-	if !svc.Get().CompletedSetup {
+	got := svc.Get()
+	if !got.CompletedSetup {
 		t.Error("Reset to Defaults sent a configured user back to the setup wizard")
+	}
+	// The provider in use is what works with the keys that survive a reset.
+	if got.ActiveProvider != "claude-code" || got.LogLevel != "off" {
+		t.Errorf("after reset: active_provider=%q log_level=%q, want claude-code kept and off", got.ActiveProvider, got.LogLevel)
 	}
 
 	// And the other way: Save cannot skip the wizard on its own.

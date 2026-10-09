@@ -72,11 +72,22 @@ func (c cliState) String() string {
 // log line says why. The flag alone is not trusted to mean "new user": it has
 // been seen false on a machine whose keys and CLI were all in place.
 //
-// Never reads or returns a key's value: only whether one is set.
+// Never returns or logs a key's value: only whether one is set. (On the way,
+// GetKeyStatus fetches it from the keyring and drops it.)
 func (s *Service) IsFirstRun() bool {
 	cfg := s.settings.Get()
 	if cfg.CompletedSetup {
 		return false
+	}
+	// No settings file at all is a first start, whatever the machine holds: an
+	// API key in the environment or a signed-in CLI belongs to other tools
+	// until the user says KeyLint may use it, and this is the one screen that
+	// shows the shortcut. The wizard preselects what works, so it is one
+	// click, never a question asked twice. No probe here, so a first start
+	// never waits on the CLI.
+	if !settings.LoadOutcome(s.settings).Found {
+		logger.Info("welcome: showing the setup wizard, first start (no settings file)")
+		return true
 	}
 
 	d := s.decide(cfg)
@@ -189,8 +200,10 @@ func (s *Service) decide(cfg settings.Settings) decision {
 	}
 
 	// The saved provider is a key provider with no key, or a value this build
-	// does not offer: it cannot work as it is, so the active provider moves to
-	// what does — the same default the wizard would preselect.
+	// does not know (empty, or written by a newer build): it cannot work as it
+	// is, so the active provider moves to what does — the same default the
+	// wizard would preselect. Bedrock alone is kept: it is a choice the
+	// settings page names and explains, not a value it cannot read.
 	switch {
 	case d.cli == cliSignedIn:
 		d.use, d.reason = llm.ProviderClaudeCode, "the Claude Code CLI is signed in"
@@ -199,20 +212,15 @@ func (s *Service) decide(cfg settings.Settings) decision {
 	default:
 		return d
 	}
-	if isKeyProvider(active) {
+	if active != providerBedrock {
 		d.switchTo = d.use
 	}
 	return d
 }
 
-func isKeyProvider(p string) bool {
-	for _, k := range keyProviders {
-		if k == p {
-			return true
-		}
-	}
-	return false
-}
+// providerBedrock is a provider settings can name but no build offers yet
+// (#22, #23); see UNAVAILABLE_PROVIDERS in frontend/src/app/core/constants.ts.
+const providerBedrock = "bedrock"
 
 // probeCLI asks for the CLI's status, waiting at most probeWait. A probe that
 // is still running counts as unknown; it carries on in the background.

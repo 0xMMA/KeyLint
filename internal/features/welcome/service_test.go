@@ -129,6 +129,15 @@ func TestIsFirstRun_Matrix(t *testing.T) {
 			wantActive: "bedrock", wantProbe: true,
 		},
 		{
+			name: "a provider this build does not know moves to what works", cfg: cfgWith("some-future-provider", false),
+			keys: map[string]string{"claude": "sk-ant-x"}, cli: cliMissingSt,
+			wantActive: "claude", wantProbe: true,
+		},
+		{
+			name: "an empty saved provider moves to the CLI", cfg: cfgWith("", false),
+			cli: cliSignedInSt, wantActive: "claude-code", wantProbe: true,
+		},
+		{
 			name: "a Bedrock env key alone does not count", cfg: cfgWith("openai", false),
 			keys: map[string]string{"bedrock": "aws-secret"}, cli: cliMissingSt,
 			wantWizard: true, wantActive: "openai", wantProbe: true,
@@ -159,6 +168,30 @@ func TestIsFirstRun_Matrix(t *testing.T) {
 				t.Errorf("probed the CLI = %v, want %v", probed, tc.wantProbe)
 			}
 		})
+	}
+}
+
+// A first start — no settings file — always opens the wizard, which preselects
+// whatever works. Nothing is probed, so it never waits on the CLI.
+func TestIsFirstRun_FirstStartShowsTheWizard(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("APPDATA", t.TempDir())
+	sSvc, err := settings.NewService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := NewService(sSvc)
+	var probed atomic.Bool
+	w.cliStatus = func() llm.ClaudeCodeStatus { probed.Store(true); return cliSignedInSt }
+
+	if !w.IsFirstRun() {
+		t.Fatal("no wizard on a first start")
+	}
+	if probed.Load() {
+		t.Error("probed the CLI on a first start")
+	}
+	if sSvc.Get().CompletedSetup {
+		t.Error("first start marked setup complete without the user")
 	}
 }
 

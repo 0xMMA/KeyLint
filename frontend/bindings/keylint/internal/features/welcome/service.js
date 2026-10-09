@@ -32,7 +32,8 @@ export function CompleteSetup() {
  * log line says why. The flag alone is not trusted to mean "new user": it has
  * been seen false on a machine whose keys and CLI were all in place.
  * 
- * Never reads or returns a key's value: only whether one is set.
+ * Never returns or logs a key's value: only whether one is set. (On the way,
+ * GetKeyStatus fetches it from the keyring and drops it.)
  * @returns {$CancellablePromise<boolean>}
  */
 export function IsFirstRun() {
