@@ -3,15 +3,18 @@ import { TestBed } from '@angular/core/testing';
 import { ComponentFixture } from '@angular/core/testing';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { ActivatedRoute, convertToParamMap } from '@angular/router';
+import { of } from 'rxjs';
 import { SettingsComponent } from './settings.component';
 import { WailsService, ClaudeCodeStatus, KeyStatus } from '../../core/wails.service';
 import { createWailsMock, defaultSettings, defaultKeyStatus, defaultUpdateInfo, defaultClaudeCodeStatus, defaultModelList } from '../../../testing/wails-mock';
 
 function makeActivatedRoute(tab?: string): Partial<ActivatedRoute> {
+  const params = convertToParamMap(tab ? { tab } : {});
   return {
     snapshot: {
-      queryParamMap: convertToParamMap(tab ? { tab } : {}),
+      queryParamMap: params,
     } as ActivatedRoute['snapshot'],
+    queryParamMap: of(params),
   };
 }
 

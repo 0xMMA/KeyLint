@@ -118,6 +118,13 @@ Section "uninstall"
     Delete "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk"
     Delete "$DESKTOP\${INFO_PRODUCTNAME}.lnk"
 
+    # Notification registration the app writes for its user on every start
+    # (internal/features/notify). HKCU of whoever runs the uninstaller - the
+    # same user unless UAC elevated a different account, in which case two
+    # harmless keys stay behind.
+    DeleteRegKey HKCU "Software\Classes\AppUserModelId\${INFO_PRODUCTNAME}"
+    DeleteRegKey HKCU "Software\Classes\CLSID\{CEF3EFCF-75E1-4709-9868-A73D680E3BEE}"
+
     !insertmacro wails.unassociateFiles
     !insertmacro wails.unassociateCustomProtocols
 

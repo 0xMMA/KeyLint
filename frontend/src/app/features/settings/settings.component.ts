@@ -11,6 +11,7 @@ import { MessageModule } from 'primeng/message';
 import { CardModule } from 'primeng/card';
 import { TagModule } from 'primeng/tag';
 import { ActivatedRoute } from '@angular/router';
+import { Subscription, skip } from 'rxjs';
 import { versionLabel } from '../../core/version-label';
 import { ProviderCardComponent } from './provider-card/provider-card.component';
 import { DevChannelComponent } from './dev-channel/dev-channel.component';
@@ -771,6 +772,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   claudeCodeChecking = false;
   /** Detection can take seconds; the user may navigate away meanwhile. */
   private destroyed = false;
+  private tabParamSub?: Subscription;
 
   providerKeys: ProviderKey[] = [
     { id: 'openai', status: null, editing: false, draftKey: '', saving: false },
@@ -787,6 +789,16 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   async ngOnInit(): Promise<void> {
     this.activeTab = this.route.snapshot.queryParamMap.get('tab') ?? 'general';
+    // Asked for a tab while already open — a hotkey-fix notification sends
+    // the user to AI Providers wherever they are — Angular keeps this
+    // instance, so the snapshot above never sees it.
+    this.tabParamSub = this.route.queryParamMap.pipe(skip(1)).subscribe(params => {
+      const tab = params.get('tab');
+      if (tab && tab !== this.activeTab) {
+        this.activeTab = tab;
+        this.cdr.detectChanges();
+      }
+    });
     this.settings = await this.wails.loadSettings();
     this.savedOllamaURL = this.settings?.providers?.ollama_url ?? '';
     this.log.info('settings: loaded');
@@ -805,6 +817,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.destroyed = true;
+    this.tabParamSub?.unsubscribe();
   }
 
   /** See UNAVAILABLE_PROVIDERS: the saved value is explained, not switched. */

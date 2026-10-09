@@ -4,8 +4,9 @@ import { isDevMode } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { TooltipModule } from 'primeng/tooltip';
 import { versionLabel } from '../core/version-label';
-import { WailsService } from '../core/wails.service';
+import { WailsService, type SilentFixNotice } from '../core/wails.service';
 import { LogService } from '../core/log.service';
+import { SilentFixNoticeService } from '../features/fix/silent-fix-notice.service';
 
 // Persists across navigation
 let sidebarCollapsed = false;
@@ -104,9 +105,6 @@ export class ShellComponent implements OnInit, OnDestroy {
   updateAvailable = false;
   updateTitle = 'Update available';
   private subs: Subscription[] = [];
-  private silentFixInFlight = false;
-  /** Safety net for a hung enhance call; overridable so tests need not wait. */
-  protected silentFixTimeoutMs = 120_000;
 
   get collapsedView(): boolean  { return sidebarCollapsed; }
   get hoverExpanded(): boolean  { return sidebarCollapsed && sidebarHovered; }
@@ -116,6 +114,7 @@ export class ShellComponent implements OnInit, OnDestroy {
     private readonly router: Router,
     private readonly cdr: ChangeDetectorRef,
     private readonly log: LogService,
+    private readonly silentNotices: SilentFixNoticeService,
   ) {}
 
   ngOnInit(): void {
@@ -123,9 +122,9 @@ export class ShellComponent implements OnInit, OnDestroy {
     void this.loadVersionInfo();
     this.subs.push(
       this.wails.settingsChanged$.subscribe(() => void this.applyTheme()),
-      this.wails.shortcutFix$.subscribe(() => {
-        void this.silentFix();
-      }),
+      // The fix shortcut itself never reaches the frontend: the silent fix
+      // runs in Go with the window hidden. A click on its notification does.
+      this.wails.silentFixOpen$.subscribe(notice => this.openSilentFixNotice(notice)),
       this.wails.shortcutPyramidize$.subscribe(() => {
         void this.router.navigate(['/enhance']);
       }),
@@ -188,34 +187,19 @@ export class ShellComponent implements OnInit, OnDestroy {
     this.subs.forEach(s => s.unsubscribe());
   }
 
-  private async silentFix(): Promise<void> {
-    // A second shortcut while the read -> enhance -> write -> paste cycle is still
-    // running would paste on top of the first result. Drop it instead.
-    if (this.silentFixInFlight) {
-      this.log.warn('shell: silent fix already running, ignoring shortcut');
+  /**
+   * The user clicked a hotkey-fix notification: take them where it can be
+   * fixed. A missing key, a signed-out CLI or the wrong model is on AI
+   * Providers; everything else is the Fix page, which shows what happened.
+   */
+  private openSilentFixNotice(notice: SilentFixNotice): void {
+    this.log.info(`shell: silent fix notification opened (${notice.target})`);
+    if (notice.target === 'providers') {
+      void this.router.navigate(['/settings'], { queryParams: { tab: 'providers' } });
       return;
     }
-    this.silentFixInFlight = true;
-    // The backend has no HTTP timeout yet (#32), so enhance can hang forever.
-    // Without this the guard would swallow every later shortcut for good.
-    const safetyTimer = setTimeout(() => {
-      this.silentFixInFlight = false;
-      this.log.warn('shell: silent fix timed out, releasing guard');
-    }, this.silentFixTimeoutMs);
-    this.log.info('shell: silent fix started');
-    try {
-      const text = await this.wails.readClipboard();
-      if (!text.trim()) return;
-      const result = await this.wails.enhance(text);
-      await this.wails.writeClipboard(result);
-      await this.wails.pasteToForeground();
-      this.log.info('shell: silent fix done');
-    } catch (e: unknown) {
-      this.log.error('shell: silent fix failed: ' + (e instanceof Error ? e.message : String(e)));
-    } finally {
-      clearTimeout(safetyTimer);
-      this.silentFixInFlight = false;
-    }
+    this.silentNotices.present(notice);
+    void this.router.navigate(['/fix']);
   }
 
   private applyTheme(): void {

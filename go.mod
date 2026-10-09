@@ -3,6 +3,7 @@ module keylint
 go 1.27
 
 require (
+	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3
 	github.com/anthropics/anthropic-sdk-go v1.75.0
 	github.com/google/wire v0.7.0
 	github.com/joho/godotenv v1.5.1
@@ -10,6 +11,7 @@ require (
 	github.com/openai/openai-go/v3 v3.66.0
 	github.com/wailsapp/wails/v3 v3.0.0-alpha.72
 	github.com/zalando/go-keyring v0.2.8
+	golang.org/x/sys v0.47.0
 )
 
 require (
@@ -62,7 +64,6 @@ require (
 	golang.org/x/crypto v0.55.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
