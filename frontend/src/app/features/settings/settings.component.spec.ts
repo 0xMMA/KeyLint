@@ -582,14 +582,28 @@ describe('SettingsComponent — model selection', () => {
   let el: HTMLElement;
   let wailsMock: ReturnType<typeof createWailsMock>;
 
+  type StoredModels = Record<string, Partial<{ fix: string; pyramidize: string; fix_effort: string; pyramidize_effort: string }>>;
+
+  /** Fills in the fields the binding type requires, so a test names only what it means. */
+  function stored(models: StoredModels): NonNullable<typeof defaultSettings.models> {
+    const out: NonNullable<typeof defaultSettings.models> = {};
+    for (const [provider, m] of Object.entries(models)) {
+      out[provider] = { fix: '', pyramidize: '', fix_effort: '', pyramidize_effort: '', ...m };
+    }
+    return out;
+  }
+
   async function render(
     source: string = 'live',
-    models: Record<string, { fix: string; pyramidize: string }> = {},
+    models: StoredModels = {},
+    active: string = 'claude',
+    listed = defaultModelList.models,
   ): Promise<void> {
+    const settings = { ...defaultSettings, active_provider: active, models: stored(models) };
     wailsMock = createWailsMock();
-    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, models });
+    wailsMock.loadSettings.mockResolvedValue(structuredClone(settings));
     wailsMock.getKeyStatus.mockResolvedValue({ ...defaultKeyStatus });
-    wailsMock.listModels.mockResolvedValue({ ...defaultModelList, source });
+    wailsMock.listModels.mockResolvedValue({ models: listed, source });
 
     await TestBed.configureTestingModule({
       imports: [SettingsComponent],
@@ -602,7 +616,7 @@ describe('SettingsComponent — model selection', () => {
 
     fixture = TestBed.createComponent(SettingsComponent);
     component = fixture.componentInstance;
-    component.settings = { ...defaultSettings, models };
+    component.settings = structuredClone(settings);
     el = fixture.nativeElement;
     fixture.detectChanges();
     await fixture.whenStable();
@@ -626,15 +640,56 @@ describe('SettingsComponent — model selection', () => {
       .map(o => o.textContent?.trim() ?? '');
   }
 
-  it('offers a fix and a Pyramidize model for every provider that has one', async () => {
-    await render();
+  function q(testid: string): HTMLElement | null {
+    return el.querySelector<HTMLElement>(`[data-testid="${testid}"]`);
+  }
 
-    for (const provider of ['openai', 'claude', 'claude-code', 'ollama']) {
-      expect(el.querySelector(`[data-testid="model-fix-${provider}"]`), provider).not.toBeNull();
-      expect(el.querySelector(`[data-testid="model-pyramidize-${provider}"]`), provider).not.toBeNull();
+  /** Presses a card's "Use this" and lets the switch land. */
+  async function clickUse(provider: string): Promise<void> {
+    q(`provider-use-${provider}`)!.querySelector('button')!.click();
+    await fixture.whenStable();
+    await new Promise(r => setTimeout(r));
+    fixture.detectChanges();
+  }
+
+  /** Opens a select and picks the option with this text. */
+  function pick(testid: string, text: string): void {
+    openDropdown(testid);
+    Array.from(document.querySelectorAll<HTMLElement>('.p-select-option'))
+      .find(o => o.textContent?.trim() === text)!.click();
+    fixture.detectChanges();
+  }
+
+  it('shows the pickers of the provider in use, and only those', async () => {
+    await render('live', {}, 'claude');
+
+    expect(q('active-provider-name')?.textContent).toContain('Anthropic API');
+    expect(q('model-fix-claude')).not.toBeNull();
+    expect(q('model-pyramidize-claude')).not.toBeNull();
+    // The old page listed every provider's pickers at once.
+    for (const other of ['openai', 'claude-code', 'ollama']) {
+      expect(q(`model-fix-${other}`), other).toBeNull();
     }
-    // Bedrock is still a stub and has nothing to choose.
-    expect(el.querySelector('[data-testid="model-fix-bedrock"]')).toBeNull();
+  });
+
+  it('follows a switch, and switching back restores what was chosen there', async () => {
+    await render('live', { claude: { fix: 'claude-sonnet-4-6' }, 'claude-code': { fix: 'opus' } }, 'claude');
+
+    await clickUse('claude-code');
+    expect(q('active-provider-name')?.textContent).toContain('Claude Code');
+    expect(q('model-fix-claude-code')).not.toBeNull();
+    expect(q('model-fix-claude')).toBeNull();
+    expect(component.modelFor('claude-code', 'fix')).toBe('opus');
+
+    await clickUse('claude');
+    expect(q('model-fix-claude')!.querySelector('input')!.value).toBe('claude-sonnet-4-6');
+  });
+
+  it('shows no pickers when no provider is in use', async () => {
+    await render('live', {}, 'bedrock');
+
+    expect(q('active-provider')).toBeNull();
+    expect(q('providers-summary')?.textContent).toContain('No provider is in use');
   });
 
   it('asks the backend for each provider list', async () => {
@@ -649,23 +704,23 @@ describe('SettingsComponent — model selection', () => {
   // hunting for a network problem when the real answer is an unpasted key, or a
   // daemon that is running fine with nothing pulled.
   it('says the provider could not be reached', async () => {
-    await render('unreachable');
+    await render('unreachable', {}, 'openai');
 
-    expect(el.querySelector('[data-testid="models-note-openai"]')?.textContent)
-      .toContain('could not be reached');
+    expect(q('models-note-openai')?.textContent).toContain('could not be reached');
   });
 
   it('says a key is missing rather than blaming the network', async () => {
-    await render('no-credentials');
+    await render('no-credentials', {}, 'openai');
 
-    const note = el.querySelector('[data-testid="models-note-openai"]')?.textContent ?? '';
+    const note = q('models-note-openai')?.textContent ?? '';
     expect(note).toContain('add a key');
     expect(note).not.toContain('could not be reached');
   });
 
   it('says an Ollama daemon has nothing pulled rather than calling it unreachable', async () => {
     wailsMock = createWailsMock();
-    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, models: {} });
+    const settings = { ...defaultSettings, active_provider: 'ollama', models: {} };
+    wailsMock.loadSettings.mockResolvedValue(structuredClone(settings));
     wailsMock.getKeyStatus.mockResolvedValue({ ...defaultKeyStatus });
     wailsMock.listModels.mockImplementation(async (provider: string) =>
       provider === 'ollama'
@@ -682,53 +737,77 @@ describe('SettingsComponent — model selection', () => {
     }).compileComponents();
     fixture = TestBed.createComponent(SettingsComponent);
     component = fixture.componentInstance;
-    component.settings = { ...defaultSettings };
+    component.settings = structuredClone(settings);
     el = fixture.nativeElement;
     fixture.detectChanges();
     await fixture.whenStable();
     await fixture.whenStable();
     fixture.detectChanges();
 
-    const note = el.querySelector('[data-testid="models-note-ollama"]')?.textContent ?? '';
+    const note = q('models-note-ollama')?.textContent ?? '';
     expect(note).toContain('No models pulled yet');
     expect(note).not.toContain('could not be reached');
-    // A provider that answered gets no note at all.
-    expect(el.querySelector('[data-testid="models-note-openai"]')).toBeNull();
   });
 
   it('hides the note when the list came from the provider', async () => {
-    await render('live');
+    await render('live', {}, 'openai');
 
-    expect(el.querySelector('[data-testid="models-note-openai"]')).toBeNull();
+    expect(q('models-note-openai')).toBeNull();
   });
 
-  it('lets a model be typed for the API providers but not for the CLI', async () => {
-    await render();
+  it('lets a model be typed for the API providers', async () => {
+    await render('live', {}, 'openai');
 
     // An editable PrimeNG select renders a text input; a closed one does not.
-    expect(el.querySelector('[data-testid="model-fix-openai"] input')).not.toBeNull();
-    // The CLI's three aliases are the whole list the picker offers: an alias
-    // follows the generation where a pinned API model ID freezes it.
-    expect(el.querySelector('[data-testid="model-fix-claude-code"] input')).toBeNull();
+    expect(q('model-fix-openai')!.querySelector('input')).not.toBeNull();
   });
 
-  it('offers KeyLint\'s default as a selectable entry rather than a placeholder', async () => {
-    await render();
+  it('offers only the list for the CLI, whose aliases follow the generation', async () => {
+    await render('fixed', {}, 'claude-code');
+
+    expect(q('model-fix-claude-code')).not.toBeNull();
+    expect(q('model-fix-claude-code')!.querySelector('input')).toBeNull();
+  });
+
+  it('offers KeyLint\'s default as a selectable entry that says what it is today', async () => {
+    await render('live', {}, 'claude');
 
     // PrimeNG only renders a placeholder while the value is null, and this
     // component writes "" — so the default has to be a real option to be
-    // reachable at all. It is the first one a user sees when the list opens.
-    openDropdown('model-fix-openai');
-    expect(optionTexts()[0]).toContain("KeyLint's default");
+    // reachable at all. It names the alias it stands for and, where the
+    // listing says, the model that alias is today.
+    openDropdown('model-pyramidize-claude');
+    expect(optionTexts()[0]).toContain('Default: Sonnet (latest)');
+    expect(optionTexts()[0]).toContain('claude-sonnet-5-5');
+  });
+
+  it('names the default in the empty field and the model it runs under it', async () => {
+    await render('live', {}, 'claude');
+
+    // The field holds no text for the default (see below), so the placeholder
+    // says what the default is and the line under it which model that is now.
+    const input = q('model-pyramidize-claude')!.querySelector<HTMLInputElement>('input')!;
+    expect(input.value).toBe('');
+    expect(input.getAttribute('placeholder')).toBe('Default: Sonnet (latest)');
+    expect(q('model-effective-pyramidize')?.textContent?.trim()).toBe('Now claude-sonnet-5-5');
+  });
+
+  it('turns choosing the default back from the list into an empty setting', async () => {
+    await render('live', { claude: { pyramidize: 'claude-sonnet-4-6' } }, 'claude');
+
+    pick('model-pyramidize-claude', 'Default: Sonnet (latest)claude-sonnet-5-5');
+
+    expect(component.modelFor('claude', 'pyramidize')).toBe('');
+    expect(component.settings!.models!['claude']?.pyramidize).toBe('');
   });
 
   it('leaves the editable field empty for the default, so typing is not appended to a word', async () => {
-    await render();
+    await render('live', {}, 'openai');
 
     // The field is prefilled with whatever label the selected option carries.
     // A readable one here would mean typing "gpt-4.1" without select-all
     // persists "KeyLint's defaultgpt-4.1".
-    const input = el.querySelector<HTMLInputElement>('[data-testid="model-fix-openai"] input')!;
+    const input = q('model-fix-openai')!.querySelector<HTMLInputElement>('input')!;
     expect(input.value).toBe('');
 
     input.value = input.value + 'gpt-4.1';
@@ -740,50 +819,47 @@ describe('SettingsComponent — model selection', () => {
 
   it('shows the model ID in the editable field, not the display name', async () => {
     // Anthropic is the provider whose display names differ from its IDs.
-    await render('live', { claude: { fix: 'claude-sonnet-4-6', pyramidize: '' } });
+    await render('live', { claude: { fix: 'claude-sonnet-4-6' } }, 'claude');
 
     // PrimeNG writes optionLabel into this field and submits whatever stands
     // there as the value — so "Sonnet 4.6" here would persist as a model ID no
     // provider knows.
-    const input = el.querySelector<HTMLInputElement>('[data-testid="model-fix-claude"] input');
-    expect(input?.value).toBe('claude-sonnet-4-6');
+    expect(q('model-fix-claude')!.querySelector<HTMLInputElement>('input')?.value).toBe('claude-sonnet-4-6');
   });
 
-  it('shows the readable name and the ID together in the dropdown', async () => {
-    await render();
+  // The bug: PrimeNG's option row is a flex row, so name and ID sat side by
+  // side with nothing between them ("Sonnet 4.6claude-sonnet-4-6").
+  it('puts the readable name and the ID on separate lines in the dropdown', async () => {
+    await render('live', {}, 'claude');
 
-    // The editable field carries the ID, so the dropdown is the only place the
-    // readable name can appear — losing it would leave a user reading raw IDs.
     openDropdown('model-fix-claude');
-    const listed = optionTexts().join(' ');
-    expect(listed).toContain('Sonnet 4.6');
-    expect(listed).toContain('claude-sonnet-4-6');
+    const option = document.querySelector('[data-testid="model-option-claude-sonnet-4-6"]')!;
+    expect(option).not.toBeNull();
+    const name = option.querySelector('.model-option-name')!;
+    const id = option.querySelector('.model-option-id')!;
+    expect(name.textContent).toBe('Sonnet 4.6');
+    expect(id.textContent).toBe('claude-sonnet-4-6');
+    // One wrapper holds both, so the row's flex layout sees a single child;
+    // the wrapper itself stacks them.
+    expect(option.parentElement!.children.length).toBe(1);
+    expect(getComputedStyle(option).flexDirection).toBe('column');
+
+    const alias = document.querySelector('[data-testid="model-option-sonnet"]')!;
+    expect(alias.querySelector('.model-option-name')!.textContent).toBe('Sonnet (latest)');
+    expect(alias.querySelector('.model-option-id')!.textContent).toBe('claude-sonnet-5-5');
+  });
+
+  it('shows the readable name alone for a choice in the CLI picker', async () => {
+    await render('fixed', { 'claude-code': { fix: 'sonnet' } }, 'claude-code');
+
+    const shown = q('model-fix-claude-code')!.querySelector('.model-selected')?.textContent?.trim();
+    expect(shown).toBe('Sonnet (latest)');
   });
 
   it('never calls a provider list "built-in" when there is no endpoint to ask', async () => {
-    wailsMock = createWailsMock();
-    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings });
-    wailsMock.getKeyStatus.mockResolvedValue({ ...defaultKeyStatus });
-    wailsMock.listModels.mockResolvedValue({ ...defaultModelList, source: 'fixed' });
+    await render('fixed', {}, 'claude-code');
 
-    await TestBed.configureTestingModule({
-      imports: [SettingsComponent],
-      providers: [
-        provideAnimationsAsync(),
-        { provide: WailsService, useValue: wailsMock },
-        { provide: ActivatedRoute, useValue: makeActivatedRoute('providers') },
-      ],
-    }).compileComponents();
-    fixture = TestBed.createComponent(SettingsComponent);
-    component = fixture.componentInstance;
-    component.settings = { ...defaultSettings };
-    el = fixture.nativeElement;
-    fixture.detectChanges();
-    await fixture.whenStable();
-    await fixture.whenStable();
-    fixture.detectChanges();
-
-    expect(el.querySelector('[data-testid="models-note-claude-code"]')).toBeNull();
+    expect(q('models-note-claude-code')).toBeNull();
   });
 
   it('uses the same provider labels as the provider cards', async () => {
@@ -796,9 +872,9 @@ describe('SettingsComponent — model selection', () => {
   });
 
   it('keeps a model the provider does not list, so an unlisted one can be typed', async () => {
-    await render();
+    await render('live', {}, 'openai');
 
-    const input = el.querySelector<HTMLInputElement>('[data-testid="model-fix-openai"] input')!;
+    const input = q('model-fix-openai')!.querySelector<HTMLInputElement>('input')!;
     input.value = 'gpt-not-in-any-list';
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
@@ -812,6 +888,74 @@ describe('SettingsComponent — model selection', () => {
     component.setModel('claude', 'pyramidize', '   ');
 
     expect(component.modelFor('claude', 'pyramidize')).toBe('');
+  });
+
+  // ── effort ──
+
+  it('offers an effort per feature where the provider does something with it', async () => {
+    for (const provider of ['claude', 'claude-code', 'openai']) {
+      TestBed.resetTestingModule();
+      await render(provider === 'claude-code' ? 'fixed' : 'live', {}, provider);
+      expect(q(`effort-fix-${provider}`), provider).not.toBeNull();
+      expect(q(`effort-pyramidize-${provider}`), provider).not.toBeNull();
+      expect(q('effort-note'), provider).not.toBeNull();
+    }
+  });
+
+  it('offers no effort for Ollama, which has nothing to send it to', async () => {
+    await render('live', {}, 'ollama');
+
+    expect(q('effort-fix-ollama')).toBeNull();
+    expect(q('effort-note')).toBeNull();
+  });
+
+  it('starts on the model default and lists the levels the APIs take', async () => {
+    await render('live', {}, 'claude');
+
+    openDropdown('effort-fix-claude');
+    expect(optionTexts()).toEqual(['Model default', 'Low', 'Medium', 'High', 'Extra high', 'Max']);
+  });
+
+  it('stores an effort chosen in the picker, for this provider and feature, and saves it', async () => {
+    await render('live', {}, 'claude');
+
+    pick('effort-pyramidize-claude', 'High');
+
+    expect(component.effortFor('claude', 'pyramidize')).toBe('high');
+    expect(component.effortFor('claude', 'fix')).toBe('');
+    expect(component.effortFor('claude-code', 'pyramidize')).toBe('');
+
+    await component.save();
+    expect(wailsMock.saveSettings).toHaveBeenCalledWith(expect.objectContaining({
+      models: expect.objectContaining({ claude: expect.objectContaining({ pyramidize_effort: 'high' }) }),
+    }));
+  });
+
+  it('says Fix keeps a Haiku from reasoning, until an effort is chosen', async () => {
+    await render('live', {}, 'claude');
+    expect(q('fix-fast-note')?.textContent).toContain('without reasoning');
+
+    pick('effort-fix-claude', 'Low');
+    expect(component.effortFor('claude', 'fix')).toBe('low');
+    expect(q('fix-fast-note')).toBeNull();
+  });
+
+  it('names the default alias even when no list could be loaded', async () => {
+    await render('unreachable', {}, 'claude', []);
+
+    const input = q('model-fix-claude')!.querySelector<HTMLInputElement>('input')!;
+    expect(input.getAttribute('placeholder')).toBe('Default: Haiku (latest)');
+    expect(q('fix-fast-note')?.textContent).toContain('Fix asks Haiku (latest)');
+  });
+
+  it('does not promise a quick Fix where the model keeps its own default', async () => {
+    await render('live', { claude: { fix: 'sonnet' } }, 'claude');
+    expect(q('fix-fast-note')).toBeNull();
+
+    // The CLI has no switch for it, so saying so would be false.
+    TestBed.resetTestingModule();
+    await render('fixed', {}, 'claude-code');
+    expect(q('fix-fast-note')).toBeNull();
   });
 
   it('re-asks after the Ollama URL is saved, the way saving a key does', async () => {

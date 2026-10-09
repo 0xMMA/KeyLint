@@ -13,6 +13,7 @@ package pyramidize
 //   EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 go test -tags eval ...
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -182,11 +183,23 @@ func TestEvalPyramidize(t *testing.T) {
 	evalSettings.ActiveProvider = provider
 	settingsSvc := settings.NewServiceFrom(evalSettings, settings.EnvOnlyKeys)
 
+	// An alias is resolved once, up front, and the run pins what it resolved
+	// to; summary.json then records an ID, never the alias. See TestEvalFix.
+	requestedModel := model
+	model = llm.ResolveModel(context.Background(), provider, model,
+		llm.Config{APIKey: settingsSvc.GetKey(provider), Feature: "eval"})
+
 	if settingsSvc.GetKey(provider) == "" && provider != llm.ProviderOllama && provider != llm.ProviderClaudeCode {
 		t.Fatalf("no API key for %q in the environment or .env — the eval reads no keyring", provider)
 	}
 
 	svc := NewService(settingsSvc, nil)
+	// What ran is read off the responses, for the Claude Code CLI's aliases.
+	// The judge runs on a service of its own so its pinned model is not
+	// counted as the pipeline's.
+	var answered llm.ModelRecorder
+	svc.newClient = answered.Wrap(svc.newClient)
+	judgeSvc := NewService(settingsSvc, nil)
 	samples := loadTestSamples(t)
 	t.Logf("prompt variant: %d (0=latest=%d)", variant, LatestEmailVariant)
 
@@ -253,7 +266,7 @@ func TestEvalPyramidize(t *testing.T) {
 
 				// LLM-as-judge (if baseline available).
 				if sample.Baseline != "" {
-					score, err := svc.runJudge(settingsSvc, judge,
+					score, err := judgeSvc.runJudge(settingsSvc, judge,
 						sample.RawInput, sample.Baseline, result.FullDocument)
 					if err != nil {
 						t.Logf("judge failed: %v", err)
@@ -283,10 +296,12 @@ func TestEvalPyramidize(t *testing.T) {
 		effectiveVariant = LatestEmailVariant
 	}
 	summary := map[string]any{
-		"timestamp":        timestamp,
-		"gitSHA":           gitSHA(),
-		"provider":         provider,
-		"model":            model,
+		"timestamp": timestamp,
+		"gitSHA":    gitSHA(),
+		"provider":  provider,
+		// What answered, never the alias; see llm.ModelRecorder.
+		"model":            answered.Recorded(model),
+		"modelRequested":   requestedModel,
 		"promptVariant":    effectiveVariant,
 		"judge":            judge,
 		"qualityThreshold": settings.DefaultQualityThreshold,

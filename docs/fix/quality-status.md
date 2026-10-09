@@ -237,8 +237,14 @@ user did not ask to have rewritten.
 
 ## Baseline — 2026-09-18
 
-Three runs, `claude` / `claude-haiku-4-5-20251001`, which is the shipped default
-for Fix.
+Three runs, `claude` / `claude-haiku-4-5-20251001`, which was the shipped default
+for Fix at the time.
+
+> **Since 2026-10-08 the Fix default is the `haiku` alias** (today Haiku 5.5, asked
+> not to reason — see `internal/features/enhance/service.go`). A run now records
+> the resolved ID (`claude-haiku-5-5`), so `--compare` against this baseline
+> answers "not comparable": that is the instrument working, not a regression.
+> Re-baseline before quoting Fix numbers for the new default.
 
 | Metric | Mean | Range | Spread |
 |---|:---:|:---:|:---:|

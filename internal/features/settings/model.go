@@ -20,11 +20,19 @@ type KeyStatus struct {
 	Source string `json:"source"` // "env", "keyring", or "none"
 }
 
-// FeatureModels is the model chosen per feature for one provider. An empty
-// string means "use the built-in default" — see llm.DefaultModel.
+// FeatureModels is the model and effort chosen per feature for one provider.
+// An empty model means "use the built-in default" — see llm.DefaultModel. An
+// empty effort means "send none", which leaves the model on its own default.
+//
+// Both live per provider, so switching to another provider and back restores
+// what was chosen for each. Older settings files carry no effort fields and
+// read as "", which is the behaviour they had — no migration.
 type FeatureModels struct {
 	Fix        string `json:"fix"`
 	Pyramidize string `json:"pyramidize"`
+
+	FixEffort        string `json:"fix_effort"`
+	PyramidizeEffort string `json:"pyramidize_effort"`
 }
 
 // For returns the model configured for a feature, or "" when none is.
@@ -34,6 +42,17 @@ func (m FeatureModels) For(feature string) string {
 		return m.Fix
 	case llm.FeaturePyramidize:
 		return m.Pyramidize
+	}
+	return ""
+}
+
+// EffortFor returns the effort configured for a feature, or "" when none is.
+func (m FeatureModels) EffortFor(feature string) string {
+	switch feature {
+	case llm.FeatureFix:
+		return m.FixEffort
+	case llm.FeaturePyramidize:
+		return m.PyramidizeEffort
 	}
 	return ""
 }
@@ -54,6 +73,17 @@ func (s Settings) ModelFor(provider, feature string) string {
 		return chosen
 	}
 	return llm.DefaultModel(provider, feature)
+}
+
+// EffortFor resolves the effort for a provider and feature: a level the
+// providers know, or "" — model default — for anything else. A hand-edited
+// value that is not a level reads as unset rather than reaching a provider as
+// a guaranteed 400.
+func (s Settings) EffortFor(provider, feature string) string {
+	if effort := strings.TrimSpace(s.Models[provider].EffortFor(feature)); llm.IsEffortLevel(effort) {
+		return effort
+	}
+	return ""
 }
 
 // Settings is the top-level application settings structure persisted to disk.

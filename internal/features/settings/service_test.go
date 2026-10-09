@@ -431,7 +431,7 @@ func TestModelsSurviveARoundTrip(t *testing.T) {
 		t.Errorf("ModelFor(openai, pyramidize) = %q, want the saved value", got)
 	}
 	// Only one feature was set for openai; the other falls back.
-	if got := reloaded.ModelFor("openai", "fix"); got != "gpt-4o-mini" {
+	if got := reloaded.ModelFor("openai", "fix"); got != "gpt-6-luna" {
 		t.Errorf("ModelFor(openai, fix) = %q, want the built-in default", got)
 	}
 }
@@ -450,8 +450,50 @@ func TestSettingsWithoutModelsNeedNoMigration(t *testing.T) {
 	if reloaded.Models != nil {
 		t.Errorf("Models = %v, want nil for a file that has no such key", reloaded.Models)
 	}
-	if got := reloaded.ModelFor("claude", "fix"); got != "claude-haiku-4-5-20251001" {
+	if got := reloaded.ModelFor("claude", "fix"); got != "haiku" {
 		t.Errorf("ModelFor = %q, want the built-in default", got)
+	}
+	// No effort either: an older file sends none, which is what it did before.
+	if got := reloaded.EffortFor("claude", "fix"); got != "" {
+		t.Errorf("EffortFor = %q, want none for a file that has no such key", got)
+	}
+}
+
+// TestEffortSurvivesARoundTripPerProvider: effort is kept per provider and
+// feature, so switching providers and back restores each one's choice.
+func TestEffortSurvivesARoundTripPerProvider(t *testing.T) {
+	dir := t.TempDir()
+	svc := newServiceAt(t, dir)
+
+	updated := settings.Default()
+	updated.Models = map[string]settings.FeatureModels{
+		"claude":      {Fix: "haiku", FixEffort: "low", PyramidizeEffort: "high"},
+		"claude-code": {PyramidizeEffort: "xhigh"},
+	}
+	if err := svc.Save(updated); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	reloaded := newServiceAt(t, dir).Get()
+	for _, c := range []struct{ provider, feature, want string }{
+		{"claude", "fix", "low"},
+		{"claude", "pyramidize", "high"},
+		{"claude-code", "pyramidize", "xhigh"},
+		{"claude-code", "fix", ""},
+		{"openai", "fix", ""},
+	} {
+		if got := reloaded.EffortFor(c.provider, c.feature); got != c.want {
+			t.Errorf("EffortFor(%s, %s) = %q, want %q", c.provider, c.feature, got, c.want)
+		}
+	}
+}
+
+// TestUnknownEffortReadsAsUnset: a hand-edited level that no provider knows
+// must not reach one as a guaranteed 400.
+func TestUnknownEffortReadsAsUnset(t *testing.T) {
+	cfg := settings.Default()
+	cfg.Models = map[string]settings.FeatureModels{"claude": {FixEffort: "turbo"}}
+	if got := cfg.EffortFor("claude", "fix"); got != "" {
+		t.Errorf("EffortFor = %q, want an unknown level read as unset", got)
 	}
 }
 

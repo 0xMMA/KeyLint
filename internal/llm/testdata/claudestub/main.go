@@ -43,6 +43,17 @@ func main() {
 		}
 	}
 
+	// A CLI that does not take the effort level it was given — the shape the
+	// provider's retry-without-effort guards against.
+	if os.Getenv("CLAUDESTUB_REJECT_EFFORT") == "1" {
+		for _, arg := range os.Args[1:] {
+			if arg == "--effort" {
+				fmt.Fprintln(os.Stderr, "error: invalid effort level for this model")
+				os.Exit(1)
+			}
+		}
+	}
+
 	if out := os.Getenv("CLAUDESTUB_STDOUT"); out != "" {
 		fmt.Fprintln(os.Stdout, out)
 	}

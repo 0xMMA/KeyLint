@@ -82,8 +82,49 @@ func newClaudeCode(cfg Config) Client { return &claudeCodeClient{cfg: cfg} }
 // Complete runs one print-mode call against the locally installed binary.
 // The prompt goes in on stdin and the system prompt via a file, so neither ever
 // reaches the command line.
+//
+// An effort level goes to the CLI as --effort (2.1.295 lists low, medium, high,
+// xhigh, max). The CLI has no model listing to check a level against, so a run
+// that fails naming the effort is tried once more without it — the same
+// fallback the Anthropic client makes — rather than failing the fix over a
+// setting. NoThinking has no CLI flag and is ignored here.
 func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response, error) {
+	if req.Effort != "" && !IsEffortLevel(req.Effort) {
+		logger.Warn("llm: unknown effort level ignored", "feature", c.cfg.Feature, "effort", req.Effort)
+		req.Effort = ""
+	}
+	resp, err := c.complete(ctx, req)
+	var rejected *effortRejectedError
+	if err != nil && req.Effort != "" && ctx.Err() == nil && errors.As(err, &rejected) {
+		logger.Warn("llm: claude code rejected the effort level, retried without it",
+			"feature", c.cfg.Feature, "model", req.Model, "effort", req.Effort)
+		req.Effort = ""
+		return c.complete(ctx, req)
+	}
+	return resp, err
+}
+
+// effortRejectedError marks a failed run whose own failure report — stderr,
+// or the result of an is_error envelope — names the effort level. Only those
+// two places are matched: a successful run's result is the model's answer and
+// may say "effort" about anything, and raw stdout can carry the user's text.
+type effortRejectedError struct{ err error }
+
+func (e *effortRejectedError) Error() string { return e.err.Error() }
+func (e *effortRejectedError) Unwrap() error { return e.err }
+
+// markEffortRejection wraps err when an effort was sent and the CLI's failure
+// report names it.
+func markEffortRejection(err error, effort, report string) error {
+	if effort != "" && strings.Contains(strings.ToLower(report), "effort") {
+		return &effortRejectedError{err: err}
+	}
+	return err
+}
+
+func (c *claudeCodeClient) complete(ctx context.Context, req Request) (Response, error) {
 	name := claudeCodeProvider.name
+	req.Model = NormalizeFamily(req.Model)
 	if req.Model == "" {
 		return Response{}, fmt.Errorf("%s: model is required", name)
 	}
@@ -146,11 +187,14 @@ func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response,
 	if promptFile != "" {
 		args = append(args, "--system-prompt-file", promptFile)
 	}
+	if req.Effort != "" {
+		args = append(args, "--effort", req.Effort)
+	}
 
 	// The path carries the user's account name on Windows, so it stays out of
 	// the log level people attach to bug reports.
 	logger.Debug("llm: request", "feature", c.cfg.Feature, "provider", claudeCodeProvider.id,
-		"path", logger.Redact(path), "model", req.Model,
+		"path", logger.Redact(path), "model", req.Model, "effort", req.Effort,
 		"system", logger.Redact(req.System), "user", logger.Redact(req.User))
 
 	cmd := exec.CommandContext(ctx, path, args...)
@@ -189,13 +233,16 @@ func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response,
 	env, parsed := parseClaudeCodeEnvelope(out)
 
 	if parsed && env.IsError {
-		return Response{}, fmt.Errorf("%s: %s", name, claudeCodeFailure(env))
+		return Response{}, markEffortRejection(fmt.Errorf("%s: %s", name, claudeCodeFailure(env)),
+			req.Effort, env.Result+"\n"+stderr.String())
 	}
 	if runErr != nil {
 		if parsed && env.Result != "" {
-			return Response{}, fmt.Errorf("%s: %s", name, claudeCodeFailure(env))
+			return Response{}, markEffortRejection(fmt.Errorf("%s: %s", name, claudeCodeFailure(env)),
+				req.Effort, stderr.String())
 		}
-		return Response{}, fmt.Errorf("%s failed: %s", name, cliFailureDetail(runErr, stderr.String()))
+		return Response{}, markEffortRejection(fmt.Errorf("%s failed: %s", name, cliFailureDetail(runErr, stderr.String())),
+			req.Effort, stderr.String())
 	}
 	if !parsed {
 		return Response{}, fmt.Errorf("%s unexpected response: %s", name, out)
@@ -238,10 +285,33 @@ func (c *claudeCodeClient) Complete(ctx context.Context, req Request) (Response,
 		return Response{}, fmt.Errorf("%s returned an empty result", name)
 	}
 
+	answered := answeringModel(env)
 	logger.Info("llm: claude code call finished", "feature", c.cfg.Feature,
-		"model", req.Model, "duration_ms", env.DurationMS, "total_cost_usd", env.TotalCostUSD)
+		"model", req.Model, "resolved", answered, "duration_ms", env.DurationMS, "total_cost_usd", env.TotalCostUSD)
 
-	return Response{Text: text}, nil
+	return Response{Text: text, Model: answered}, nil
+}
+
+// answeringModel names the model behind the alias, from the envelope's usage
+// report — its keys are model IDs. With more than one entry (the CLI may report
+// a helper model next to the main one) the one that wrote the most output is
+// the one that answered; ties go to the lexically greater ID so the choice is
+// stable. Empty when the CLI reported nothing — an older CLI — and the caller
+// must then not pretend to know (see ModelRecorder.Recorded).
+func answeringModel(env claudeCodeEnvelope) string {
+	best, bestTokens := "", -1.0
+	for id, usage := range env.ModelUsage {
+		tokens := -0.5 // listed without a usable count: below any real count
+		if fields, ok := usage.(map[string]any); ok {
+			if n, ok := fields["outputTokens"].(float64); ok {
+				tokens = n
+			}
+		}
+		if tokens > bestTokens || (tokens == bestTokens && id > best) {
+			best, bestTokens = id, tokens
+		}
+	}
+	return best
 }
 
 // partialText summarises what a cut-off run produced, for the debug log only.

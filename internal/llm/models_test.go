@@ -262,8 +262,8 @@ func TestListModelsClaudeCodeOffersOnlyAliases(t *testing.T) {
 			t.Errorf("%q is offered but is not an alias", m.ID)
 		}
 	}
-	if strings.Join(ids, ",") != "opus,sonnet,haiku" {
-		t.Errorf("aliases = %v, want opus, sonnet, haiku", ids)
+	if strings.Join(ids, ",") != "opus,sonnet,haiku,fable" {
+		t.Errorf("aliases = %v, want opus, sonnet, haiku, fable", ids)
 	}
 	if IsClaudeCodeAlias("claude-sonnet-4-6") {
 		t.Error("a pinned API model ID must not count as an alias")
@@ -383,7 +383,8 @@ func TestListModelsAnthropicAsksForEveryPage(t *testing.T) {
 	if limit == "" || limit == "20" {
 		t.Errorf("limit = %q, want an explicit high limit rather than the SDK default", limit)
 	}
-	if len(list.Models) != 1 || list.Models[0].Label != "Sonnet 4.6" {
+	// The sonnet alias leads, naming what it resolves to; the listed model follows.
+	if len(list.Models) != 2 || list.Models[0].ID != FamilySonnet || list.Models[0].Resolved != "claude-sonnet-4-6" || list.Models[1].Label != "Sonnet 4.6" {
 		t.Errorf("models = %v, want the display name as the label", list.Models)
 	}
 }
