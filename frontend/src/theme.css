@@ -8,7 +8,8 @@
  * App code reads colours from the --kl-* tokens below, never from PrimeNG's
  * --p-* tokens: PrimeNG is being replaced (docs/ui/primeng-replacement.md,
  * roadmap E11), and its token names must not outlive it. The PrimeNG overrides
- * in styles.scss still set PrimeNG's own tokens where they patch PrimeNG.
+ * in styles.scss point PrimeNG's own tokens at these roles while it is still
+ * in, so the screens not yet migrated follow the new palette roughly.
  */
 
 /*
@@ -61,28 +62,46 @@
 /*
  * Only KeyLint's colours exist as utilities (text-muted, bg-sheet, border-line,
  * ...): Tailwind's default palette is switched off so nobody reaches for a
- * colour outside the token set. Spacing, sizing and radius keep Tailwind's
- * defaults (spacing step 0.25rem: mt-4 = 1rem).
+ * colour outside the token set. The same goes for font families (font-ui,
+ * font-text). Spacing, sizing, type scale and radius keep Tailwind's defaults
+ * (spacing step 0.25rem: mt-4 = 1rem).
  *
  * `inline` makes each utility use var(--kl-*) directly, so a token changed at
  * runtime (or by a later theme) is picked up without regenerating anything.
  */
 @theme {
   --color-*: initial;
+  --font-*: initial;
 }
 @theme inline {
   --color-fg: var(--kl-text);
+  --color-fg-strong: var(--kl-text-strong);
+  --color-soft: var(--kl-text-soft);
   --color-muted: var(--kl-muted);
+  --color-faint: var(--kl-faint);
   --color-primary: var(--kl-primary);
+  --color-primary-hover: var(--kl-primary-hover);
+  --color-on-primary: var(--kl-on-primary);
   --color-primary-text: var(--kl-primary-text);
+  --color-link: var(--kl-link);
+  --color-focus: var(--kl-focus);
   --color-line: var(--kl-line);
+  --color-line-control: var(--kl-line-control);
+  --color-line-strong: var(--kl-line-strong);
   --color-ground: var(--kl-ground);
   --color-rail: var(--kl-rail);
+  --color-field: var(--kl-field);
   --color-sheet: var(--kl-sheet);
+  --color-sheet-alt: var(--kl-sheet-alt);
+  --color-raised: var(--kl-raised);
+  --color-raised-hover: var(--kl-raised-hover);
+  --color-selected: var(--kl-selected);
   --color-hover: var(--kl-hover);
   --color-highlight: var(--kl-highlight);
-  --color-error: var(--kl-error);
+  --color-info: var(--kl-info);
+  --color-success: var(--kl-success);
   --color-warn: var(--kl-warn);
+  --color-error: var(--kl-error);
   --color-surface-0: var(--kl-surface-0);
   --color-surface-50: var(--kl-surface-50);
   --color-surface-100: var(--kl-surface-100);
@@ -95,32 +114,51 @@
   --color-surface-800: var(--kl-surface-800);
   --color-surface-900: var(--kl-surface-900);
   --color-surface-950: var(--kl-surface-950);
+  --font-ui: var(--kl-font-ui);
+  --font-text: var(--kl-font-text);
   --radius-md: var(--kl-radius-md);
+  --radius-lg: var(--kl-radius-lg);
+  --radius-sheet: var(--kl-radius-sheet);
 }
 
 /*
- * The values are exactly what the app renders today: Aura's dark scheme as
- * app.config.ts configures it (orange primary, dark via .app-dark on <html>),
- * read from @primeuix/themes 2.0.3 and checked against the running app. That
- * keeps this step a visual no-op. Two things that are easy to get wrong:
+ * Fonts, bundled: KeyLint is an offline desktop app, so nothing is fetched at
+ * runtime (docs/ui/design.md, "Type"). Both are the variable fonts from the
+ * google/fonts repository (ofl/schibstedgrotesk, ofl/literata), subset to
+ * Latin + Latin Extended (plus general punctuation and arrows) with fontTools'
+ * pyftsubset and stored as woff2 in public/fonts, next to their SIL Open Font
+ * License texts. A glyph outside the subset falls back to the next family in
+ * the stack. Literata's italic is not bundled; the browser slants the upright.
+ */
+@font-face {
+  font-family: 'Schibsted Grotesk';
+  src: url('/fonts/schibsted-grotesk-latin.woff2') format('woff2');
+  font-weight: 400 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Literata';
+  src: url('/fonts/literata-latin.woff2') format('woff2');
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/*
+ * The palette of the approved look, docs/ui/design.md. Dark only, like the
+ * rest of the app (#24); a light theme (#25) redefines the roles under its own
+ * selector. design.md's names map as: orange → primary, orange-text →
+ * primary-text (and link/focus for #FB923C), its two line colours → line
+ * (dividers) and line-control (control borders).
  *
- * - Aura's dark primary.color is primary.400, so the orange KeyLint renders is
- *   #fb923c, not orange-500 #f97316 (that is only the light-scheme primary).
- * - Text is surface.0 (#ffffff), muted text surface.400.
- *
- * The approved target look (docs/ui/design.md) has different values for most
- * of these (ground #1F1F23, sheet #27272A, text #F4F4F5, primary #F97316 with
- * #FB923C for links and focus, ...). Switching to it is a later E11 step. It
- * is mostly a change of values here, but not only: design.md has two line
- * colours (dividers #36363C, control borders #3F3F46) where this file has one
- * --kl-line, and the PrimeNG overrides in styles.scss read fixed surface steps
- * rather than roles. Both get sorted when the palette is switched on.
- *
- * Dark only, like the rest of the app (#24). A light theme (#25) redefines
- * these under its own selector.
+ * Contrast, measured: muted #A1A1AA is 5.8:1 on sheet, 5.5:1 on sheet-alt,
+ * 4.8:1 on selected and 6.9:1 on the rail. faint #71717A is 3.7:1 on the
+ * rail, so it is for strokes and dots only, never for text. On-primary on
+ * primary is 6.6:1 (white would be 2.8:1).
  */
 :root {
-  /* Neutral scale: Aura's dark surface palette, which is Tailwind's zinc. */
+  /* Neutral scale: Tailwind's zinc. For the odd step a role does not cover. */
   --kl-surface-0: #ffffff;
   --kl-surface-50: #fafafa;
   --kl-surface-100: #f4f4f5;
@@ -141,20 +179,54 @@
   --kl-amber-900: #78350f;
   --kl-red-400: #f87171;
 
-  /* Roles. */
-  --kl-text: var(--kl-surface-0);          /* body text (Aura text.color) */
-  --kl-muted: var(--kl-surface-400);       /* hints, labels (text.mutedColor) */
-  --kl-primary: #fb923c;                   /* fills and borders (dark primary.color = orange.400) */
-  --kl-primary-text: var(--kl-primary);    /* orange text on dark (design.md target: #FDBA74) */
-  --kl-link: var(--kl-primary);            /* links (design.md target: #FB923C) */
-  --kl-focus: var(--kl-primary);           /* focus rings (design.md target: #FB923C, stays when primary moves to #F97316) */
-  --kl-line: var(--kl-surface-700);        /* borders and dividers (content.borderColor) */
-  --kl-ground: var(--kl-surface-950);      /* page background */
-  --kl-rail: var(--kl-surface-900);        /* sidebar */
-  --kl-sheet: var(--kl-surface-800);       /* raised blocks: in-use block, code, recorder field */
-  --kl-hover: var(--kl-surface-800);       /* hover fill (content.hoverBackground) */
-  --kl-highlight: color-mix(in srgb, var(--kl-primary), transparent 84%); /* selected row (highlight.background) */
-  --kl-error: var(--kl-red-400);
-  --kl-warn: var(--kl-amber-400);
-  --kl-radius-md: 6px;
+  /* Surfaces, darkest first. */
+  --kl-rail: #18181b;            /* sidebar */
+  --kl-ground: #1f1f23;          /* page background */
+  --kl-field: #232327;           /* text inputs, the segmented control's track */
+  --kl-sheet: #27272a;           /* text surfaces, cards, the in-use block */
+  --kl-raised: #2a2a2f;          /* quiet buttons, the active nav item, menus, tooltips */
+  --kl-sheet-alt: #2b2b30;       /* the result half of the Fix sheet */
+  --kl-raised-hover: #323238;    /* hover on a raised surface, a hovered option */
+  --kl-selected: #38383e;        /* the chosen option, the "on" segment */
+  --kl-hover: var(--kl-raised);  /* generic hover fill */
+  --kl-highlight: color-mix(in srgb, var(--kl-primary), transparent 86%); /* selected row */
+
+  /* Lines: dividers are quieter than the borders that outline a control. */
+  --kl-line: #36363c;            /* dividers, sheet and card borders */
+  --kl-line-control: #3f3f46;    /* input, select and quiet-button borders */
+  --kl-line-strong: #52525b;     /* a hovered control border, the off switch */
+
+  /* Text. */
+  --kl-text: #f4f4f5;            /* body */
+  --kl-text-strong: #fafafa;     /* headings, the active nav item */
+  --kl-text-soft: #d4d4d8;       /* section labels, text the user typed */
+  --kl-muted: #a1a1aa;           /* hints, labels */
+  --kl-faint: #71717a;           /* decoration only, never text */
+
+  /* Orange. */
+  --kl-primary: #f97316;         /* primary buttons, active marks, the on switch */
+  --kl-primary-hover: #fb8a3c;
+  --kl-on-primary: #1c1209;      /* text and icons on orange */
+  --kl-primary-text: #fdba74;    /* orange text on dark */
+  --kl-link: #fb923c;            /* links */
+  --kl-focus: #fb923c;           /* focus rings: 2px, offset 2px */
+  --kl-mark-ins: #fed7aa;        /* the text of an inserted correction */
+
+  /* Messages: tinted background, border and icon in the colour. */
+  --kl-info: #60a5fa;
+  --kl-success: #2dd4bf;
+  --kl-warn: #fbbf24;
+  --kl-error: #f87171;
+  --kl-danger-text: #fca5a5;     /* text of a danger button */
+
+  /* Shape. Shadows only on overlays. */
+  --kl-radius-sm: 4px;           /* kbd, small marks */
+  --kl-radius-md: 6px;           /* controls */
+  --kl-radius-lg: 8px;           /* menus, messages, tooltips */
+  --kl-radius-sheet: 10px;       /* sheets and cards */
+  --kl-shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.45);
+
+  /* Type. */
+  --kl-font-ui: 'Schibsted Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --kl-font-text: 'Literata', Georgia, 'Times New Roman', serif;
 }

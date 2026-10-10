@@ -8,25 +8,65 @@
 
 // PrimeNG overrides. Everything from here to `body` patches PrimeNG's own
 // classes and tokens, and goes when PrimeNG does (roadmap E11, last step).
-// Colours come from the KeyLint tokens like everywhere else; only the
-// selectors and --p-card-background, a PrimeNG token set on purpose, are
-// PrimeNG's.
+// They point PrimeNG's tokens at KeyLint's roles, so the screens that still
+// render PrimeNG follow the new palette roughly until they are migrated: the
+// orange with dark text on it, the grey surfaces, the two line colours, the
+// focus colour. Only the selectors and the --p-* names are PrimeNG's.
 //
 // .app-dark sits on <html> (see index.html). PrimeNG declares component
 // tokens on :root as aliases of the theme tokens, and an alias resolves where
-// it is declared — so while the class sat on <body>, every aliased token came
-// out light (select panels, tab bars, disabled fields: #28). With the class on
-// <html> those aliases now resolve to Aura's dark values: dropdown panels,
-// tabs, checkboxes, focus rings and text colours all moved (see PR #94). The
-// overrides below were written against the old gap; they are kept so surfaces
-// that were already dark stay exactly as they were.
+// it is declared — so the semantic tokens below are set on the same element,
+// and every aliased component token (button background, select panel, tab
+// bar...) picks them up.
 //
-// :root.app-dark, not .app-dark: PrimeNG's card tokens also sit on :root and
-// are injected after this file, so equal specificity would lose to them and
-// raise the settings card off the page. (A light value used to sit on plain
-// :root; it always lost to PrimeNG's later :root, so it did nothing. The light
-// theme, #25, sets its own.)
+// :root.app-dark, not .app-dark: PrimeNG emits its dark scheme under
+// `.app-dark` and its card tokens on :root, injected after this file, so equal
+// specificity would lose to them.
 :root.app-dark {
+  --p-primary-color: var(--kl-primary);
+  --p-primary-contrast-color: var(--kl-on-primary);
+  --p-primary-hover-color: var(--kl-primary-hover);
+  --p-primary-active-color: var(--kl-primary-hover);
+  --p-highlight-background: var(--kl-highlight);
+  --p-highlight-focus-background: var(--kl-highlight);
+  --p-highlight-color: var(--kl-primary-text);
+  --p-highlight-focus-color: var(--kl-primary-text);
+  --p-focus-ring-color: var(--kl-focus);
+
+  --p-text-color: var(--kl-text);
+  --p-text-hover-color: var(--kl-text-strong);
+  --p-text-muted-color: var(--kl-muted);
+  --p-text-hover-muted-color: var(--kl-text);
+
+  --p-content-background: var(--kl-ground);
+  --p-content-hover-background: var(--kl-hover);
+  --p-content-border-color: var(--kl-line);
+  --p-content-color: var(--kl-text);
+  --p-content-hover-color: var(--kl-text-strong);
+
+  --p-form-field-background: var(--kl-field);
+  --p-form-field-disabled-background: var(--kl-rail);
+  --p-form-field-filled-background: var(--kl-field);
+  --p-form-field-border-color: var(--kl-line-control);
+  --p-form-field-hover-border-color: var(--kl-line-strong);
+  --p-form-field-focus-border-color: var(--kl-primary);
+  --p-form-field-color: var(--kl-text);
+  --p-form-field-disabled-color: var(--kl-muted);
+  --p-form-field-placeholder-color: var(--kl-muted);
+  --p-form-field-icon-color: var(--kl-muted);
+
+  --p-overlay-select-background: var(--kl-raised);
+  --p-overlay-select-border-color: var(--kl-line-control);
+  --p-overlay-select-color: var(--kl-text);
+  --p-overlay-popover-background: var(--kl-raised);
+  --p-overlay-popover-border-color: var(--kl-line-control);
+  --p-overlay-popover-color: var(--kl-text);
+  --p-list-option-focus-background: var(--kl-raised-hover);
+  --p-list-option-selected-background: var(--kl-selected);
+  --p-list-option-selected-focus-background: var(--kl-selected);
+  --p-list-option-selected-color: var(--kl-text-strong);
+  --p-list-option-selected-focus-color: var(--kl-text-strong);
+
   --p-card-background: var(--kl-ground);
 }
 .app-dark {
@@ -40,17 +80,16 @@
   .p-textarea,
   .p-inputtext,
   .p-select {
-    background: var(--kl-surface-950);
+    background: var(--kl-field);
     color: var(--kl-text);
-    border-color: var(--kl-surface-700);
+    border-color: var(--kl-line-control);
   }
-  // Disabled fields (#28): Aura's dark disabled fill is zinc-700, a grey block
-  // that reads like a button on this near-black page. Keep them on a dark
-  // surface one step up from the enabled ones, with muted text.
+  // Disabled fields (#28): Aura's dark disabled fill is a grey block that
+  // reads like a button. Keep them on the darkest surface, with muted text.
   .p-textarea:disabled,
   .p-inputtext:disabled,
   .p-select.p-disabled {
-    background: var(--kl-surface-900);
+    background: var(--kl-rail);
     color: var(--kl-muted);
   }
   // .p-select-label is a square span 1px inside the rounded .p-select box.
@@ -64,9 +103,39 @@
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--kl-font-ui);
+  font-size: 14px;
+  line-height: 1.45;
   background: var(--kl-ground);
   color: var(--kl-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+// A visible keyboard focus everywhere (docs/ui/design.md): 2px, offset 2px.
+// :where() keeps this at zero specificity, so a component with its own ring
+// (and PrimeNG's, while it is in) still wins.
+:where(a, button, input, textarea, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--kl-focus);
+  outline-offset: 2px;
+}
+
+a {
+  color: var(--kl-link);
+}
+a:hover {
+  color: var(--kl-primary-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Visually hidden, still read by screen readers. Global so every component
