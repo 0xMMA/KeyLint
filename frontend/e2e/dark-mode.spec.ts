@@ -30,7 +30,7 @@ test.describe('Dark mode — visual verification', () => {
       getComputedStyle(document.body).backgroundColor,
     );
     console.log(`Body background: ${bgColor}`);
-    // rgb(9,9,11) = zinc-950 (#09090b). Must not be white (255,255,255).
+    // The ground token (#1f1f23). Must not be white (255,255,255).
     expect(bgColor, `Body is white: ${bgColor}`).not.toBe('rgb(255, 255, 255)');
     expect(bgColor, `Body is white: ${bgColor}`).not.toBe('rgba(0, 0, 0, 0)');
     await screenshot(page, '02-body-background');
@@ -130,10 +130,10 @@ test.describe('Dark mode — visual verification', () => {
     // transparent while the select itself keeps the dark surface background.
     expect(colors!.label, `Select label is not transparent: ${colors!.label}`)
       .toBe('rgba(0, 0, 0, 0)');
-    // zinc-950 (#09090b) is the dark surface. Asserting the exact colour, not
+    // The field surface (--kl-field, #232327). Asserting the exact colour, not
     // merely "not transparent", is what makes a light-mode regression fail.
     expect(colors!.select, `Select background: ${colors!.select}`)
-      .toBe('rgb(9, 9, 11)');
+      .toBe('rgb(35, 35, 39)');
     await screenshot(page, '07-select-label-transparent');
   });
 
@@ -153,7 +153,7 @@ test.describe('Dark mode — visual verification', () => {
     const hasAppDark = await page.evaluate(() => document.documentElement.classList.contains('app-dark'));
     expect(hasAppDark, 'stored "light" must not remove .app-dark').toBe(true);
     const bgColor = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    expect(bgColor).toBe('rgb(9, 9, 11)');
+    expect(bgColor).toBe('rgb(31, 31, 35)');
 
     await expect(page.locator('label', { hasText: /^Theme$/ })).toHaveCount(0);
     await screenshot(page, '08-stored-light-stays-dark');
@@ -170,17 +170,18 @@ test.describe('Dark mode — visual verification', () => {
     await expect(input).toBeDisabled();
     const bg = await input.evaluate((el) => getComputedStyle(el).backgroundColor);
     console.log(`disabled instruction input bg: ${bg}`);
-    // zinc-900 (#18181b): the dark surface one step up from enabled fields.
+    // The rail surface (--kl-rail, #18181b): darker than an enabled field.
     expect(bg, `Disabled input background: ${bg}`).toBe('rgb(24, 24, 27)');
 
     // The colour above comes from KeyLint's own override and would hold with
     // .app-dark on <body> too. What regressed was PrimeNG's token, which only
-    // resolves dark when the class sits on <html>: on <body> it reads #e2e8f0.
+    // resolves dark when the class sits on <html> (on <body> it read #e2e8f0);
+    // it now follows KeyLint's rail token through styles.scss.
     const onRoot = await page.evaluate(() => document.documentElement.classList.contains('app-dark'));
     expect(onRoot, '.app-dark must sit on <html>').toBe(true);
     const token = await input.evaluate((el) =>
       getComputedStyle(el).getPropertyValue('--p-inputtext-disabled-background').trim());
-    expect(token, `--p-inputtext-disabled-background: ${token}`).toBe('#3f3f46');
+    expect(token, `--p-inputtext-disabled-background: ${token}`).toBe('#18181b');
     await screenshot(page, '09-disabled-input-dark');
   });
 
@@ -195,8 +196,8 @@ test.describe('Dark mode — visual verification', () => {
     await expect(panel).toBeVisible();
     const bg = await panel.evaluate((el) => getComputedStyle(el).backgroundColor);
     console.log(`select panel bg: ${bg}`);
-    // zinc-900 (#18181b), Aura's dark overlay background.
-    expect(bg, `Select panel background: ${bg}`).toBe('rgb(24, 24, 27)');
+    // The raised surface (--kl-raised, #2a2a2f) that every overlay uses.
+    expect(bg, `Select panel background: ${bg}`).toBe('rgb(42, 42, 47)');
     await screenshot(page, '10-select-panel-dark');
   });
 });
