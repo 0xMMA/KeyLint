@@ -193,7 +193,7 @@ describe('ShellComponent — theme / body class', () => {
     const router = TestBed.inject(Router);
     const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
     fixture.componentInstance.goToAbout();
-    expect(navigateSpy).toHaveBeenCalledWith(['/settings'], { queryParams: { tab: 'about' } });
+    expect(navigateSpy).toHaveBeenCalledWith(['/settings'], { queryParams: { tab: 'about' }, onSameUrlNavigation: 'reload' });
   });
 
   it('navigates to /enhance on shortcutPyramidize$', async () => {
@@ -236,7 +236,7 @@ describe('ShellComponent — theme / body class', () => {
     });
     await fixture.whenStable();
 
-    expect(navigateSpy).toHaveBeenCalledWith(['/settings'], { queryParams: { tab: 'providers' } });
+    expect(navigateSpy).toHaveBeenCalledWith(['/settings'], { queryParams: { tab: 'providers' }, onSameUrlNavigation: 'reload' });
   });
 
   it('sends anything else to the Fix page', async () => {

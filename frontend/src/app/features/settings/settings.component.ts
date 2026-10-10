@@ -1,7 +1,7 @@
 import { Component, OnInit, OnDestroy, ChangeDetectorRef, ElementRef } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
-import { Subscription, skip } from 'rxjs';
+import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
+import { Subscription, filter } from 'rxjs';
 import {
   ButtonComponent, InputDirective, MessageComponent, TabComponent, TabPanelComponent, TabsComponent,
 } from '../../shared/ui';
@@ -429,6 +429,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   constructor(
     private readonly route: ActivatedRoute,
+    private readonly router: Router,
     private readonly wails: WailsService,
     private readonly cdr: ChangeDetectorRef,
     private readonly log: LogService,
@@ -439,17 +440,20 @@ export class SettingsComponent implements OnInit, OnDestroy {
   async ngOnInit(): Promise<void> {
     this.activeTab = this.route.snapshot.queryParamMap.get('tab') ?? 'general';
     // A later ?tab= while this page is open (the sidebar's version opens
-    // About) reuses this component rather than making a new one.
-    const params = this.route.queryParamMap;
-    if (params) {
-      this.subs.add(params.pipe(skip(1)).subscribe(map => {
-        const tab = map.get('tab');
-        if (tab) {
-          this.activeTab = tab;
-          this.cdr.markForCheck();
-        }
-      }));
-    }
+    // About) reuses this component rather than making a new one. Read from
+    // each finished navigation, not from queryParamMap: picking a tab leaves
+    // the URL as it was, so the version link clicked again is a navigation to
+    // the same URL (the shell sends it with onSameUrlNavigation: 'reload'),
+    // and queryParamMap only reports a change.
+    this.subs.add(this.router.events.pipe(filter(e => e instanceof NavigationEnd)).subscribe(e => {
+      const url = this.router.parseUrl(e.urlAfterRedirects);
+      const tab = url.queryParamMap.get('tab');
+      const onSettings = url.root.children['primary']?.segments[0]?.path === 'settings';
+      if (tab && onSettings) {
+        this.activeTab = tab;
+        this.cdr.markForCheck();
+      }
+    }));
     // A hotkey-fix notification clicked to get here — or clicked while this
     // page is already open, which the router does not report as a new
     // navigation.

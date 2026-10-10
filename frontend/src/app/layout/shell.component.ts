@@ -118,7 +118,9 @@ export class ShellComponent implements OnInit, OnDestroy {
   }
 
   goToAbout(): void {
-    void this.router.navigate(['/settings'], { queryParams: { tab: 'about' } });
+    // 'reload': the URL may already be /settings?tab=about with another tab
+    // picked since; Settings reads the tab from every finished navigation.
+    void this.router.navigate(['/settings'], { queryParams: { tab: 'about' }, onSameUrlNavigation: 'reload' });
   }
 
   toggleSidebar(): void {
@@ -184,7 +186,7 @@ export class ShellComponent implements OnInit, OnDestroy {
     // itself, because the router ignores a navigation to the URL it is on.
     this.silentNotices.present(notice);
     if (notice.target === 'providers') {
-      void this.router.navigate(['/settings'], { queryParams: { tab: 'providers' } });
+      void this.router.navigate(['/settings'], { queryParams: { tab: 'providers' }, onSameUrlNavigation: 'reload' });
       return;
     }
     void this.router.navigate(['/fix']);

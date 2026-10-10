@@ -95,4 +95,20 @@ test.describe('leaving Settings', () => {
 
     expect(errors).toEqual([]);
   });
+
+  test('the version footer opens About again after another tab was picked', async ({ page }) => {
+    // The URL stays /settings?tab=about while the user moves to General, so
+    // the second click is a navigation to the URL the router is already on.
+    await page.goto('/fix');
+    const footer = page.locator('[data-testid="version-footer"]');
+    await footer.click();
+    const about = page.getByRole('tab', { name: 'About' });
+    await expect(about).toHaveAttribute('aria-selected', 'true');
+
+    await page.getByRole('tab', { name: 'General' }).click();
+    await expect(page.getByRole('tab', { name: 'General' })).toHaveAttribute('aria-selected', 'true');
+
+    await footer.click();
+    await expect(about).toHaveAttribute('aria-selected', 'true');
+  });
 });

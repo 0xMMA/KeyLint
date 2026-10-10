@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
+import { By } from '@angular/platform-browser';
 import { Component, OnDestroy } from '@angular/core';
 import { ShellComponent } from './shell.component';
 import { SettingsComponent } from '../features/settings/settings.component';
@@ -87,6 +88,35 @@ describe('ShellComponent — routing away from Settings', () => {
     fixture.detectChanges();
 
     expect(routedPages(el), 'Settings must not survive the navigation').toEqual(['enhance']);
+  });
+
+  it('opens About again from the version link after another tab was picked (same URL)', async () => {
+    const harness = await RouterTestingHarness.create();
+    const fixture = harness.fixture;
+    const el: HTMLElement = fixture.nativeElement;
+    const settle = async () => { fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges(); };
+    const selected = () => el.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.trim();
+    // The first visit as the version link makes it; the second goes through
+    // the shell's own goToAbout().
+    await router.navigate(['/settings'], { queryParams: { tab: 'about' } });
+    await settle();
+    expect(selected()).toBe('About');
+    const shell = fixture.debugElement.query(By.directive(ShellComponent)).componentInstance as ShellComponent;
+    // goToAbout() does not return the navigation; wait for it before rendering.
+    const navigate = vi.spyOn(router, 'navigate');
+    const versionLink = async () => {
+      shell.goToAbout();
+      await navigate.mock.results.at(-1)!.value;
+      await settle();
+    };
+
+    Array.from(el.querySelectorAll<HTMLElement>('[role="tab"]')).find(t => t.textContent?.trim() === 'General')!.click();
+    await settle();
+    expect(selected()).toBe('General');
+    expect(router.url).toBe('/settings?tab=about');
+
+    await versionLink();
+    expect(selected()).toBe('About');
   });
 });
 
