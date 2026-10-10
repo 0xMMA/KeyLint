@@ -23,8 +23,8 @@ and reveal what was always between and after them.
 
 ## Colour
 
-- "K" and "ey" → near-white (`--p-surface-50`)
-- "L" and "int" → orange (`--p-primary-color`)
+- "K" and "ey" → near-white (`--kl-surface-50`)
+- "L" and "int" → orange (`--kl-primary-text`)
 
 (Same colour split as before — "Key" is white, "Lint" is orange.)
 

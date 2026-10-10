@@ -194,13 +194,13 @@ interface ProviderKey {
                 <!-- A clicked hotkey-fix notification sent the user here: say why,
                      once, until it is dismissed or something here changes. -->
                 @if (silentFixNote; as note) {
-                  <p-message data-testid="silent-fix-note" severity="warn" size="small" styleClass="mb-3"
+                  <p-message data-testid="silent-fix-note" severity="warn" size="small" styleClass="mb-4"
                     [closable]="true" (onClose)="silentFixNote = null">
                     {{ note.title }}: {{ note.body }}
                   </p-message>
                 }
                 @if (unavailableProvider; as name) {
-                  <p-message data-testid="providers-tab-unavailable" severity="warn" size="small" styleClass="mb-3">
+                  <p-message data-testid="providers-tab-unavailable" severity="warn" size="small" styleClass="mb-4">
                     {{ name }} is saved but not available yet, so KeyLint has no provider in use.
                   </p-message>
                 }
@@ -210,7 +210,7 @@ interface ProviderKey {
                   <!-- Focusable, for a failed switch with no card in use to return to.
                        The message is role="alert", so it announces itself. -->
                   <div class="switch-error" tabindex="-1" data-testid="provider-switch-error">
-                    <p-message severity="error" size="small" styleClass="mb-3">{{ switchError }}</p-message>
+                    <p-message severity="error" size="small" styleClass="mb-4">{{ switchError }}</p-message>
                   </div>
                 }
 
@@ -383,7 +383,7 @@ interface ProviderKey {
 
               <!-- App Defaults tab -->
               <p-tabpanel value="app-defaults">
-                <div class="form-group mt-4">
+                <div class="form-group mt-6">
                   <label>App Presets</label>
                   @if (presets.length === 0 && !addingPreset) {
                     <p class="hint-text">No app presets saved yet. Use Pyramidize with the global hotkey to detect apps automatically.</p>
@@ -451,7 +451,7 @@ interface ProviderKey {
 
                 <!-- The channel stays settable in a dev build: it decides which
                      release the dev channel's "latest release" offer installs. -->
-                <div class="form-group mt-3" data-testid="update-channel-section">
+                <div class="form-group mt-4" data-testid="update-channel-section">
                   <label>Update Channel</label>
                   <p-select
                     [(ngModel)]="settings.update_channel"
@@ -465,7 +465,7 @@ interface ProviderKey {
                 <!-- A dev build is 0.0.0, so every release would read as an
                      update: the dev channel replaces the normal check there. -->
                 @if (!buildIdentity.is_dev_build) {
-                <div class="mt-3">
+                <div class="mt-4">
                   <p-button
                     data-testid="check-update-btn"
                     label="Check for Updates"
@@ -478,7 +478,7 @@ interface ProviderKey {
                 }
 
                 @if (updateInfo?.is_available) {
-                  <div class="mt-3">
+                  <div class="mt-4">
                     <p-message
                       data-testid="update-available-msg"
                       severity="info"
@@ -502,7 +502,7 @@ interface ProviderKey {
                     [text]="updateRestartRequired
                       ? 'Update is installing — the app will close shortly.'
                       : 'Update installed! Restart the app to use the new version.'"
-                    styleClass="mt-3"
+                    styleClass="mt-4"
                   />
                 }
 
@@ -511,7 +511,7 @@ interface ProviderKey {
                     data-testid="update-error-msg"
                     severity="error"
                     [text]="updateError"
-                    styleClass="mt-3"
+                    styleClass="mt-4"
                   />
                 }
 
@@ -523,20 +523,20 @@ interface ProviderKey {
           </p-tabs>
 
           @if (saved) {
-            <p-message data-testid="saved-banner" severity="success" text="Settings saved!" styleClass="mt-3" />
+            <p-message data-testid="saved-banner" severity="success" text="Settings saved!" styleClass="mt-4" />
           }
           @if (saveError) {
-            <p-message data-testid="save-error" severity="error" [text]="saveError" styleClass="mt-3" />
+            <p-message data-testid="save-error" severity="error" [text]="saveError" styleClass="mt-4" />
           }
           @if (keyError) {
-            <p-message severity="error" [text]="keyError" styleClass="mt-3" />
+            <p-message severity="error" [text]="keyError" styleClass="mt-4" />
           }
 
           @if (confirmingReset) {
             <!-- Asked in place, not in a browser dialog: what goes and what
                  stays is the whole question, so it is spelled out. -->
             <div
-              class="reset-confirm mt-4"
+              class="reset-confirm mt-6"
               role="group"
               aria-labelledby="reset-confirm-title"
               data-testid="reset-confirm"
@@ -548,13 +548,13 @@ interface ProviderKey {
                 developer options go back to their defaults.
                 <strong>Kept:</strong> your API keys in the OS keyring, the provider in use, and your completed setup.
               </p>
-              <div class="flex gap-3">
+              <div class="flex gap-4">
                 <p-button data-testid="reset-confirm-btn" label="Reset" icon="pi pi-refresh" severity="danger" [disabled]="switchingTo !== null || formBusy" (onClick)="confirmReset()" />
                 <p-button data-testid="reset-cancel-btn" label="Cancel" severity="secondary" [outlined]="true" (onClick)="cancelReset()" />
               </div>
             </div>
           } @else {
-            <div class="mt-4 flex gap-3">
+            <div class="mt-6 flex gap-4">
               <!-- Held while a provider switch saves, and the switch is held while
                    these run: one landing in the middle of the other could
                    overwrite it or be overwritten by it. -->
@@ -569,8 +569,8 @@ interface ProviderKey {
   styles: [`
     .settings-page { padding: 1.5rem; max-width: 700px; }
     .reset-confirm {
-      border: 1px solid var(--p-red-400, #f87171);
-      border-radius: var(--p-border-radius-md, 6px);
+      border: 1px solid var(--kl-error);
+      border-radius: var(--kl-radius-md);
       padding: 0.75rem 1rem;
     }
     .reset-confirm-title { margin: 0 0 0.25rem; font-weight: 600; }
@@ -596,7 +596,7 @@ interface ProviderKey {
     /* A long hint beside the switch would otherwise squeeze it narrower than
        its track, and the knob slides out past the edge (#26). */
     .toggle-row p-toggle-switch { flex-shrink: 0; }
-    label { font-size: 0.875rem; color: var(--p-text-muted-color); }
+    label { font-size: 0.875rem; color: var(--kl-muted); }
     input { width: 100%; }
 
     .switch-error:focus { outline: none; }
@@ -610,14 +610,14 @@ interface ProviderKey {
       align-items: baseline;
       gap: 0.4rem;
     }
-    .provider-pointer-sep { color: var(--p-text-muted-color); }
+    .provider-pointer-sep { color: var(--kl-muted); }
     .provider-pointer-link {
       background: none;
       border: none;
       padding: 0;
       font: inherit;
       cursor: pointer;
-      color: var(--p-primary-color);
+      color: var(--kl-primary-text);
       text-decoration: none;
     }
     .provider-pointer-link:hover { text-decoration: underline; }
@@ -626,8 +626,8 @@ interface ProviderKey {
     .ollama-url .hint-text { margin-bottom: 0; }
 
     .key-row {
-      border: 1px solid var(--p-content-border-color);
-      border-radius: var(--p-border-radius-md, 6px);
+      border: 1px solid var(--kl-line);
+      border-radius: var(--kl-radius-md);
       padding: 0.75rem 1rem;
       margin-bottom: 0.75rem;
     }
@@ -662,7 +662,7 @@ interface ProviderKey {
     .unlock-hint { min-height: 1em; }
     .hint-text {
       font-size: 0.8rem;
-      color: var(--p-text-muted-color);
+      color: var(--kl-muted);
       margin-bottom: 1rem;
     }
     .connections-heading {
@@ -671,7 +671,7 @@ interface ProviderKey {
       font-weight: 600;
     }
     code {
-      background: var(--p-content-hover-background);
+      background: var(--kl-sheet);
       padding: 1px 4px;
       border-radius: 3px;
       font-family: monospace;
@@ -682,11 +682,11 @@ interface ProviderKey {
       align-items: center;
       gap: 0.5rem;
       padding: 0.5rem 0;
-      border-bottom: 1px solid var(--p-content-border-color);
+      border-bottom: 1px solid var(--kl-line);
     }
     .preset-type {
       font-size: 0.8rem;
-      color: var(--p-text-muted-color);
+      color: var(--kl-muted);
       text-transform: uppercase;
       width: 80px;
     }

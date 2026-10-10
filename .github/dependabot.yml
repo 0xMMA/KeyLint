@@ -125,6 +125,12 @@ updates:
           - "@primeuix/*"
           - "primeicons"
           - "typescript"
+      # @tailwindcss/postcss pins tailwindcss to its own exact version; bumped
+      # apart, the build would carry two Tailwinds.
+      tailwind:
+        patterns:
+          - "tailwindcss"
+          - "@tailwindcss/*"
       npm-minor:
         update-types:
           - minor
@@ -151,6 +157,15 @@ updates:
         update-types:
           - version-update:semver-major
       - dependency-name: "typescript"
+        update-types:
+          - version-update:semver-major
+      # Tailwind is a build tool, but a major changes what the utilities and
+      # the @theme/@layer setup in src/theme.css mean — same reasoning as the
+      # framework majors above.
+      - dependency-name: "tailwindcss"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "@tailwindcss/*"
         update-types:
           - version-update:semver-major
       # LICENCE FENCE — explicit `versions:` ranges, because unlike the rules

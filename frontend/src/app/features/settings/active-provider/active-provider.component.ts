@@ -113,10 +113,10 @@ const FEATURES: readonly FeatureRow[] = [
     /* The one block on the tab that is about now: a raised surface and the
        accent rule set it apart from the connection cards below it. */
     .in-use {
-      background: var(--p-content-hover-background);
-      border: 1px solid var(--p-content-border-color);
-      border-left: 3px solid var(--p-primary-color);
-      border-radius: var(--p-border-radius-md, 6px);
+      background: var(--kl-sheet);
+      border: 1px solid var(--kl-line);
+      border-left: 3px solid var(--kl-primary);
+      border-radius: var(--kl-radius-md);
       padding: 1rem 1.125rem 0.875rem;
       margin-bottom: 1.75rem;
     }
@@ -135,7 +135,7 @@ const FEATURES: readonly FeatureRow[] = [
     }
     .in-use-mark {
       margin-left: auto;
-      color: var(--p-primary-color);
+      color: var(--kl-primary-text);
       font-size: 0.85rem;
       font-weight: 500;
       display: inline-flex;
@@ -167,7 +167,7 @@ const FEATURES: readonly FeatureRow[] = [
     }
     .model-effective {
       font-size: 0.75rem;
-      color: var(--p-text-muted-color);
+      color: var(--kl-muted);
       overflow-wrap: anywhere;
     }
 
@@ -175,7 +175,7 @@ const FEATURES: readonly FeatureRow[] = [
     .in-use-hint {
       margin: 0 0 0.75rem;
       font-size: 0.8rem;
-      color: var(--p-text-muted-color);
+      color: var(--kl-muted);
       max-width: 70ch;
     }
     .in-use-hint { margin: 0.75rem 0 0; }
@@ -201,7 +201,7 @@ const FEATURES: readonly FeatureRow[] = [
     }
     .model-option-id {
       font-size: 0.75rem;
-      color: var(--p-text-muted-color);
+      color: var(--kl-muted);
     }
     .model-selected {
       display: block;

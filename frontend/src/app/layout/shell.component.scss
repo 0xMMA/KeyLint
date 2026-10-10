@@ -20,8 +20,8 @@
   z-index: 50;
   display: flex;
   flex-direction: column;
-  background: var(--p-surface-900, #18181b);
-  border-right: 1px solid var(--p-surface-700, #3f3f46);
+  background: var(--kl-rail);
+  border-right: 1px solid var(--kl-line);
   box-shadow: 2px 0 6px rgba(0, 0, 0, 0.3);
   transition: width 0.2s ease;
   overflow: hidden;
@@ -68,7 +68,7 @@
   align-items: center;
   justify-content: center;
   padding: 1.5rem 1rem 1rem;
-  border-bottom: 1px solid var(--p-surface-700, #3f3f46);
+  border-bottom: 1px solid var(--kl-line);
   overflow: hidden;
 
   // Shared type styles for all logo character spans.
@@ -79,8 +79,8 @@
     line-height: 1;
   }
 
-  .logo-key { color: var(--p-surface-50, #fff); }
-  .logo-lint { color: var(--p-primary-color, #f97316); }
+  .logo-key { color: var(--kl-surface-50); }
+  .logo-lint { color: var(--kl-primary-text); }
 
   // "ey" and "int" expand in as the sidebar opens.
   // max-width clips characters without affecting flex alignment of neighbours.
@@ -112,7 +112,7 @@
   padding: 0.75rem 1rem;
   border-radius: 6px;
   margin: 2px 0.5rem;
-  color: var(--p-surface-200, #e4e4e7);
+  color: var(--kl-surface-200);
   text-decoration: none;
   font-size: 0.9rem;
   transition: background 0.15s, color 0.15s;
@@ -132,7 +132,7 @@
     width: 1.25rem;
     min-width: 1.25rem;
     text-align: center;
-    color: var(--p-surface-400, #a1a1aa);
+    color: var(--kl-muted);
     transition: color 0.15s;
   }
 
@@ -142,16 +142,16 @@
   }
 
   &:hover {
-    background: var(--p-surface-800, #27272a);
-    color: var(--p-surface-50, #fafafa);
+    background: var(--kl-hover);
+    color: var(--kl-surface-50);
 
     i, .nav-icon-svg {
-      color: var(--p-primary-color, #f97316);
+      color: var(--kl-primary-text);
     }
   }
 
   &.active-route {
-    background: var(--p-primary-color, #f97316);
+    background: var(--kl-primary);
     color: #fff;
 
     i, .nav-icon-svg {
@@ -177,17 +177,17 @@
   overflow: hidden;
 
   &:hover {
-    background: var(--p-surface-800, #27272a);
+    background: var(--kl-hover);
   }
 
   .version-text {
     font-size: 0.75rem;
-    color: var(--p-surface-400, #a1a1aa);
+    color: var(--kl-muted);
   }
 
   .update-indicator {
     font-size: 0.875rem;
-    color: var(--p-primary-color, #f97316);
+    color: var(--kl-primary-text);
     animation: pulse-glow 2s ease-in-out infinite;
   }
 }
@@ -197,13 +197,13 @@
   border: none;
   // The separator belongs to the button, not the footer: the version row above
   // only shows when expanded, and a footer border moved up and down with it.
-  border-top: 1px solid var(--p-surface-700, #3f3f46);
+  border-top: 1px solid var(--kl-line);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0.875rem 0.5rem;
-  color: var(--p-surface-400, #a1a1aa);
+  color: var(--kl-muted);
   transition: background 0.15s, color 0.15s;
   width: 100%;
 
@@ -212,8 +212,8 @@
   }
 
   &:hover {
-    background: var(--p-surface-800, #27272a);
-    color: var(--p-surface-50, #fafafa);
+    background: var(--kl-hover);
+    color: var(--kl-surface-50);
   }
 }
 
@@ -225,7 +225,7 @@
 .layout-main {
   height: 100vh;
   overflow: auto;
-  background: var(--p-surface-ground);
+  background: var(--kl-ground);
   margin-left: 17rem;
   transition: margin-left 0.2s ease;
 }

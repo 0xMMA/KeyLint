@@ -219,8 +219,8 @@ type Screen = 'welcome' | 'provider';
       align-items: center;
       justify-content: center;
       padding: 2rem 1rem;
-      background: var(--p-surface-950, #09090b);
-      color: var(--p-text-color, #f4f4f5);
+      background: var(--kl-ground);
+      color: var(--kl-text);
     }
     .wizard-column {
       width: 100%;
@@ -231,7 +231,7 @@ type Screen = 'welcome' | 'provider';
       font-weight: 700;
       font-size: 1.05rem;
       letter-spacing: -0.025em;
-      color: var(--p-text-muted-color, #a1a1aa);
+      color: var(--kl-muted);
     }
 
     h1 {
@@ -245,10 +245,10 @@ type Screen = 'welcome' | 'provider';
       margin: 0 0 0.75rem;
       font-size: 1rem;
       line-height: 1.55;
-      color: var(--p-text-color, #f4f4f5);
+      color: var(--kl-text);
       max-width: 32rem;
     }
-    .lede.secondary { color: var(--p-text-muted-color, #a1a1aa); }
+    .lede.secondary { color: var(--kl-muted); }
 
     /* The shortcut is the product, so it is the picture: real keycaps. */
     .keys {
@@ -257,7 +257,7 @@ type Screen = 'welcome' | 'provider';
       gap: 0.75rem;
       margin-bottom: 2.25rem;
     }
-    .keys-plus { color: var(--p-text-muted-color, #a1a1aa); font-size: 1.25rem; }
+    .keys-plus { color: var(--kl-muted); font-size: 1.25rem; }
     .keycap {
       display: inline-flex;
       align-items: center;
@@ -270,21 +270,21 @@ type Screen = 'welcome' | 'provider';
       font-size: 1.25rem;
       font-weight: 600;
       line-height: 1;
-      color: var(--p-text-color, #f4f4f5);
-      background: linear-gradient(180deg, var(--p-surface-800, #27272a), var(--p-surface-900, #18181b));
-      border: 1px solid var(--p-surface-600, #52525b);
-      box-shadow: 0 5px 0 var(--p-surface-700, #3f3f46), 0 8px 18px rgba(0, 0, 0, 0.45);
+      color: var(--kl-text);
+      background: linear-gradient(180deg, var(--kl-surface-800), var(--kl-surface-900));
+      border: 1px solid var(--kl-surface-600);
+      box-shadow: 0 5px 0 var(--kl-surface-700), 0 8px 18px rgba(0, 0, 0, 0.45);
       transform: translateY(0);
     }
     .keycap.trigger {
-      border-color: var(--p-primary-color, #f97316);
-      color: var(--p-primary-color, #f97316);
+      border-color: var(--kl-primary);
+      color: var(--kl-primary-text);
       animation: press 1.4s ease-in-out 0.6s 1 both;
     }
     /* One press, once, when the screen opens: this is what the user will do. */
     @keyframes press {
-      0%, 30%, 100% { transform: translateY(0); box-shadow: 0 5px 0 var(--p-surface-700, #3f3f46), 0 8px 18px rgba(0, 0, 0, 0.45); }
-      12% { transform: translateY(4px); box-shadow: 0 1px 0 var(--p-surface-700, #3f3f46), 0 2px 6px rgba(0, 0, 0, 0.45); }
+      0%, 30%, 100% { transform: translateY(0); box-shadow: 0 5px 0 var(--kl-surface-700), 0 8px 18px rgba(0, 0, 0, 0.45); }
+      12% { transform: translateY(4px); box-shadow: 0 1px 0 var(--kl-surface-700), 0 2px 6px rgba(0, 0, 0, 0.45); }
     }
     @media (prefers-reduced-motion: reduce) {
       .keycap.trigger { animation: none; }
@@ -293,16 +293,16 @@ type Screen = 'welcome' | 'provider';
     /* One list with dividers rather than a stack of cards: it is one choice. */
     .options {
       margin: 1.5rem 0 1rem;
-      border: 1px solid var(--p-surface-700, #3f3f46);
+      border: 1px solid var(--kl-line);
       border-radius: 0.75rem;
       overflow: hidden;
-      background: var(--p-surface-900, #18181b);
+      background: var(--kl-surface-900);
     }
-    .option + .option { border-top: 1px solid var(--p-surface-800, #27272a); }
+    .option + .option { border-top: 1px solid var(--kl-surface-800); }
     /* The same marker as the provider in use on Settings › AI Providers. */
     .option.selected {
-      box-shadow: inset 3px 0 0 var(--p-primary-color, #f97316);
-      background: color-mix(in srgb, var(--p-primary-color, #f97316) 5%, var(--p-surface-900, #18181b));
+      box-shadow: inset 3px 0 0 var(--kl-primary);
+      background: color-mix(in srgb, var(--kl-primary) 5%, var(--kl-surface-900));
     }
     .option-head {
       display: flex;
@@ -316,17 +316,17 @@ type Screen = 'welcome' | 'provider';
       width: 1.05rem;
       height: 1.05rem;
       margin: 0;
-      accent-color: var(--p-primary-color, #f97316);
+      accent-color: var(--kl-primary);
     }
     .option-head input[type="radio"]:focus-visible {
-      outline: 2px solid var(--p-primary-color, #f97316);
+      outline: 2px solid var(--kl-focus);
       outline-offset: 3px;
     }
     .option-text { flex: 1; display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
     .option-name { font-weight: 600; font-size: 0.95rem; }
-    .option-blurb { font-size: 0.85rem; line-height: 1.4; color: var(--p-text-muted-color, #a1a1aa); }
+    .option-blurb { font-size: 0.85rem; line-height: 1.4; color: var(--kl-muted); }
     .option-status { flex: none; }
-    .checking { font-size: 0.8rem; color: var(--p-text-muted-color, #a1a1aa); white-space: nowrap; }
+    .checking { font-size: 0.8rem; color: var(--kl-muted); white-space: nowrap; }
 
     .option-detail {
       padding: 0 1rem 1rem 2.9rem;
@@ -341,25 +341,25 @@ type Screen = 'welcome' | 'provider';
       margin: 0;
       font-size: 0.85rem;
       line-height: 1.5;
-      color: var(--p-text-muted-color, #a1a1aa);
+      color: var(--kl-muted);
     }
     code {
       font-size: 0.8rem;
       padding: 0.05rem 0.3rem;
       border-radius: 4px;
-      background: var(--p-surface-800, #27272a);
+      background: var(--kl-sheet);
     }
     .inline-action {
       background: none;
       border: 0;
       padding: 0;
       font: inherit;
-      color: var(--p-primary-color, #f97316);
+      color: var(--kl-primary-text);
       cursor: pointer;
       text-decoration: underline;
       text-underline-offset: 2px;
     }
-    .inline-action:focus-visible { outline: 2px solid var(--p-primary-color, #f97316); outline-offset: 2px; }
+    .inline-action:focus-visible { outline: 2px solid var(--kl-focus); outline-offset: 2px; }
 
     .actions {
       display: flex;

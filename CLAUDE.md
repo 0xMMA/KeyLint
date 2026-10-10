@@ -2,7 +2,7 @@
 
 ## What (The Map)
 
-**Stack:** Go 1.27 + Wails v3 (beta.25) + Wire DI | Angular v21 + PrimeNG v21 + PrimeFlex + Vitest
+**Stack:** Go 1.27 + Wails v3 (beta.25) + Wire DI | Angular v21 + PrimeNG v21 + Tailwind v4 (utilities, `--kl-*` tokens) + Vitest
 
 **Key directories:**
 - `main.go` — Wails entry point, service registration, event loop

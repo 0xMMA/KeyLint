@@ -24,6 +24,12 @@ Dark only, for now: `<html class="app-dark">` in `index.html`, and `ShellCompone
 
 Import individual symbols: `import { Tabs, TabList, Tab } from 'primeng/tabs'` — not module classes.
 
+## Styling: tokens and Tailwind
+
+PrimeNG is being replaced (roadmap E11), so app styles never read PrimeNG's `--p-*` tokens. Colours, surfaces and radii come from the `--kl-*` tokens in `frontend/src/theme.css` (`var(--kl-muted)`, `var(--kl-line)`, …); the only `--p-*` left in app code are the PrimeNG overrides in `styles.scss`, which patch PrimeNG and go with it. New colour needed? Add a token there, don't hard-code it or borrow a `--p-*`.
+
+Layout utilities are Tailwind v4 (`mt-4`, `flex`, `gap-4`, `text-muted`, `bg-sheet`) — PrimeFlex is gone, and Tailwind's spacing step is 0.25rem (`mt-4` = 1rem). Only KeyLint's colours exist as utilities. Preflight is off while PrimeNG is in, so no global reset. Utilities sit in `@layer utilities`, and everything else is unlayered — PrimeNG's runtime theme, every Angular component style and `styles.scss` — and unlayered CSS beats any layer whatever the specificity. So a utility silently does nothing when an unlayered rule sets the same property on the same element: a PrimeNG rule on a `styleClass` host (`p-button`, `p-message`, `p-select`, …), or a component rule like `.foo { margin: 0 }` next to `class="foo mt-4"`. Move the property into one place, or use the important modifier (`mt-4!`) — which also stops PrimeNG's keyframe animations (e.g. the p-message leave animation) from moving that property. `e2e/ui-tokens.spec.ts` guards both the token values and that layering.
+
 ## Component Structure
 
 **Frontend (Angular):** every component lives in its own folder — `feature-name/feature-name.component.ts`. Subcomponents go in nested folders: `feature-name/sub-part/sub-part.component.ts`. Colocate specs, services, and related files in the same folder as the component they belong to. Decompose large components into focused subcomponents rather than growing monolithic templates.
