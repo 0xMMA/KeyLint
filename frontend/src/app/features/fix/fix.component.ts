@@ -98,11 +98,14 @@ const NO_DIFF: WordDiff = { segments: [], corrections: 0 };
               </p>
             } @else if (view === 'changes') {
               <!-- Every run is an element: a bare text node here would carry the
-                   template's indentation into the pre-wrapped text. -->
+                   template's indentation into the pre-wrapped text. A deleted
+                   run of whitespace alone is not drawn: a struck-through space
+                   only shows as a gap ("done !" for "done!"), and without it
+                   the marks still spell the result exactly. -->
               @for (seg of diff.segments; track $index) {
                 @switch (seg.kind) {
                   @case ('ins') {<ins class="fx">{{ seg.text }}</ins>}
-                  @case ('del') {<del class="fx">{{ seg.text }}</del>}
+                  @case ('del') {@if (hasInk(seg.text)) {<del class="fx">{{ seg.text }}</del>}}
                   @default {<span>{{ seg.text }}</span>}
                 }
               }
@@ -203,14 +206,12 @@ const NO_DIFF: WordDiff = { segments: [], corrections: 0 };
       margin: 0; max-width: 34ch; white-space: normal;
       font-family: var(--kl-font-ui); font-size: 14px; line-height: 1.5; color: var(--kl-muted);
     }
-    ins.fx {
-      text-decoration: none; color: var(--kl-mark-ins);
-      border-bottom: 2px solid var(--kl-primary); padding: 0 1px;
-    }
-    del.fx {
-      color: var(--kl-muted); text-decoration: line-through; text-decoration-color: var(--kl-muted);
-      margin-right: 3px;
-    }
+    /* No side padding or margin on a mark: punctuation right after a
+       correction has to sit as close as it does after any other word. The only
+       space added is between a struck word and the word replacing it. */
+    ins.fx { text-decoration: none; color: var(--kl-mark-ins); border-bottom: 2px solid var(--kl-primary); }
+    del.fx { color: var(--kl-muted); text-decoration: line-through; text-decoration-color: var(--kl-muted); }
+    del.fx + ins.fx { margin-left: 3px; }
 
     .fix-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
     .fix-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
@@ -252,6 +253,11 @@ export class FixComponent implements OnInit, OnDestroy {
     private readonly log: LogService,
     private readonly silentNotices: SilentFixNoticeService,
   ) {}
+
+  /** Whether a run has anything visible to strike through. */
+  hasInk(text: string): boolean {
+    return /\S/.test(text);
+  }
 
   get charCount(): string {
     const n = this.inputText.length;

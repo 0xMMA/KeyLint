@@ -112,6 +112,23 @@ describe('FixComponent', () => {
     expect(marks('del')).toEqual(['their', 'quick']);
   });
 
+  // "done !" → "done!": a struck-through space drew as a gap before the
+  // punctuation, so the marks read "done !" although the result is tight.
+  it('draws no mark for a deleted space, so punctuation stays where the result has it', async () => {
+    enhanceSpy.mockResolvedValue('Send it quickly! Done.');
+    component.inputText = 'send it quickly ! Done.';
+    await component.fix();
+    await render();
+
+    const output = q('fix-output')!;
+    expect(Array.from(output.querySelectorAll('del')).map(n => n.textContent)).toEqual(['send']);
+    // The marks still spell the result exactly once the struck words are taken out.
+    expect(resultText()).toBe('Send it quickly! Done.');
+    // Nothing between "quickly" and the "!": the run before it ends on the word.
+    const bang = Array.from(output.children).find(n => n.textContent?.startsWith('!'))!;
+    expect(bang.previousElementSibling?.textContent?.endsWith('quickly')).toBe(true);
+  });
+
   it('says so when the fix changed nothing', async () => {
     enhanceSpy.mockResolvedValue('Already fine.');
     component.inputText = 'Already fine.';
