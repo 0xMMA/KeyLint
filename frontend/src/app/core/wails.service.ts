@@ -16,10 +16,12 @@ import { UpdateInfo, InstallResult } from '../../../bindings/keylint/internal/fe
 import type { BuildIdentity, DevBuild, DevChannel } from '../../../bindings/keylint/internal/features/updater/models.js';
 import type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset } from '../../../bindings/keylint/internal/features/pyramidize/models.js';
 import type { ClaudeCodeStatus, ModelList, ModelInfo } from '../../../bindings/keylint/internal/llm/models.js';
+import type { Notice as SilentFixNotice } from '../../../bindings/keylint/internal/features/silentfix/models.js';
 
 export type { Settings, KeyStatus, UpdateInfo, InstallResult, ClaudeCodeStatus, ModelList, ModelInfo };
 export type { BuildIdentity, DevBuild, DevChannel };
 export type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset };
+export type { SilentFixNotice };
 
 
 // Default settings used when the Wails backend is unavailable (browser dev / Playwright mode).
@@ -84,7 +86,7 @@ function emptyModelList(): ModelList {
 
 @Injectable({ providedIn: 'root' })
 export class WailsService implements OnDestroy {
-  private readonly shortcutFix = new Subject<string>();
+  private readonly silentFixOpen = new Subject<SilentFixNotice>();
   private readonly shortcutPyramidize = new Subject<string>();
   private readonly settingsChanged = new Subject<void>();
   private readonly unsubscribers: Array<() => void> = [];
@@ -95,8 +97,12 @@ export class WailsService implements OnDestroy {
    */
   private pyramidizePending = false;
 
-  /** Emits on fix shortcut (silent grammar fix). */
-  readonly shortcutFix$: Observable<string> = this.shortcutFix.asObservable();
+  /**
+   * Emits when the user clicks a silent-fix notification. The fix itself runs
+   * in Go (internal/features/silentfix) with the window hidden; this is the
+   * only moment the frontend takes part.
+   */
+  readonly silentFixOpen$: Observable<SilentFixNotice> = this.silentFixOpen.asObservable();
   /** Emits on pyramidize shortcut (open Pyramidize UI). */
   readonly shortcutPyramidize$: Observable<string> = this.shortcutPyramidize.asObservable();
   /** Emits whenever settings are saved from the backend. */
@@ -108,8 +114,8 @@ export class WailsService implements OnDestroy {
 
   private listenToEvents(): void {
     this.unsubscribers.push(
-      Events.On('shortcut:fix', (ev) => {
-        this.shortcutFix.next(ev.data as string);
+      Events.On('silentfix:open', (ev) => {
+        this.silentFixOpen.next(ev.data as SilentFixNotice);
       }),
       Events.On('shortcut:pyramidize', (ev) => {
         this.pyramidizePending = true;
@@ -404,7 +410,7 @@ export class WailsService implements OnDestroy {
 
   ngOnDestroy(): void {
     this.unsubscribers.forEach(fn => fn());
-    this.shortcutFix.complete();
+    this.silentFixOpen.complete();
     this.shortcutPyramidize.complete();
     this.settingsChanged.complete();
   }

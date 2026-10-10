@@ -13,9 +13,11 @@ import (
 	"keylint/internal/cli"
 	"keylint/internal/features/enhance"
 	featurelogger "keylint/internal/features/logger"
+	"keylint/internal/features/notify"
 	"keylint/internal/features/pyramidize"
 	"keylint/internal/features/settings"
 	"keylint/internal/features/shortcut"
+	"keylint/internal/features/silentfix"
 	"keylint/internal/features/updater"
 	"keylint/internal/logger"
 
@@ -33,7 +35,9 @@ var assets embed.FS
 var appIcon []byte
 
 func init() {
-	application.RegisterEvent[string]("shortcut:fix")
+	// The fix shortcut has no event: the silent fix runs in Go (silentfix).
+	// The frontend hears of it only when the user clicks a notification.
+	application.RegisterEvent[silentfix.Notice]("silentfix:open")
 	application.RegisterEvent[string]("shortcut:pyramidize")
 	application.RegisterEvent[string]("settings:changed")
 }
@@ -52,6 +56,10 @@ func main() {
 	}
 
 	simulateShortcut := flag.Bool("simulate-shortcut", false, "Fire a synthetic shortcut event on startup (Linux dev mode)")
+	// COM appends -Embedding when it starts KeyLint for a click on one of its
+	// notifications while KeyLint is not running. Accepted so that start is an
+	// ordinary one rather than a flag error.
+	flag.Bool("Embedding", false, "Started by Windows for a notification click (ignored)")
 	flag.Parse()
 
 	wailsApp := application.New(application.Options{
@@ -87,7 +95,8 @@ func main() {
 	wailsApp.RegisterService(application.NewService(services.Settings))
 	wailsApp.RegisterService(application.NewService(services.Welcome))
 	wailsApp.RegisterService(application.NewService(services.Clipboard))
-	wailsApp.RegisterService(application.NewService(enhance.NewService(services.Settings)))
+	enhanceSvc := enhance.NewService(services.Settings)
+	wailsApp.RegisterService(application.NewService(enhanceSvc))
 
 	// Pyramidize service — captures source app on hotkey and exposes RPC methods.
 	pyramidizeSvc := pyramidize.NewService(services.Settings, services.Clipboard)
@@ -127,6 +136,25 @@ func main() {
 
 	// Start the system tray.
 	services.Tray.Setup(window)
+
+	// The silent fix (fix shortcut): runs in Go with the window hidden, marks
+	// the tray icon while it works, and reports a failure in one small
+	// notification. A click on it opens the place where it can be fixed.
+	toasts := notify.New("KeyLint", appIcon)
+	silentFix := silentfix.New(silentfix.Deps{
+		Desktop:   silentfix.NewDesktop(services.Clipboard),
+		Clipboard: services.Clipboard,
+		Enhance:   enhanceSvc.Enhance,
+		Notify:    func(n silentfix.Notice) { toasts.Show(n.ID, n.Title, n.Body) },
+		Busy:      services.Tray.SetBusy,
+	})
+	toasts.OnActivate(func(id string) {
+		// The user clicked: bringing KeyLint forward is what they asked for.
+		window.Show().Focus()
+		if n, ok := silentFix.Notice(id); ok {
+			wailsApp.Event.Emit("silentfix:open", n)
+		}
+	})
 
 	// Register the global shortcut (no-op on Linux).
 	// Unregister on shutdown so dev-mode restarts don't leave a stale registration.
@@ -170,14 +198,17 @@ func main() {
 	go func() {
 		for event := range services.Shortcut.Triggered() {
 			logger.Info("shortcut: action", "action", event.Action, "source", event.Source)
-			pyramidizeSvc.CaptureSourceApp()
-			if err := services.Clipboard.CopyFromForeground(); err != nil {
-				logger.Warn("shortcut: CopyFromForeground failed", "err", err)
-			}
 			switch event.Action {
 			case "fix":
-				wailsApp.Event.Emit("shortcut:fix", event.Source)
+				// Captures the source window and copies itself — unless a
+				// fix is already running, in which case the press is dropped
+				// without touching the clipboard.
+				silentFix.Trigger()
 			case "pyramidize":
+				pyramidizeSvc.CaptureSourceApp()
+				if err := services.Clipboard.CopyFromForeground(); err != nil {
+					logger.Warn("shortcut: CopyFromForeground failed", "err", err)
+				}
 				window.Show().Focus()
 				wailsApp.Event.Emit("shortcut:pyramidize", event.Source)
 			}

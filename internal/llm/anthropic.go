@@ -95,7 +95,7 @@ func (c *anthropicClient) Complete(ctx context.Context, req Request) (Response, 
 
 	logRequest(c.cfg, anthropicProvider, model, params)
 
-	attempts := &httpAttempts{cfg: c.cfg, provider: anthropicProvider}
+	attempts := newHTTPAttempts(ctx, c.cfg, anthropicProvider)
 	// The service method has a pointer receiver, so the client needs a variable.
 	client := c.client(attempts)
 	message, err := client.Messages.New(ctx, params)
@@ -109,7 +109,7 @@ func (c *anthropicClient) Complete(ctx context.Context, req Request) (Response, 
 			"feature", c.cfg.Feature, "model", model, "effort", effort, "no_thinking", noThinking)
 		params.OutputConfig.Effort = ""
 		params.Thinking = anthropic.ThinkingConfigParamUnion{}
-		attempts = &httpAttempts{cfg: c.cfg, provider: anthropicProvider}
+		attempts = newHTTPAttempts(ctx, c.cfg, anthropicProvider)
 		client = c.client(attempts)
 		message, err = client.Messages.New(ctx, params)
 	}
@@ -142,9 +142,9 @@ func (c *anthropicClient) Complete(ctx context.Context, req Request) (Response, 
 			"model", model, "stop_reason", string(message.StopReason), "max_tokens", req.MaxTokens,
 			"output_tokens", message.Usage.OutputTokens, "thinking", thinking, "answer_bytes", len(text))
 		if message.StopReason == anthropic.StopReasonMaxTokens && thinking {
-			return Response{}, fmt.Errorf("%s: %s", anthropicProvider.name, outputLimitThinkingMessage)
+			return Response{}, fmt.Errorf("%s: %w", anthropicProvider.name, ErrOutputLimitThinking)
 		}
-		return Response{}, fmt.Errorf("%s: %s", anthropicProvider.name, outputLimitMessage)
+		return Response{}, fmt.Errorf("%s: %w", anthropicProvider.name, ErrOutputLimit)
 	case anthropic.StopReasonRefusal:
 		return Response{}, fmt.Errorf("%s declined the request", anthropicProvider.name)
 	}
@@ -218,6 +218,9 @@ func (c *anthropicClient) client(attempts *httpAttempts) anthropic.Client {
 // mapAnthropicError turns an SDK error into the wording the user sees. The raw
 // body stays out of it — see statusMessage.
 func mapAnthropicError(attempts *httpAttempts, model string, err error) error {
+	if limited, ok := rateLimitedPastDeadline(anthropicProvider, attempts, model, err); ok {
+		return limited
+	}
 	// The caller giving up is not a provider failure — see mapOpenAIError.
 	if isContextError(err) {
 		return transportError(anthropicProvider, err)

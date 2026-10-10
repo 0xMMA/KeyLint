@@ -14,7 +14,7 @@ type linuxService struct {
 // NewPlatformService returns the Linux stub implementation.
 func NewPlatformService() Service {
 	return &linuxService{
-		ch: make(chan ShortcutEvent, 1),
+		ch: make(chan ShortcutEvent, eventBuffer),
 	}
 }
 
@@ -33,5 +33,5 @@ func (s *linuxService) SetPaused(paused bool) {}
 
 // Simulate fires a synthetic shortcut event (used by --simulate-shortcut and dev UI).
 func (s *linuxService) Simulate() {
-	s.ch <- ShortcutEvent{Source: "simulate", Action: "fix"}
+	deliver(s.ch, ShortcutEvent{Source: "simulate", Action: "fix"})
 }

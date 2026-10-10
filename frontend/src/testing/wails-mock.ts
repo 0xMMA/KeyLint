@@ -1,6 +1,6 @@
 import { Subject } from 'rxjs';
 import { vi } from 'vitest';
-import type { Settings, KeyStatus, UpdateInfo, InstallResult, ClaudeCodeStatus, ModelList, BuildIdentity, DevChannel } from '../app/core/wails.service';
+import type { Settings, KeyStatus, UpdateInfo, InstallResult, ClaudeCodeStatus, ModelList, BuildIdentity, DevChannel, SilentFixNotice } from '../app/core/wails.service';
 
 export const defaultSettings: Settings = {
   active_provider: 'openai',
@@ -71,16 +71,16 @@ export const defaultDevChannel: DevChannel = {
 };
 
 export function createWailsMock() {
-  const shortcutFix$ = new Subject<string>();
+  const silentFixOpen$ = new Subject<SilentFixNotice>();
   const shortcutPyramidize$ = new Subject<string>();
   const settingsChanged$ = new Subject<void>();
 
   return {
-    shortcutFix$: shortcutFix$.asObservable(),
+    silentFixOpen$: silentFixOpen$.asObservable(),
     shortcutPyramidize$: shortcutPyramidize$.asObservable(),
     settingsChanged$: settingsChanged$.asObservable(),
     // Expose subjects so tests can trigger events
-    _shortcutFix$: shortcutFix$,
+    _silentFixOpen$: silentFixOpen$,
     _shortcutPyramidize$: shortcutPyramidize$,
     _settingsChanged$: settingsChanged$,
 

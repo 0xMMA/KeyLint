@@ -168,11 +168,12 @@ func TestEnhanceOllamaNeedsNoKey(t *testing.T) {
 
 func TestEnhanceMissingKey(t *testing.T) {
 	tests := []struct {
-		provider string
-		wantErr  string
+		provider     string
+		wantErr      string
+		wantProvider string
 	}{
-		{"openai", "OpenAI API key is not configured"},
-		{"claude", "Anthropic API key is not configured"},
+		{"openai", "OpenAI API key is not configured", "OpenAI"},
+		{"claude", "Anthropic API key is not configured", "Anthropic"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.provider, func(t *testing.T) {
@@ -183,6 +184,12 @@ func TestEnhanceMissingKey(t *testing.T) {
 			_, err := svc.Enhance("text")
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("Enhance error = %v, want one containing %q", err, tc.wantErr)
+			}
+			// The silent hotkey fix sends this user to AI Providers on the type,
+			// not the wording.
+			var missing *MissingKeyError
+			if !errors.As(err, &missing) || missing.Provider != tc.wantProvider {
+				t.Errorf("Enhance error = %#v, want a MissingKeyError for %s", err, tc.wantProvider)
 			}
 			if rec.provider != "" {
 				t.Error("no provider client must be built when the key is missing")
