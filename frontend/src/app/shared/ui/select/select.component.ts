@@ -8,7 +8,7 @@ import {
   type FlexibleConnectedPositionStrategy, type OverlayRef, createFlexibleConnectedPositionStrategy, createOverlayRef,
   createRepositionScrollStrategy,
 } from '@angular/cdk/overlay';
-import { ScrollDispatcher } from '@angular/cdk/scrolling';
+import { ScrollDispatcher, ViewportRuler } from '@angular/cdk/scrolling';
 import { Subscription } from 'rxjs';
 import { IconComponent } from '../icon/icon.component';
 
@@ -229,6 +229,7 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
   private readonly vcr = inject(ViewContainerRef);
   private readonly hostEl = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly scrollDispatcher = inject(ScrollDispatcher);
+  private readonly viewportRuler = inject(ViewportRuler);
   private readonly triggerRef = viewChild<ElementRef<HTMLElement>>('trigger');
   private readonly panelTpl = viewChild.required<TemplateRef<unknown>>('panel');
 
@@ -331,10 +332,15 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
       this.subs.add(this.positionStrategy.positionChanges.subscribe(change => {
         if (change.scrollableViewProperties.isOriginOutsideView) queueMicrotask(() => this.close());
       }));
+      // The trigger's width follows the window; the open list follows it.
+      this.subs.add(this.viewportRuler.change(50).subscribe(() => {
+        if (!this.isOpen()) return;
+        this.matchTriggerWidth();
+        this.overlayRef?.updatePosition();
+      }));
     }
     this.positionStrategy?.withScrollableContainers(this.scrollDispatcher.getAncestorScrollContainers(this.hostEl));
-    const width = this.hostEl.nativeElement.getBoundingClientRect().width;
-    this.overlayRef.updateSize({ width: width || undefined, minWidth: 192 });
+    this.matchTriggerWidth();
     this.forLabel.set(this.associatedLabelText());
     this.overlayRef.attach(new TemplatePortal(this.panelTpl(), this.vcr));
     this.isOpen.set(true);
@@ -342,6 +348,12 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
     if (selected >= 0 && !this.disabledOf(this.options()[selected])) this.setActive(selected);
     // Editable with free text in the field: nothing active, so Enter keeps it.
     else this.setActive(this.editable() && selected < 0 ? -1 : this.step(-1, 1));
+  }
+
+  /** The list is as wide as the trigger, and never narrower than 192px. */
+  private matchTriggerWidth(): void {
+    const width = this.hostEl.nativeElement.getBoundingClientRect().width;
+    this.overlayRef?.updateSize({ width: width || undefined, minWidth: 192 });
   }
 
   close(): void {

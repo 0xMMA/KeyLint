@@ -454,6 +454,48 @@ describe('kl-select, fixed list', () => {
   });
 });
 
+describe('kl-select, the open panel', () => {
+  let fixture: ComponentFixture<LevelHost>;
+  let trigger: HTMLButtonElement;
+  const original = Element.prototype.scrollIntoView;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({ imports: [LevelHost] }).compileComponents();
+    fixture = TestBed.createComponent(LevelHost);
+    fixture.componentInstance.level.set('error');
+    await settle(fixture);
+    trigger = fixture.nativeElement.querySelector('[data-testid="level"] [role="combobox"]');
+  });
+
+  afterEach(() => {
+    Element.prototype.scrollIntoView = original;
+  });
+
+  it('scrolls the selected option into view once the options have rendered', async () => {
+    const scrolled: string[] = [];
+    Element.prototype.scrollIntoView = function (this: Element) { scrolled.push(this.textContent?.trim() ?? ''); };
+    trigger.click();
+    await settle(fixture);
+    expect(options().length).toBe(5);
+    expect(scrolled).toContain('Error');
+  });
+
+  it('follows the trigger’s width when the window is resized', async () => {
+    const host = fixture.nativeElement.querySelector('[data-testid="level"]') as HTMLElement;
+    let width = 240;
+    host.getBoundingClientRect = () => ({ width, height: 40, top: 0, left: 0, right: width, bottom: 40, x: 0, y: 0, toJSON() {} }) as DOMRect;
+    trigger.click();
+    await settle(fixture);
+    const pane = () => document.querySelector<HTMLElement>('.kl-select-overlay')!;
+    expect(pane().style.width).toBe('240px');
+    width = 400;
+    window.dispatchEvent(new Event('resize'));
+    await new Promise(r => setTimeout(r, 150));
+    await settle(fixture);
+    expect(pane().style.width).toBe('400px');
+  });
+});
+
 describe('kl-select, named by a <label for>', () => {
   let fixture: ComponentFixture<LabelledHost>;
   let host: LabelledHost;
