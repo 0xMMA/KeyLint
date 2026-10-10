@@ -61,7 +61,7 @@ const ICON: Record<MessageSeverity, IconName> = {
       border-radius: var(--kl-radius-lg);
       border: 1px solid color-mix(in srgb, var(--tone), transparent 62%);
       background: color-mix(in srgb, var(--tone), transparent 92%);
-      color: color-mix(in srgb, var(--tone), white 80%);
+      color: color-mix(in srgb, var(--tone), var(--kl-tone-text-mix) 80%);
       font-size: 14px;
       line-height: 1.45;
     }

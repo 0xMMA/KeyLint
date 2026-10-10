@@ -49,7 +49,7 @@ export type TagSeverity = 'primary' | 'neutral' | 'muted' | 'secondary' | 'succe
       border-radius: 999px;
       border: 1px solid var(--kl-line-control);
       background: var(--kl-sheet);
-      color: var(--kl-surface-200);
+      color: var(--kl-text-control);
     }
     :host([data-severity='primary']) {
       font-weight: 600;
@@ -71,7 +71,7 @@ export type TagSeverity = 'primary' | 'neutral' | 'muted' | 'secondary' | 'succe
     :host([data-severity='warn']),
     :host([data-severity='info']),
     :host([data-severity='error']) {
-      color: color-mix(in srgb, var(--tone), white 55%);
+      color: color-mix(in srgb, var(--tone), var(--kl-tone-text-mix) 55%);
       background: color-mix(in srgb, var(--tone), transparent 90%);
       border-color: color-mix(in srgb, var(--tone), transparent 62%);
     }

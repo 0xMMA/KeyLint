@@ -43,7 +43,7 @@ import { formatTraceTime, type TraceEntry } from '../trace-entry';
   styles: [`
     :host {
       position: absolute; inset: 0; z-index: 50; display: flex; padding: 16px;
-      background: color-mix(in srgb, var(--kl-surface-950), transparent 35%);
+      background: var(--kl-scrim);
     }
     .pz-peek-panel {
       flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden;
@@ -57,7 +57,7 @@ import { formatTraceTime, type TraceEntry } from '../trace-entry';
     .pz-peek-meta { font-size: 12px; color: var(--kl-muted); }
     .pz-peek-content {
       flex: 1; margin: 0; padding: 24px 32px; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere;
-      font-family: var(--kl-font-text); font-size: 15.5px; line-height: 1.7; color: var(--kl-surface-200);
+      font-family: var(--kl-font-text); font-size: 15.5px; line-height: 1.7; color: var(--kl-text-sheet);
     }
   `],
 })

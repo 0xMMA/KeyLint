@@ -47,6 +47,19 @@ const DESIGN: Array<[string, string]> = [
   ['--kl-radius-sheet', '10px'],
 ];
 
+/**
+ * Roles theme.css adds on top of design.md's table, each for a colour a
+ * component used to take from the zinc scale or a literal (`white`). Same
+ * values as before, so the pixels did not move; the role is what a light
+ * theme redefines.
+ */
+const ROLES: Array<[string, string]> = [
+  ['--kl-text-sheet', '#e4e4e7'],
+  ['--kl-text-control', '#e4e4e7'],
+  ['--kl-tone-text-mix', '#ffffff'],
+  ['--kl-scrim', 'color-mix(in srgb, #09090b, transparent 35%)'],
+];
+
 /** What a token or literal computes to as a colour and as a radius, so #fff and rgb(255,255,255) compare equal. */
 async function resolve(page: Page, value: string): Promise<string> {
   return page.evaluate((v) => {
@@ -80,7 +93,7 @@ test.describe('UI tokens, fonts and Tailwind', () => {
     await page.goto('/fix');
     await expect(page.getByTestId('fix-btn')).toBeVisible();
 
-    for (const [token, value] of DESIGN) {
+    for (const [token, value] of [...DESIGN, ...ROLES]) {
       expect(await defined(page, token), `${token} is not defined`).not.toBe('');
       expect(await resolve(page, token), token).toBe(await resolve(page, value));
     }

@@ -335,7 +335,7 @@ function addTrace(label: string, snapshot: string): void {
     /* The user's text, on a sheet (design.md: Literata 15.5/1.7). */
     .pz-sheet {
       flex: 1; min-height: 0; width: 100%; margin: 0; padding: 28px 36px; resize: none; overflow-y: auto;
-      font-family: var(--kl-font-text); font-size: 15.5px; line-height: 1.7; color: var(--kl-surface-200);
+      font-family: var(--kl-font-text); font-size: 15.5px; line-height: 1.7; color: var(--kl-text-sheet);
       background: var(--kl-sheet); border: 1px solid var(--kl-line); border-radius: var(--kl-radius-sheet);
     }
     .pz-sheet::placeholder { color: var(--kl-muted); opacity: 1; font-family: var(--kl-font-ui); font-size: 14px; }

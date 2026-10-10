@@ -143,8 +143,10 @@
      unchecked radio is a white disc on the dark sheet. */
   color-scheme: dark;
 
-  /* Neutral scale: Tailwind's zinc. For the odd step a role does not cover
-     (read with var(), no utilities). */
+  /* Neutral scale: Tailwind's zinc, the source the roles below are picked
+     from. Components read roles, not steps: a step says how light, a role
+     says what for, and only the role survives a light theme. A colour no
+     role covers gets a new role. */
   --kl-surface-0: #ffffff;
   --kl-surface-50: #fafafa;
   --kl-surface-100: #f4f4f5;
@@ -168,6 +170,7 @@
   --kl-raised-hover: #323238;    /* hover on a raised surface, a hovered option */
   --kl-selected: #38383e;        /* the chosen option, the "on" segment */
   --kl-hover: var(--kl-raised);  /* generic hover fill */
+  --kl-scrim: color-mix(in srgb, #09090b, transparent 35%); /* behind a panel laid over the editor */
   --kl-highlight: color-mix(in srgb, var(--kl-primary), transparent 86%); /* selected row */
 
   /* Lines: dividers are quieter than the borders that outline a control. */
@@ -179,6 +182,8 @@
   --kl-text: #f4f4f5;            /* body */
   --kl-text-strong: #fafafa;     /* headings, the active nav item */
   --kl-text-soft: #d4d4d8;       /* section labels, text the user typed */
+  --kl-text-sheet: #e4e4e7;      /* text read on a sheet: Pyramidize's editor, a history snapshot */
+  --kl-text-control: #e4e4e7;    /* labels of quiet buttons and neutral tags */
   --kl-muted: #a1a1aa;           /* hints, labels */
   --kl-faint: #71717a;           /* decoration only, never text */
 
@@ -197,6 +202,9 @@
   --kl-warn: #fbbf24;
   --kl-error: #f87171;
   --kl-danger-text: #fca5a5;     /* text of a danger button */
+  /* Message and tag text is its tone mixed toward this, so it reads on the
+     tinted fill: lighter on dark. A light theme mixes toward dark instead. */
+  --kl-tone-text-mix: #ffffff;
 
   /* Shape. Shadows only on overlays. */
   --kl-radius-sm: 4px;           /* kbd, small marks */

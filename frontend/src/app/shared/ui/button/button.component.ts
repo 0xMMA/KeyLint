@@ -97,7 +97,7 @@ export type ButtonSize = 'sm' | 'md' | 'lg';
     .primary:disabled:not([aria-busy='true']) {
       background: var(--kl-raised); color: var(--kl-muted); border-color: var(--kl-line-control); opacity: 1;
     }
-    .quiet { background: var(--kl-raised); color: var(--kl-surface-200); border-color: var(--kl-line-control); }
+    .quiet { background: var(--kl-raised); color: var(--kl-text-control); border-color: var(--kl-line-control); }
     .quiet:not(:disabled):hover { background: var(--kl-raised-hover); }
     .quiet[aria-pressed='true'] { background: var(--kl-selected); color: var(--kl-text-strong); }
     .ghost { background: transparent; color: var(--kl-muted); }
