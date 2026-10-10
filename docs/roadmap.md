@@ -188,7 +188,7 @@ One key, many vendors' models — for users who don't want a separate account pe
 #### E11 · Own UI on CDK + Tailwind (PrimeNG out) — in progress
 Decision and research: [`docs/ui/primeng-replacement.md`](ui/primeng-replacement.md). About 120 PrimeNG usages in 11 files, 142 `var(--p-*)` references, ~90 PrimeNG DOM selectors in tests. Incremental, one PR per step, Windows visual check by Michael after the design-relevant steps:
 1. ~~Design direction~~ **approved 2026-10-10**: [`docs/ui/design.md`](ui/design.md) (tokens, type, patterns, mockup link)
-2. ~~Tokens in Tailwind (`--kl-*`), the 142 `--p-*` references moved onto them, coexistence check with PrimeNG 21 — visually a no-op~~ **done** (`frontend/src/theme.css`; PrimeFlex went in the same PR, since Tailwind replaces it). Values are still today's Aura ones; the design.md palette is switched on there, by value, when the first redesigned screen lands
+2. ~~Tokens in Tailwind (`--kl-*`), the 142 `--p-*` references moved onto them, coexistence check with PrimeNG 21 — visually a no-op~~ **done** (`frontend/src/theme.css`; PrimeFlex went in the same PR, since Tailwind replaces it). Values are still today's Aura ones. Switching to the design.md palette is not only values: the tokens are global, so it needs either one switch for the whole app or tokens scoped to redesigned screens, plus the two-line-colour split and the PrimeNG overrides in `styles.scss` moved onto roles
 3. ~~PrimeFlex~~ and primeicons out (vendored SVGs)
 4. Own components: message, tag, button (severity, loading) — the high-count, low-risk ones
 5. Form controls, card, tabs, tooltip

@@ -94,7 +94,7 @@ import { Message } from 'primeng/message';
       font-size: 0.9rem;
     }
     .provider-card-label:focus { outline: none; }
-    .provider-card-label:focus-visible { outline: 2px solid var(--kl-primary); outline-offset: 2px; }
+    .provider-card-label:focus-visible { outline: 2px solid var(--kl-focus); outline-offset: 2px; }
 
     .provider-card-spacer { flex: 1; }
     :host ::ng-deep .provider-card-warning { margin-bottom: 0.75rem; }

@@ -319,7 +319,7 @@ type Screen = 'welcome' | 'provider';
       accent-color: var(--kl-primary);
     }
     .option-head input[type="radio"]:focus-visible {
-      outline: 2px solid var(--kl-primary);
+      outline: 2px solid var(--kl-focus);
       outline-offset: 3px;
     }
     .option-text { flex: 1; display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
@@ -359,7 +359,7 @@ type Screen = 'welcome' | 'provider';
       text-decoration: underline;
       text-underline-offset: 2px;
     }
-    .inline-action:focus-visible { outline: 2px solid var(--kl-primary); outline-offset: 2px; }
+    .inline-action:focus-visible { outline: 2px solid var(--kl-focus); outline-offset: 2px; }
 
     .actions {
       display: flex;

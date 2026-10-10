@@ -110,8 +110,11 @@
  *
  * The approved target look (docs/ui/design.md) has different values for most
  * of these (ground #1F1F23, sheet #27272A, text #F4F4F5, primary #F97316 with
- * #FB923C for orange text, ...). Switching to it is a later E11 step and
- * happens here, by value; the role names already follow design.md.
+ * #FB923C for links and focus, ...). Switching to it is a later E11 step. It
+ * is mostly a change of values here, but not only: design.md has two line
+ * colours (dividers #36363C, control borders #3F3F46) where this file has one
+ * --kl-line, and the PrimeNG overrides in styles.scss read fixed surface steps
+ * rather than roles. Both get sorted when the palette is switched on.
  *
  * Dark only, like the rest of the app (#24). A light theme (#25) redefines
  * these under its own selector.
@@ -141,8 +144,10 @@
   /* Roles. */
   --kl-text: var(--kl-surface-0);          /* body text (Aura text.color) */
   --kl-muted: var(--kl-surface-400);       /* hints, labels (text.mutedColor) */
-  --kl-primary: #fb923c;                   /* fills, borders, focus rings (dark primary.color = orange.400) */
-  --kl-primary-text: var(--kl-primary);    /* orange text and links on dark */
+  --kl-primary: #fb923c;                   /* fills and borders (dark primary.color = orange.400) */
+  --kl-primary-text: var(--kl-primary);    /* orange text on dark (design.md target: #FDBA74) */
+  --kl-link: var(--kl-primary);            /* links (design.md target: #FB923C) */
+  --kl-focus: var(--kl-primary);           /* focus rings (design.md target: #FB923C, stays when primary moves to #F97316) */
   --kl-line: var(--kl-surface-700);        /* borders and dividers (content.borderColor) */
   --kl-ground: var(--kl-surface-950);      /* page background */
   --kl-rail: var(--kl-surface-900);        /* sidebar */
