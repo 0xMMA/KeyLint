@@ -22,7 +22,7 @@
     "@angular/router": "^21.2.23",
     "@primeuix/themes": "^2.0.3",
     "@wailsio/runtime": "3.0.0-beta.25",
-    "dotenv": "^17.4.2",
+    "dotenv": "^18.0.5",
     "primeflex": "^4.0.0",
     "primeicons": "^7.0.0",
     "primeng": "^21.1.10",
