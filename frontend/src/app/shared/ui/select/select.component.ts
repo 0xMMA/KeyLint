@@ -42,8 +42,9 @@ type Option = unknown;
  * the matching option's label, or the raw value if none matches; an option
  * whose label is "" leaves the field empty so the placeholder shows.
  *
- * Keyboard: ArrowDown/ArrowUp open and move, Enter takes the active option,
- * Escape closes, Tab closes; the fixed list also opens on Space/Enter and has
+ * Keyboard: ArrowDown/ArrowUp open and move, Enter takes the active option
+ * (editable: typed text that names no option leaves none active, and Enter
+ * then keeps the typed text and closes), Escape closes, Tab closes; the fixed list also opens on Space/Enter and has
  * Home/End and type-ahead. `changed` (and the model) fire only on user action,
  * and only when the value actually changes: picking the option that is
  * already selected just closes the list, as p-select did.
@@ -320,7 +321,9 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
     this.overlayRef.attach(new TemplatePortal(this.panelTpl(), this.vcr));
     this.isOpen.set(true);
     const selected = this.selectedIndex();
-    this.setActive(selected >= 0 && !this.disabledOf(this.options()[selected]) ? selected : this.step(-1, 1));
+    if (selected >= 0 && !this.disabledOf(this.options()[selected])) this.setActive(selected);
+    // Editable with free text in the field: nothing active, so Enter keeps it.
+    else this.setActive(this.editable() && selected < 0 ? -1 : this.step(-1, 1));
   }
 
   close(): void {
@@ -354,8 +357,10 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
     this.onChange(text);
     this.changed.emit(text);
     if (this.isOpen()) {
-      const match = this.options().findIndex(o => this.labelOf(o) === text);
-      if (match >= 0) this.setActive(match);
+      // Text that names no option leaves none active (as p-select did), so
+      // Enter keeps what was typed instead of taking the old active option.
+      const match = this.options().findIndex(o => this.labelOf(o) === text && !this.disabledOf(o));
+      this.setActive(match);
     }
   }
 
@@ -384,6 +389,10 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
         if (open && this.activeIndex() >= 0) {
           event.preventDefault();
           this.choose(this.activeIndex());
+        } else if (open) {
+          // Editable, nothing active: the typed text already is the value.
+          event.preventDefault();
+          this.close();
         } else if (fixed) {
           event.preventDefault();
           this.open();

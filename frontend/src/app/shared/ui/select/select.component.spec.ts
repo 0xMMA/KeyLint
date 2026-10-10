@@ -243,6 +243,67 @@ describe('kl-select, editable: the model picker semantics', () => {
     expect(input.getAttribute('aria-expanded')).toBe('false');
   });
 
+  it('Enter keeps typed text that matches no option and closes the list', async () => {
+    host.stored.set('sonnet');
+    await settle(fixture);
+    key(input, 'ArrowDown');
+    await settle(fixture);
+    expect(input.getAttribute('aria-activedescendant')).toBe(options()[1].id);
+    type(input, 'my-finetune-7');
+    await settle(fixture);
+    expect(input.getAttribute('aria-activedescendant'), 'no option is active').toBeNull();
+    key(input, 'Enter');
+    await settle(fixture);
+    expect(host.stored()).toBe('my-finetune-7');
+    expect(host.emitted).toEqual(['my-finetune-7']);
+    expect(input.value).toBe('my-finetune-7');
+    expect(listbox()).toBeNull();
+  });
+
+  it('Enter keeps typed text from the default entry too (never stores "")', async () => {
+    key(input, 'ArrowDown');
+    await settle(fixture);
+    expect(input.getAttribute('aria-activedescendant')).toBe(options()[0].id);
+    type(input, 'gpt-x');
+    key(input, 'Enter');
+    await settle(fixture);
+    expect(host.stored()).toBe('gpt-x');
+    expect(host.emitted).toEqual(['gpt-x']);
+    expect(listbox()).toBeNull();
+  });
+
+  it('opening on a stored free-text model activates nothing, so Enter keeps it', async () => {
+    host.stored.set('my-finetune-7');
+    await settle(fixture);
+    key(input, 'ArrowDown');
+    await settle(fixture);
+    expect(listbox()).toBeTruthy();
+    expect(input.getAttribute('aria-activedescendant')).toBeNull();
+    key(input, 'Enter');
+    await settle(fixture);
+    expect(host.stored()).toBe('my-finetune-7');
+    expect(host.emitted).toEqual([]);
+    expect(listbox()).toBeNull();
+    // ArrowDown from nothing active goes to the first option.
+    key(input, 'ArrowDown');
+    key(input, 'ArrowDown');
+    await settle(fixture);
+    expect(input.getAttribute('aria-activedescendant')).toBe(options()[0].id);
+  });
+
+  it('typed text that is an option’s ID activates that option, and Enter takes it', async () => {
+    key(input, 'ArrowDown');
+    await settle(fixture);
+    type(input, 'claude-sonnet-4-6');
+    await settle(fixture);
+    expect(input.getAttribute('aria-activedescendant')).toBe(options()[2].id);
+    key(input, 'Enter');
+    await settle(fixture);
+    expect(host.stored()).toBe('claude-sonnet-4-6');
+    expect(input.value).toBe('claude-sonnet-4-6');
+    expect(listbox()).toBeNull();
+  });
+
   it('Escape closes the list and keeps the typed text', async () => {
     type(input, 'custom');
     key(input, 'ArrowDown');
