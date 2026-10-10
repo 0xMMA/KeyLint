@@ -117,7 +117,7 @@ Issue: #33 (closed). Follow-ups: #47 schema enforcement (closed, parked default-
 | AWS Bedrock | same SDK, `bedrock.NewMantleClient` | closes #23 for free, #22 becomes moot |
 | Google Vertex | same SDK, `vertex.WithGoogleAuth` | optional |
 | OpenAI | `github.com/openai/openai-go/v3` (v3.68 — held below 3.69, #116) | official |
-| Ollama, OpenRouter, LM Studio, Groq, Mistral, … | `openai-go` + `option.WithBaseURL` | OpenAI-compatible endpoints; Ollama serves `/v1` |
+| Ollama, OpenRouter, LM Studio, Groq, Mistral, … | `openai-go` + `option.WithBaseURL` | OpenAI-compatible endpoints; Ollama serves `/v1`; OpenRouter is E10 |
 | Claude Code CLI | `internal/llm/claudecli` (E1, #32) | spawn |
 
 **Steps (each shippable):**
@@ -178,6 +178,12 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 - Linux global hotkey (currently a stub) — low, Linux is dev-only
 - HTML clipboard (CF_HTML) paste-back for Outlook/Teams — medium, real user value on Windows
 #### E9 · Pyramidize quality track — parked (see E3). Revisit only with eval evidence.
+#### E10 · OpenRouter provider — not started, no issue yet
+One key, many vendors' models — for users who don't want a separate account per vendor. Fits the E2 decision without new plumbing: OpenRouter is OpenAI-compatible, so it is `openai-go` + `option.WithBaseURL("https://openrouter.ai/api/v1")`, a new provider ID in the registry, and a key in the OS keyring like the others. HTTPS, so the openai-go 3.69 plain-HTTP refusal (#116) does not touch it.
+- **Model list:** OpenRouter publishes its catalogue at `/api/v1/models`; feed it through `ListModels` with the same `Source` states. IDs are `vendor/model` (e.g. `anthropic/claude-sonnet-…`), so the family aliases (`haiku`/`sonnet`) do not apply as-is — decide whether to map them or offer explicit IDs only, and pick per-feature defaults (fast model for Fix, stronger for Pyramidize).
+- **Effort / JSON schema:** OpenRouter normalises reasoning and structured output across vendors, but support varies per routed model. Verify against its docs before wiring; skip what a model refuses, as E2 step 5 does.
+- **Settings UI:** one more connection card in the AI Providers tab (#108 layout); no new screen.
+- **Not eval'd until measured:** the same model through OpenRouter can be routed to different hosts; record the provider in eval runs if it is ever measured.
 
 ---
 
@@ -189,7 +195,7 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 | `v4.6.0-beta` | ✅ released 2026-10-10: E0 shortcut hook (#31) · E2 step 5 model families + effort + AI Providers redesign (#108) · silent fix in Go with toast feedback, closes #93 (#110) · setup wizard never blocks (#109). Follow-ups #112–#115 |
 | `v4.6.1-beta` | ✅ released 2026-10-10: Wails v3 beta.25 (#95) · October dependency bumps, openai-go held at 3.68 (#117, #116) · Send Back fixed, closes #114 (#119) |
 | `v4.7.0-beta` (next) | E3 one-shot overhaul with eval · E4 upgrade wave · Fix page redesign · border glitch |
-| `v5.0.0` | Bedrock UI · light theme · HTML clipboard · Codex/Gemini CLI providers |
+| `v5.0.0` | Bedrock UI · light theme · HTML clipboard · Codex/Gemini CLI providers · OpenRouter (E10) |
 
 ---
 
