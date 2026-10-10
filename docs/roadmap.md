@@ -187,7 +187,7 @@ One key, many vendors' models — for users who don't want a separate account pe
 
 #### E11 · Own UI on CDK + Tailwind (PrimeNG out) — not started
 Decision and research: [`docs/ui/primeng-replacement.md`](ui/primeng-replacement.md). About 120 PrimeNG usages in 11 files, 142 `var(--p-*)` references, ~90 PrimeNG DOM selectors in tests. Incremental, one PR per step, Windows visual check by Michael after the design-relevant steps:
-1. Design direction with `frontend-design` (orange + grey kept), shown as a mockup before any migration code
+1. ~~Design direction~~ **approved 2026-10-10**: [`docs/ui/design.md`](ui/design.md) (tokens, type, patterns, mockup link)
 2. Tokens in Tailwind (`--kl-*`), the 142 `--p-*` references moved onto them, coexistence check with PrimeNG 21 — visually a no-op
 3. PrimeFlex and primeicons out (Tailwind utilities, vendored SVGs)
 4. Own components: message, tag, button (severity, loading) — the high-count, low-risk ones
