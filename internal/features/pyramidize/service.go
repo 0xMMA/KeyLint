@@ -11,6 +11,7 @@ import (
 
 	"keylint/internal/features/clipboard"
 	"keylint/internal/features/settings"
+	"keylint/internal/features/silentfix"
 	"keylint/internal/llm"
 	"keylint/internal/logger"
 )
@@ -52,40 +53,63 @@ const callTimeout = 120 * time.Second
 
 // Service implements the Pyramidize RPC methods exposed to the frontend.
 type Service struct {
-	settings  *settings.Service
-	clipboard *clipboard.Service
-	client    *http.Client
+	settings *settings.Service
+	client   *http.Client
+
+	// clipboard and desktop are nil in CLI mode, which has no Send Back.
+	clipboard clipboardWriter
+	desktop   sendBackDesktop
+	sleep     func(time.Duration)
+	now       func() time.Time
 
 	mu         sync.Mutex
 	cancelFunc context.CancelFunc
 
 	// Captured source app from hotkey trigger (set before clipboard grab)
-	sourceAppName  string
-	sourceWindowID string
+	sourceAppName string
+	sourceWindow  silentfix.Window
+
+	// sendingBack is held while a Send Back runs.
+	sendingBack sync.Mutex
 
 	// newClient builds the provider client. Tests replace it with a fake.
 	newClient func(provider string, cfg llm.Config) (llm.Client, error)
 }
 
-// NewService creates a new PyramidizeService.
+// NewService creates a new PyramidizeService. c is nil in CLI mode.
 func NewService(s *settings.Service, c *clipboard.Service) *Service {
-	return &Service{
+	svc := &Service{
 		settings:  s,
-		clipboard: c,
 		client:    &http.Client{Timeout: 90 * time.Second},
+		sleep:     time.Sleep,
+		now:       time.Now,
 		newClient: llm.New,
 	}
+	// Assigned only when set: a nil *clipboard.Service in an interface
+	// field is not a nil interface.
+	if c != nil {
+		svc.clipboard = c
+		svc.desktop = newDesktop(c)
+	}
+	return svc
 }
 
 // CaptureSourceApp captures the current foreground window before the clipboard grab.
 // Called from main.go when the global hotkey fires, before any clipboard operation.
 func (svc *Service) CaptureSourceApp() {
-	name, id := captureSourceApp()
+	if svc.desktop == nil {
+		return
+	}
+	w := svc.desktop.Foreground()
+	name := ""
+	if w.Handle != 0 {
+		name = svc.desktop.Title(w)
+	}
 	svc.mu.Lock()
 	svc.sourceAppName = name
-	svc.sourceWindowID = id
+	svc.sourceWindow = w
 	svc.mu.Unlock()
-	logger.Info("pyramidize: captured source app", "name", name, "id", id)
+	logger.Info("pyramidize: captured source app", "name", name, "window", w.Handle, "pid", w.PID)
 }
 
 // GetSourceApp returns the captured source app name so the frontend can display
@@ -106,21 +130,6 @@ func (svc *Service) CancelOperation() {
 		fn()
 		logger.Info("pyramidize: operation cancelled by user")
 	}
-}
-
-// SendBack writes text to the system clipboard and pastes it back into the
-// captured source application window.
-func (svc *Service) SendBack(text string) error {
-	if svc.clipboard == nil {
-		return fmt.Errorf("SendBack is not available in CLI mode")
-	}
-	if err := svc.clipboard.Write(text); err != nil {
-		return fmt.Errorf("clipboard write failed: %w", err)
-	}
-	svc.mu.Lock()
-	windowID := svc.sourceWindowID
-	svc.mu.Unlock()
-	return sendBackToWindow(windowID)
 }
 
 // Pyramidize is the main RPC: detects the document type (if AUTO), generates the

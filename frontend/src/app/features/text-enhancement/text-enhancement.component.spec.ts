@@ -327,6 +327,43 @@ describe('TextEnhancementComponent (Pyramidize)', () => {
     expect(component.isLoading).toBe(false);
   });
 
+  it('sendBack() sends the canvas and shows no error when it lands', async () => {
+    component.canvasTextView = 'Final text';
+    await component.sendBack();
+
+    expect(svcMock.sendBack).toHaveBeenCalledWith('Final text');
+    expect(el.querySelector('[data-testid="error-row"]')).toBeNull();
+  });
+
+  it('sendBack() shows why the text was not pasted, in the error row', async () => {
+    component.canvasTextView = 'Final text';
+    // What a failed Go binding call rejects with under Wails v3.
+    svcMock.sendBack.mockRejectedValue(new Error(
+      '{"message":"The original window is closed — the text is on the clipboard.","kind":"RuntimeError"}',
+    ));
+
+    await component.sendBack();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const row = el.querySelector('[data-testid="error-row"]');
+    expect(row?.textContent).toContain('The original window is closed — the text is on the clipboard.');
+    expect(row?.textContent).not.toContain('RuntimeError');
+  });
+
+  it('sendBack() ignores a second click while the first is still running', async () => {
+    component.canvasTextView = 'Final text';
+    let finish!: () => void;
+    svcMock.sendBack.mockReturnValue(new Promise<void>(r => (finish = r)));
+
+    const first = component.sendBack();
+    await component.sendBack();
+    finish();
+    await first;
+
+    expect(svcMock.sendBack).toHaveBeenCalledTimes(1);
+  });
+
   it('ngOnDestroy unsubscribes from shortcut events', async () => {
     component.ngOnDestroy();
     const prevReadCount = (wailsMock.readClipboard as ReturnType<typeof vi.fn>).mock.calls.length;

@@ -4,42 +4,28 @@ package pyramidize
 
 import (
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
-// captureSourceApp returns the name and xdotool window ID of the currently
-// focused window. Returns empty strings if xdotool is not available or fails.
-func captureSourceApp() (name string, windowID string) {
-	// Get the active window ID
-	idOut, err := exec.Command("xdotool", "getactivewindow").Output()
-	if err != nil {
-		return "", ""
-	}
-	id := strings.TrimSpace(string(idOut))
-	if id == "" {
-		return "", ""
-	}
+// The development desktop (Linux, X11) goes through xdotool, best-effort like
+// the clipboard service: without it the source window is unknown and Send
+// Back leaves the text on the clipboard.
 
-	// Get the window name/title
-	nameOut, err := exec.Command("xdotool", "getwindowname", id).Output()
+// windowTitle is the window's title, "" if xdotool cannot say.
+func windowTitle(id uintptr) string {
+	out, err := exec.Command("xdotool", "getwindowname", strconv.FormatUint(uint64(id), 10)).Output()
 	if err != nil {
-		return "", ""
+		return ""
 	}
-	return strings.TrimSpace(string(nameOut)), id
+	return strings.TrimSpace(string(out))
 }
 
-// sendBackToWindow focuses the given xdotool window and sends Ctrl+V to paste.
-// Best-effort: returns nil if windowID is empty or xdotool is not available.
-func sendBackToWindow(windowID string) error {
-	if windowID == "" {
-		return nil
-	}
-	if _, err := exec.LookPath("xdotool"); err != nil {
-		return nil // xdotool not installed — silently skip
-	}
-	if err := exec.Command("xdotool", "windowfocus", windowID).Run(); err != nil {
-		return nil // best-effort — focus may fail if window closed
-	}
-	_ = exec.Command("xdotool", "key", "--window", windowID, "ctrl+v").Run()
-	return nil
+// isMinimised is always false here: xdotool cannot ask, and windowactivate
+// maps a minimised window anyway.
+func isMinimised(uintptr) bool { return false }
+
+// activateWindow asks the window manager to raise and focus the window.
+func activateWindow(id uintptr) {
+	_ = exec.Command("xdotool", "windowactivate", strconv.FormatUint(uint64(id), 10)).Run()
 }

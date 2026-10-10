@@ -14,6 +14,7 @@ import { Tabs, TabList, Tab, TabPanels, TabPanel } from 'primeng/tabs';
 import { TooltipModule } from 'primeng/tooltip';
 import { WailsService } from '../../core/wails.service';
 import { noteForModelSource } from '../../core/model-source';
+import { describeError } from '../../core/error-message';
 import { DOCUMENT_TYPE_OPTIONS, unavailableProviderName } from '../../core/constants';
 import { TextEnhancementService } from './text-enhancement.service';
 import { MarkdownPipe } from './markdown.pipe';
@@ -487,7 +488,7 @@ function addTrace(label: string, snapshot: string): void {
               icon="pi pi-send"
               severity="secondary"
               size="small"
-              [disabled]="!canvasTextView"
+              [disabled]="!canvasTextView || sendingBack"
               (onClick)="sendBack()"
             />
           }
@@ -1088,6 +1089,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   isLoading = false;
   stepLabel = '';
   errorMessage = '';
+  sendingBack = false;
   refinementWarning = '';
   apiKeySet = true;
   /** Set on destroy so a late model list does not refresh a dead view. */
@@ -1452,7 +1454,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
       await doCall();
     } catch (e: unknown) {
       if (!wasCancelled) {
-        this.errorMessage = `Pyramidize failed: ${e instanceof Error ? e.message : String(e)}`;
+        this.errorMessage = `Pyramidize failed: ${describeError(e)}`;
       }
     } finally {
       this.isLoading = false;
@@ -1496,7 +1498,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
       this.globalInstruction = '';
     } catch (e: unknown) {
       if (!wasCancelled) {
-        this.errorMessage = `Refine failed: ${e instanceof Error ? e.message : String(e)}`;
+        this.errorMessage = `Refine failed: ${describeError(e)}`;
       }
     } finally {
       this.isLoading = false;
@@ -1568,7 +1570,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
       canvasText = before + result.rewrittenSection + after;
     } catch (e: unknown) {
       if (!wasCancelled) {
-        this.errorMessage = `Splice failed: ${e instanceof Error ? e.message : String(e)}`;
+        this.errorMessage = `Splice failed: ${describeError(e)}`;
       }
     } finally {
       this.isLoading = false;
@@ -1641,7 +1643,21 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   }
 
   async sendBack(): Promise<void> {
-    await this.svc.sendBack(canvasText);
+    if (this.sendingBack) return;
+    this.lastRequest = () => this.sendBack();
+    this.sendingBack = true;
+    this.errorMessage = '';
+    this.cdr.detectChanges();
+    try {
+      await this.svc.sendBack(canvasText);
+    } catch (e: unknown) {
+      // The backend's message already says where the text is (the clipboard)
+      // and what to do with it.
+      this.errorMessage = describeError(e);
+    } finally {
+      this.sendingBack = false;
+      this.cdr.detectChanges();
+    }
   }
 
   async retry(): Promise<void> {
