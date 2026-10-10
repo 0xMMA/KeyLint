@@ -1,6 +1,6 @@
 # KeyLint Roadmap
 
-> Last updated: 2026-09-24 · Owner: Michael · Source of truth for priorities.
+> Last updated: 2026-10-11 (E11 done) · Owner: Michael · Source of truth for priorities.
 > Tracking: each epic links to a GitHub issue. This file holds the *why* and the order; issues hold the *what*.
 
 ---
@@ -9,7 +9,7 @@
 
 > **2026-09-24:** no code since 2026-09-18. This pass reconciles the file with the repo: #47 and #55 closed, WebView2 verification shipped (#66/#74), E4 step 3 partly done (#84).
 >
-> **Decision needed (2026-09-25): PrimeNG 22 is commercial.** See E4 step 2 — Angular 22 is blocked until Michael picks (a) stay on 21, (b) Community licence key, or (c) leave PrimeNG.
+> ~~**Decision needed (2026-09-25): PrimeNG 22 is commercial.**~~ **Resolved:** Michael chose (c), leave PrimeNG (2026-10-10), and E11 removed it (2026-10-11, PR #123). Angular 22 is unblocked; see E4 step 2.
 >
 > **Progress log 2026-09-17/18:** E1 shipped (Claude Code provider, #45/#49/#54/#72), E2 complete (#39/#52/#57/#60), E3 measured (ADR-002 #63; Fix eval #79/#82/#88 — suite saturated, harder samples needed before more prompt work), eval instrument hardened (#62), CI: e2e + race detector + bindings drift + pinned actions + WebView2 signature check (#50/#65/#73/#74/#81/#84/#87). Waiting on Michael: #31 Windows retest, ADR-002 decisions (Sonnet 5 default, AUTO cost, dead threshold slider, `--json` score), #38 DevTools check, #61 refresh feel.
 
@@ -29,7 +29,8 @@
 | `wailsapp/wails/v3` (Go) | `v3.0.0-beta.25` | `v3.0.0-beta.28` | E4 step 1 (PR #95), waiting on the Windows smoke test. beta.26–28 change only Windows WebView2 crash recovery among the APIs KeyLint uses — a follow-up bump. No Go API break for KeyLint; Linux stays on GTK3 via `-tags gtk3` (decision below) |
 | `@wailsio/runtime` (npm) | `3.0.0-beta.25` | `3.0.0-beta.28` | pinned exactly, same version as the Go side (was alpha.79 vs alpha.72) |
 | Angular | 21.2.0 | 22.1.x | |
-| PrimeNG / `@primeuix/themes` | 21.1.3 / 2.0.3 | 22.1.x / 3.0.x | move together |
+| ~~PrimeNG / `@primeuix/themes`~~ | — | — | removed in E11 (relicensed; see E4 step 2) |
+| `@angular/cdk` | 21.2.14 | 22.x | moves with Angular; KeyLint's own components are built on it |
 | TypeScript | 5.9 | 7.0 | Angular 22 requires 6.0 (`>=6.0 <6.1`); TS 7 = Go-native compiler, only when Angular CLI supports it |
 | Vitest / Playwright / jsdom | 4.1 / 1.63 / 30 | 5.0 / 1.63 / 30 | #84; Vitest 5 blocked by the `@angular/build` peer range (`^4.0.8` up to 22.1.x; 22.2.0 accepts `^5`), see `.claude/rules/testing.md` |
 
@@ -157,7 +158,7 @@ Issue: #35.
 Order matters:
 1. Wails: bump Go module to `v3.0.0-beta.25` **and** `@wailsio/runtime` to the same version; regenerate bindings; smoke test tray, window hide/show, events, Windows build. **Done (#95, shipped in v4.6.1-beta)** — bindings unchanged, clears the 8 go-git/go-billy govulncheck findings; Linux builds with `-tags gtk3` to keep the status quo; Windows smoke-tested by Michael. Next: beta.28 (WebView2 crash recovery).
    - [ ] **Decision for Michael, due before the Wails v3.1 bump (v3.1 removes `gtk3`):** Wails' default Linux stack is GTK4 + WebKitGTK 6.0, which always sandboxes with bubblewrap; stock Ubuntu 23.10+ blocks that (`kernel.apparmor_restrict_unprivileged_userns=1`) and the app aborts at start. Options: ship an AppArmor profile in the deb (as Ubuntu does for GNOME Web), declare Linux dev-only and stop publishing Linux binaries/updates, or stay on GTK3 until forced. Whatever is chosen, the Linux self-updater must not replace a working GTK3 binary with a GTK4 one that cannot start.
-2. **Decided 2026-10-10 (Michael): PrimeNG goes, replaced by Angular CDK + Tailwind + own components with our own look** (keep the orange and grey, modernise the rest) — see [`docs/ui/primeng-replacement.md`](ui/primeng-replacement.md) for the decision and the research behind it, and E11 for the migration. Until it lands we stay on Angular 21 + PrimeNG 21 (option a below); no licence key. Angular 22 follows the removal. Background: PrimeNG 22 is no longer MIT: PrimeTek moved it, `@primeuix/*` 3.x and primeicons 8 to the commercial *PrimeUI License* (checked 2026-09-25 in the npm tarballs; [announcement](https://primeui.dev/nextchapter)). A licence key is required; without one `providePrimeNG()` shows a red "Invalid PrimeUI License" banner. The free Community tier covers "non-commercial open source projects" and small organisations, needs yearly renewal, and forbids publishing the key — so it would live in a CI secret and every other build shows the banner. PrimeNG 21.1.10 declares `@angular/core ^21`, so **Angular 22 is blocked with it**. Options: (a) stay on Angular 21 + PrimeNG 21 (MIT, still receives 21.x releases), (b) Community key via CI secret, (c) move off PrimeNG before Angular 21 support ends. Dependabot fences the non-MIT versions (#89). Originally: Angular 22 + PrimeNG 22 + `@primeuix/themes` 3 together (`ng update`); re-check the custom wizard (`@switch`) and dark-mode CSS overrides in `styles.scss`, which patch PrimeNG gaps that may be fixed or moved.
+2. **Decided 2026-10-10 (Michael): PrimeNG goes, replaced by Angular CDK + Tailwind + own components with our own look** (keep the orange and grey, modernise the rest) — see [`docs/ui/primeng-replacement.md`](ui/primeng-replacement.md) for the decision and the research behind it, and E11 for the migration. **PrimeNG is gone (E11, PR #123): `primeng`, `@primeuix/*` and `primeicons` are no longer dependencies, so Angular 22 is unblocked.** The Angular 22 upgrade itself (`ng update @angular/core @angular/cli @angular/cdk`, TypeScript 6.0, then `@angular/aria` where useful) is the next, separate step. Do not re-add any PrimeTek package: the Dependabot licence fence was dropped with them, so nothing would stop a non-MIT version. History: PrimeNG 22 is no longer MIT: PrimeTek moved it, `@primeuix/*` 3.x and primeicons 8 to the commercial *PrimeUI License* (checked 2026-09-25 in the npm tarballs; [announcement](https://primeui.dev/nextchapter)). A licence key is required; without one `providePrimeNG()` shows a red "Invalid PrimeUI License" banner. The free Community tier covers "non-commercial open source projects" and small organisations, needs yearly renewal, and forbids publishing the key — so it would live in a CI secret and every other build shows the banner. PrimeNG 21.1.10 declares `@angular/core ^21`, so **Angular 22 is blocked with it**. Options: (a) stay on Angular 21 + PrimeNG 21 (MIT, still receives 21.x releases), (b) Community key via CI secret, (c) move off PrimeNG before Angular 21 support ends. Dependabot fenced the non-MIT versions (#89) until they were removed. Originally: Angular 22 + PrimeNG 22 + `@primeuix/themes` 3 together (`ng update`); re-check the custom wizard (`@switch`) and dark-mode CSS overrides in `styles.scss`, which patch PrimeNG gaps that may be fixed or moved.
 3. ~~Playwright 1.63, jsdom 30, Prettier~~ **done (#84)**, Vitest to 4.1. Vitest 5 waits until `@angular/build` is on >= 22.2, the first to declare `^5` (i.e. with step 2) — then handle the `clearMocks` default flip and the reporter change in the same PR (`.claude/rules/testing.md`).
 4. TypeScript: Angular dictates it — Angular 22 requires `>=6.0 <6.1`, so step 2 moves TypeScript 5.9 → 6.0 with it. TypeScript 7 only once `@angular/build` lists it.
 5. Node 24 LTS stays.
@@ -173,7 +174,7 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 - Existing April triage: #21 `vv` version prefix, #24 hide unimplemented themes, #26 toggle knob clipping, #28 global-instruction input light background, #29 Apply button focus, #27 side-by-side on wide screens.
 
 #### E6 · Bedrock end-to-end UI (#23) — unblocked (E2 step 3 done), mostly settings UI work plus the region field and AWS SDK noted in E2 step 3. Closes #22.
-#### E7 · Light theme (#25) — after E4 (PrimeNG 22 may change token layout); if E4 step 2 stays on PrimeNG 21, build it on the v21 tokens instead.
+#### E7 · Light theme (#25) — unblocked by E11: redefine the `--kl-*` roles in `frontend/src/theme.css` under a light selector on `<html>` (see `index.html`), plus `color-scheme: light`.
 #### E8 · Feature parity leftovers (moved from the old `TODO.md`)
 - Linux global hotkey (currently a stub) — low, Linux is dev-only
 - HTML clipboard (CF_HTML) paste-back for Outlook/Teams — medium, real user value on Windows
@@ -185,15 +186,17 @@ One key, many vendors' models — for users who don't want a separate account pe
 - **Settings UI:** one more connection card in the AI Providers tab (#108 layout); no new screen.
 - **Not eval'd until measured:** the same model through OpenRouter can be routed to different hosts; record the provider in eval runs if it is ever measured.
 
-#### E11 · Own UI on CDK + Tailwind (PrimeNG out) — in progress
+#### E11 · Own UI on CDK + Tailwind (PrimeNG out) — done (PR #123, phases A–D; Angular 22 is E4 step 2)
 Decision and research: [`docs/ui/primeng-replacement.md`](ui/primeng-replacement.md). About 120 PrimeNG usages in 11 files, 142 `var(--p-*)` references, ~90 PrimeNG DOM selectors in tests. Incremental, one PR per step, Windows visual check by Michael after the design-relevant steps:
 1. ~~Design direction~~ **approved 2026-10-10**: [`docs/ui/design.md`](ui/design.md) (tokens, type, patterns, mockup link)
-2. ~~Tokens in Tailwind (`--kl-*`), the 142 `--p-*` references moved onto them, coexistence check with PrimeNG 21 — visually a no-op~~ **done** (`frontend/src/theme.css`; PrimeFlex went in the same PR, since Tailwind replaces it). Values are still today's Aura ones. Switching to the design.md palette is not only values: the tokens are global, so it needs either one switch for the whole app or tokens scoped to redesigned screens, plus the two-line-colour split and the PrimeNG overrides in `styles.scss` moved onto roles
-3. ~~PrimeFlex~~ and primeicons out (vendored SVGs)
-4. Own components: message, tag, button (severity, loading) — the high-count, low-risk ones
-5. Form controls, card, tabs, tooltip
-6. Select/combobox on CDK primitives — tests first for the null-vs-`""` semantics in `model-options.ts`
-7. PrimeNG removed, docs and rules updated, then Angular 22 (and `@angular/aria` where useful)
+2. ~~Tokens in Tailwind (`--kl-*`), the 142 `--p-*` references moved onto them, coexistence check with PrimeNG 21 — visually a no-op~~ **done** (`frontend/src/theme.css`; PrimeFlex went in the same PR, since Tailwind replaces it). The design.md palette was switched on for the whole app at once in phase A, with the two-line-colour split
+3. ~~PrimeFlex and primeicons out (vendored SVGs)~~ **done** (Lucide, ISC, in `shared/ui/icon/icons.ts`)
+4. ~~Own components: message, tag, button (severity, loading)~~ **done**
+5. ~~Form controls, card, tabs, tooltip~~ **done**
+6. ~~Select/combobox on CDK primitives~~ **done** (`kl-select`, editable mode keeps the null-vs-`""` semantics of `model-options.ts`)
+7. ~~PrimeNG removed, docs and rules updated~~ **done** (phase D, with Tailwind's preflight turned on). Angular 22 (and `@angular/aria` where useful) moved to E4 step 2 as its own step
+
+Steps 2–7 shipped together in one PR (#123) in four phases: A tokens, fonts, Fix and the shell; B Settings and the wizard; C Pyramidize and dev tools; D PrimeNG out. The look is [`docs/ui/design.md`](ui/design.md); Michael's Windows check is on the PR.
 
 The Fix page redesign (#36, E5) is the natural first screen for the new look.
 
@@ -221,8 +224,8 @@ The Fix page redesign (#36, E5) is the natural first screen for the new look.
 - [x] `internal/features/enhance` has no tests — fixed in #39
 - [x] `docs/pyramidize/ux-roadmap.md` model strategy section is outdated (Sonnet 4.6 / GPT-5.2 era); superseded by E2 step 4 — replaced by a pointer to `internal/llm/models.go`
 - [x] Pin third-party GitHub Actions to commit SHAs, add Dependabot for actions (#51, #65, #73, #81). `actions/*` stay on floating major tags by design — GitHub's own org, and Dependabot is configured to ignore majors since #81 — so the workflows are hardened, not fully SHA-pinned
-- [ ] Quarterly dependency hygiene — Dependabot deliberately stays silent on these, so this check is the only notice. (1) Actions: check `gh api repos/actions/<name>/releases/latest` for every `actions/*` in `.github/workflows/` and bump paired actions together (artifact upload/download, pages upload/deploy). (2) Framework majors: `cd frontend && npm outdated` for Angular, PrimeNG, `@primeuix/*`, primeicons, TypeScript, Vitest. (3) Wails: `go list -m -u github.com/wailsapp/wails/v3` and its open security advisories. Next due: 2026-12.
-- [x] Add `gomod` and `npm` to Dependabot (#89) — monthly, grouped, 7-day npm cooldown (`packageManager` moved to npm 11.19 so it covers transitive packages too). It does **not** surface the drift that prompted this item: Wails is ignored on both sides, and framework majors (Angular, PrimeNG, `@primeuix/*`, primeicons, TypeScript) are blocked because they need `ng update` and a visual check. The quarterly check above surfaces those. Security updates skip the ignores, so an advisory can still arrive as a PR — as a notice, not merge-on-green. openai-go is ignored by name (no range) until #116 so its advisories still arrive
+- [ ] Quarterly dependency hygiene — Dependabot deliberately stays silent on these, so this check is the only notice. (1) Actions: check `gh api repos/actions/<name>/releases/latest` for every `actions/*` in `.github/workflows/` and bump paired actions together (artifact upload/download, pages upload/deploy). (2) Framework majors: `cd frontend && npm outdated` for Angular (incl. `@angular/cdk`), TypeScript, Tailwind, Vitest. (3) Wails: `go list -m -u github.com/wailsapp/wails/v3` and its open security advisories. Next due: 2026-12.
+- [x] Add `gomod` and `npm` to Dependabot (#89) — monthly, grouped, 7-day npm cooldown (`packageManager` moved to npm 11.19 so it covers transitive packages too). It does **not** surface the drift that prompted this item: Wails is ignored on both sides, and framework majors (Angular, TypeScript, Tailwind; PrimeNG until E11 removed it) are blocked because they need `ng update` and a visual check. The quarterly check above surfaces those. Security updates skip the ignores, so an advisory can still arrive as a PR — as a notice, not merge-on-green. openai-go is ignored by name (no range) until #116 so its advisories still arrive
 - [x] `MicrosoftEdgeWebview2Setup.exe` was curled from a redirector with no checksum or signature check and bundled into the installer users run — now `scripts/fetch-webview2.sh` refuses any file without a valid Microsoft signature, in both `release.yml` and `build-linux.yml` (#66, #74)
 - [ ] Branch protection on `main` (required checks incl. `e2e`, `test` with race detector, bindings drift) — Michael, repo settings
 - [ ] Shortcut robustness under rapid input (#42, #44) after #31 lands

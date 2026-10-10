@@ -17,21 +17,14 @@ jsdom 30 still defines none of `matchMedia`, `ResizeObserver` or
 `IntersectionObserver` — verified against the library and in a spec run on its
 own.
 
-**In a full run a spec may see them anyway**, set by another file. That is not a
-reason to skip the stub; it is a reason not to trust a green suite as proof that
-your stub is there. See the runner section below.
-
-TabList uses `ResizeObserver` which doesn't exist in jsdom. Add at the top of specs that import tab components:
-
-```typescript
-(globalThis as any)['ResizeObserver'] = class { observe() {} unobserve() {} disconnect() {} };
-```
-
-PrimeNG's overlay (any `p-select` dropdown that a spec opens) asks `matchMedia`
-whether to go modal, and jsdom has none. Stub it to "no match" in specs that
-open one. This is a jsdom gap in a library, not permission to use `matchMedia`
-in app code — KeyLint's own code must not read it for theme detection, see
-`architecture.md`.
+No spec needs a stub today. The ones the suite carried were for PrimeNG's tabs
+(`ResizeObserver`) and overlays (`matchMedia`) and went with it in E11; KeyLint's
+own primitives and the CDK overlay they use reach for neither (every spec file
+was run on its own to check). If new code or a new library needs one, the file
+that needs it sets it itself — **in a full run a spec may see a global anyway**,
+set by another file, so a green suite is no proof that your stub is there (see
+the runner section below). And it is never permission to use `matchMedia` in
+app code for theme detection, see `architecture.md`.
 
 ## The Test Runner
 
@@ -42,11 +35,11 @@ change anything.
 **Spec files are NOT isolated from each other.** The builder sets
 `isolate: false` (`@angular/build/src/builders/unit-test/runners/vitest/plugins.js`),
 so the files that land in one fork share a process, a `globalThis` and one jsdom
-window. Measured on this suite: 11 of 14 files landed in a single fork and saw
-`ResizeObserver` and `matchMedia` already defined on entry, set by two files
-that happened to run before them. Which fork a file lands in changes between
-runs, so a spec that depends on another file's global passes or fails by
-scheduling.
+window. Measured on this suite (when it still carried PrimeNG stubs): 11 of
+14 files landed in a single fork and saw `ResizeObserver` and `matchMedia`
+already defined on entry, set by two files that happened to run before them.
+Which fork a file lands in changes between runs, so a spec that depends on
+another file's global passes or fails by scheduling.
 
 So: every file that needs a stub sets its own, and a spec that has just been
 written or changed gets one run on its own —

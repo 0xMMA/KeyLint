@@ -24,7 +24,7 @@ One thing is loud, everything else is quiet. The loud thing is the corrections: 
 
 Radii: sheets 10px, controls 6px, menus 8px, tags pill. Shadows only on overlays.
 
-In code these are the `--kl-*` tokens in `frontend/src/theme.css`, with Tailwind utilities on top (`bg-sheet`, `text-muted`, `border-line`). The names follow this table, except orange → `--kl-primary`, orange-text → `--kl-primary-text`, and the text colour's utility is `text-fg` (not `text-text`). The two line colours are `--kl-line` (dividers) and `--kl-line-control` (control borders); `--kl-link` and `--kl-focus` carry `#FB923C`. The values are switched on (E11 phase A), and `frontend/e2e/ui-tokens.spec.ts` pins them to this table.
+In code these are the `--kl-*` tokens in `frontend/src/theme.css`, with Tailwind utilities on top (`bg-sheet`, `text-muted`, `border-line`). The names follow this table, except orange → `--kl-primary`, orange-text → `--kl-primary-text`, and the text colour's utility is `text-fg` (not `text-text`). The two line colours are `--kl-line` (dividers) and `--kl-line-control` (control borders); `--kl-link` and `--kl-focus` carry `#FB923C`. The values are switched on (E11 phase A), and `frontend/e2e/ui-tokens.spec.ts` pins them to this table. PrimeNG, whose Aura theme the colours started from, is gone (E11 phase D).
 
 ## Type
 
@@ -40,6 +40,10 @@ In code these are the `--kl-*` tokens in `frontend/src/theme.css`, with Tailwind
 - Corrections: `ins` = orange text-tint with a 2px orange underline, `del` = grey with strike-through.
 - Visible keyboard focus everywhere: 2px `#FB923C` outline, 2px offset.
 
-## Proposed in the mockup, not decided as features
+## Proposed in the mockup: decided and open
 
-Fix page "Paste back" and "Undo", "Detect automatically" instead of "AUTO (detect)", Send Back naming the target window. Each needs its own go-ahead when that screen is built.
+Approved by Michael and built in E11:
+- "Detect automatically" instead of "AUTO (detect)" for Pyramidize's document type.
+- A "Copy result" button on the Fix page, which copies the clean text whatever the view shows.
+
+Still undecided, so not built: Fix page "Paste back" and "Undo", and Send back naming the target window. Each needs its own go-ahead.

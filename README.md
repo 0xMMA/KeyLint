@@ -63,7 +63,8 @@ MIT + Commons Clause — see [LICENSE](LICENSE) for details.
 | Backend language | Go 1.27 |
 | Dependency injection | [Wire](https://github.com/google/wire) |
 | Frontend | Angular v21 |
-| UI components | PrimeNG v21 (Aura preset, orange/zinc theme) |
+| UI components | KeyLint's own (`frontend/src/app/shared/ui`), built on Angular CDK |
+| Styling | Tailwind v4 utilities and `--kl-*` design tokens (dark theme, orange on zinc) |
 
 ### Prerequisites
 

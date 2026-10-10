@@ -10,6 +10,23 @@
 - **Icons:** vendored SVGs (Lucide or Material Symbols, picked with the design), no icon package.
 - **Migration:** incremental, PrimeNG 21 and the new components coexist; order as in the sketch below, with step 1 becoming "design tokens in Tailwind + coexistence check" instead of the Material theme. Deadline: before Angular 21 LTS ends (2027-06).
 
+## Status: done (2026-10-11, PR #123)
+
+PrimeNG is out. `primeng`, `@primeuix/themes` (and the `@primeuix/*` packages it pulled in), `primeicons` and PrimeFlex are no longer dependencies, `providePrimeNG` and the Aura preset are gone from `app.config.ts`, and so are the PrimeNG overrides in `styles.scss`. `@angular/animations` went too: only PrimeNG needed `provideAnimationsAsync()`, and the CDK overlay does not. Every screen runs on KeyLint's own components in `frontend/src/app/shared/ui/` in the look of [`design.md`](design.md).
+
+**They were removed because PrimeTek relicensed them** (PrimeNG 22, `@primeuix/*` 3.x and primeicons 8 are under the commercial PrimeUI License; see `docs/roadmap.md` E4 step 2). Do not add any PrimeTek package back. Dependabot used to fence the non-MIT versions with explicit `versions:` ranges; that fence went with the packages, so nothing in CI would stop a re-added one.
+
+How it turned out, against the decision above:
+
+- **Behaviour:** the stable CDK primitives on Angular 21 (overlay, portal) under our own `kl-select`, `klTooltip`, `kl-tabs` and the rest; no `@angular/aria` yet. It comes with the Angular 22 upgrade, which PrimeNG no longer blocks (roadmap E4 step 2).
+- **Icons:** Lucide (ISC), the SVG bodies vendored into `shared/ui/icon/icons.ts` with the licence next to them. No icon package, no icon font.
+- **Fonts:** Schibsted Grotesk and Literata, subset woff2 in `frontend/public/fonts` with their OFL texts; nothing is fetched at runtime.
+- **Diff marks** on the Fix page come from `diff` (jsdiff, BSD-3-Clause), word level.
+- **Tailwind** carries the `--kl-*` tokens, with only KeyLint's colours as utilities. Its preflight reset was off while PrimeNG was in and is on since the removal; every screen was compared before and after.
+- **Tests:** the jsdom `ResizeObserver`/`matchMedia` stubs were PrimeNG's and are gone. `e2e/ui-tokens.spec.ts` now also fails if a `--p-*` token, a `p-` class or element, or an icon font shows up on a screen.
+
+**Size** (production build): at the research baseline (`783f309`) about 1.07 MB of JS, 360 KB of global CSS and 624 KB of icon fonts. Just before the removal (PrimeNG still provided, no longer rendered) 816 KB of JS and 30 KB of global CSS; after it 611 KB of JS (initial 335 KB, was 488 KB), 17 KB of global CSS, no icon fonts, and 0.99 MB on disk for the whole `dist` (was 1.86 MB).
+
 The research below is kept as written. Its scores and recommendation predate the decision.
 
 ---

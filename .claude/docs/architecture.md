@@ -43,7 +43,7 @@ Keys are NOT stored in `settings.json`. `GetKey(provider)` / `SetKey` / `DeleteK
 
 ## Dark Mode
 
-`<html class="app-dark">` set in `frontend/src/index.html` before Angular bootstraps — eliminates flash. It must be `<html>`: PrimeNG declares component tokens on `:root` as aliases of theme tokens, and they resolve on `<html>`, so with the class on `<body>` selects, tabs and disabled fields rendered light (#28). `ShellComponent.applyTheme()` never removes it: only the dark theme is styled, so `theme_preference` is not read until the light theme lands (#24, #25). KeyLint's own dark-mode overrides are in `frontend/src/styles.scss`.
+`<html class="app-dark">` set in `frontend/src/index.html` before Angular bootstraps — eliminates flash. It must be `<html>`: KeyLint's `--kl-*` tokens (`frontend/src/theme.css`) live on `:root`, several as aliases of others, and an alias resolves where it is declared — a theme class on `<body>` is how PrimeNG's selects, tabs and disabled fields once rendered light (#28). `theme.css` also sets `color-scheme: dark` so native controls and scrollbars draw dark. `ShellComponent.applyTheme()` never removes the class: only the dark theme is styled, so `theme_preference` is not read until the light theme lands (#24, #25).
 
 ## Routes
 
