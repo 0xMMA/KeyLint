@@ -21,6 +21,10 @@ func windowTitle(id uintptr) string {
 	return strings.TrimSpace(string(out))
 }
 
+// isVisible is always true here: xdotool getwindowname already failed for a
+// window that is gone.
+func isVisible(uintptr) bool { return true }
+
 // isMinimised is always false here: xdotool cannot ask, and windowactivate
 // maps a minimised window anyway.
 func isMinimised(uintptr) bool { return false }

@@ -349,6 +349,41 @@ describe('TextEnhancementComponent (Pyramidize)', () => {
     const row = el.querySelector('[data-testid="error-row"]');
     expect(row?.textContent).toContain('The original window is closed — the text is on the clipboard.');
     expect(row?.textContent).not.toContain('RuntimeError');
+    // Copying the error would overwrite the text it says is on the clipboard.
+    expect(el.querySelector('[data-testid="copy-error-btn"]')).toBeNull();
+  });
+
+  it('keeps Copy error for other errors', async () => {
+    component.originalTextView = 'Some text';
+    svcMock.pyramidize.mockRejectedValue(new Error('API failure'));
+    await component.pyramidize();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(el.querySelector('[data-testid="copy-error-btn"]')).toBeTruthy();
+  });
+
+  it('disables Send back while a send back is running', async () => {
+    // The source app is read on init, so start a page that knows one.
+    wailsMock.getSourceApp.mockResolvedValue('Untitled - Notepad');
+    component.canvasTextView = 'Final text';
+    const page = TestBed.createComponent(TextEnhancementComponent);
+    page.detectChanges();
+    await page.whenStable();
+    page.detectChanges();
+    const button = () =>
+      (page.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[data-testid="send-back-btn"] button');
+    expect(button()?.disabled).toBe(false);
+
+    let finish!: () => void;
+    svcMock.sendBack.mockReturnValue(new Promise<void>(r => (finish = r)));
+    const running = page.componentInstance.sendBack();
+    expect(button()?.disabled).toBe(true);
+
+    finish();
+    await running;
+    expect(button()?.disabled).toBe(false);
+    page.destroy();
   });
 
   it('sendBack() ignores a second click while the first is still running', async () => {

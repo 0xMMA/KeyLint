@@ -120,9 +120,15 @@ func (s *Service) SendPaste() error {
 		uintptr(unsafe.Pointer(&inputs[0])),
 		unsafe.Sizeof(inputs[0]),
 	)
-	if ret == 0 {
-		logger.Error("clipboard: SendInput failed", "err", err)
-		return fmt.Errorf("SendInput failed: %w", err)
+	if ret != uintptr(len(inputs)) {
+		if ret > 0 {
+			// Part of the sequence went in (another thread's input got in
+			// between): Ctrl may be down with nobody to release it.
+			release := pasteInput{inputType: inputKeyboard, wVk: vkControl, dwFlags: keyEventKeyUp, dwExtraInfo: 0x4B4C}
+			clipSendInput.Call(1, uintptr(unsafe.Pointer(&release)), unsafe.Sizeof(release))
+		}
+		logger.Error("clipboard: SendInput failed", "inputs_sent", ret, "err", err)
+		return fmt.Errorf("SendInput sent %d of %d inputs: %w", ret, len(inputs), err)
 	}
 	logger.Info("clipboard: PasteToForeground ok", "inputs_sent", ret)
 	return nil

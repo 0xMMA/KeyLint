@@ -14,8 +14,8 @@ var (
 	procGetWindowTextW           = user32.NewProc("GetWindowTextW")
 	procGetForegroundWindow      = user32.NewProc("GetForegroundWindow")
 	procSetForegroundWindow      = user32.NewProc("SetForegroundWindow")
-	procBringWindowToTop         = user32.NewProc("BringWindowToTop")
 	procIsIconic                 = user32.NewProc("IsIconic")
+	procIsWindowVisible          = user32.NewProc("IsWindowVisible")
 	procShowWindowAsync          = user32.NewProc("ShowWindowAsync")
 	procGetWindowThreadProcessID = user32.NewProc("GetWindowThreadProcessId")
 	procAttachThreadInput        = user32.NewProc("AttachThreadInput")
@@ -29,6 +29,13 @@ func windowTitle(hwnd uintptr) string {
 	buf := make([]uint16, 256)
 	procGetWindowTextW.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
 	return syscall.UTF16ToString(buf)
+}
+
+// isVisible is false for a window hidden to the tray (Slack, Teams): it
+// still exists, but a paste into it would land where the user cannot see.
+func isVisible(hwnd uintptr) bool {
+	r, _, _ := procIsWindowVisible.Call(hwnd)
+	return r != 0
 }
 
 func isMinimised(hwnd uintptr) bool {
@@ -73,6 +80,7 @@ func activateWindow(hwnd uintptr) {
 			defer procAttachThreadInput.Call(self, fgThread, 0)
 		}
 	}
-	procBringWindowToTop.Call(hwnd)
+	// No BringWindowToTop: it is a synchronous cross-thread SetWindowPos and
+	// would hang on a frozen app, and SetForegroundWindow raises the window.
 	procSetForegroundWindow.Call(hwnd)
 }

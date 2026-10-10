@@ -413,15 +413,20 @@ function addTrace(label: string, snapshot: string): void {
               appendTo="body"
               tooltipPosition="top"
             >❌ {{ errorMessage }}</span>
-            <p-button
-              icon="pi pi-copy"
-              size="small"
-              severity="secondary"
-              [text]="true"
-              pTooltip="Copy error"
-              appendTo="body"
-              (onClick)="copyError()"
-            />
+            @if (errorMessage !== sendBackError) {
+              <!-- Not for a Send Back error: the text it points to is on the
+                   clipboard, and copying the error would replace it. -->
+              <p-button
+                data-testid="copy-error-btn"
+                icon="pi pi-copy"
+                size="small"
+                severity="secondary"
+                [text]="true"
+                pTooltip="Copy error"
+                appendTo="body"
+                (onClick)="copyError()"
+              />
+            }
             <p-button label="Retry" size="small" severity="secondary" (onClick)="retry()" />
           </div>
         }
@@ -1090,6 +1095,8 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   stepLabel = '';
   errorMessage = '';
   sendingBack = false;
+  /** The error the last Send Back reported, '' if none. */
+  sendBackError = '';
   refinementWarning = '';
   apiKeySet = true;
   /** Set on destroy so a late model list does not refresh a dead view. */
@@ -1647,13 +1654,15 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     this.lastRequest = () => this.sendBack();
     this.sendingBack = true;
     this.errorMessage = '';
+    this.sendBackError = '';
     this.cdr.detectChanges();
     try {
       await this.svc.sendBack(canvasText);
     } catch (e: unknown) {
-      // The backend's message already says where the text is (the clipboard)
-      // and what to do with it.
-      this.errorMessage = describeError(e);
+      // The backend's message says whether the text is on the clipboard and
+      // what to do next.
+      this.sendBackError = describeError(e);
+      this.errorMessage = this.sendBackError;
     } finally {
       this.sendingBack = false;
       this.cdr.detectChanges();

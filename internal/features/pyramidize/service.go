@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -61,6 +62,7 @@ type Service struct {
 	desktop   sendBackDesktop
 	sleep     func(time.Duration)
 	now       func() time.Time
+	selfPID   uint32
 
 	mu         sync.Mutex
 	cancelFunc context.CancelFunc
@@ -83,6 +85,7 @@ func NewService(s *settings.Service, c *clipboard.Service) *Service {
 		client:    &http.Client{Timeout: 90 * time.Second},
 		sleep:     time.Sleep,
 		now:       time.Now,
+		selfPID:   uint32(os.Getpid()),
 		newClient: llm.New,
 	}
 	// Assigned only when set: a nil *clipboard.Service in an interface
@@ -101,6 +104,12 @@ func (svc *Service) CaptureSourceApp() {
 		return
 	}
 	w := svc.desktop.Foreground()
+	if w.Handle != 0 && w.PID == svc.selfPID {
+		// The shortcut was pressed in KeyLint itself: Send Back must not
+		// paste into KeyLint's own window, so the last source stays.
+		logger.Info("pyramidize: shortcut pressed in KeyLint, source app kept")
+		return
+	}
 	name := ""
 	if w.Handle != 0 {
 		name = svc.desktop.Title(w)
@@ -109,7 +118,7 @@ func (svc *Service) CaptureSourceApp() {
 	svc.sourceAppName = name
 	svc.sourceWindow = w
 	svc.mu.Unlock()
-	logger.Info("pyramidize: captured source app", "name", name, "window", w.Handle, "pid", w.PID)
+	logger.Info("pyramidize: captured source app", "name", logger.Redact(name), "window", w.Handle, "pid", w.PID)
 }
 
 // GetSourceApp returns the captured source app name so the frontend can display

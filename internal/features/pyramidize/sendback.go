@@ -21,7 +21,8 @@ type sendBackDesktop interface {
 	Foreground() silentfix.Window
 	// Title is the window's title, "" if it has none.
 	Title(w silentfix.Window) string
-	// Exists reports whether w is still open, and still the same window.
+	// Exists reports whether w is still open, still the same window, and
+	// visible (a window hidden to the tray does not count).
 	Exists(w silentfix.Window) bool
 	// Activate asks for w to become the foreground window, restoring it
 	// first if it is minimised. It may be refused; Active says.
@@ -46,7 +47,10 @@ func newDesktop(clip *clipboard.Service) desktop {
 }
 
 func (desktop) Title(w silentfix.Window) string { return windowTitle(w.Handle) }
-func (desktop) Activate(w silentfix.Window)     { activateWindow(w.Handle) }
+func (d desktop) Exists(w silentfix.Window) bool {
+	return d.Desktop.Exists(w) && isVisible(w.Handle)
+}
+func (desktop) Activate(w silentfix.Window) { activateWindow(w.Handle) }
 func (d desktop) Active(w silentfix.Window) bool {
 	return d.Foreground().Handle == w.Handle && !isMinimised(w.Handle)
 }
@@ -62,6 +66,7 @@ const (
 var (
 	errNoSourceWindow = errors.New("KeyLint doesn't know which window the text came from — the text is on the clipboard, paste it with Ctrl+V.")
 	errSourceClosed   = errors.New("The original window is closed — the text is on the clipboard.")
+	errClipboardWrite = errors.New("Couldn't put the text on the clipboard — nothing was pasted. Copy it from the canvas instead.")
 )
 
 func errNoFocus(app string) error {
@@ -101,11 +106,12 @@ func (svc *Service) SendBack(text string) error {
 	svc.mu.Lock()
 	source, app := svc.sourceWindow, svc.sourceAppName
 	svc.mu.Unlock()
-	logger.Info("pyramidize: send back start", "window", source.Handle, "pid", source.PID, "title", app)
+	// The title can name a document or an email subject: redacted like user text.
+	logger.Info("pyramidize: send back start", "window", source.Handle, "pid", source.PID, "title", logger.Redact(app))
 
 	if err := svc.clipboard.Write(text); err != nil {
 		logger.Warn("pyramidize: send back clipboard write failed", "err", err)
-		return fmt.Errorf("clipboard write failed: %w", err)
+		return errClipboardWrite
 	}
 
 	if source.Handle == 0 {

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"keylint/internal/features/clipboard"
 	"keylint/internal/features/silentfix"
 )
 
@@ -14,6 +15,7 @@ import (
 type fakeClip struct {
 	written []string
 	err     error
+	events  *[]string
 }
 
 func (c *fakeClip) Write(text string) error {
@@ -21,25 +23,47 @@ func (c *fakeClip) Write(text string) error {
 		return c.err
 	}
 	c.written = append(c.written, text)
+	record(c.events, "write")
 	return nil
+}
+
+// record appends to the event log the fakes share, so a test can check order.
+func record(events *[]string, e string) {
+	if events != nil {
+		*events = append(*events, e)
+	}
 }
 
 // fakeSendBackDesktop is a desktop whose source window takes the focus after
 // a number of Active polls (-1: never), and can close or lose it on cue.
 type fakeSendBackDesktop struct {
 	exists      bool
+	closeAt     int // Exists returns false from this call on; 0 never
+	existsCalls int
 	activeAfter int // Active returns true from this poll on; -1 never
 	loseFocusAt int // Active returns false from this poll on; 0 never
 	polls       int
 	activations int
 	pastes      int
 	pasteErr    error
+	foreground  silentfix.Window
+	title       string
+	events      *[]string
 }
 
-func (d *fakeSendBackDesktop) Foreground() silentfix.Window  { return silentfix.Window{} }
-func (d *fakeSendBackDesktop) Title(silentfix.Window) string { return "" }
-func (d *fakeSendBackDesktop) Exists(silentfix.Window) bool  { return d.exists }
-func (d *fakeSendBackDesktop) Activate(silentfix.Window)     { d.activations++ }
+func (d *fakeSendBackDesktop) Foreground() silentfix.Window  { return d.foreground }
+func (d *fakeSendBackDesktop) Title(silentfix.Window) string { return d.title }
+func (d *fakeSendBackDesktop) Exists(silentfix.Window) bool {
+	d.existsCalls++
+	if d.closeAt > 0 && d.existsCalls >= d.closeAt {
+		return false
+	}
+	return d.exists
+}
+func (d *fakeSendBackDesktop) Activate(silentfix.Window) {
+	d.activations++
+	record(d.events, "activate")
+}
 func (d *fakeSendBackDesktop) Active(silentfix.Window) bool {
 	d.polls++
 	if d.loseFocusAt > 0 && d.polls >= d.loseFocusAt {
@@ -49,6 +73,7 @@ func (d *fakeSendBackDesktop) Active(silentfix.Window) bool {
 }
 func (d *fakeSendBackDesktop) SendPaste() error {
 	d.pastes++
+	record(d.events, "paste")
 	return d.pasteErr
 }
 
@@ -57,6 +82,8 @@ var notepad = silentfix.Window{Handle: 0x1234, PID: 42}
 // newSendBackService wires a service to fakes and a fake clock that only
 // moves when the service sleeps.
 func newSendBackService(d *fakeSendBackDesktop, c *fakeClip) (*Service, *time.Duration) {
+	events := &[]string{}
+	d.events, c.events = events, events
 	slept := new(time.Duration)
 	t0 := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 	svc := &Service{
@@ -64,6 +91,7 @@ func newSendBackService(d *fakeSendBackDesktop, c *fakeClip) (*Service, *time.Du
 		desktop:       d,
 		sleep:         func(d time.Duration) { *slept += d },
 		now:           func() time.Time { return t0.Add(*slept) },
+		selfPID:       7,
 		sourceAppName: "Untitled - Notepad",
 		sourceWindow:  notepad,
 	}
@@ -87,6 +115,10 @@ func TestSendBackPastesOnceIntoTheSourceWindow(t *testing.T) {
 	if d.pastes != 1 {
 		t.Errorf("pastes = %d, want 1", d.pastes)
 	}
+	// The clipboard first, so every failure after it leaves the text there.
+	if got := strings.Join(*d.events, ","); got != "write,activate,paste" {
+		t.Errorf("order = %s, want write,activate,paste", got)
+	}
 }
 
 func TestSendBackWaitsForTheWindowToComeForward(t *testing.T) {
@@ -99,8 +131,8 @@ func TestSendBackWaitsForTheWindowToComeForward(t *testing.T) {
 	if d.pastes != 1 {
 		t.Errorf("pastes = %d, want 1", d.pastes)
 	}
-	if *slept >= focusTimeout+time.Second {
-		t.Errorf("slept %v, expected a short wait", *slept)
+	if want := 4*focusPoll + clipboard.PasteSettle; *slept != want {
+		t.Errorf("waited %v, want %v (four polls, then the settle)", *slept, want)
 	}
 }
 
@@ -219,5 +251,54 @@ func TestSendBackIgnoresASecondClickWhileRunning(t *testing.T) {
 	}
 	if d.pastes != 0 {
 		t.Errorf("pastes = %d, want 0", d.pastes)
+	}
+}
+
+func TestSendBackWhenTheWindowClosesBeforeThePastePastesNothing(t *testing.T) {
+	// Open at the first check, gone at the one right before the keystroke.
+	d := &fakeSendBackDesktop{exists: true, activeAfter: 0, closeAt: 2}
+	svc, _ := newSendBackService(d, &fakeClip{})
+
+	if err := svc.SendBack("hello"); err == nil {
+		t.Fatal("SendBack succeeded into a closed window")
+	}
+	if d.pastes != 0 {
+		t.Errorf("pastes = %d, want 0", d.pastes)
+	}
+}
+
+func TestSendBackSaysTheTextIsNotOnTheClipboardWhenTheWriteFails(t *testing.T) {
+	d := &fakeSendBackDesktop{exists: true, activeAfter: 0}
+	svc, _ := newSendBackService(d, &fakeClip{err: errors.New("OpenClipboard: access denied")})
+
+	err := svc.SendBack("hello")
+	if !errors.Is(err, errClipboardWrite) {
+		t.Fatalf("err = %v, want errClipboardWrite", err)
+	}
+	if strings.Contains(err.Error(), "is on the clipboard") {
+		t.Errorf("message %q claims the text is on the clipboard", err)
+	}
+}
+
+func TestCaptureSourceAppRecordsTheForegroundWindow(t *testing.T) {
+	d := &fakeSendBackDesktop{foreground: silentfix.Window{Handle: 0x99, PID: 55}, title: "Inbox - Outlook"}
+	svc, _ := newSendBackService(d, &fakeClip{})
+
+	svc.CaptureSourceApp()
+
+	if svc.sourceWindow.Handle != 0x99 || svc.GetSourceApp() != "Inbox - Outlook" {
+		t.Errorf("captured %+v %q, want 0x99 and the window's title", svc.sourceWindow, svc.GetSourceApp())
+	}
+}
+
+func TestCaptureSourceAppKeepsTheSourceWhenPressedInKeyLint(t *testing.T) {
+	// selfPID is 7 in newSendBackService.
+	d := &fakeSendBackDesktop{foreground: silentfix.Window{Handle: 0x77, PID: 7}, title: "KeyLint"}
+	svc, _ := newSendBackService(d, &fakeClip{})
+
+	svc.CaptureSourceApp()
+
+	if svc.sourceWindow != notepad || svc.GetSourceApp() != "Untitled - Notepad" {
+		t.Errorf("source became %+v %q, want Notepad kept", svc.sourceWindow, svc.GetSourceApp())
 	}
 }
