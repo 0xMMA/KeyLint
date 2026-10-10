@@ -22,7 +22,11 @@ Dark only, for now: `<html class="app-dark">` in `index.html`, and `ShellCompone
 
 ## PrimeNG v21
 
-Import individual symbols: `import { Tabs, TabList, Tab } from 'primeng/tabs'` — not module classes.
+Import individual symbols: `import { Tabs, TabList, Tab } from 'primeng/tabs'` — not module classes. Only in screens not yet migrated: new or migrated code uses KeyLint's own primitives (below), never PrimeNG or `pi pi-*` icons.
+
+## Shared UI (E11)
+
+KeyLint's own components live in `frontend/src/app/shared/ui/<name>/` and are imported from `shared/ui` (index.ts): `kl-button`, `kl-message`, `kl-tag`, `kl-card`, `kl-spinner`, `kl-icon` (vendored Lucide SVGs in `icon/icons.ts`, add one there), `kl-switch`, `kl-checkbox`, `klInput`, `kl-segmented`, `kl-select` (with `editable`), `kl-tabs`, `klTooltip`. Overlays (select, tooltip) use the CDK overlay on `<body>` with `usePopover: false`. Every state of each is on `/dev-tools/ui`. Form controls are ControlValueAccessors; testids go on the host, which wraps the real `<button>`/`<input>`.
 
 ## Styling: tokens and Tailwind
 

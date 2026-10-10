@@ -8,6 +8,8 @@
 - DOM-first assertions: assert on what the user sees (`data-testid` attributes), not internal state
 - After `fixture.detectChanges()`, always `await fixture.whenStable()` before querying async-loaded DOM
 - NG0100 fix: call `fixture.detectChanges()` twice, or pre-set async state before the first call
+- Zoneless: a plain field set from the test does not mark the view dirty, so `detectChanges()` skips it and then reports NG0100. Mark it first — `fixture.debugElement.injector.get(ChangeDetectorRef).markForCheck()` (see `fix.component.spec.ts`) — or drive the state through signals
+- CDK overlays (kl-select, klTooltip) render into `.cdk-overlay-container` on `<body>`, outside the fixture: query `document`, and empty the container in `afterEach` (spec files share a document)
 
 ## jsdom Polyfills
 
