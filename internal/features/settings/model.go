@@ -20,11 +20,19 @@ type KeyStatus struct {
 	Source string `json:"source"` // "env", "keyring", or "none"
 }
 
-// FeatureModels is the model chosen per feature for one provider. An empty
-// string means "use the built-in default" — see llm.DefaultModel.
+// FeatureModels is the model and effort chosen per feature for one provider.
+// An empty model means "use the built-in default" — see llm.DefaultModel. An
+// empty effort means "send none", which leaves the model on its own default.
+//
+// Both live per provider, so switching to another provider and back restores
+// what was chosen for each. Older settings files carry no effort fields and
+// read as "", which is the behaviour they had — no migration.
 type FeatureModels struct {
 	Fix        string `json:"fix"`
 	Pyramidize string `json:"pyramidize"`
+
+	FixEffort        string `json:"fix_effort"`
+	PyramidizeEffort string `json:"pyramidize_effort"`
 }
 
 // For returns the model configured for a feature, or "" when none is.
@@ -34,6 +42,17 @@ func (m FeatureModels) For(feature string) string {
 		return m.Fix
 	case llm.FeaturePyramidize:
 		return m.Pyramidize
+	}
+	return ""
+}
+
+// EffortFor returns the effort configured for a feature, or "" when none is.
+func (m FeatureModels) EffortFor(feature string) string {
+	switch feature {
+	case llm.FeatureFix:
+		return m.FixEffort
+	case llm.FeaturePyramidize:
+		return m.PyramidizeEffort
 	}
 	return ""
 }
@@ -56,17 +75,37 @@ func (s Settings) ModelFor(provider, feature string) string {
 	return llm.DefaultModel(provider, feature)
 }
 
+// EffortFor resolves the effort for a provider and feature: a level the
+// providers know, or "" — model default — for anything else. A hand-edited
+// value that is not a level reads as unset rather than reaching a provider as
+// a guaranteed 400.
+func (s Settings) EffortFor(provider, feature string) string {
+	if effort := strings.TrimSpace(s.Models[provider].EffortFor(feature)); llm.IsEffortLevel(effort) {
+		return effort
+	}
+	return ""
+}
+
 // Settings is the top-level application settings structure persisted to disk.
 type Settings struct {
-	ActiveProvider   string   `json:"active_provider"` // "openai" | "claude" | "claude-code" | "ollama" | "bedrock"
-	Providers        Provider `json:"providers"`
-	ShortcutKey      string   `json:"shortcut_key"` // e.g. "ctrl+g"
-	StartOnBoot      bool     `json:"start_on_boot"`
-	ThemePreference  string   `json:"theme_preference"` // "light" | "dark" | "system"
-	CompletedSetup   bool     `json:"completed_setup"`
-	LogLevel         string   `json:"log_level"`         // "off"|"trace"|"debug"|"info"|"warning"|"error"
-	SensitiveLogging bool     `json:"sensitive_logging"` // logs full API payloads; never share the log file while enabled
-	UpdateChannel    string   `json:"update_channel"`    // "" (auto-detect), "stable", or "pre-release"
+	ActiveProvider         string   `json:"active_provider"` // "openai" | "claude" | "claude-code" | "ollama" | "bedrock"
+	Providers              Provider `json:"providers"`
+	ShortcutKey            string   `json:"shortcut_key"`              // LEGACY — never applied (Ctrl+G was hard-wired); ignored, kept so old files round-trip
+	ShortcutMode           string   `json:"shortcut_mode"`             // "double_tap" | "independent"
+	ShortcutFix            string   `json:"shortcut_fix"`              // e.g. "ctrl+g"
+	ShortcutPyramidize     string   `json:"shortcut_pyramidize"`       // e.g. "ctrl+shift+g" (independent mode only)
+	ShortcutDoubleTapDelay int      `json:"shortcut_double_tap_delay"` // ms, 100-500, default 200
+	StartOnBoot            bool     `json:"start_on_boot"`
+	ThemePreference        string   `json:"theme_preference"` // "light" | "dark" | "system"
+	CompletedSetup         bool     `json:"completed_setup"`
+	LogLevel               string   `json:"log_level"`         // "off"|"trace"|"debug"|"info"|"warning"|"error"
+	SensitiveLogging       bool     `json:"sensitive_logging"` // logs full API payloads; never share the log file while enabled
+	UpdateChannel          string   `json:"update_channel"`    // "" (auto-detect), "stable", or "pre-release"
+
+	// DeveloperOptions unlocks the dev channel in Settings → About: installable
+	// builds of open pull requests and of main. Off for everyone until the
+	// owner turns it on by tapping the version, and off again with a switch.
+	DeveloperOptions bool `json:"developer_options"`
 
 	// Models holds the model chosen per provider and feature. An absent key or
 	// an empty string means the built-in default, so older settings files need
@@ -83,6 +122,10 @@ func Default() Settings {
 	return Settings{
 		ActiveProvider:             "openai",
 		ShortcutKey:                "ctrl+g",
+		ShortcutMode:               "double_tap",
+		ShortcutFix:                "ctrl+g",
+		ShortcutPyramidize:         "ctrl+shift+g",
+		ShortcutDoubleTapDelay:     200,
 		ThemePreference:            "dark",
 		LogLevel:                   "off",
 		PyramidizeQualityThreshold: DefaultQualityThreshold,

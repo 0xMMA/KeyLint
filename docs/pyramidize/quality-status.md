@@ -204,7 +204,7 @@ you — it stays silent inside the noise floor and exits non-zero only past it.
 
 | | |
 |---|---|
-| Provider / model | `claude` / `claude-sonnet-4-6` |
+| Provider / model | `claude` / `claude-sonnet-4-6` (the default until 2026-10-08; it is now the `sonnet` alias, recorded as the resolved ID, so newer runs read "not comparable" against this baseline) |
 | Judge | `claude` / `claude-sonnet-4-5-20250929` @ temperature 0 |
 | Prompt variant | v2 |
 | Schema enforcement | false |

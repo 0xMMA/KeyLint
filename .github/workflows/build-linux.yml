@@ -5,7 +5,8 @@ on:
   push:
     branches: [main]
 
-# Nothing here writes to the repository.
+# Read-only by default. One job writes: publish-dev-build, which gets
+# contents: write for the dev-channel prereleases (see the trust model there).
 permissions:
   contents: read
 
@@ -17,10 +18,55 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # What this run builds, decided once and read by the build jobs and the
+    # dev-channel publisher, so the version stamped into the binary, the tag
+    # it is published under and the commit it is built from cannot disagree.
+    outputs:
+      publish: ${{ steps.name.outputs.publish }}
+      tag: ${{ steps.name.outputs.tag }}
+      sha: ${{ steps.name.outputs.sha }}
+      version: ${{ steps.name.outputs.version }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      # Dev-channel builds (same-repo PRs that are not Dependabot's, and pushes
+      # to main) are stamped 0.0.0-pr.<N>+<sha> / 0.0.0-main+<sha>: version
+      # 0.0.0 is what keeps every client, old ones included, from offering them
+      # as an update (internal/features/updater/devbuild_safety_test.go). Every
+      # other build keeps `git describe`, minus the dev tags, which would
+      # otherwise be the nearest tag and turn a CI build into "v0.0.0-main-3-g…".
+      - name: Name this build
+        id: name
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REPO: ${{ github.repository }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_SHA: ${{ github.sha }}
+        run: |
+          publish=false tag= sha=
+          if [[ "$EVENT" == pull_request && "$HEAD_REPO" == "$REPO" && "$PR_AUTHOR" != 'dependabot[bot]' ]]; then
+            publish=true tag="v0.0.0-pr.${PR_NUMBER}" sha="$HEAD_SHA"
+          elif [[ "$EVENT" == push && "$REF" == refs/heads/main ]]; then
+            publish=true tag=v0.0.0-main sha="$PUSH_SHA"
+          fi
+          if [[ "$publish" == true ]]; then
+            version="${tag#v}+${sha:0:7}"
+          else
+            version=$(git describe --tags --always --dirty --exclude 'v0.0.0-*' 2>/dev/null || echo dev)
+          fi
+          echo "publish=$publish tag=$tag sha=$sha version=$version"
+          {
+            echo "publish=$publish"
+            echo "tag=$tag"
+            echo "sha=$sha"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Set up Go
         uses: actions/setup-go@v7
@@ -184,6 +230,10 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          # A dev-channel build is made from the PR's head commit — the one its
+          # tag and version name — not the merge commit a PR run checks out by
+          # default. Empty for every other build, which keeps the default.
+          ref: ${{ needs.test.outputs.sha }}
 
       - name: Set up Go
         uses: actions/setup-go@v7
@@ -230,9 +280,10 @@ jobs:
         run: npm run build
 
       - name: Build Linux binary
+        env:
+          VERSION: ${{ needs.test.outputs.version }}
         run: |
           export PATH=$PATH:$HOME/go/bin
-          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
           CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -tags production,gtk3 -trimpath -ldflags="-w -s -X main.AppVersion=${VERSION}" -o bin/KeyLint .
 
       # The gtk3 tag is the only thing keeping Linux off GTK4 + WebKitGTK 6.0,
@@ -262,6 +313,10 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          # A dev-channel build is made from the PR's head commit — the one its
+          # tag and version name — not the merge commit a PR run checks out by
+          # default. Empty for every other build, which keeps the default.
+          ref: ${{ needs.test.outputs.sha }}
 
       - name: Set up Go
         uses: actions/setup-go@v7
@@ -318,9 +373,10 @@ jobs:
             -out wails_windows_amd64.syso
 
       - name: Build Windows binary
+        env:
+          VERSION: ${{ needs.test.outputs.version }}
         run: |
           export PATH=$PATH:$HOME/go/bin
-          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
           GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc \
             go build -tags production -trimpath \
             -ldflags="-w -s -H windowsgui -X main.AppVersion=${VERSION}" \
@@ -344,8 +400,9 @@ jobs:
         run: ./scripts/fetch-webview2.sh
 
       - name: Build NSIS installer
+        env:
+          VERSION: ${{ needs.test.outputs.version }}
         run: |
-          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
           makensis -DARG_WAILS_AMD64_BINARY=../../../bin/KeyLint.exe \
             -DINFO_PRODUCTVERSION="${VERSION#v}" \
             build/windows/nsis/project.nsi
@@ -365,3 +422,151 @@ jobs:
           name: KeyLint-windows-amd64-setup
           path: bin/KeyLint-amd64-installer.exe
           retention-days: 14
+
+  # The dev channel: installable builds of open pull requests and of main,
+  # listed in the app under Settings › About once the developer options are
+  # unlocked. Published as GitHub prereleases because a release asset downloads
+  # without a login and a workflow artifact does not.
+  #
+  #   v0.0.0-pr.<N>  one per open same-repo PR, replaced on every push,
+  #                  deleted when the PR closes (dev-channel-cleanup.yml)
+  #   v0.0.0-main    the latest push to main, tag moved to each new commit
+  #
+  # Trust model. This is the only job in the workflow with a write token, and
+  # it runs no code from the repository: it downloads the two build artifacts
+  # and calls `gh`. It runs only for branches of this repository — whoever can
+  # push one can already write to the repo, which today is the owner — and
+  # never for Dependabot. Fork PRs never get here, and GitHub would not give a
+  # fork's run a write token if they did. The PR title reaches the shell only
+  # through an environment variable, never through an expression in the script.
+  #
+  # What is published is built from the PR's head commit, while `test` and
+  # `e2e` above run on the merge ref: the same code unless main has moved on
+  # in a way that conflicts. The published binary itself is not tested here.
+  #
+  # Releases created with GITHUB_TOKEN start no workflows, so these tags do not
+  # trigger release.yml; it also excludes v0.0.0-* on its own.
+  publish-dev-build:
+    # e2e too: a build that failed E2E must never become what "Install main
+    # build" or a PR row installs.
+    needs: [test, e2e, build-linux, build-windows]
+    if: needs.test.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # create, edit and delete the prerelease and its tag
+      pull-requests: read  # ask whether the PR is still open at its head
+    # Shared with dev-channel-cleanup.yml, so a close waits for a publish in
+    # flight rather than racing it.
+    concurrency:
+      # run_id only when skipped, so skipped runs never share an empty group.
+      group: dev-build-${{ needs.test.outputs.tag || github.run_id }}
+      cancel-in-progress: false
+    env:
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.test.outputs.tag }}
+      SHA: ${{ needs.test.outputs.sha }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      PR_URL: ${{ github.event.pull_request.html_url }}
+    steps:
+      - name: Download Windows installer
+        uses: actions/download-artifact@v8
+        with:
+          name: KeyLint-windows-amd64-setup
+          path: dist/
+
+      - name: Download Linux binary
+        uses: actions/download-artifact@v8
+        with:
+          name: KeyLint-linux-amd64
+          path: dist/
+
+      # The release body is read back by the app (updater.devBuildFrom): keep
+      # the "Title:", "PR:" and "Commit:" lines as they are.
+      - name: Publish the prerelease
+        # The write token goes to this step only, not to the artifact
+        # downloads above.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          LATEST_URL="https://github.com/$GH_REPO/releases/latest"
+
+          # Never publish over newer work: main may have moved on, or the PR
+          # may have been pushed to or closed while this run was building. A
+          # release published after the cleanup ran would never be deleted.
+          if [[ "$TAG" == v0.0.0-main ]]; then
+            head=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
+            if [[ "$head" != "$SHA" ]]; then
+              echo "main is at $head now, not $SHA; leaving the newer run to publish"
+              exit 0
+            fi
+            title="main (latest)"
+            {
+              echo "**Unreviewed test build of main — not for general use. Stable releases: $LATEST_URL**"
+              echo
+              echo "Rolling build of main, made by CI. Not a release: it is replaced on every push to main."
+              echo
+              echo "Commit: $SHA"
+            } > notes.md
+          else
+            state=$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER" --jq '.state + " " + .head.sha')
+            if [[ "$state" != "open $SHA" ]]; then
+              echo "PR #$PR_NUMBER is now '$state', not 'open $SHA'; not publishing"
+              exit 0
+            fi
+            title="PR #$PR_NUMBER: $PR_TITLE"
+            {
+              echo "**Unreviewed test build for PR #$PR_NUMBER — not for general use. Stable releases: $LATEST_URL**"
+              echo
+              echo "Test build of #$PR_NUMBER, made by CI. Not a release: it is replaced on every push and deleted when the pull request closes."
+              echo
+              echo "Title: $PR_TITLE"
+              echo "PR: $PR_URL"
+              echo "Commit: $SHA"
+            } > notes.md
+          fi
+
+          # Same asset names as a real release, so the app's asset matcher
+          # (windows-amd64-setup, linux-amd64) finds them.
+          mv dist/KeyLint-amd64-installer.exe "dist/KeyLint-${TAG}-windows-amd64-setup.exe"
+          mv dist/KeyLint "dist/KeyLint-${TAG}-linux-amd64"
+          chmod +x "dist/KeyLint-${TAG}-linux-amd64"
+          assets=("dist/KeyLint-${TAG}-windows-amd64-setup.exe" "dist/KeyLint-${TAG}-linux-amd64")
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # Replace in place rather than delete and recreate: an installed
+            # build of this PR must never see its release missing, or it would
+            # offer to leave a PR that is still open. Files first, the
+            # "Commit:" line last: a run cancelled in between leaves new files
+            # under the old commit, which the next run corrects, rather than a
+            # commit line naming files that are not there.
+            gh release upload "$TAG" "${assets[@]}" --clobber
+            gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$TAG" -f sha="$SHA" -F force=true >/dev/null \
+              || gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$SHA" >/dev/null
+            gh release edit "$TAG" --title "$title" --notes-file notes.md --prerelease --latest=false
+          else
+            gh release create "$TAG" "${assets[@]}" --target "$SHA" --title "$title" \
+              --notes-file notes.md --prerelease --latest=false
+          fi
+          gh release view "$TAG" --json url,assets --jq '.url, (.assets[] | .name + "  " + .url)'
+
+          # Cap the PR builds at MAX_PR_BUILDS, deleting the lowest PR numbers
+          # first; v0.0.0-main and the build just published are never touched.
+          # Why: clients up to v4.4.3-beta read only the first 20 releases, and
+          # dev prereleases sort above real ones, so too many of them would
+          # hide a real release from those clients. A PR whose build is cut
+          # here gets a new one on its next push; until then its installed
+          # build reads as orphaned and offers main or the latest release.
+          MAX_PR_BUILDS=10
+          mapfile -t pr_tags < <(gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq '.[].tag_name' \
+            | { grep -E '^v0\.0\.0-pr\.[0-9]+$' || true; } | sort -t. -k4,4n)
+          excess=$(( ${#pr_tags[@]} - MAX_PR_BUILDS ))
+          for old in "${pr_tags[@]}"; do
+            (( excess > 0 )) || break
+            [[ "$old" == "$TAG" ]] && continue
+            gh release delete "$old" --cleanup-tag --yes
+            echo "cap: deleted $old (over $MAX_PR_BUILDS PR builds)"
+            excess=$(( excess - 1 ))
+          done

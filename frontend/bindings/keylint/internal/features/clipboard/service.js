@@ -23,8 +23,9 @@ export function CopyFromForeground() {
 }
 
 /**
- * PasteToForeground sends a Ctrl+V keystroke to the currently focused window.
- * Best-effort: if xdotool is not installed, logs a warning and returns nil.
+ * PasteToForeground sends a Ctrl+V keystroke to the currently focused window,
+ * after PasteSettle. Best-effort: if xdotool is not installed, logs a warning
+ * and returns nil.
  * @returns {$CancellablePromise<void>}
  */
 export function PasteToForeground() {
@@ -38,6 +39,14 @@ export function PasteToForeground() {
  */
 export function Read() {
     return $Call.ByID(52599179);
+}
+
+/**
+ * SendPaste sends Ctrl+V to the focused window now, with no settle delay.
+ * @returns {$CancellablePromise<void>}
+ */
+export function SendPaste() {
+    return $Call.ByID(2181131804);
 }
 
 /**

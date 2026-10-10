@@ -4,7 +4,7 @@ import { ComponentFixture } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { ShellComponent } from './shell.component';
 import { WailsService } from '../core/wails.service';
-import { createWailsMock, defaultSettings, defaultUpdateInfo } from '../../testing/wails-mock';
+import { createWailsMock, defaultSettings, defaultUpdateInfo, defaultDevChannel } from '../../testing/wails-mock';
 
 describe('ShellComponent — theme / body class', () => {
   let wailsMock: ReturnType<typeof createWailsMock>;
@@ -122,11 +122,108 @@ describe('ShellComponent — theme / body class', () => {
     expect(el.querySelector('[data-testid="update-indicator"]')).toBeFalsy();
   });
 
+  describe('in a dev build', () => {
+    const identity = { is_dev_build: true, kind: 'pr', pr: 12, commit: 'abc1234', tag: 'v0.0.0-pr.12' };
+
+    async function renderDevBuild(channel: Partial<typeof defaultDevChannel>): Promise<HTMLElement> {
+      wailsMock.getVersion.mockResolvedValue('0.0.0-pr.12+abc1234');
+      wailsMock.getBuildIdentity.mockResolvedValue({ ...identity });
+      wailsMock.listDevBuilds.mockResolvedValue({ ...defaultDevChannel, current: { ...identity }, ...channel });
+      const fixture = await createAndWait('dark');
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      return fixture.nativeElement;
+    }
+
+    it('names the build in the footer and never runs the normal update check', async () => {
+      const el = await renderDevBuild({});
+      expect(el.querySelector('[data-testid="version-text"]')?.textContent?.trim()).toBe('PR #12 · abc1234');
+      expect(wailsMock.checkForUpdate).not.toHaveBeenCalled();
+      expect(el.querySelector('[data-testid="update-indicator"]')).toBeFalsy();
+    });
+
+    it('points to About when the PR build is orphaned', async () => {
+      const el = await renderDevBuild({ orphaned: true });
+      const indicator = el.querySelector('[data-testid="update-indicator"]');
+      expect(indicator?.getAttribute('title')).toContain('This test build is gone');
+    });
+
+    it('points to About when a new release is out', async () => {
+      const el = await renderDevBuild({ new_release_since_build: true, latest_release: '4.5.0-beta' });
+      expect(el.querySelector('[data-testid="update-indicator"]')?.getAttribute('title')).toContain('A new release is out (v4.5.0-beta)');
+    });
+
+    it('points to About when a newer build of it is up', async () => {
+      const el = await renderDevBuild({
+        builds: [{ tag: 'v0.0.0-pr.12', kind: 'pr', pr: 12, title: '', pr_url: '', commit: 'fffffff', date: '', installable: true, installed: false, newer_build: true }],
+      });
+      expect(el.querySelector('[data-testid="update-indicator"]')?.getAttribute('title')).toBe('A newer test build is available');
+    });
+  });
+
   it('goToAbout navigates to /settings with tab=about', async () => {
     const fixture = await createAndWait('dark');
     const router = TestBed.inject(Router);
     const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
     fixture.componentInstance.goToAbout();
     expect(navigateSpy).toHaveBeenCalledWith(['/settings'], { queryParams: { tab: 'about' } });
+  });
+
+  it('navigates to /enhance on shortcutPyramidize$', async () => {
+    const fixture = await createAndWait('dark');
+    const router = TestBed.inject(Router);
+    const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    wailsMock._shortcutPyramidize$.next('hotkey');
+    await fixture.whenStable();
+
+    expect(navigateSpy).toHaveBeenCalledWith(['/enhance']);
+  });
+
+  // The silent fix runs in Go (internal/features/silentfix); the shell only
+  // routes a click on its notification. It must never run a fix itself — a
+  // second, frontend copy of the pipeline is what #93's double paste was.
+  it('runs no fix of its own: nothing reads, enhances or pastes', async () => {
+    const fixture = await createAndWait('dark');
+    vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    wailsMock._silentFixOpen$.next({
+      id: 'silentfix-1', title: "Fix didn't run", body: 'No API key for Anthropic.',
+      target: 'providers', detail: '', input: 'their going', output: '',
+    });
+    await fixture.whenStable();
+
+    expect(wailsMock.readClipboard).not.toHaveBeenCalled();
+    expect(wailsMock.enhance).not.toHaveBeenCalled();
+    expect(wailsMock.writeClipboard).not.toHaveBeenCalled();
+    expect(wailsMock.pasteToForeground).not.toHaveBeenCalled();
+  });
+
+  it('sends a key or sign-in problem to the AI Providers tab', async () => {
+    const fixture = await createAndWait('dark');
+    const router = TestBed.inject(Router);
+    const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    wailsMock._silentFixOpen$.next({
+      id: 'silentfix-1', title: "Fix didn't run", body: "Claude Code CLI isn't signed in.",
+      target: 'providers', detail: '', input: '', output: '',
+    });
+    await fixture.whenStable();
+
+    expect(navigateSpy).toHaveBeenCalledWith(['/settings'], { queryParams: { tab: 'providers' } });
+  });
+
+  it('sends anything else to the Fix page', async () => {
+    const fixture = await createAndWait('dark');
+    const router = TestBed.inject(Router);
+    const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    wailsMock._silentFixOpen$.next({
+      id: 'silentfix-2', title: 'Fix took too long', body: 'The model took too long — try a shorter selection or a faster model.',
+      target: 'fix', detail: 'Claude took too long to answer', input: 'their going', output: '',
+    });
+    await fixture.whenStable();
+
+    expect(navigateSpy).toHaveBeenCalledWith(['/fix']);
   });
 });

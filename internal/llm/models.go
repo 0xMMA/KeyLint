@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"slices"
 	"strings"
-
-	"github.com/anthropics/anthropic-sdk-go"
 )
 
 // Features whose model is chosen separately. The silent fix wants a fast, cheap
@@ -45,7 +43,7 @@ const (
 	// the fix is a different one and the wording has to say so.
 	ModelSourceNoCredentials = "no-credentials"
 	// ModelSourceFixed: there is nothing to ask. The Claude Code CLI has no
-	// model endpoint and its three aliases are the whole story, so flagging it
+	// model endpoint and its aliases are the whole story, so flagging it
 	// as "built-in" would be an alarm nobody can clear.
 	ModelSourceFixed = "fixed"
 )
@@ -54,6 +52,10 @@ const (
 type ModelInfo struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
+	// Resolved is the model ID a family alias stands for right now, where that
+	// is known — the Anthropic API's live listing. Empty for a pinned ID, and
+	// for an alias whose resolution happens elsewhere (the Claude Code CLI).
+	Resolved string `json:"resolved"`
 }
 
 // ModelList is a picker's contents plus where they came from.
@@ -62,32 +64,39 @@ type ModelList struct {
 	Source string      `json:"source"`
 }
 
-// defaultModels is what a feature uses when settings say nothing. These are the
-// IDs KeyLint shipped before model selection existed — changing one is a
-// quality decision that belongs with E3 (#34) and needs an eval run, not a
-// refactor.
+// defaultModels is what a feature uses when settings say nothing.
 //
-// The Anthropic fix model keeps its date suffix: the account's models endpoint
-// lists claude-haiku-4-5-20251001 and no bare alias, so dropping it would be a
-// guess about a model that is not advertised.
+// Anthropic defaults are family aliases, not versions (roadmap E2 step 5): a
+// user gets the newest Haiku or Sonnet their account can use without waiting
+// for a KeyLint release. The Claude Code CLI resolves an alias itself; for the
+// API, families.go resolves it against the account's model listing.
+//
+// Moving the API defaults off claude-haiku-4-5-20251001 and claude-sonnet-4-6
+// was accepted on the roadmap knowing what it means: today "haiku" is Haiku 5.5
+// and "sonnet" is Sonnet 5.5, both of which reason before answering — slower
+// than the pinned IDs, and the reasoning counts against the output limit. An
+// explicit ID saved in settings is untouched by any of this.
+//
+// OpenAI and Ollama have no family aliases and keep explicit IDs.
 var defaultModels = map[string]map[string]string{
 	ProviderClaude: {
-		FeatureFix:        "claude-haiku-4-5-20251001",
-		FeaturePyramidize: "claude-sonnet-4-6",
+		FeatureFix:        FamilyHaiku,
+		FeaturePyramidize: FamilySonnet,
 	},
+	// OpenAI's GPT-6 generation (2026-09): Luna is the fast, cheap tier and
+	// Astra the flagship. Both reason; Fix asks Luna for reasoning_effort
+	// "none" (see openAIReasoningModels), Astra cannot be asked that.
 	ProviderOpenAI: {
-		FeatureFix:        "gpt-4o-mini",
-		FeaturePyramidize: "gpt-5.2",
+		FeatureFix:        "gpt-6-luna",
+		FeaturePyramidize: "gpt-6-astra",
 	},
 	ProviderOllama: {
 		FeatureFix:        "llama3.2",
 		FeaturePyramidize: "llama3.2",
 	},
 	ProviderClaudeCode: {
-		// Aliases, not pinned IDs: the CLI resolves them to the current
-		// generation, which is what a subscription user expects.
-		FeatureFix:        "haiku",
-		FeaturePyramidize: "sonnet",
+		FeatureFix:        FamilyHaiku,
+		FeaturePyramidize: FamilySonnet,
 	},
 }
 
@@ -96,23 +105,41 @@ var defaultModels = map[string]map[string]string{
 // or no network.
 //
 // The Anthropic entries were checked against the account's live models
-// endpoint. The OpenAI entries are the ones the UI has been offering and could
-// NOT be verified here: this machine's .env carries no OPENAI_API_KEY, so
-// nothing called the models endpoint. Verify them before trusting this list.
+// endpoint on 2026-10-08. They are kept newest-first within each family: an
+// alias that cannot be resolved live falls back to the first entry of its
+// family here (curatedNewestOfFamily). The three aliases lead, because they are
+// what most users want; Fable is not among them since not every account has
+// it — see familyAliasesFor. The pinned IDs below them are for anyone who wants
+// a model that does not change under them, Haiku 4.5 in particular: it is the
+// one current model that answers without reasoning first.
+//
+// The OpenAI entries come from OpenAI's model pages
+// (developers.openai.com/api/docs/models/<id>, read 2026-10-08), each of which
+// lists Chat Completions as a supported endpoint. They could NOT be called from
+// here: this machine's .env carries no OPENAI_API_KEY. Verify them against a
+// live listing before trusting this list.
 var curatedModels = map[string][]ModelInfo{
 	ProviderClaude: {
-		{ID: "claude-opus-4-6", Label: "Opus 4.6"},
-		{ID: "claude-sonnet-4-6", Label: "Sonnet 4.6"},
-		{ID: "claude-haiku-4-5-20251001", Label: "Haiku 4.5"},
+		{ID: FamilyOpus, Label: familyLabel(FamilyOpus)},
+		{ID: FamilySonnet, Label: familyLabel(FamilySonnet)},
+		{ID: FamilyHaiku, Label: familyLabel(FamilyHaiku)},
+		{ID: "claude-opus-5-5", Label: "Claude Opus 5.5"},
+		{ID: "claude-sonnet-5-5", Label: "Claude Sonnet 5.5"},
+		{ID: "claude-sonnet-4-6", Label: "Claude Sonnet 4.6"},
+		{ID: "claude-haiku-5-5", Label: "Claude Haiku 5.5"},
+		{ID: "claude-haiku-4-5-20251001", Label: "Claude Haiku 4.5"},
 	},
 	ProviderOpenAI: {
+		{ID: "gpt-6-astra", Label: "GPT-6 Astra"},
+		{ID: "gpt-6.1-sol", Label: "GPT-6.1 Sol"},
+		{ID: "gpt-6-luna", Label: "GPT-6 Luna"},
+		{ID: "gpt-5.6-terra", Label: "GPT-5.6 Terra"},
 		{ID: "gpt-5.2", Label: "GPT-5.2"},
 		// No -pro entry: those are Responses-API only and would 400 at the
-		// /chat/completions call this app makes. See isChatModel.
+		// /chat/completions call this app makes. See isChatModel. No o3 either:
+		// its only snapshot shuts down on 2026-12-11.
 		{ID: "gpt-4.1", Label: "GPT-4.1"},
-		{ID: "gpt-4.1-mini", Label: "GPT-4.1 Mini"},
 		{ID: "gpt-4o-mini", Label: "GPT-4o Mini"},
-		{ID: "o3", Label: "o3"},
 	},
 	ProviderOllama: {
 		{ID: "llama3.2", Label: "llama3.2"},
@@ -124,13 +151,21 @@ var curatedModels = map[string][]ModelInfo{
 	ProviderClaudeCode: claudeCodeAliases,
 }
 
-// claudeCodeAliases are the only values the CLI provider accepts. They are
-// aliases by design: the CLI maps them to whatever the current generation is,
-// and a pinned ID would defeat that.
+// claudeCodeAliases are what the CLI picker offers. They are aliases by
+// design: the CLI maps them to whatever the current generation is, and a
+// pinned ID would defeat that.
+//
+// Fable is included because the CLI documents it as an alias (`claude --help`,
+// 2.1.295: "Provide an alias for the latest model (e.g. 'fable', 'opus', or
+// 'sonnet')") and one print-mode call on 2026-10-08 with `--model fable`
+// answered from claude-fable-5-1. The CLI has no model listing, so whether a
+// given subscription includes it cannot be checked up front; one that does not
+// gets the CLI's own error at call time.
 var claudeCodeAliases = []ModelInfo{
-	{ID: "opus", Label: "Opus"},
-	{ID: "sonnet", Label: "Sonnet"},
-	{ID: "haiku", Label: "Haiku"},
+	{ID: FamilyOpus, Label: familyLabel(FamilyOpus)},
+	{ID: FamilySonnet, Label: familyLabel(FamilySonnet)},
+	{ID: FamilyHaiku, Label: familyLabel(FamilyHaiku)},
+	{ID: FamilyFable, Label: familyLabel(FamilyFable)},
 }
 
 // DefaultModel returns the model a feature uses when nothing is configured.
@@ -158,7 +193,7 @@ func ClaudeCodeAliases() []string {
 	return ids
 }
 
-// IsClaudeCodeAlias reports whether m is one of the three aliases the picker
+// IsClaudeCodeAlias reports whether m is one of the aliases the picker
 // offers. It is not a validity check: the CLI takes a full model ID too, and
 // claudecode.go only notes the difference rather than refusing it. What the
 // aliases buy is that they follow the generation, where a pinned ID freezes it
@@ -193,7 +228,7 @@ func ListModels(ctx context.Context, provider string, cfg Config) (ModelList, er
 	case ProviderOllama:
 		models, listed, err = listOllamaModels(ctx, cfg)
 	case ProviderClaudeCode:
-		// The CLI has no model endpoint, and these three are the whole story.
+		// The CLI has no model endpoint, and these aliases are the whole story.
 		return ModelList{Models: slices.Clone(claudeCodeAliases), Source: ModelSourceFixed}, nil
 	default:
 		return CuratedModels(provider, ModelSourceUnreachable), fmt.Errorf("unsupported provider: %q", provider)
@@ -224,29 +259,26 @@ func ListModels(ctx context.Context, provider string, cfg Config) (ModelList, er
 // listing carries far more than chat models — and the difference matters:
 // "listed nothing" and "listed nothing we can call" are different sentences.
 func listAnthropicModels(ctx context.Context, cfg Config) ([]ModelInfo, int, error) {
-	attempts := &httpAttempts{cfg: cfg, provider: anthropicProvider}
-	client := (&anthropicClient{cfg: cfg}).client(attempts)
-
-	// Without a limit the SDK asks for 20 and this code never follows the
-	// cursor; a workspace with more would silently lose the oldest entries,
-	// which are exactly the pinned IDs people configure.
-	page, err := client.Models.List(ctx, anthropic.ModelListParams{Limit: anthropic.Int(1000)})
+	catalogue, err := fetchAnthropicCatalogue(ctx, cfg)
 	if err != nil {
-		return nil, 0, mapAnthropicError(attempts, "", err)
+		return nil, 0, err
 	}
-	var models []ModelInfo
-	for _, entry := range page.Data {
-		label := entry.DisplayName
-		if label == "" {
-			label = entry.ID
-		}
-		models = append(models, ModelInfo{ID: entry.ID, Label: label})
+	// A fresh listing is also what a completion resolves aliases against, so
+	// the settings screen asking for it saves the next hotkey press a round
+	// trip.
+	storeCatalogue(cfg, catalogue, true)
+
+	// The aliases lead, each naming what it resolves to today; the pinned IDs
+	// follow in the provider's order.
+	models := familyAliasesFor(catalogue)
+	for _, entry := range catalogue {
+		models = append(models, ModelInfo{ID: entry.ID, Label: entry.Label})
 	}
-	return models, len(models), nil
+	return models, len(catalogue), nil
 }
 
 func listOpenAIModels(ctx context.Context, cfg Config) ([]ModelInfo, int, error) {
-	attempts := &httpAttempts{cfg: cfg, provider: openAIProvider}
+	attempts := newHTTPAttempts(ctx, cfg, openAIProvider)
 	client := openAISDKClient(cfg, resolveBaseURL(cfg.BaseURL, defaultOpenAIBaseURL), attempts)
 
 	page, err := client.Models.List(ctx)

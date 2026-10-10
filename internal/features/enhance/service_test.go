@@ -168,11 +168,12 @@ func TestEnhanceOllamaNeedsNoKey(t *testing.T) {
 
 func TestEnhanceMissingKey(t *testing.T) {
 	tests := []struct {
-		provider string
-		wantErr  string
+		provider     string
+		wantErr      string
+		wantProvider string
 	}{
-		{"openai", "OpenAI API key is not configured"},
-		{"claude", "Anthropic API key is not configured"},
+		{"openai", "OpenAI API key is not configured", "OpenAI"},
+		{"claude", "Anthropic API key is not configured", "Anthropic"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.provider, func(t *testing.T) {
@@ -183,6 +184,12 @@ func TestEnhanceMissingKey(t *testing.T) {
 			_, err := svc.Enhance("text")
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("Enhance error = %v, want one containing %q", err, tc.wantErr)
+			}
+			// The silent hotkey fix sends this user to AI Providers on the type,
+			// not the wording.
+			var missing *MissingKeyError
+			if !errors.As(err, &missing) || missing.Provider != tc.wantProvider {
+				t.Errorf("Enhance error = %#v, want a MissingKeyError for %s", err, tc.wantProvider)
 			}
 			if rec.provider != "" {
 				t.Error("no provider client must be built when the key is missing")
@@ -226,13 +233,15 @@ func TestEnhancePropagatesProviderError(t *testing.T) {
 	}
 }
 
-// TestEnhanceDefaultsUnchanged pins the models the fix flow shipped with.
-// Moving them into settings must not move them: changing a default is a quality
-// decision that belongs with E3 (#34) and needs an eval run.
+// TestEnhanceDefaultsUnchanged pins the models the fix flow defaults to. The
+// Anthropic API moved to the haiku alias and OpenAI to gpt-6-luna with roadmap
+// E2 step 5 — both successors in the fast tier, which is why Fix asks them not
+// to reason (TestFixAsksTheFastTierNotToReason). Moving them again is a quality
+// decision, not a refactor.
 func TestEnhanceDefaultsUnchanged(t *testing.T) {
 	want := map[string]string{
-		llm.ProviderOpenAI:     "gpt-4o-mini",
-		llm.ProviderClaude:     "claude-haiku-4-5-20251001",
+		llm.ProviderOpenAI:     "gpt-6-luna",
+		llm.ProviderClaude:     "haiku",
 		llm.ProviderOllama:     "llama3.2",
 		llm.ProviderClaudeCode: "haiku",
 	}
@@ -243,6 +252,58 @@ func TestEnhanceDefaultsUnchanged(t *testing.T) {
 	}
 	if maxTokens != 2048 {
 		t.Errorf("maxTokens = %d, want 2048", maxTokens)
+	}
+}
+
+// TestFixAsksTheFastTierNotToReason: with no effort chosen, a Haiku or Luna
+// is asked to answer straight away — Haiku 5.5 otherwise spent Fix's whole
+// 2048-token limit reasoning on a long selection. A chosen effort means the
+// user wants reasoning, and other models keep their default (E3's question).
+func TestFixAsksTheFastTierNotToReason(t *testing.T) {
+	cases := []struct {
+		name       string
+		provider   string
+		models     settings.FeatureModels
+		noThinking bool
+		effort     string
+	}{
+		{"default claude haiku", llm.ProviderClaude, settings.FeatureModels{}, true, ""},
+		{"pinned haiku 4.5", llm.ProviderClaude, settings.FeatureModels{Fix: "claude-haiku-4-5-20251001"}, true, ""},
+		{"default openai luna", llm.ProviderOpenAI, settings.FeatureModels{}, true, ""},
+		{"claude code haiku", llm.ProviderClaudeCode, settings.FeatureModels{}, true, ""},
+		{"effort chosen", llm.ProviderClaude, settings.FeatureModels{FixEffort: "low"}, false, "low"},
+		{"sonnet keeps its default", llm.ProviderClaude, settings.FeatureModels{Fix: "sonnet"}, false, ""},
+		{"pinned sonnet 5 keeps its default", llm.ProviderClaude, settings.FeatureModels{Fix: "claude-sonnet-5"}, false, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := settings.Default()
+			cfg.ActiveProvider = c.provider
+			cfg.Models = map[string]settings.FeatureModels{c.provider: c.models}
+			svc, rec := newTestService(t, cfg, map[string]string{llm.ProviderClaude: "k", llm.ProviderOpenAI: "k"})
+			if _, err := svc.Enhance(fakeInput); err != nil {
+				t.Fatalf("Enhance: %v", err)
+			}
+			got := rec.client.gotRequest
+			if got.NoThinking != c.noThinking || got.Effort != c.effort {
+				t.Errorf("NoThinking=%v Effort=%q, want %v %q", got.NoThinking, got.Effort, c.noThinking, c.effort)
+			}
+		})
+	}
+}
+
+// TestFixEffortIsPerProvider: an effort set for one provider does not follow
+// the user to another.
+func TestFixEffortIsPerProvider(t *testing.T) {
+	cfg := settings.Default()
+	cfg.ActiveProvider = llm.ProviderClaudeCode
+	cfg.Models = map[string]settings.FeatureModels{llm.ProviderClaude: {FixEffort: "max"}}
+	svc, rec := newTestService(t, cfg, nil)
+	if _, err := svc.Enhance(fakeInput); err != nil {
+		t.Fatal(err)
+	}
+	if rec.client.gotRequest.Effort != "" {
+		t.Errorf("Effort = %q leaked from another provider", rec.client.gotRequest.Effort)
 	}
 }
 

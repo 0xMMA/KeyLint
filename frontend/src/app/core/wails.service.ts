@@ -13,11 +13,15 @@ import * as LoggerService from '../../../bindings/keylint/internal/features/logg
 import * as PyramidizeService from '../../../bindings/keylint/internal/features/pyramidize/service.js';
 import { Settings, KeyStatus } from '../../../bindings/keylint/internal/features/settings/models.js';
 import { UpdateInfo, InstallResult } from '../../../bindings/keylint/internal/features/updater/models.js';
+import type { BuildIdentity, DevBuild, DevChannel } from '../../../bindings/keylint/internal/features/updater/models.js';
 import type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset } from '../../../bindings/keylint/internal/features/pyramidize/models.js';
 import type { ClaudeCodeStatus, ModelList, ModelInfo } from '../../../bindings/keylint/internal/llm/models.js';
+import type { Notice as SilentFixNotice } from '../../../bindings/keylint/internal/features/silentfix/models.js';
 
 export type { Settings, KeyStatus, UpdateInfo, InstallResult, ClaudeCodeStatus, ModelList, ModelInfo };
+export type { BuildIdentity, DevBuild, DevChannel };
 export type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset };
+export type { SilentFixNotice };
 
 
 // Default settings used when the Wails backend is unavailable (browser dev / Playwright mode).
@@ -26,15 +30,40 @@ const BROWSER_MODE_DEFAULTS: Settings = {
   models: {},
   providers: { ollama_url: '', aws_region: '' },
   shortcut_key: 'ctrl+g',
+  shortcut_mode: 'double_tap',
+  shortcut_fix: 'ctrl+g',
+  shortcut_pyramidize: 'ctrl+shift+g',
+  shortcut_double_tap_delay: 200,
   start_on_boot: false,
   theme_preference: 'dark',
   completed_setup: false,
   log_level: 'off',
   sensitive_logging: false,
   update_channel: '',
+  developer_options: false,
   app_presets: [],
   pyramidize_quality_threshold: 0.65,
 };
+
+/** What a build that is not from the dev channel says about itself. */
+const RELEASE_BUILD: BuildIdentity = { is_dev_build: false, kind: '', pr: 0, commit: '', tag: '' };
+
+/**
+ * The dev channel when the backend cannot be asked (browser dev / Playwright
+ * mode, or a rejected RPC): an empty list with a reason, never an exception —
+ * the About tab shows the reason instead of breaking.
+ */
+function unavailableDevChannel(): DevChannel {
+  return {
+    current: { ...RELEASE_BUILD },
+    builds: [],
+    orphaned: false,
+    latest_release: '',
+    latest_release_date: '',
+    new_release_since_build: false,
+    error: 'The dev channel is not available right now.',
+  };
+}
 
 // In browser dev / Playwright mode there is no machine to inspect, so the CLI
 // counts as absent and the UI falls back to the BYOK path.
@@ -57,12 +86,25 @@ function emptyModelList(): ModelList {
 
 @Injectable({ providedIn: 'root' })
 export class WailsService implements OnDestroy {
-  private readonly shortcutTriggered = new Subject<string>();
+  private readonly silentFixOpen = new Subject<SilentFixNotice>();
+  private readonly shortcutPyramidize = new Subject<string>();
   private readonly settingsChanged = new Subject<void>();
   private readonly unsubscribers: Array<() => void> = [];
+  /**
+   * A Pyramidize shortcut no page has handled yet. The shell navigates to the
+   * Pyramidize page on the event, but that page subscribes only after its own
+   * async setup, by which time the event has gone; it takes this instead.
+   */
+  private pyramidizePending = false;
 
-  /** Emits whenever the global shortcut fires (real hotkey or simulated). */
-  readonly shortcutTriggered$: Observable<string> = this.shortcutTriggered.asObservable();
+  /**
+   * Emits when the user clicks a silent-fix notification. The fix itself runs
+   * in Go (internal/features/silentfix) with the window hidden; this is the
+   * only moment the frontend takes part.
+   */
+  readonly silentFixOpen$: Observable<SilentFixNotice> = this.silentFixOpen.asObservable();
+  /** Emits on pyramidize shortcut (open Pyramidize UI). */
+  readonly shortcutPyramidize$: Observable<string> = this.shortcutPyramidize.asObservable();
   /** Emits whenever settings are saved from the backend. */
   readonly settingsChanged$: Observable<void> = this.settingsChanged.asObservable();
 
@@ -72,13 +114,28 @@ export class WailsService implements OnDestroy {
 
   private listenToEvents(): void {
     this.unsubscribers.push(
-      Events.On('shortcut:triggered', (ev) => {
-        this.shortcutTriggered.next(ev.data as string);
+      Events.On('silentfix:open', (ev) => {
+        this.silentFixOpen.next(ev.data as SilentFixNotice);
+      }),
+      Events.On('shortcut:pyramidize', (ev) => {
+        this.pyramidizePending = true;
+        this.shortcutPyramidize.next(ev.data as string);
       }),
       Events.On('settings:changed', () => {
         this.settingsChanged.next();
       }),
     );
+  }
+
+  /**
+   * Whether a Pyramidize shortcut is waiting to be handled, and clears it: one
+   * shortcut loads the clipboard once, on whichever side of the page's
+   * subscription it arrived.
+   */
+  takePendingPyramidize(): boolean {
+    const pending = this.pyramidizePending;
+    this.pyramidizePending = false;
+    return pending;
   }
 
   loadSettings(): Promise<Settings> {
@@ -100,6 +157,15 @@ export class WailsService implements OnDestroy {
    */
   setActiveProvider(provider: string): Promise<void> {
     return SettingsService.SetActiveProvider(provider);
+  }
+
+  /**
+   * Turns the developer options on or off and saves that one field, leaving
+   * anything else the settings screen has pending unsaved. Rejects with the
+   * backend's error.
+   */
+  setDeveloperOptions(enabled: boolean): Promise<void> {
+    return SettingsService.SetDeveloperOptions(enabled);
   }
 
   isFirstRun(): Promise<boolean> {
@@ -149,9 +215,14 @@ export class WailsService implements OnDestroy {
     }
   }
 
+  /**
+   * Stores a key in the OS keyring. Rejects with the backend's error — a
+   * keyring that refused the key must not look like a key that was saved.
+   * Only browser mode (no Wails runtime) resolves without doing anything.
+   */
   setKey(provider: string, key: string): Promise<void> {
     try {
-      return SettingsService.SetKey(provider, key).catch(() => {});
+      return SettingsService.SetKey(provider, key);
     } catch {
       return Promise.resolve();
     }
@@ -221,6 +292,45 @@ export class WailsService implements OnDestroy {
 
   downloadAndInstall(): Promise<InstallResult> {
     return UpdaterService.DownloadAndInstall();
+  }
+
+  setShortcutPaused(paused: boolean): Promise<void> {
+    try {
+      return SimulateService.SetShortcutPaused(paused).catch(() => {});
+    } catch {
+      return Promise.resolve();
+    }
+  }
+
+  /** Whether this is a dev-channel build, and which. No network call. */
+  getBuildIdentity(): Promise<BuildIdentity> {
+    try {
+      return UpdaterService.GetBuildIdentity().catch(() => ({ ...RELEASE_BUILD }));
+    } catch {
+      return Promise.resolve({ ...RELEASE_BUILD });
+    }
+  }
+
+  /**
+   * The dev channel's builds and the running build's place among them. Never
+   * rejects: GitHub being unreachable or rate-limited arrives in `error`.
+   * force skips the backend's one-minute cache (a Refresh button).
+   */
+  listDevBuilds(force = false): Promise<DevChannel> {
+    try {
+      return UpdaterService.ListDevBuilds(force).catch(() => unavailableDevChannel());
+    } catch {
+      return Promise.resolve(unavailableDevChannel());
+    }
+  }
+
+  installDevBuild(tag: string): Promise<InstallResult> {
+    return UpdaterService.InstallDevBuild(tag);
+  }
+
+  /** The way back from a dev build: the newest real release on the update channel. */
+  installLatestRelease(): Promise<InstallResult> {
+    return UpdaterService.InstallLatestRelease();
   }
 
   simulateShortcut(): Promise<void> {
@@ -300,7 +410,8 @@ export class WailsService implements OnDestroy {
 
   ngOnDestroy(): void {
     this.unsubscribers.forEach(fn => fn());
-    this.shortcutTriggered.complete();
+    this.silentFixOpen.complete();
+    this.shortcutPyramidize.complete();
     this.settingsChanged.complete();
   }
 }

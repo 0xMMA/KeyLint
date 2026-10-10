@@ -8,6 +8,9 @@ export {
 };
 
 export {
+    BuildIdentity,
+    DevBuild,
+    DevChannel,
     InstallResult,
     UpdateInfo
 } from "./models.js";

@@ -87,14 +87,20 @@ Output: "Hallo Hans, das Release für morgen steht, einen neuen Build brauchen w
 // (Settings.ModelFor); only this limit is still a constant, because it is a
 // property of the flow rather than a choice a user makes.
 //
-// It includes thinking. Sonnet 5 and Opus 5 think by default, and on a long
-// selection they can spend all 2048 before writing a word — measured: a 3.7 KB
+// It includes thinking. Sonnet 5 and Opus 5 think by default — so do Haiku 5.5
+// and GPT-6 Luna, which is why Fix asks a fast-tier model not to (see
+// Enhance) — and on a long selection they can spend all 2048 before writing a
+// word — measured: a 3.7 KB
 // selection, twice out of two, and the same request needed 5361 tokens and
 // about 45 s once the limit was lifted. Pyramidize raised its limit; Fix
-// deliberately did not. A silent hotkey fix that succeeds after most of a
-// minute pastes into whatever window has focus by then, so for now a thinking
-// model fails fast here with an error that says what to do instead. Whether Fix
-// should wait for every answer is an open product decision, not a constant.
+// deliberately did not: a thinking model fails fast here with an error that
+// says what to do instead.
+//
+// How a slow silent fix should feel was decided with #93: it waits, with a
+// working dot on the tray icon, and pastes only into the window the text came
+// from — never into whatever has focus when the answer arrives. If that window
+// was closed or the user has moved on, the result stays on the clipboard and
+// one small notification says so (internal/features/silentfix).
 const maxTokens = 2048
 
 // httpTimeout bounds a provider HTTP call, and enhanceTimeout bounds the whole
@@ -162,11 +168,21 @@ func (s *Service) Enhance(text string) (result string, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), enhanceTimeout)
 	defer cancel()
 
+	effort := cfg.EffortFor(cfg.ActiveProvider, llm.FeatureFix)
 	resp, err := client.Complete(ctx, llm.Request{
 		System:    systemPrompt,
 		User:      buildUserMessage(text),
 		Model:     model,
 		MaxTokens: maxTokens,
+		Effort:    effort,
+		// A fast-tier model is in Fix for speed. Its predecessors as Fix
+		// defaults (Haiku 4.5, gpt-4o-mini) never reasoned; Haiku 5.5 and GPT-6
+		// Luna do by default, and Haiku 5.5 spent all 2048 tokens on it for a
+		// 3.8 KB selection — at effort low as well (measured 2026-10-08). So
+		// unless the user chose an effort, Fix asks the fast tier to answer
+		// straight away, where the model allows it. Other models keep their
+		// default: whether reasoning helps the fix is E3's eval question.
+		NoThinking: effort == "" && llm.IsFastTier(model),
 	})
 	if err != nil {
 		return "", err
@@ -181,13 +197,13 @@ func (s *Service) providerConfig(cfg settings.Settings) (llm.Config, string, err
 	case llm.ProviderOpenAI:
 		key := s.resolveKey(llm.ProviderOpenAI)
 		if key == "" {
-			return llm.Config{}, "", fmt.Errorf("OpenAI API key is not configured. Go to Settings → AI Providers to add it")
+			return llm.Config{}, "", &MissingKeyError{Provider: "OpenAI", msg: "OpenAI API key is not configured. Go to Settings → AI Providers to add it"}
 		}
 		return llm.Config{APIKey: key, HTTPClient: s.client, Feature: logFeature}, cfg.ModelFor(llm.ProviderOpenAI, llm.FeatureFix), nil
 	case llm.ProviderClaude:
 		key := s.resolveKey(llm.ProviderClaude)
 		if key == "" {
-			return llm.Config{}, "", fmt.Errorf("Anthropic API key is not configured. Go to Settings → AI Providers and set a key on the Anthropic API card")
+			return llm.Config{}, "", &MissingKeyError{Provider: "Anthropic", msg: "Anthropic API key is not configured. Go to Settings → AI Providers and set a key on the Anthropic API card"}
 		}
 		return llm.Config{APIKey: key, HTTPClient: s.client, Feature: logFeature}, cfg.ModelFor(llm.ProviderClaude, llm.FeatureFix), nil
 	case llm.ProviderOllama:
@@ -206,6 +222,17 @@ func (s *Service) providerConfig(cfg settings.Settings) (llm.Config, string, err
 		return llm.Config{}, "", fmt.Errorf("unknown provider: %q", cfg.ActiveProvider)
 	}
 }
+
+// MissingKeyError is an API provider chosen with no key to call it. Error() is
+// what the Fix page has always shown; the type lets the silent hotkey fix point
+// the user at AI Providers without reading the wording.
+type MissingKeyError struct {
+	// Provider is the name the user knows the key by ("Anthropic", "OpenAI").
+	Provider string
+	msg      string
+}
+
+func (e *MissingKeyError) Error() string { return e.msg }
 
 // resolveKey reads a provider API key, falling back to settings when the test
 // seam is unset — the same nil-safety Enhance applies to newClient.

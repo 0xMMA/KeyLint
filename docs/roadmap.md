@@ -18,7 +18,7 @@
 | Latest release | `v4.4.3-beta` (2026-04-05) |
 | Last commit on `main` | 2026-09-18 — restart sprint (#39–#88) |
 | Build / tests | `go build -tags gtk3` ✅ · `go test -tags gtk3 ./internal/...` ✅ · Vitest 198/198 ✅ (2026-09-24) |
-| Open PR | #31 shortcut single/double press — branch frozen, waiting on the Windows retest |
+| Open PR | #105 evals via Claude Code · #95 Wails beta · Dependabot #100–#102 |
 | Open issues | April triage #21–#30 · shortcut robustness #42 #44 · #34 E3 · #35 E4 · #36 Fix page · #38 shell · #56 shell specs · #61 model-list refresh · #80 #83 Fix prompt |
 | Stale remote branches | `feat/pyramidize`, `fix/updater-platform-aware-install` (both already merged, safe to delete) |
 
@@ -51,12 +51,12 @@
 
 ### P0 — unblock
 
-#### E0 · Land PR #31 (shortcut single/double press, configurable shortcuts)
-The branch went further than the PR body says: `RegisterHotKey` was replaced by a `WH_KEYBOARD_LL` low-level hook, shortcuts are configurable with a recorder UI (see `.worktrees/shortcut-double-press/docs/superpowers/specs/2026-04-06-keyboard-hook-configurable-shortcuts-design.md`). Windows retest 2026-09-17 found double-tap running the fix twice; root cause was a leaked Win32 timer (`SetTimer(NULL, …)` ignores the passed ID). Fixed on the branch in five commits (timer ID, pump-thread reset, in-flight guard with safety timeout, held-key absorption); follow-ups in #42 and #44. Branch frozen for the final retest.
+#### E0 · Land PR #31 (shortcut single/double press, configurable shortcuts) — ✅ merged 2026-10-09 (613798f)
+The branch went further than the PR body says: `RegisterHotKey` was replaced by a `WH_KEYBOARD_LL` low-level hook, shortcuts are configurable with a recorder UI (see `.worktrees/shortcut-double-press/docs/superpowers/specs/2026-04-06-keyboard-hook-configurable-shortcuts-design.md`). Windows retest 2026-09-17 found double-tap running the fix twice; root cause was a leaked Win32 timer (`SetTimer(NULL, …)` ignores the passed ID). Fixed on the branch in five commits (timer ID, pump-thread reset, in-flight guard with safety timeout, held-key absorption); follow-ups in #42 and #44. Branch frozen for the final retest. Revived 2026-10-08: merged with main, review fixes (hot-reload via `settings.OnSaved`, shortcut validation on save, pending shortcut for Pyramidize from any page, recorder resumes the hook on leave), retested on Windows through the dev channel, merged.
 
-- [ ] Windows smoke test: single Ctrl+G → silent fix, hold-Ctrl-double-tap → Pyramidize + focus, recorder saves/reloads, no stray "g" typed into the foreground app
+- [x] Windows smoke test: single Ctrl+G → silent fix, hold-Ctrl-double-tap → Pyramidize + focus, recorder saves/reloads, no stray "g" typed into the foreground app
 - [x] Update PR body to match the branch (hook + configurable shortcuts)
-- [ ] `review-pr`, merge, close #30, delete worktree + branch
+- [x] `review-pr`, merge, close #30, delete worktree + branch
 - [ ] Delete merged remotes `feat/pyramidize`, `fix/updater-platform-aware-install` (after #31 lands)
 
 Why first: it touches `main.go`, settings model, `wails.service.ts`, and every component that subscribes to shortcuts. Everything below conflicts with it if it sits longer.
@@ -127,10 +127,11 @@ Issue: #33 (closed). Follow-ups: #47 schema enforcement (closed, parked default-
 3b. **Wired, default off (#47 closed as parked).** `Request` gained `JSONSchema json.RawMessage` alongside `JSONMode`. Pyramidize has a schema per pipeline step (`pyramidize/schemas.go`, mirroring `types.go`) and every provider *can* enforce it in its own dialect — `response_format: json_schema` for OpenAI and the Ollama `/v1` endpoint, `output_config.format` for Anthropic, `--json-schema` for the Claude Code CLI, which also returns the parsed object in `structured_output`. `unmarshalRobust` stays as the fallback. Enforcement is behind `KEYLINT_PYRAMIDIZE_SCHEMA=1` / `./scripts/eval.sh --schema`: two eval runs showed it fixing one reproducible parse failure and collapsing a different sample to 0.1 with a document cut off mid-sentence, so it waits for E3 (#34) evidence on a reworked prompt.
 4. **Done (#33 step 4).** Model IDs are settings data: `internal/llm/models.go` holds a default per provider *and per feature* (the silent fix wants a fast model, Pyramidize a stronger one) plus a curated fallback list, and `settings.json` carries the user's choice under `models`. Resolution is request override → settings → default. `ListModels` asks Anthropic and OpenAI through the SDKs and Ollama through `/api/tags`. `ModelList.Source` names what happened — `live`, `empty`, `unusable`, `unreachable`, `no-credentials`, `fixed` — because each is a different thing for the user to do; the UI has a sentence per case and the cache keeps a settled answer for 10 minutes and everything else for 30 seconds. Defaults are unchanged — moving them is E3's call and needs an eval.
 
-5. **Next: version-agnostic model selection (Michael, 2026-10-04).** Defaults must not name a model version. A user should get the newest Sonnet their account can use, without a KeyLint release, so dated or versioned IDs leave the defaults (`claude-sonnet-4-6`, `claude-haiku-4-5-20251001` in `internal/llm/models.go`).
+5. **Done (`feat/model-families-effort`, 2026-10-08).** Fix defaults to `haiku` and Pyramidize to `sonnet` on both the Anthropic API and the Claude Code CLI; explicit saved IDs are untouched. `internal/llm/families.go` resolves an API alias to the newest `claude-<family>-*` by `created_at` from the cached live listing (built-in list as fallback) and logs the resolution at Info; `fable` is offered only where the listing carries it (the CLI documents and accepted `--model fable`). Evals record the resolved ID (`llm.ResolveModel` up front, `llm.ModelRecorder` for the CLI) plus `modelRequested`. Shipped with it: a per-provider, per-feature **effort** setting (Anthropic `output_config.effort`, CLI `--effort`, OpenAI `reasoning_effort` on GPT-6/5.6 only; levels a model refuses are left out or retried without), and Fix asks a fast-tier model (Haiku, GPT-6 Luna) not to reason when no effort is chosen — Haiku 5.5 otherwise spent the whole 2048-token limit reasoning on a 3.8 KB selection, even at effort `low`. OpenAI defaults moved to `gpt-6-luna` / `gpt-6-astra` (verified from OpenAI's model pages, not called — no key). **Not eval'd:** Pyramidize's API default is now Sonnet 5.5 and Fix's Haiku 5.5. The original item:
+   **Version-agnostic model selection (Michael, 2026-10-04).** Defaults must not name a model version. A user should get the newest Sonnet their account can use, without a KeyLint release, so dated or versioned IDs leave the defaults (`claude-sonnet-4-6`, `claude-haiku-4-5-20251001` in `internal/llm/models.go`).
    - **Family aliases as a setting.** The model picker offers `sonnet`, `opus`, `haiku` (and `fable` where the account has it), each meaning "the newest model of that family available to me". Pinned IDs stay selectable for anyone who wants one.
    - **Resolution per provider.** The Claude Code CLI already takes these aliases natively. The Anthropic API has no family alias, so KeyLint resolves one: pick the newest `claude-<family>-*` from the account's live `/v1/models` list (`created_at`), cached like `ListModels`. If the list is unreachable, fall back to the curated list's newest entry for that family. Log which ID an alias resolved to, so a support question can be answered. OpenAI and Ollama keep explicit IDs unless an equivalent emerges.
-   - **Open with it:** the silent Fix default is Haiku today *for speed*. "Latest Sonnet" for Fix means a model that reasons first (Sonnet 5): a slower hotkey and the 2048-token limit. That depends on #93's answer. Pyramidize can move to `sonnet` directly.
+   - **Open with it:** the silent Fix default is Haiku today *for speed*. "Latest Sonnet" for Fix means a model that reasons first (Sonnet 5): a slower hotkey and the 2048-token limit. #93 settled how a slow hotkey fix behaves (#110: it waits with a tray dot, pastes only into the source window, and says in one toast when it could not), so the remaining question is speed versus quality, for E3's eval. Pyramidize can move to `sonnet` directly.
    - **Measurement:** a run records the *resolved* ID, never the alias. The eval's `configKey` already names the model, so a silent generation change shows up as "not comparable" instead of looking like a prompt effect. The judge stays pinned to a dated snapshot: it is the instrument.
 
 #### E3 · Prompt and core-logic overhaul: back to one-shot
@@ -184,9 +185,9 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 
 | Release | Contents |
 |---|---|
-| `v4.5.0-beta` | E0 (PR #31) · ~~E2 step 1~~ ✅ · ~~E1 Claude Code provider~~ ✅ · quick UI bugs #21 #24 #26 #28 — waiting on E0 and the UI bugs |
-| `v4.6.0-beta` | ~~E2 steps 3–4 (vendor SDKs, data-driven models)~~ ✅ · E3 one-shot overhaul with eval |
-| `v4.7.0-beta` | E4 upgrade wave · Fix page redesign · border glitch |
+| `v4.5.0-beta` | ✅ released 2026-10-08: ~~E2 step 1~~ · ~~E1 Claude Code provider~~ · quick UI bugs #21 #24 #26 #28 · provider switch (#104) · dev channel (#107). E0 (#31) landed after the tag, ships next |
+| `v4.6.0-beta` | ✅ released 2026-10-10: E0 shortcut hook (#31) · E2 step 5 model families + effort + AI Providers redesign (#108) · silent fix in Go with toast feedback, closes #93 (#110) · setup wizard never blocks (#109). Follow-ups #112–#115 |
+| `v4.7.0-beta` (next) | E3 one-shot overhaul with eval · E4 upgrade wave · Fix page redesign · border glitch |
 | `v5.0.0` | Bedrock UI · light theme · HTML clipboard · Codex/Gemini CLI providers |
 
 ---
@@ -206,4 +207,5 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 - [x] `MicrosoftEdgeWebview2Setup.exe` was curled from a redirector with no checksum or signature check and bundled into the installer users run — now `scripts/fetch-webview2.sh` refuses any file without a valid Microsoft signature, in both `release.yml` and `build-linux.yml` (#66, #74)
 - [ ] Branch protection on `main` (required checks incl. `e2e`, `test` with race detector, bindings drift) — Michael, repo settings
 - [ ] Shortcut robustness under rapid input (#42, #44) after #31 lands
+- [x] Dev channel: CI publishes every open same-repo PR and main as an installable prerelease (`v0.0.0-pr.<N>`, `v0.0.0-main`); Settings › About lists them behind developer options (tap the version seven times) and offers main or the latest release once a PR build's PR is closed — see `.claude/docs/versioning.md#the-dev-channel`
 - [x] CLI `-fix` hangs on a never-closing stdin pipe (#46) — stdin moved after the inline argument, plus a 15 s idle timeout that also catches a pipe which speaks once and stays open

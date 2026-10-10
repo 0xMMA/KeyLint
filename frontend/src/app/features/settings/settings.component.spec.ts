@@ -94,10 +94,9 @@ describe('SettingsComponent', () => {
     expect(section!.querySelector('small')).toBeTruthy();
   });
 
-  it('shortcut key input is present with correct initial value', () => {
-    const input = el.querySelector<HTMLInputElement>('[data-testid="shortcut-input"]');
-    expect(input).toBeTruthy();
-    expect(input?.value).toBe('ctrl+g');
+  it('renders shortcut mode toggle in general tab', () => {
+    expect(el.querySelector('[data-testid="shortcut-mode-section"]')).toBeTruthy();
+    expect(el.querySelector('[data-testid="shortcut-fix-section"]')).toBeTruthy();
   });
 
   it('Save button is present', () => {
@@ -218,7 +217,11 @@ describe('SettingsComponent', () => {
   describe('About tab', () => {
     // Same wording as the sidebar (#21): one "v", and "dev" stays "dev".
     describe('version label', () => {
-      for (const [raw, shown] of [['v3.6.0', 'Version: v3.6.0'], ['3.6.0', 'Version: v3.6.0'], ['dev', 'Version: dev']] as const) {
+      for (const [raw, shown] of [
+        ['v3.6.0', 'Version: v3.6.0'], ['3.6.0', 'Version: v3.6.0'], ['dev', 'Version: dev'],
+        // Dev-channel builds are named by what they were built from.
+        ['0.0.0-pr.12+abc1234def', 'Version: PR #12 · abc1234'], ['0.0.0-main+deadbee', 'Version: main · deadbee'],
+      ] as const) {
         it(`shows "${raw}" as "${shown}"`, async () => {
           TestBed.resetTestingModule();
           const wailsMock = createWailsMock();
@@ -298,6 +301,118 @@ describe('SettingsComponent', () => {
       await component.installUpdate();
       expect(component.updateSuccess).toBe(true);
       expect(component.updateRestartRequired).toBe(true);
+    });
+
+    describe('developer options', () => {
+      // Renders Settings on the About tab with the given settings and build.
+      async function renderAbout(opts: { developerOptions?: boolean; devBuild?: boolean } = {}) {
+        TestBed.resetTestingModule();
+        const mock = createWailsMock();
+        mock.loadSettings.mockResolvedValue({ ...defaultSettings, developer_options: !!opts.developerOptions });
+        if (opts.devBuild) {
+          mock.getVersion.mockResolvedValue('0.0.0-pr.12+abc1234');
+          mock.getBuildIdentity.mockResolvedValue({ is_dev_build: true, kind: 'pr', pr: 12, commit: 'abc1234', tag: 'v0.0.0-pr.12' });
+        }
+        await TestBed.configureTestingModule({
+          imports: [SettingsComponent],
+          providers: [
+            provideAnimationsAsync(),
+            { provide: WailsService, useValue: mock },
+            { provide: ActivatedRoute, useValue: makeActivatedRoute('about') },
+          ],
+        }).compileComponents();
+        const f = TestBed.createComponent(SettingsComponent);
+        f.componentInstance.settings = { ...defaultSettings, developer_options: !!opts.developerOptions };
+        f.detectChanges();
+        await f.whenStable();
+        await f.whenStable();
+        f.detectChanges();
+        const root: HTMLElement = f.nativeElement;
+        const tap = async (times: number) => {
+          for (let i = 0; i < times; i++) {
+            (root.querySelector('[data-testid="version-tap"]') as HTMLButtonElement).click();
+            await f.whenStable();
+          }
+          f.detectChanges();
+          await f.whenStable();
+          f.detectChanges();
+        };
+        return { f, root, mock, tap, q: (id: string) => root.querySelector(`[data-testid="${id}"]`) };
+      }
+
+      it('are hidden by default: no toggle, no dev channel', async () => {
+        const { q } = await renderAbout();
+        expect(q('developer-options-section')).toBeNull();
+        expect(q('dev-channel')).toBeNull();
+        expect(q('update-channel-section')).toBeTruthy();
+      });
+
+      it('count down from the third tap and unlock on the seventh, saving at once', async () => {
+        const { q, tap, mock } = await renderAbout();
+
+        await tap(2);
+        expect(q('unlock-hint')?.textContent?.trim()).toBe('');
+        await tap(4);
+        expect(q('unlock-hint')?.textContent?.trim()).toBe('1 more tap to turn on the developer options.');
+        expect(mock.setDeveloperOptions).not.toHaveBeenCalled();
+        expect(q('dev-channel')).toBeNull();
+
+        await tap(1);
+        expect(mock.setDeveloperOptions).toHaveBeenCalledExactlyOnceWith(true);
+        expect(mock.saveSettings).not.toHaveBeenCalled();
+        expect(q('unlock-hint')?.textContent?.trim()).toBe('Developer options are on.');
+        expect(q('developer-options-section')).toBeTruthy();
+        expect(q('dev-channel')).toBeTruthy();
+      });
+
+      it('stay locked when the save fails, and say so', async () => {
+        const { q, tap, mock } = await renderAbout();
+        mock.setDeveloperOptions.mockRejectedValue(new Error('disk full'));
+        await tap(7);
+        expect(q('developer-options-error')?.textContent).toContain('disk full');
+        expect(q('dev-channel')).toBeNull();
+      });
+
+      it('switch off again and hide the dev channel', async () => {
+        const { f, q, mock } = await renderAbout({ developerOptions: true });
+        expect(q('dev-channel')).toBeTruthy();
+
+        (q('developer-options-toggle')?.querySelector('input') as HTMLInputElement).click();
+        await f.whenStable();
+        f.detectChanges();
+
+        expect(mock.setDeveloperOptions).toHaveBeenCalledExactlyOnceWith(false);
+        expect(q('developer-options-section')).toBeNull();
+        expect(q('dev-channel')).toBeNull();
+      });
+
+      it('keep the switch on when turning them off fails', async () => {
+        const { f, q, mock } = await renderAbout({ developerOptions: true });
+        mock.setDeveloperOptions.mockRejectedValue(new Error('disk full'));
+
+        (q('developer-options-toggle')?.querySelector('input') as HTMLInputElement).click();
+        await f.whenStable();
+        f.detectChanges();
+        await f.whenStable();
+        f.detectChanges();
+
+        // NgModel writes a re-created control's value one microtask late.
+        await f.whenStable();
+        f.detectChanges();
+        expect(q('developer-options-error')?.textContent).toContain('disk full');
+        expect(q('dev-channel')).toBeTruthy();
+        // What the switch draws: PrimeNG mirrors its state onto the host.
+        expect(q('developer-options-toggle')?.getAttribute('data-p-checked')).toBe('true');
+      });
+
+      it('replace the normal update check with the dev channel in a dev build, even when off', async () => {
+        const { q, mock } = await renderAbout({ devBuild: true });
+        expect(q('check-update-btn')).toBeNull();
+        // Still settable: it picks the release the "latest release" offer installs.
+        expect(q('update-channel-section')).toBeTruthy();
+        expect(q('dev-channel')).toBeTruthy();
+        expect(mock.listDevBuilds).toHaveBeenCalled();
+      });
     });
 
     it('installUpdate() shows standard success when restart_required is false', async () => {
@@ -467,14 +582,28 @@ describe('SettingsComponent — model selection', () => {
   let el: HTMLElement;
   let wailsMock: ReturnType<typeof createWailsMock>;
 
+  type StoredModels = Record<string, Partial<{ fix: string; pyramidize: string; fix_effort: string; pyramidize_effort: string }>>;
+
+  /** Fills in the fields the binding type requires, so a test names only what it means. */
+  function stored(models: StoredModels): NonNullable<typeof defaultSettings.models> {
+    const out: NonNullable<typeof defaultSettings.models> = {};
+    for (const [provider, m] of Object.entries(models)) {
+      out[provider] = { fix: '', pyramidize: '', fix_effort: '', pyramidize_effort: '', ...m };
+    }
+    return out;
+  }
+
   async function render(
     source: string = 'live',
-    models: Record<string, { fix: string; pyramidize: string }> = {},
+    models: StoredModels = {},
+    active: string = 'claude',
+    listed = defaultModelList.models,
   ): Promise<void> {
+    const settings = { ...defaultSettings, active_provider: active, models: stored(models) };
     wailsMock = createWailsMock();
-    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, models });
+    wailsMock.loadSettings.mockResolvedValue(structuredClone(settings));
     wailsMock.getKeyStatus.mockResolvedValue({ ...defaultKeyStatus });
-    wailsMock.listModels.mockResolvedValue({ ...defaultModelList, source });
+    wailsMock.listModels.mockResolvedValue({ models: listed, source });
 
     await TestBed.configureTestingModule({
       imports: [SettingsComponent],
@@ -487,7 +616,7 @@ describe('SettingsComponent — model selection', () => {
 
     fixture = TestBed.createComponent(SettingsComponent);
     component = fixture.componentInstance;
-    component.settings = { ...defaultSettings, models };
+    component.settings = structuredClone(settings);
     el = fixture.nativeElement;
     fixture.detectChanges();
     await fixture.whenStable();
@@ -511,15 +640,56 @@ describe('SettingsComponent — model selection', () => {
       .map(o => o.textContent?.trim() ?? '');
   }
 
-  it('offers a fix and a Pyramidize model for every provider that has one', async () => {
-    await render();
+  function q(testid: string): HTMLElement | null {
+    return el.querySelector<HTMLElement>(`[data-testid="${testid}"]`);
+  }
 
-    for (const provider of ['openai', 'claude', 'claude-code', 'ollama']) {
-      expect(el.querySelector(`[data-testid="model-fix-${provider}"]`), provider).not.toBeNull();
-      expect(el.querySelector(`[data-testid="model-pyramidize-${provider}"]`), provider).not.toBeNull();
+  /** Presses a card's "Use this" and lets the switch land. */
+  async function clickUse(provider: string): Promise<void> {
+    q(`provider-use-${provider}`)!.querySelector('button')!.click();
+    await fixture.whenStable();
+    await new Promise(r => setTimeout(r));
+    fixture.detectChanges();
+  }
+
+  /** Opens a select and picks the option with this text. */
+  function pick(testid: string, text: string): void {
+    openDropdown(testid);
+    Array.from(document.querySelectorAll<HTMLElement>('.p-select-option'))
+      .find(o => o.textContent?.trim() === text)!.click();
+    fixture.detectChanges();
+  }
+
+  it('shows the pickers of the provider in use, and only those', async () => {
+    await render('live', {}, 'claude');
+
+    expect(q('active-provider-name')?.textContent).toContain('Anthropic API');
+    expect(q('model-fix-claude')).not.toBeNull();
+    expect(q('model-pyramidize-claude')).not.toBeNull();
+    // The old page listed every provider's pickers at once.
+    for (const other of ['openai', 'claude-code', 'ollama']) {
+      expect(q(`model-fix-${other}`), other).toBeNull();
     }
-    // Bedrock is still a stub and has nothing to choose.
-    expect(el.querySelector('[data-testid="model-fix-bedrock"]')).toBeNull();
+  });
+
+  it('follows a switch, and switching back restores what was chosen there', async () => {
+    await render('live', { claude: { fix: 'claude-sonnet-4-6' }, 'claude-code': { fix: 'opus' } }, 'claude');
+
+    await clickUse('claude-code');
+    expect(q('active-provider-name')?.textContent).toContain('Claude Code');
+    expect(q('model-fix-claude-code')).not.toBeNull();
+    expect(q('model-fix-claude')).toBeNull();
+    expect(component.modelFor('claude-code', 'fix')).toBe('opus');
+
+    await clickUse('claude');
+    expect(q('model-fix-claude')!.querySelector('input')!.value).toBe('claude-sonnet-4-6');
+  });
+
+  it('shows no pickers when no provider is in use', async () => {
+    await render('live', {}, 'bedrock');
+
+    expect(q('active-provider')).toBeNull();
+    expect(q('providers-summary')?.textContent).toContain('No provider is in use');
   });
 
   it('asks the backend for each provider list', async () => {
@@ -534,23 +704,23 @@ describe('SettingsComponent — model selection', () => {
   // hunting for a network problem when the real answer is an unpasted key, or a
   // daemon that is running fine with nothing pulled.
   it('says the provider could not be reached', async () => {
-    await render('unreachable');
+    await render('unreachable', {}, 'openai');
 
-    expect(el.querySelector('[data-testid="models-note-openai"]')?.textContent)
-      .toContain('could not be reached');
+    expect(q('models-note-openai')?.textContent).toContain('could not be reached');
   });
 
   it('says a key is missing rather than blaming the network', async () => {
-    await render('no-credentials');
+    await render('no-credentials', {}, 'openai');
 
-    const note = el.querySelector('[data-testid="models-note-openai"]')?.textContent ?? '';
+    const note = q('models-note-openai')?.textContent ?? '';
     expect(note).toContain('add a key');
     expect(note).not.toContain('could not be reached');
   });
 
   it('says an Ollama daemon has nothing pulled rather than calling it unreachable', async () => {
     wailsMock = createWailsMock();
-    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, models: {} });
+    const settings = { ...defaultSettings, active_provider: 'ollama', models: {} };
+    wailsMock.loadSettings.mockResolvedValue(structuredClone(settings));
     wailsMock.getKeyStatus.mockResolvedValue({ ...defaultKeyStatus });
     wailsMock.listModels.mockImplementation(async (provider: string) =>
       provider === 'ollama'
@@ -567,53 +737,77 @@ describe('SettingsComponent — model selection', () => {
     }).compileComponents();
     fixture = TestBed.createComponent(SettingsComponent);
     component = fixture.componentInstance;
-    component.settings = { ...defaultSettings };
+    component.settings = structuredClone(settings);
     el = fixture.nativeElement;
     fixture.detectChanges();
     await fixture.whenStable();
     await fixture.whenStable();
     fixture.detectChanges();
 
-    const note = el.querySelector('[data-testid="models-note-ollama"]')?.textContent ?? '';
+    const note = q('models-note-ollama')?.textContent ?? '';
     expect(note).toContain('No models pulled yet');
     expect(note).not.toContain('could not be reached');
-    // A provider that answered gets no note at all.
-    expect(el.querySelector('[data-testid="models-note-openai"]')).toBeNull();
   });
 
   it('hides the note when the list came from the provider', async () => {
-    await render('live');
+    await render('live', {}, 'openai');
 
-    expect(el.querySelector('[data-testid="models-note-openai"]')).toBeNull();
+    expect(q('models-note-openai')).toBeNull();
   });
 
-  it('lets a model be typed for the API providers but not for the CLI', async () => {
-    await render();
+  it('lets a model be typed for the API providers', async () => {
+    await render('live', {}, 'openai');
 
     // An editable PrimeNG select renders a text input; a closed one does not.
-    expect(el.querySelector('[data-testid="model-fix-openai"] input')).not.toBeNull();
-    // The CLI's three aliases are the whole list the picker offers: an alias
-    // follows the generation where a pinned API model ID freezes it.
-    expect(el.querySelector('[data-testid="model-fix-claude-code"] input')).toBeNull();
+    expect(q('model-fix-openai')!.querySelector('input')).not.toBeNull();
   });
 
-  it('offers KeyLint\'s default as a selectable entry rather than a placeholder', async () => {
-    await render();
+  it('offers only the list for the CLI, whose aliases follow the generation', async () => {
+    await render('fixed', {}, 'claude-code');
+
+    expect(q('model-fix-claude-code')).not.toBeNull();
+    expect(q('model-fix-claude-code')!.querySelector('input')).toBeNull();
+  });
+
+  it('offers KeyLint\'s default as a selectable entry that says what it is today', async () => {
+    await render('live', {}, 'claude');
 
     // PrimeNG only renders a placeholder while the value is null, and this
     // component writes "" — so the default has to be a real option to be
-    // reachable at all. It is the first one a user sees when the list opens.
-    openDropdown('model-fix-openai');
-    expect(optionTexts()[0]).toContain("KeyLint's default");
+    // reachable at all. It names the alias it stands for and, where the
+    // listing says, the model that alias is today.
+    openDropdown('model-pyramidize-claude');
+    expect(optionTexts()[0]).toContain('Default: Sonnet (latest)');
+    expect(optionTexts()[0]).toContain('claude-sonnet-5-5');
+  });
+
+  it('names the default in the empty field and the model it runs under it', async () => {
+    await render('live', {}, 'claude');
+
+    // The field holds no text for the default (see below), so the placeholder
+    // says what the default is and the line under it which model that is now.
+    const input = q('model-pyramidize-claude')!.querySelector<HTMLInputElement>('input')!;
+    expect(input.value).toBe('');
+    expect(input.getAttribute('placeholder')).toBe('Default: Sonnet (latest)');
+    expect(q('model-effective-pyramidize')?.textContent?.trim()).toBe('Now claude-sonnet-5-5');
+  });
+
+  it('turns choosing the default back from the list into an empty setting', async () => {
+    await render('live', { claude: { pyramidize: 'claude-sonnet-4-6' } }, 'claude');
+
+    pick('model-pyramidize-claude', 'Default: Sonnet (latest)claude-sonnet-5-5');
+
+    expect(component.modelFor('claude', 'pyramidize')).toBe('');
+    expect(component.settings!.models!['claude']?.pyramidize).toBe('');
   });
 
   it('leaves the editable field empty for the default, so typing is not appended to a word', async () => {
-    await render();
+    await render('live', {}, 'openai');
 
     // The field is prefilled with whatever label the selected option carries.
     // A readable one here would mean typing "gpt-4.1" without select-all
     // persists "KeyLint's defaultgpt-4.1".
-    const input = el.querySelector<HTMLInputElement>('[data-testid="model-fix-openai"] input')!;
+    const input = q('model-fix-openai')!.querySelector<HTMLInputElement>('input')!;
     expect(input.value).toBe('');
 
     input.value = input.value + 'gpt-4.1';
@@ -625,50 +819,47 @@ describe('SettingsComponent — model selection', () => {
 
   it('shows the model ID in the editable field, not the display name', async () => {
     // Anthropic is the provider whose display names differ from its IDs.
-    await render('live', { claude: { fix: 'claude-sonnet-4-6', pyramidize: '' } });
+    await render('live', { claude: { fix: 'claude-sonnet-4-6' } }, 'claude');
 
     // PrimeNG writes optionLabel into this field and submits whatever stands
     // there as the value — so "Sonnet 4.6" here would persist as a model ID no
     // provider knows.
-    const input = el.querySelector<HTMLInputElement>('[data-testid="model-fix-claude"] input');
-    expect(input?.value).toBe('claude-sonnet-4-6');
+    expect(q('model-fix-claude')!.querySelector<HTMLInputElement>('input')?.value).toBe('claude-sonnet-4-6');
   });
 
-  it('shows the readable name and the ID together in the dropdown', async () => {
-    await render();
+  // The bug: PrimeNG's option row is a flex row, so name and ID sat side by
+  // side with nothing between them ("Sonnet 4.6claude-sonnet-4-6").
+  it('puts the readable name and the ID on separate lines in the dropdown', async () => {
+    await render('live', {}, 'claude');
 
-    // The editable field carries the ID, so the dropdown is the only place the
-    // readable name can appear — losing it would leave a user reading raw IDs.
     openDropdown('model-fix-claude');
-    const listed = optionTexts().join(' ');
-    expect(listed).toContain('Sonnet 4.6');
-    expect(listed).toContain('claude-sonnet-4-6');
+    const option = document.querySelector('[data-testid="model-option-claude-sonnet-4-6"]')!;
+    expect(option).not.toBeNull();
+    const name = option.querySelector('.model-option-name')!;
+    const id = option.querySelector('.model-option-id')!;
+    expect(name.textContent).toBe('Sonnet 4.6');
+    expect(id.textContent).toBe('claude-sonnet-4-6');
+    // One wrapper holds both, so the row's flex layout sees a single child;
+    // the wrapper itself stacks them.
+    expect(option.parentElement!.children.length).toBe(1);
+    expect(getComputedStyle(option).flexDirection).toBe('column');
+
+    const alias = document.querySelector('[data-testid="model-option-sonnet"]')!;
+    expect(alias.querySelector('.model-option-name')!.textContent).toBe('Sonnet (latest)');
+    expect(alias.querySelector('.model-option-id')!.textContent).toBe('claude-sonnet-5-5');
+  });
+
+  it('shows the readable name alone for a choice in the CLI picker', async () => {
+    await render('fixed', { 'claude-code': { fix: 'sonnet' } }, 'claude-code');
+
+    const shown = q('model-fix-claude-code')!.querySelector('.model-selected')?.textContent?.trim();
+    expect(shown).toBe('Sonnet (latest)');
   });
 
   it('never calls a provider list "built-in" when there is no endpoint to ask', async () => {
-    wailsMock = createWailsMock();
-    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings });
-    wailsMock.getKeyStatus.mockResolvedValue({ ...defaultKeyStatus });
-    wailsMock.listModels.mockResolvedValue({ ...defaultModelList, source: 'fixed' });
+    await render('fixed', {}, 'claude-code');
 
-    await TestBed.configureTestingModule({
-      imports: [SettingsComponent],
-      providers: [
-        provideAnimationsAsync(),
-        { provide: WailsService, useValue: wailsMock },
-        { provide: ActivatedRoute, useValue: makeActivatedRoute('providers') },
-      ],
-    }).compileComponents();
-    fixture = TestBed.createComponent(SettingsComponent);
-    component = fixture.componentInstance;
-    component.settings = { ...defaultSettings };
-    el = fixture.nativeElement;
-    fixture.detectChanges();
-    await fixture.whenStable();
-    await fixture.whenStable();
-    fixture.detectChanges();
-
-    expect(el.querySelector('[data-testid="models-note-claude-code"]')).toBeNull();
+    expect(q('models-note-claude-code')).toBeNull();
   });
 
   it('uses the same provider labels as the provider cards', async () => {
@@ -681,9 +872,9 @@ describe('SettingsComponent — model selection', () => {
   });
 
   it('keeps a model the provider does not list, so an unlisted one can be typed', async () => {
-    await render();
+    await render('live', {}, 'openai');
 
-    const input = el.querySelector<HTMLInputElement>('[data-testid="model-fix-openai"] input')!;
+    const input = q('model-fix-openai')!.querySelector<HTMLInputElement>('input')!;
     input.value = 'gpt-not-in-any-list';
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
@@ -697,6 +888,74 @@ describe('SettingsComponent — model selection', () => {
     component.setModel('claude', 'pyramidize', '   ');
 
     expect(component.modelFor('claude', 'pyramidize')).toBe('');
+  });
+
+  // ── effort ──
+
+  it('offers an effort per feature where the provider does something with it', async () => {
+    for (const provider of ['claude', 'claude-code', 'openai']) {
+      TestBed.resetTestingModule();
+      await render(provider === 'claude-code' ? 'fixed' : 'live', {}, provider);
+      expect(q(`effort-fix-${provider}`), provider).not.toBeNull();
+      expect(q(`effort-pyramidize-${provider}`), provider).not.toBeNull();
+      expect(q('effort-note'), provider).not.toBeNull();
+    }
+  });
+
+  it('offers no effort for Ollama, which has nothing to send it to', async () => {
+    await render('live', {}, 'ollama');
+
+    expect(q('effort-fix-ollama')).toBeNull();
+    expect(q('effort-note')).toBeNull();
+  });
+
+  it('starts on the model default and lists the levels the APIs take', async () => {
+    await render('live', {}, 'claude');
+
+    openDropdown('effort-fix-claude');
+    expect(optionTexts()).toEqual(['Model default', 'Low', 'Medium', 'High', 'Extra high', 'Max']);
+  });
+
+  it('stores an effort chosen in the picker, for this provider and feature, and saves it', async () => {
+    await render('live', {}, 'claude');
+
+    pick('effort-pyramidize-claude', 'High');
+
+    expect(component.effortFor('claude', 'pyramidize')).toBe('high');
+    expect(component.effortFor('claude', 'fix')).toBe('');
+    expect(component.effortFor('claude-code', 'pyramidize')).toBe('');
+
+    await component.save();
+    expect(wailsMock.saveSettings).toHaveBeenCalledWith(expect.objectContaining({
+      models: expect.objectContaining({ claude: expect.objectContaining({ pyramidize_effort: 'high' }) }),
+    }));
+  });
+
+  it('says Fix keeps a Haiku from reasoning, until an effort is chosen', async () => {
+    await render('live', {}, 'claude');
+    expect(q('fix-fast-note')?.textContent).toContain('without reasoning');
+
+    pick('effort-fix-claude', 'Low');
+    expect(component.effortFor('claude', 'fix')).toBe('low');
+    expect(q('fix-fast-note')).toBeNull();
+  });
+
+  it('names the default alias even when no list could be loaded', async () => {
+    await render('unreachable', {}, 'claude', []);
+
+    const input = q('model-fix-claude')!.querySelector<HTMLInputElement>('input')!;
+    expect(input.getAttribute('placeholder')).toBe('Default: Haiku (latest)');
+    expect(q('fix-fast-note')?.textContent).toContain('Fix asks Haiku (latest)');
+  });
+
+  it('does not promise a quick Fix where the model keeps its own default', async () => {
+    await render('live', { claude: { fix: 'sonnet' } }, 'claude');
+    expect(q('fix-fast-note')).toBeNull();
+
+    // The CLI has no switch for it, so saying so would be false.
+    TestBed.resetTestingModule();
+    await render('fixed', {}, 'claude-code');
+    expect(q('fix-fast-note')).toBeNull();
   });
 
   it('re-asks after the Ollama URL is saved, the way saving a key does', async () => {
@@ -1038,6 +1297,8 @@ describe('SettingsComponent — which provider is in use', () => {
 
     q('reset-btn')!.querySelector('button')!.click();
     fixture.detectChanges();
+    q('reset-confirm-btn')!.querySelector('button')!.click();
+    fixture.detectChanges();
 
     for (const p of ['openai', 'claude', 'ollama']) {
       expect(q(`provider-use-${p}`)!.querySelector('button')!.disabled, p).toBe(true);
@@ -1047,6 +1308,51 @@ describe('SettingsComponent — which provider is in use', () => {
     finish();
     await settle();
     expect(q('provider-use-claude')!.querySelector('button')!.disabled).toBe(false);
+  });
+
+  describe('Reset to Defaults asks first', () => {
+    beforeEach(async () => render({ active: 'claude-code', ...BOTH }));
+
+    async function clickBtn(testid: string): Promise<void> {
+      q(testid)!.querySelector('button')!.click();
+      await settle();
+    }
+
+    it('shows what is reset and what is kept, and does nothing yet', async () => {
+      await clickBtn('reset-btn');
+      expect(q('reset-confirm')).toBeTruthy();
+      const detail = q('reset-confirm-detail')!.textContent!;
+      expect(detail).toContain('Shortcuts');
+      expect(detail).toContain('API keys');
+      expect(detail).toContain('provider in use');
+      expect(detail).toContain('completed setup');
+      expect(wailsMock.resetSettings).not.toHaveBeenCalled();
+      // Cancel has focus, so a stray Enter does not reset.
+      expect(document.activeElement).toBe(q('reset-cancel-btn')!.querySelector('button'));
+    });
+
+    it('Cancel leaves everything untouched', async () => {
+      await clickBtn('reset-btn');
+      await clickBtn('reset-cancel-btn');
+      expect(q('reset-confirm')).toBeFalsy();
+      expect(q('reset-btn')).toBeTruthy();
+      expect(wailsMock.resetSettings).not.toHaveBeenCalled();
+    });
+
+    it('Escape cancels too', async () => {
+      await clickBtn('reset-btn');
+      q('reset-confirm')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await settle();
+      expect(q('reset-confirm')).toBeFalsy();
+      expect(wailsMock.resetSettings).not.toHaveBeenCalled();
+    });
+
+    it('Reset resets, once', async () => {
+      await clickBtn('reset-btn');
+      await clickBtn('reset-confirm-btn');
+      expect(wailsMock.resetSettings).toHaveBeenCalledTimes(1);
+      expect(q('reset-confirm')).toBeFalsy();
+    });
   });
 
   it('holds every "Use this" while a save runs', async () => {

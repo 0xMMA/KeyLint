@@ -118,6 +118,19 @@ Section "uninstall"
     Delete "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk"
     Delete "$DESKTOP\${INFO_PRODUCTNAME}.lnk"
 
+    # Notification registration the app writes for its user on every start
+    # (internal/features/notify). HKCU of whoever runs the uninstaller - the
+    # same user unless UAC elevated a different account, in which case two
+    # harmless keys stay behind.
+    DeleteRegKey HKCU "Software\Classes\AppUserModelId\${INFO_PRODUCTNAME}"
+    DeleteRegKey HKCU "Software\Classes\CLSID\{CEF3EFCF-75E1-4709-9868-A73D680E3BEE}"
+    # The toast icon the app writes to its user's cache (os.UserCacheDir).
+    # RMDir without /r: the folder goes only if nothing else is in it.
+    SetShellVarContext current
+    Delete "$LOCALAPPDATA\KeyLint\notification-icon.png"
+    RMDir "$LOCALAPPDATA\KeyLint"
+    !insertmacro wails.setShellContext
+
     !insertmacro wails.unassociateFiles
     !insertmacro wails.unassociateCustomProtocols
 

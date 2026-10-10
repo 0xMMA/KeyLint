@@ -4,7 +4,9 @@ import { isDevMode } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { TooltipModule } from 'primeng/tooltip';
 import { versionLabel } from '../core/version-label';
-import { WailsService } from '../core/wails.service';
+import { WailsService, type SilentFixNotice } from '../core/wails.service';
+import { LogService } from '../core/log.service';
+import { SilentFixNoticeService } from '../features/fix/silent-fix-notice.service';
 
 // Persists across navigation
 let sidebarCollapsed = false;
@@ -74,11 +76,11 @@ let sidebarHovered   = false;
             @if (!collapsedView || hoverExpanded) {
               <span class="version-text" data-testid="version-text">{{ versionLabel(appVersion) }}</span>
               @if (updateAvailable) {
-                <i class="pi pi-arrow-circle-up update-indicator" data-testid="update-indicator" title="Update available"></i>
+                <i class="pi pi-arrow-circle-up update-indicator" data-testid="update-indicator" [title]="updateTitle"></i>
               }
             } @else {
               @if (updateAvailable) {
-                <i class="pi pi-arrow-circle-up update-indicator" data-testid="update-indicator" title="Update available"></i>
+                <i class="pi pi-arrow-circle-up update-indicator" data-testid="update-indicator" [title]="updateTitle"></i>
               }
             }
           </div>
@@ -101,7 +103,8 @@ export class ShellComponent implements OnInit, OnDestroy {
   readonly versionLabel = versionLabel;
   appVersion = '';
   updateAvailable = false;
-  private sub?: Subscription;
+  updateTitle = 'Update available';
+  private subs: Subscription[] = [];
 
   get collapsedView(): boolean  { return sidebarCollapsed; }
   get hoverExpanded(): boolean  { return sidebarCollapsed && sidebarHovered; }
@@ -110,12 +113,22 @@ export class ShellComponent implements OnInit, OnDestroy {
     private readonly wails: WailsService,
     private readonly router: Router,
     private readonly cdr: ChangeDetectorRef,
+    private readonly log: LogService,
+    private readonly silentNotices: SilentFixNoticeService,
   ) {}
 
   ngOnInit(): void {
     void this.applyTheme();
     void this.loadVersionInfo();
-    this.sub = this.wails.settingsChanged$.subscribe(() => void this.applyTheme());
+    this.subs.push(
+      this.wails.settingsChanged$.subscribe(() => void this.applyTheme()),
+      // The fix shortcut itself never reaches the frontend: the silent fix
+      // runs in Go with the window hidden. A click on its notification does.
+      this.wails.silentFixOpen$.subscribe(notice => this.openSilentFixNotice(notice)),
+      this.wails.shortcutPyramidize$.subscribe(() => {
+        void this.router.navigate(['/enhance']);
+      }),
+    );
   }
 
   goToAbout(): void {
@@ -144,8 +157,26 @@ export class ShellComponent implements OnInit, OnDestroy {
     this.appVersion = await this.wails.getVersion();
     this.cdr.detectChanges();
     try {
-      const info = await this.wails.checkForUpdate();
-      this.updateAvailable = info.is_available;
+      // A dev build's normal check is silenced (it is 0.0.0, so every release
+      // would be newer); its news comes from the dev channel instead: its PR
+      // is gone, or a newer build of the same PR or of main is up.
+      const identity = await this.wails.getBuildIdentity();
+      if (identity.is_dev_build) {
+        const channel = await this.wails.listDevBuilds();
+        if (channel.orphaned) {
+          this.updateAvailable = true;
+          this.updateTitle = 'This test build is gone — see Settings › About';
+        } else if (channel.new_release_since_build) {
+          this.updateAvailable = true;
+          this.updateTitle = `A new release is out (v${channel.latest_release}) — see Settings › About`;
+        } else if (channel.builds.some(b => b.newer_build)) {
+          this.updateAvailable = true;
+          this.updateTitle = 'A newer test build is available';
+        }
+      } else {
+        const info = await this.wails.checkForUpdate();
+        this.updateAvailable = info.is_available;
+      }
     } catch {
       // Silently ignore — update check is best-effort.
     }
@@ -153,7 +184,24 @@ export class ShellComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.sub?.unsubscribe();
+    this.subs.forEach(s => s.unsubscribe());
+  }
+
+  /**
+   * The user clicked a hotkey-fix notification: take them where it can be
+   * fixed. A missing key, a signed-out CLI or the wrong model is on AI
+   * Providers; everything else is the Fix page, which shows what happened.
+   */
+  private openSilentFixNotice(notice: SilentFixNotice): void {
+    this.log.info(`shell: silent fix notification opened (${notice.target})`);
+    // Presented first: a page already on screen switches on the notice
+    // itself, because the router ignores a navigation to the URL it is on.
+    this.silentNotices.present(notice);
+    if (notice.target === 'providers') {
+      void this.router.navigate(['/settings'], { queryParams: { tab: 'providers' } });
+      return;
+    }
+    void this.router.navigate(['/fix']);
   }
 
   private applyTheme(): void {

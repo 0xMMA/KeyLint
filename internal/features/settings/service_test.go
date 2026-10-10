@@ -71,7 +71,6 @@ func TestSave_PersistsToDisk(t *testing.T) {
 
 	updated := settings.Default()
 	updated.ActiveProvider = "claude"
-	updated.CompletedSetup = true
 
 	if err := svc.Save(updated); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -81,8 +80,51 @@ func TestSave_PersistsToDisk(t *testing.T) {
 	if got.ActiveProvider != "claude" {
 		t.Errorf("after Save: active_provider=%q, want claude", got.ActiveProvider)
 	}
+}
+
+// completed_setup belongs to the welcome service. A whole settings object
+// from the screen carries whatever the screen loaded — defaults after a reset,
+// or the frontend's fallback after a failed Get — and must not move it either
+// way.
+func TestSave_LeavesCompletedSetupAlone(t *testing.T) {
+	svc := newServiceAt(t, t.TempDir())
+	if err := settings.Update(svc, func(c *settings.Settings) { c.CompletedSetup = true }); err != nil {
+		t.Fatal(err)
+	}
+
+	stale := settings.Default() // completed_setup false
+	stale.LogLevel = "debug"
+	if err := svc.Save(stale); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if got := svc.Get(); !got.CompletedSetup || got.LogLevel != "debug" {
+		t.Errorf("after Save: completed_setup=%v log_level=%q, want true and debug", got.CompletedSetup, got.LogLevel)
+	}
+
+	if err := svc.SetActiveProvider("claude-code"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ResetToDefaults(); err != nil {
+		t.Fatalf("ResetToDefaults: %v", err)
+	}
+	got := svc.Get()
 	if !got.CompletedSetup {
-		t.Error("after Save: expected completed_setup=true")
+		t.Error("Reset to Defaults sent a configured user back to the setup wizard")
+	}
+	// The provider in use is what works with the keys that survive a reset.
+	if got.ActiveProvider != "claude-code" || got.LogLevel != "off" {
+		t.Errorf("after reset: active_provider=%q log_level=%q, want claude-code kept and off", got.ActiveProvider, got.LogLevel)
+	}
+
+	// And the other way: Save cannot skip the wizard on its own.
+	fresh := newServiceAt(t, t.TempDir())
+	claimed := settings.Default()
+	claimed.CompletedSetup = true
+	if err := fresh.Save(claimed); err != nil {
+		t.Fatal(err)
+	}
+	if fresh.Get().CompletedSetup {
+		t.Error("Save set completed_setup; only the welcome service may")
 	}
 }
 
@@ -431,7 +473,7 @@ func TestModelsSurviveARoundTrip(t *testing.T) {
 		t.Errorf("ModelFor(openai, pyramidize) = %q, want the saved value", got)
 	}
 	// Only one feature was set for openai; the other falls back.
-	if got := reloaded.ModelFor("openai", "fix"); got != "gpt-4o-mini" {
+	if got := reloaded.ModelFor("openai", "fix"); got != "gpt-6-luna" {
 		t.Errorf("ModelFor(openai, fix) = %q, want the built-in default", got)
 	}
 }
@@ -450,7 +492,129 @@ func TestSettingsWithoutModelsNeedNoMigration(t *testing.T) {
 	if reloaded.Models != nil {
 		t.Errorf("Models = %v, want nil for a file that has no such key", reloaded.Models)
 	}
-	if got := reloaded.ModelFor("claude", "fix"); got != "claude-haiku-4-5-20251001" {
+	if got := reloaded.ModelFor("claude", "fix"); got != "haiku" {
 		t.Errorf("ModelFor = %q, want the built-in default", got)
+	}
+	// No effort either: an older file sends none, which is what it did before.
+	if got := reloaded.EffortFor("claude", "fix"); got != "" {
+		t.Errorf("EffortFor = %q, want none for a file that has no such key", got)
+	}
+}
+
+// TestEffortSurvivesARoundTripPerProvider: effort is kept per provider and
+// feature, so switching providers and back restores each one's choice.
+func TestEffortSurvivesARoundTripPerProvider(t *testing.T) {
+	dir := t.TempDir()
+	svc := newServiceAt(t, dir)
+
+	updated := settings.Default()
+	updated.Models = map[string]settings.FeatureModels{
+		"claude":      {Fix: "haiku", FixEffort: "low", PyramidizeEffort: "high"},
+		"claude-code": {PyramidizeEffort: "xhigh"},
+	}
+	if err := svc.Save(updated); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	reloaded := newServiceAt(t, dir).Get()
+	for _, c := range []struct{ provider, feature, want string }{
+		{"claude", "fix", "low"},
+		{"claude", "pyramidize", "high"},
+		{"claude-code", "pyramidize", "xhigh"},
+		{"claude-code", "fix", ""},
+		{"openai", "fix", ""},
+	} {
+		if got := reloaded.EffortFor(c.provider, c.feature); got != c.want {
+			t.Errorf("EffortFor(%s, %s) = %q, want %q", c.provider, c.feature, got, c.want)
+		}
+	}
+}
+
+// TestUnknownEffortReadsAsUnset: a hand-edited level that no provider knows
+// must not reach one as a guaranteed 400.
+func TestUnknownEffortReadsAsUnset(t *testing.T) {
+	cfg := settings.Default()
+	cfg.Models = map[string]settings.FeatureModels{"claude": {FixEffort: "turbo"}}
+	if got := cfg.EffortFor("claude", "fix"); got != "" {
+		t.Errorf("EffortFor = %q, want an unknown level read as unset", got)
+	}
+}
+
+func TestSetDeveloperOptions_ChangesOnlyThatFieldAndPersists(t *testing.T) {
+	tmp := t.TempDir()
+	svc := newServiceAt(t, tmp)
+	saved := settings.Default()
+	saved.UpdateChannel = "stable"
+	saved.ActiveProvider = "claude"
+	if err := svc.Save(saved); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	if err := svc.SetDeveloperOptions(true); err != nil {
+		t.Fatalf("SetDeveloperOptions: %v", err)
+	}
+	got := svc.Get()
+	if !got.DeveloperOptions {
+		t.Errorf("developer_options = false after turning it on")
+	}
+	if got.UpdateChannel != "stable" || got.ActiveProvider != "claude" {
+		t.Errorf("other fields changed: update_channel=%q active_provider=%q", got.UpdateChannel, got.ActiveProvider)
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmp, "KeyLint", "settings.json"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var onDisk settings.Settings
+	if err := json.Unmarshal(data, &onDisk); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if !onDisk.DeveloperOptions {
+		t.Errorf("developer_options not written to disk")
+	}
+
+	if err := svc.SetDeveloperOptions(false); err != nil {
+		t.Fatalf("SetDeveloperOptions(false): %v", err)
+	}
+	if svc.Get().DeveloperOptions {
+		t.Errorf("developer_options still on after turning it off")
+	}
+}
+
+func TestDefault_DeveloperOptionsOff(t *testing.T) {
+	if settings.Default().DeveloperOptions {
+		t.Error("developer options must be off by default")
+	}
+}
+
+// A settings.json written by v4.5.0-beta and earlier has shortcut_key and none
+// of the shortcut_* fields. That key was free text nothing read — the hotkey
+// was Ctrl+G whatever it said — so the user keeps Ctrl+G, and a value the hook
+// cannot use does not get to switch every shortcut off.
+func TestLegacyShortcutKey_IsNotApplied(t *testing.T) {
+	for _, legacy := range []string{"ctrl+g", "strg+g", "g", "ctrl+shift+f"} {
+		tmp := t.TempDir()
+		writeLegacySettings(t, tmp, `{"active_provider": "claude", "shortcut_key": "`+legacy+`", "log_level": "off"}`)
+
+		got := newServiceAt(t, tmp).Get()
+
+		if got.ShortcutFix != "ctrl+g" || got.ShortcutMode != "double_tap" ||
+			got.ShortcutPyramidize != "ctrl+shift+g" || got.ShortcutDoubleTapDelay != 200 {
+			t.Errorf("shortcut_key %q: got fix=%q mode=%q pyr=%q delay=%d, want the defaults",
+				legacy, got.ShortcutFix, got.ShortcutMode, got.ShortcutPyramidize, got.ShortcutDoubleTapDelay)
+		}
+	}
+}
+
+// Once shortcut_fix is in the file, it is the user's choice and shortcut_key —
+// still written alongside it — is ignored.
+func TestMigration_ShortcutFixPresent_LegacyKeyIgnored(t *testing.T) {
+	tmp := t.TempDir()
+	writeLegacySettings(t, tmp, `{"shortcut_key": "ctrl+g", "shortcut_mode": "independent", "shortcut_fix": "ctrl+alt+k", "shortcut_pyramidize": "ctrl+alt+p", "shortcut_double_tap_delay": 300}`)
+
+	got := newServiceAt(t, tmp).Get()
+
+	if got.ShortcutFix != "ctrl+alt+k" || got.ShortcutMode != "independent" ||
+		got.ShortcutPyramidize != "ctrl+alt+p" || got.ShortcutDoubleTapDelay != 300 {
+		t.Errorf("saved shortcut settings changed on load: %+v", got)
 	}
 }

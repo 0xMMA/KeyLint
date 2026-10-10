@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/shared"
+
+	"keylint/internal/logger"
 )
 
 // defaultOpenAIBaseURL is the public OpenAI API host. It is always passed
@@ -75,12 +78,30 @@ func completeViaOpenAI(ctx context.Context, cfg Config, p provider, baseURL stri
 			OfJSONObject: &shared.ResponseFormatJSONObjectParam{},
 		}
 	}
+	// Only OpenAI itself: an Ollama model behind the same dialect has no
+	// reasoning switch, and the field would be an unknown parameter there.
+	if p == openAIProvider {
+		if effort := openAIReasoningEffort(req); effort != "" {
+			params.ReasoningEffort = shared.ReasoningEffort(effort)
+		}
+	}
 	logRequest(cfg, p, req.Model, params)
 
-	attempts := &httpAttempts{cfg: cfg, provider: p}
+	attempts := newHTTPAttempts(ctx, cfg, p)
 	// The service method has a pointer receiver, so the client needs a variable.
 	client := openAISDKClient(cfg, baseURL, attempts)
 	completion, err := client.Chat.Completions.New(ctx, params)
+	if err != nil && params.ReasoningEffort != "" && openAIRejectedEffort(err) {
+		// The documented support below was wrong for this model, or has
+		// changed. Once more on the model's own default rather than failing
+		// the user's fix over a setting; Warn, because it is now doing nothing.
+		logger.Warn("llm: model rejected reasoning_effort, retried without it",
+			"feature", cfg.Feature, "provider", p.id, "model", req.Model, "reasoning_effort", string(params.ReasoningEffort))
+		params.ReasoningEffort = ""
+		attempts = newHTTPAttempts(ctx, cfg, p)
+		client = openAISDKClient(cfg, baseURL, attempts)
+		completion, err = client.Chat.Completions.New(ctx, params)
+	}
 	if err != nil {
 		return Response{}, mapOpenAIError(p, attempts, req.Model, err)
 	}
@@ -97,7 +118,7 @@ func completeViaOpenAI(ctx context.Context, cfg Config, p provider, baseURL stri
 	// A truncated answer would be pasted over the user's selection as a
 	// half-written sentence — the same call the Claude Code client makes.
 	if choice.FinishReason == "length" {
-		return Response{}, fmt.Errorf("%s: %s", p.name, outputLimitMessage)
+		return Response{}, fmt.Errorf("%s: %w", p.name, ErrOutputLimit)
 	}
 
 	text := choice.Message.Content
@@ -105,7 +126,59 @@ func completeViaOpenAI(ctx context.Context, cfg Config, p provider, baseURL stri
 		return Response{}, fmt.Errorf("%s returned an empty result", p.name)
 	}
 	logResponse(cfg, p, text)
-	return Response{Text: text}, nil
+	return Response{Text: text, Model: completion.Model}, nil
+}
+
+// openAIReasoningModels lists the model families whose reasoning_effort support
+// is documented, and whether each accepts "none" (answer without reasoning).
+// Source: the model pages at developers.openai.com/api/docs/models/<id> and the
+// reasoning guide, read 2026-10-08 — there is no OpenAI key in this project, so
+// none of it was called. GPT-6 Astra and GPT-6.1 Sol take low…max but reject
+// none; GPT-6 Sol, GPT-6 Luna and the GPT-5.6 tiers take none…max. No model
+// here takes "minimal".
+//
+// Everything else — gpt-4o-mini, gpt-4.1, gpt-5.2, any OpenAI-compatible
+// model — gets no reasoning_effort at all. Unlike Anthropic, OpenAI's model
+// listing carries no capabilities, so sending it to an unknown model would be a
+// guess, and a wrong guess is a 400 on every fix. Matched by prefix, so a dated
+// snapshot of a listed model is covered; ordered so the longer prefix wins.
+var openAIReasoningModels = []struct {
+	prefix     string
+	acceptNone bool
+}{
+	{"gpt-6.1-sol", false},
+	{"gpt-6-astra", false},
+	{"gpt-6-sol", true},
+	{"gpt-6-luna", true},
+	{"gpt-5.6-", true},
+}
+
+// openAIReasoningEffort is the reasoning_effort to send, or "" for none. An
+// explicit effort wins; NoThinking maps to "none" where the model takes it.
+func openAIReasoningEffort(req Request) string {
+	for _, family := range openAIReasoningModels {
+		if !strings.HasPrefix(req.Model, family.prefix) {
+			continue
+		}
+		switch {
+		case IsEffortLevel(req.Effort):
+			return req.Effort
+		case req.NoThinking && family.acceptNone:
+			return "none"
+		}
+		return ""
+	}
+	return ""
+}
+
+// openAIRejectedEffort reports whether a failure is the model refusing the
+// reasoning_effort value. The raw body is matched, never shown.
+func openAIRejectedEffort(err error) bool {
+	var apiErr *openai.Error
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusBadRequest {
+		return false
+	}
+	return strings.Contains(strings.ToLower(apiErr.RawJSON()), "reasoning")
 }
 
 // openAISDKClient builds the SDK client for an OpenAI-compatible endpoint.
@@ -163,9 +236,12 @@ func environmentCustomHeaders() []string {
 // mapOpenAIError turns an SDK error into the wording the user sees. The raw body
 // stays out of it — see statusMessage.
 func mapOpenAIError(p provider, attempts *httpAttempts, model string, err error) error {
+	if limited, ok := rateLimitedPastDeadline(p, attempts, model, err); ok {
+		return limited
+	}
 	// The caller giving up is not a provider failure, and callers test for it
 	// with errors.Is — so it must not become a status even if an earlier
-	// attempt saw one.
+	// attempt saw one (a rate limit waited out past the deadline aside).
 	if isContextError(err) {
 		return transportError(p, err)
 	}

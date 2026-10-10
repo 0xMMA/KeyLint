@@ -6,7 +6,9 @@
  * no keys, no CLI, nothing saved. That is enough for layout checks but not for
  * anything about which provider is configured or in use. This answers the
  * settings service's calls from an in-memory state instead, so a spec can say
- * "Anthropic key in the keyring, CLI signed in" and see what a user sees.
+ * "Anthropic key in the keyring, CLI signed in" and see what a user sees. The
+ * welcome service's two calls are answered too when a spec sets `firstRun`, so
+ * the setup wizard can be driven the same way.
  *
  * Method IDs are read from the generated bindings rather than copied here, so
  * regenerating them cannot leave this answering the wrong method. Calls to any
@@ -25,11 +27,45 @@ export interface FakeBackendState {
   claudeCode: { installed: boolean; path: string; version: string; loggedIn: boolean };
   /** ModelList.source per provider; anything absent answers "unreachable". */
   modelSources: Partial<Record<string, string>>;
-  /** Every settings object the app saved (Save or SetActiveProvider), oldest first. */
+  /** ModelList.models per provider; anything absent answers an empty list. */
+  modelLists: Partial<Record<string, ModelEntry[]>>;
+  /** Every settings object the app saved (Save, SetActiveProvider or SetDeveloperOptions), oldest first. */
   saves: Record<string, unknown>[];
   /** When set, SetActiveProvider fails with this message, as a failed write would. */
   failSetActiveProvider?: string;
+  /**
+   * What IsFirstRun answers while setup is not complete. The decision itself
+   * (first start, or nothing usable) is welcome.Service's and is tested in Go;
+   * this only says whether the wizard opens. Undefined leaves the welcome
+   * service unanswered (it 404s and the app treats that as "not first run").
+   */
+  firstRun?: boolean;
+  /** How many times the app called CompleteSetup. */
+  completeSetupCalls: number;
 }
+
+/** One picker entry, as internal/llm ModelInfo serialises it. */
+export interface ModelEntry { id: string; label: string; resolved: string }
+
+/** What the real Anthropic listing looks like: aliases first, naming their model. */
+export const ANTHROPIC_MODELS: ModelEntry[] = [
+  { id: 'opus', label: 'Opus (latest)', resolved: 'claude-opus-5-5' },
+  { id: 'sonnet', label: 'Sonnet (latest)', resolved: 'claude-sonnet-5-5' },
+  { id: 'haiku', label: 'Haiku (latest)', resolved: 'claude-haiku-5-5' },
+  { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', resolved: '' },
+  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', resolved: '' },
+  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', resolved: '' },
+  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', resolved: '' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', resolved: '' },
+];
+
+/** The CLI's fixed alias list; see claudeCodeAliases in internal/llm/models.go. */
+export const CLI_ALIASES: ModelEntry[] = [
+  { id: 'opus', label: 'Opus (latest)', resolved: '' },
+  { id: 'sonnet', label: 'Sonnet (latest)', resolved: '' },
+  { id: 'haiku', label: 'Haiku (latest)', resolved: '' },
+  { id: 'fable', label: 'Fable (latest)', resolved: '' },
+];
 
 /** What the real SetActiveProvider accepts; see selectableProviders in settings/service.go. */
 const SELECTABLE_PROVIDERS = ['openai', 'claude', 'claude-code', 'ollama'];
@@ -39,12 +75,17 @@ export const BASE_SETTINGS: Record<string, unknown> = {
   models: {},
   providers: { ollama_url: '', aws_region: '' },
   shortcut_key: 'ctrl+g',
+  shortcut_mode: 'double_tap',
+  shortcut_fix: 'ctrl+g',
+  shortcut_pyramidize: 'ctrl+shift+g',
+  shortcut_double_tap_delay: 200,
   start_on_boot: false,
   theme_preference: 'dark',
   completed_setup: true,
   log_level: 'off',
   sensitive_logging: false,
   update_channel: '',
+  developer_options: false,
   app_presets: [],
   pyramidize_quality_threshold: 0.65,
 };
@@ -63,6 +104,7 @@ export function fakeState(opts: {
   keys?: FakeBackendState['keys'];
   cliSignedIn?: boolean;
   modelSources?: FakeBackendState['modelSources'];
+  modelLists?: FakeBackendState['modelLists'];
 }): FakeBackendState {
   return {
     settings: { ...BASE_SETTINGS, active_provider: opts.activeProvider },
@@ -70,13 +112,15 @@ export function fakeState(opts: {
     claudeCode: opts.cliSignedIn ? { ...SIGNED_IN_CLI } : { ...NO_CLI },
     // The CLI has no model endpoint; "fixed" is what the real service answers.
     modelSources: { 'claude-code': 'fixed', ...opts.modelSources },
+    modelLists: { 'claude-code': CLI_ALIASES, ...opts.modelLists },
     saves: [],
+    completeSetupCalls: 0,
   };
 }
 
-/** methodID → method name, parsed from the generated settings bindings. */
-function settingsMethodIDs(): Map<number, string> {
-  const file = path.join(__dirname, '../../bindings/keylint/internal/features/settings/service.js');
+/** methodID → method name, parsed from one service's generated bindings. */
+function methodIDs(feature: string): Map<number, string> {
+  const file = path.join(__dirname, `../../bindings/keylint/internal/features/${feature}/service.js`);
   const src = fs.readFileSync(file, 'utf8');
   const ids = new Map<number, string>();
   for (const m of src.matchAll(/export function (\w+)\([^)]*\)\s*\{\s*return \$Call\.ByID\((\d+)/g)) {
@@ -86,9 +130,10 @@ function settingsMethodIDs(): Map<number, string> {
   return ids;
 }
 
-/** Routes the settings service's binding calls to `state`. */
+/** Routes the settings service's binding calls (and the welcome service's, see firstRun) to `state`. */
 export async function installFakeBackend(page: Page, state: FakeBackendState): Promise<void> {
-  const ids = settingsMethodIDs();
+  const ids = methodIDs('settings');
+  const welcomeIDs = methodIDs('welcome');
 
   await page.route('**/wails/runtime', async (route) => {
     let body: { args?: { methodID?: number; args?: unknown[] } } = {};
@@ -102,11 +147,24 @@ export async function installFakeBackend(page: Page, state: FakeBackendState): P
     const json = (value: unknown) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(value) });
     const empty = () => route.fulfill({ status: 200, contentType: 'text/plain', body: '' });
 
+    const welcomeMethod = welcomeIDs.get(body.args?.methodID ?? -1);
+    if (welcomeMethod && state.firstRun !== undefined) {
+      switch (welcomeMethod) {
+        case 'IsFirstRun':
+          return json(state.firstRun && !state.settings['completed_setup']);
+        case 'CompleteSetup':
+          state.completeSetupCalls++;
+          state.settings = { ...state.settings, completed_setup: true };
+          return empty();
+      }
+    }
+
     switch (method) {
       case 'Get':
         return json(state.settings);
       case 'Save':
-        state.settings = structuredClone(args[0] as Record<string, unknown>);
+        // Like the real Save, completed_setup is not the screen's to change.
+        state.settings = { ...structuredClone(args[0] as Record<string, unknown>), completed_setup: state.settings['completed_setup'] };
         state.saves.push(state.settings);
         return empty();
       case 'SetActiveProvider': {
@@ -123,6 +181,10 @@ export async function installFakeBackend(page: Page, state: FakeBackendState): P
         state.saves.push(state.settings);
         return empty();
       }
+      case 'SetDeveloperOptions':
+        state.settings = { ...state.settings, developer_options: args[0] as boolean };
+        state.saves.push(state.settings);
+        return empty();
       case 'GetKeyStatus': {
         const source = state.keys[args[0] as string];
         return json(source ? { is_set: true, source } : { is_set: false, source: 'none' });
@@ -136,7 +198,10 @@ export async function installFakeBackend(page: Page, state: FakeBackendState): P
       case 'GetClaudeCodeStatus':
         return json(state.claudeCode);
       case 'ListModels':
-        return json({ models: [], source: state.modelSources[args[0] as string] ?? 'unreachable' });
+        return json({
+          models: state.modelLists[args[0] as string] ?? [],
+          source: state.modelSources[args[0] as string] ?? 'unreachable',
+        });
       default:
         return route.fallback();
     }

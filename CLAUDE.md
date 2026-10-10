@@ -6,7 +6,7 @@
 
 **Key directories:**
 - `main.go` — Wails entry point, service registration, event loop
-- `internal/features/` — vertical slices: settings, shortcut, clipboard, tray, enhance, welcome, logger, updater, pyramidize
+- `internal/features/` — vertical slices: settings, shortcut, clipboard, tray, enhance, silentfix (the hotkey fix, run in Go), notify (tray toasts), welcome, logger, updater, pyramidize
 - `internal/llm/` — provider layer: `Client` interface, registry, and the only place with provider HTTP calls or spawned provider CLIs
 - `internal/cli/` — headless CLI commands (`-fix`, `-pyramidize`), dispatched from `main.go` before Wails boots
 - `internal/app/wire.go` + `wire_gen.go` — Wire DI (never edit `wire_gen.go` manually)

@@ -55,6 +55,8 @@ type Service struct {
 	// saveMu serialises Save and Update, which write the file and then swap
 	// current.
 	saveMu sync.Mutex
+	// onSaved runs after every successful save, under saveMu; see OnSaved.
+	onSaved func(old, updated Settings)
 
 	// claudeCode caches the CLI probe; see GetClaudeCodeStatus. Spawning
 	// processes on every screen that asks is what #55 was about.
@@ -67,6 +69,9 @@ type Service struct {
 	// probeClaudeCode is the probe itself, swappable so a test can count calls
 	// without spawning anything. nil means the real one.
 	probeClaudeCode func(context.Context) llm.ClaudeCodeStatus
+
+	// loaded records how the settings file was read; see LoadOutcome.
+	loaded LoadInfo
 
 	// models caches per-provider listings; see ListModels.
 	modelsMu sync.Mutex
@@ -109,10 +114,31 @@ func NewService() (*Service, error) {
 		filePath: filepath.Join(dir, "settings.json"),
 		current:  Default(),
 	}
-	if err := svc.load(); err != nil && !os.IsNotExist(err) {
+	err = svc.load()
+	svc.loaded = LoadInfo{Path: svc.filePath, Found: !os.IsNotExist(err), CompletedSetup: svc.current.CompletedSetup}
+	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
 	return svc, nil
+}
+
+// LoadInfo is how the settings file was read at start-up.
+type LoadInfo struct {
+	Path string
+	// Found is false when there was no file and the defaults were used.
+	Found bool
+	// CompletedSetup is the flag as loaded, before anything changed it.
+	CompletedSetup bool
+}
+
+// LoadOutcome reports how the settings file was read when the service was
+// built. NewService runs before the logger is initialised — the log level is
+// one of the settings it reads — so its own log lines are discarded; main.go
+// logs this once logging is up.
+//
+// A package function rather than a method, so Wails does not bind it.
+func LoadOutcome(s *Service) LoadInfo {
+	return s.loaded
 }
 
 // NewServiceFrom builds a service around an explicit configuration and key
@@ -127,7 +153,10 @@ func NewServiceFrom(cfg Settings, keys KeyLookup) *Service {
 		// No lookup means no keys — never the ambient ones.
 		keys = func(string) string { return "" }
 	}
-	return &Service{current: cfg.clone(), keys: keys, isolated: true}
+	// An explicit configuration stands in for a file that was found: it is
+	// somebody's settings, not a first start.
+	loaded := LoadInfo{Found: true, CompletedSetup: cfg.CompletedSetup}
+	return &Service{current: cfg.clone(), keys: keys, isolated: true, loaded: loaded}
 }
 
 func (s *Service) load() error {
@@ -165,6 +194,13 @@ func (s *Service) load() error {
 		}
 	}
 
+	// shortcut_key is not migrated: up to v4.5.0-beta the hotkey was hard-wired
+	// to Ctrl+G and the field was free text that nothing read, so every user
+	// really had Ctrl+G. Copying an unvalidated value into shortcut_fix could
+	// only break that (an unparseable one disables every shortcut, a bare "g"
+	// swallows every g typed); a file without shortcut_fix keeps Default()'s.
+	normalizeShortcuts(&s.current)
+
 	logger.Info("settings: loaded", "path", s.filePath)
 	return nil
 }
@@ -195,13 +231,42 @@ func (s Settings) clone() Settings {
 	return out
 }
 
-// Save persists the provided settings to disk.
+// Save persists the provided settings to disk — all of them except
+// completed_setup, which keeps its current value: only the welcome service
+// moves it.
 func (s *Service) Save(updated Settings) error {
 	// One save at a time, so the file and the in-memory copy end up holding the
 	// same save when two land together.
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
+	// The settings screen is the only place shortcuts change. A combo the hook
+	// cannot use is refused here, where the screen shows the error, instead of
+	// being written and then failing to apply.
+	current := s.Get()
+	if shortcutsChanged(current, updated) {
+		if err := validateShortcuts(updated); err != nil {
+			return fmt.Errorf("settings: %w", err)
+		}
+	}
+	// completed_setup is state, not a preference: only the welcome service
+	// moves it (CompleteSetup, or IsFirstRun finding a usable setup). A whole
+	// settings object sent from the screen — Reset to Defaults, or one built
+	// from the frontend's fallback defaults after a failed Get — must not
+	// send a configured user back through the wizard.
+	updated.CompletedSetup = current.CompletedSetup
 	return s.persistLocked(updated)
+}
+
+// OnSaved registers fn to run after every successful save — Save, Update and
+// everything built on them — with the settings before and after. It runs while
+// the save still holds saveMu, so calls arrive in save order; fn must not save
+// settings itself, or it deadlocks. One callback; a second call replaces it.
+//
+// A package function rather than a method, for the same reason as Update.
+func OnSaved(s *Service, fn func(old, updated Settings)) {
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	s.onSaved = fn
 }
 
 // SetActiveProvider makes provider the one KeyLint uses and saves that alone.
@@ -218,6 +283,17 @@ func (s *Service) SetActiveProvider(provider string) error {
 		return err
 	}
 	logger.Info("settings: active provider set", "provider", provider)
+	return nil
+}
+
+// SetDeveloperOptions turns the developer options on or off and saves that one
+// field, leaving anything else the settings screen has pending unsaved — the
+// unlock happens by tapping the version, not by pressing Save.
+func (s *Service) SetDeveloperOptions(enabled bool) error {
+	if err := Update(s, func(c *Settings) { c.DeveloperOptions = enabled }); err != nil {
+		return err
+	}
+	logger.Info("settings: developer options set", "enabled", enabled)
 	return nil
 }
 
@@ -267,7 +343,8 @@ func (s *Service) persistLocked(updated Settings) error {
 	// only, because the only file it could write to is the user's real one.
 
 	s.currentMu.Lock()
-	ollamaMoved := updated.Providers.OllamaURL != s.current.Providers.OllamaURL
+	old := s.current
+	ollamaMoved := updated.Providers.OllamaURL != old.Providers.OllamaURL
 	// Cloned on the way in as well: the caller still holds `updated` and may
 	// edit its presets afterwards, which would otherwise mutate live settings.
 	s.current = updated.clone()
@@ -279,6 +356,10 @@ func (s *Service) persistLocked(updated Settings) error {
 	}
 	if s.filePath != "" {
 		logger.Info("settings: saved", "path", s.filePath)
+	}
+	if s.onSaved != nil {
+		// Fresh copies: the callback must not be able to reach live state.
+		s.onSaved(old.clone(), updated.clone())
 	}
 	return nil
 }
@@ -595,6 +676,14 @@ func (s *Service) runClaudeCodeProbe() (status llm.ClaudeCodeStatus, timedOut bo
 }
 
 // ResetToDefaults resets settings to their default values and saves to disk.
+//
+// What makes the app work survives: API keys stay in the keyring, the setup
+// stays complete (see Save), and the active provider stays the one in use.
+// Resetting it to the default (OpenAI) would leave someone on the CLI or the
+// Anthropic API with a hotkey that fails on a key they never had, and with
+// setup complete nothing would put it right.
 func (s *Service) ResetToDefaults() error {
-	return s.Save(Default())
+	reset := Default()
+	reset.ActiveProvider = s.Get().ActiveProvider
+	return s.Save(reset)
 }

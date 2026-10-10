@@ -5,11 +5,16 @@
 // @ts-ignore: Unused imports
 import type { Events } from "@wailsio/runtime";
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import type * as silentfix$0 from "../../../../../keylint/internal/features/silentfix/models.js";
+
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
             "settings:changed": string;
-            "shortcut:triggered": string;
+            "shortcut:pyramidize": string;
+            "silentfix:open": silentfix$0.Notice;
         }
     }
 }

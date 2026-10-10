@@ -1,6 +1,6 @@
 import { Subject } from 'rxjs';
 import { vi } from 'vitest';
-import type { Settings, KeyStatus, UpdateInfo, InstallResult, ClaudeCodeStatus, ModelList } from '../app/core/wails.service';
+import type { Settings, KeyStatus, UpdateInfo, InstallResult, ClaudeCodeStatus, ModelList, BuildIdentity, DevChannel, SilentFixNotice } from '../app/core/wails.service';
 
 export const defaultSettings: Settings = {
   active_provider: 'openai',
@@ -10,12 +10,17 @@ export const defaultSettings: Settings = {
     aws_region: '',
   },
   shortcut_key: 'ctrl+g',
+  shortcut_mode: 'double_tap',
+  shortcut_fix: 'ctrl+g',
+  shortcut_pyramidize: 'ctrl+shift+g',
+  shortcut_double_tap_delay: 200,
   start_on_boot: false,
   theme_preference: 'dark',
   completed_setup: false,
   log_level: 'off',
   sensitive_logging: false,
   update_channel: '',
+  developer_options: false,
   app_presets: [],
   pyramidize_quality_threshold: 0.65,
 };
@@ -25,8 +30,11 @@ export const defaultKeyStatus: KeyStatus = { is_set: false, source: 'none' };
 /** Default: the built-in list, which is what a picker shows offline. */
 export const defaultModelList: ModelList = {
   models: [
-    { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
-    { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
+    // An alias leads, as the Anthropic listing puts it, naming what it
+    // resolves to today.
+    { id: 'sonnet', label: 'Sonnet (latest)', resolved: 'claude-sonnet-5-5' },
+    { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', resolved: '' },
+    { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', resolved: '' },
   ],
   source: 'unreachable',
 };
@@ -48,15 +56,32 @@ export const defaultUpdateInfo: UpdateInfo = {
   channel: '',
 };
 
+/** Default: a release build, not one from the dev channel. */
+export const defaultBuildIdentity: BuildIdentity = { is_dev_build: false, kind: '', pr: 0, commit: '', tag: '' };
+
+/** Default: nothing published on the dev channel. */
+export const defaultDevChannel: DevChannel = {
+  current: { ...defaultBuildIdentity },
+  builds: [],
+  orphaned: false,
+  latest_release: '',
+  latest_release_date: '',
+  new_release_since_build: false,
+  error: '',
+};
+
 export function createWailsMock() {
-  const shortcutTriggered$ = new Subject<string>();
+  const silentFixOpen$ = new Subject<SilentFixNotice>();
+  const shortcutPyramidize$ = new Subject<string>();
   const settingsChanged$ = new Subject<void>();
 
   return {
-    shortcutTriggered$: shortcutTriggered$.asObservable(),
+    silentFixOpen$: silentFixOpen$.asObservable(),
+    shortcutPyramidize$: shortcutPyramidize$.asObservable(),
     settingsChanged$: settingsChanged$.asObservable(),
     // Expose subjects so tests can trigger events
-    _shortcutTriggered$: shortcutTriggered$,
+    _silentFixOpen$: silentFixOpen$,
+    _shortcutPyramidize$: shortcutPyramidize$,
     _settingsChanged$: settingsChanged$,
 
     loadSettings: vi.fn().mockResolvedValue({ ...defaultSettings }),
@@ -67,6 +92,8 @@ export function createWailsMock() {
     readClipboard: vi.fn().mockResolvedValue('clipboard text'),
     writeClipboard: vi.fn().mockResolvedValue(undefined),
     enhance: vi.fn().mockResolvedValue('Enhanced text.'),
+    setShortcutPaused: vi.fn().mockResolvedValue(undefined),
+    takePendingPyramidize: vi.fn().mockReturnValue(false),
     simulateShortcut: vi.fn().mockResolvedValue(undefined),
     getKeyStatus: vi.fn().mockResolvedValue({ ...defaultKeyStatus }),
     getKey: vi.fn().mockResolvedValue(''),
@@ -78,6 +105,11 @@ export function createWailsMock() {
     getVersion: vi.fn().mockResolvedValue('3.6.0'),
     checkForUpdate: vi.fn().mockResolvedValue({ ...defaultUpdateInfo }),
     downloadAndInstall: vi.fn().mockResolvedValue({ restart_required: false }),
+    setDeveloperOptions: vi.fn().mockResolvedValue(undefined),
+    getBuildIdentity: vi.fn().mockResolvedValue({ ...defaultBuildIdentity }),
+    listDevBuilds: vi.fn().mockResolvedValue({ ...defaultDevChannel, builds: [] }),
+    installDevBuild: vi.fn().mockResolvedValue({ restart_required: true } as InstallResult),
+    installLatestRelease: vi.fn().mockResolvedValue({ restart_required: true } as InstallResult),
     log: vi.fn().mockResolvedValue(undefined),
     pasteToForeground: vi.fn().mockResolvedValue(undefined),
     ngOnDestroy: vi.fn(),

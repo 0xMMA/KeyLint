@@ -35,7 +35,7 @@ Keys are NOT stored in `settings.json`. `GetKey(provider)` / `SetKey` / `DeleteK
 
 ## Platform Differences
 
-**Shortcut:** `internal/features/shortcut/service_linux.go` (build tag `!windows`) is a no-op with a `Simulate()` helper for dev. `service_windows.go` uses Win32 `RegisterHotKey`.
+**Shortcut:** `internal/features/shortcut/service_linux.go` (build tag `!windows`) is a no-op with a `Simulate()` helper for dev. `service_windows.go` installs a `WH_KEYBOARD_LL` hook (double-tap or two independent combos, see `docs/superpowers/specs/2026-04-06-keyboard-hook-configurable-shortcuts-design.md`) and hands each detected press to `main.go` through a channel it never blocks on (the sender is the hook thread). The fix shortcut goes straight to `internal/features/silentfix` — no frontend event: it captures the source window, copies, enhances, and pastes back only into that window while it still has focus; one run at a time, guarded by a per-run token; the tray icon carries a dot while it runs (`tray.SetBusy`). A failure, or a fix it could not paste, is one silent toast (`internal/features/notify`, go-toast via the AppUserModelID registry method, so it works for the NSIS install and dev-channel builds alike; log-only off Windows); identical ones are not repeated within 30 s. A click on it emits `silentfix:open`, and `ShellComponent` routes to AI Providers or to the Fix page, which shows the reason and the text. The Pyramidize shortcut emits `shortcut:pyramidize`; `ShellComponent` navigates to `/enhance` on every route, and that page picks the shortcut up through `WailsService.takePendingPyramidize()` because the event fires before it subscribes. Saved shortcuts apply at once via `settings.OnSaved` in `main.go`; `settings.Save` refuses a shortcut change the hook could not use, and `load()` replaces unusable values from the file. `shortcut_key` is legacy and never read — up to v4.5.0-beta Ctrl+G was hard-wired.
 
 **Clipboard:** `clipboard.Write()` on Linux requires `xsel` or `xclip` installed; failure is silently swallowed (best-effort).
 
@@ -49,7 +49,7 @@ Keys are NOT stored in `settings.json`. `GetKey(provider)` / `SetKey` / `DeleteK
 
 ```
 /welcome              → WelcomeWizardComponent (first-run guard redirects here)
-/ → /fix              → FixComponent (default, silent clipboard fix)
+/ → /fix              → FixComponent (default; manual fix — the shortcut's silent fix runs in ShellComponent)
 /enhance              → TextEnhancementComponent (manual input/output)
 /settings             → SettingsComponent
 /dev-tools            → DevToolsComponent (dev mode only)

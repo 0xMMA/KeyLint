@@ -45,8 +45,13 @@ export class AppPreset {
 }
 
 /**
- * FeatureModels is the model chosen per feature for one provider. An empty
- * string means "use the built-in default" — see llm.DefaultModel.
+ * FeatureModels is the model and effort chosen per feature for one provider.
+ * An empty model means "use the built-in default" — see llm.DefaultModel. An
+ * empty effort means "send none", which leaves the model on its own default.
+ * 
+ * Both live per provider, so switching to another provider and back restores
+ * what was chosen for each. Older settings files carry no effort fields and
+ * read as "", which is the behaviour they had — no migration.
  */
 export class FeatureModels {
     /**
@@ -67,6 +72,20 @@ export class FeatureModels {
              * @type {string}
              */
             this["pyramidize"] = "";
+        }
+        if (!("fix_effort" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["fix_effort"] = "";
+        }
+        if (!("pyramidize_effort" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["pyramidize_effort"] = "";
         }
 
         Object.assign(this, $$source);
@@ -188,11 +207,43 @@ export class Settings {
         }
         if (!("shortcut_key" in $$source)) {
             /**
-             * e.g. "ctrl+g"
+             * LEGACY — never applied (Ctrl+G was hard-wired); ignored, kept so old files round-trip
              * @member
              * @type {string}
              */
             this["shortcut_key"] = "";
+        }
+        if (!("shortcut_mode" in $$source)) {
+            /**
+             * "double_tap" | "independent"
+             * @member
+             * @type {string}
+             */
+            this["shortcut_mode"] = "";
+        }
+        if (!("shortcut_fix" in $$source)) {
+            /**
+             * e.g. "ctrl+g"
+             * @member
+             * @type {string}
+             */
+            this["shortcut_fix"] = "";
+        }
+        if (!("shortcut_pyramidize" in $$source)) {
+            /**
+             * e.g. "ctrl+shift+g" (independent mode only)
+             * @member
+             * @type {string}
+             */
+            this["shortcut_pyramidize"] = "";
+        }
+        if (!("shortcut_double_tap_delay" in $$source)) {
+            /**
+             * ms, 100-500, default 200
+             * @member
+             * @type {number}
+             */
+            this["shortcut_double_tap_delay"] = 0;
         }
         if (!("start_on_boot" in $$source)) {
             /**
@@ -240,6 +291,16 @@ export class Settings {
              */
             this["update_channel"] = "";
         }
+        if (!("developer_options" in $$source)) {
+            /**
+             * DeveloperOptions unlocks the dev channel in Settings → About: installable
+             * builds of open pull requests and of main. Off for everyone until the
+             * owner turns it on by tapping the version, and off again with a switch.
+             * @member
+             * @type {boolean}
+             */
+            this["developer_options"] = false;
+        }
         if (!("models" in $$source)) {
             /**
              * Models holds the model chosen per provider and feature. An absent key or
@@ -277,17 +338,17 @@ export class Settings {
      */
     static createFrom($$source = {}) {
         const $$createField1_0 = $$createType0;
-        const $$createField9_0 = $$createType2;
-        const $$createField10_0 = $$createType4;
+        const $$createField14_0 = $$createType2;
+        const $$createField15_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("providers" in $$parsedSource) {
             $$parsedSource["providers"] = $$createField1_0($$parsedSource["providers"]);
         }
         if ("models" in $$parsedSource) {
-            $$parsedSource["models"] = $$createField9_0($$parsedSource["models"]);
+            $$parsedSource["models"] = $$createField14_0($$parsedSource["models"]);
         }
         if ("app_presets" in $$parsedSource) {
-            $$parsedSource["app_presets"] = $$createField10_0($$parsedSource["app_presets"]);
+            $$parsedSource["app_presets"] = $$createField15_0($$parsedSource["app_presets"]);
         }
         return new Settings(/** @type {Partial<Settings>} */($$parsedSource));
     }
