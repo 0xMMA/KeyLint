@@ -14,6 +14,8 @@ export type TooltipPosition = 'right' | 'left' | 'top' | 'bottom';
 
 let nextId = 0;
 
+const FOCUSABLE = 'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
 /** The bubble itself, rendered into the CDK overlay container on <body>. */
 @Component({
   selector: 'kl-tooltip-panel',
@@ -71,9 +73,10 @@ const POSITIONS: Record<TooltipPosition, ConnectedPosition[]> = {
  *   <a routerLink="/fix" [klTooltip]="collapsed ? 'Fix' : ''" klTooltipPosition="right">…</a>
  *
  * Shows on hover (after a short delay) and on keyboard focus, hides on leave,
- * blur and Escape. While shown, the host is described by it
- * (aria-describedby). An empty text means no tooltip, which is how a caller
- * switches it off.
+ * blur and Escape (pressed anywhere, WCAG 1.4.13). While shown, the element
+ * that takes the focus is described by it (aria-describedby): the host, or
+ * for a wrapper like kl-button the <button> inside it. An empty text means no
+ * tooltip, which is how a caller switches it off.
  */
 @Directive({
   selector: '[klTooltip]',
@@ -84,9 +87,11 @@ const POSITIONS: Record<TooltipPosition, ConnectedPosition[]> = {
     '(focusin)': 'onFocus()',
     '(focusout)': 'onBlur()',
     '(pointerdown)': 'pointerDown = true',
-    '(keydown.escape)': 'hide()',
+    // After the focus a press causes, so the flag never outlives the press.
+    '(pointerup)': 'pointerDown = false',
+    '(pointercancel)': 'pointerDown = false',
+    '(document:keydown.escape)': 'onEscape()',
     '(click)': 'hide()',
-    '[attr.aria-describedby]': 'shownId()',
   },
 })
 export class TooltipDirective implements OnDestroy {
@@ -105,7 +110,8 @@ export class TooltipDirective implements OnDestroy {
   private timer: ReturnType<typeof setTimeout> | null = null;
   protected pointerDown = false;
   private readonly id = `kl-tooltip-${nextId++}`;
-  protected readonly shownId = signal<string | null>(null);
+  /** The element carrying aria-describedby while shown. */
+  private described: HTMLElement | null = null;
 
   constructor() {
     // A text that changes while shown (a collapse button that now expands)
@@ -160,18 +166,45 @@ export class TooltipDirective implements OnDestroy {
       this.panel.instance.id.set(this.id);
     }
     this.panel?.instance.text.set(text);
-    this.shownId.set(this.id);
+    this.describe(true);
   }
 
   hide(): void {
     this.clearTimer();
     if (this.overlayRef?.hasAttached()) this.overlayRef.detach();
     this.panel = null;
-    this.shownId.set(null);
+    this.describe(false);
+  }
+
+  protected onEscape(): void {
+    if (this.panel || this.timer !== null) this.hide();
+  }
+
+  /**
+   * Adds or removes this tooltip's id in aria-describedby of the element that
+   * takes the focus, keeping any id that is there for another reason.
+   */
+  private describe(on: boolean): void {
+    if (on && !this.described) this.described = this.focusTarget();
+    const el = this.described;
+    if (!el) return;
+    const ids = (el.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(id => id && id !== this.id);
+    if (on) ids.push(this.id);
+    if (ids.length) el.setAttribute('aria-describedby', ids.join(' '));
+    else el.removeAttribute('aria-describedby');
+    if (!on) this.described = null;
+  }
+
+  /** The host if it takes the focus itself, else the first element inside it that does. */
+  private focusTarget(): HTMLElement {
+    const host = this.host.nativeElement;
+    if (host.matches(FOCUSABLE)) return host;
+    return host.querySelector<HTMLElement>(FOCUSABLE) ?? host;
   }
 
   ngOnDestroy(): void {
     this.clearTimer();
+    this.describe(false);
     this.positionSub?.unsubscribe();
     this.overlayRef?.dispose();
     this.overlayRef = null;
