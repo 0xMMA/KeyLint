@@ -92,6 +92,11 @@ export type ButtonSize = 'sm' | 'md' | 'lg';
 
     .primary { background: var(--kl-primary); color: var(--kl-on-primary); }
     .primary:not(:disabled):hover { background: var(--kl-primary-hover); }
+    /* A faded orange reads as brown; a disabled primary goes grey instead.
+       Loading is disabled too, but stays orange: it is busy, not unavailable. */
+    .primary:disabled:not([aria-busy='true']) {
+      background: var(--kl-raised); color: var(--kl-muted); border-color: var(--kl-line-control); opacity: 1;
+    }
     .quiet { background: var(--kl-raised); color: var(--kl-surface-200); border-color: var(--kl-line-control); }
     .quiet:not(:disabled):hover { background: var(--kl-raised-hover); }
     .quiet[aria-pressed='true'] { background: var(--kl-selected); color: var(--kl-text-strong); }
