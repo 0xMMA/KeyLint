@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, input, model, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { CdkScrollable } from '@angular/cdk/scrolling';
 import { ButtonComponent, IconComponent, InputDirective, MessageComponent, SelectComponent } from '../../../shared/ui';
 
 export interface LabelledOption { label: string; value: string }
@@ -20,6 +21,8 @@ export interface ModelOption { id: string; label: string }
   standalone: true,
   imports: [FormsModule, ButtonComponent, IconComponent, InputDirective, MessageComponent, SelectComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // The column scrolls on its own; cdkScrollable lets an open select follow it.
+  hostDirectives: [CdkScrollable],
   host: { class: 'pz-options', role: 'region', 'aria-label': 'Pyramidize options' },
   template: `
     <h1 class="pz-title">Pyramidize</h1>

@@ -5,8 +5,10 @@ import {
 import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
 import { TemplatePortal } from '@angular/cdk/portal';
 import {
-  type OverlayRef, createFlexibleConnectedPositionStrategy, createOverlayRef, createRepositionScrollStrategy,
+  type FlexibleConnectedPositionStrategy, type OverlayRef, createFlexibleConnectedPositionStrategy, createOverlayRef,
+  createRepositionScrollStrategy,
 } from '@angular/cdk/overlay';
+import { ScrollDispatcher } from '@angular/cdk/scrolling';
 import { Subscription } from 'rxjs';
 import { IconComponent } from '../icon/icon.component';
 
@@ -28,6 +30,12 @@ type Option = unknown;
  * Focus stays on the trigger in both; the options are a role="listbox" in the
  * CDK overlay container on <body> (so no parent's overflow clips it), and the
  * active one is announced with aria-activedescendant.
+ *
+ * The open list follows its trigger when the page scrolls and closes once
+ * the trigger has scrolled out of its container's view. That needs the
+ * container to be known to the CDK: the app's scroll containers carry
+ * `cdkScrollable` (the shell's main area, the Pyramidize options column);
+ * a new scrolling container that can hold a select needs it too.
  *
  * Options are any objects. `optionLabel` names the field that is the option's
  * text (and, editable, what is written into the field), `optionValue` the
@@ -220,6 +228,7 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
   private readonly injector = inject(Injector);
   private readonly vcr = inject(ViewContainerRef);
   private readonly hostEl = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly scrollDispatcher = inject(ScrollDispatcher);
   private readonly triggerRef = viewChild<ElementRef<HTMLElement>>('trigger');
   private readonly panelTpl = viewChild.required<TemplateRef<unknown>>('panel');
 
@@ -249,6 +258,7 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
     this.isOpen() && this.activeIndex() >= 0 ? this.optionId(this.activeIndex()) : null);
 
   private overlayRef: OverlayRef | null = null;
+  private positionStrategy: FlexibleConnectedPositionStrategy | null = null;
   private subs = new Subscription();
   private typeahead = '';
   private typeaheadTimer: ReturnType<typeof setTimeout> | null = null;
@@ -296,14 +306,16 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
   open(): void {
     if (this.isDisabled() || this.isOpen()) return;
     if (!this.overlayRef) {
+      this.positionStrategy = createFlexibleConnectedPositionStrategy(this.injector, this.hostEl)
+        .withPositions([
+          { originX: 'start', originY: 'bottom', overlayX: 'start', overlayY: 'top', offsetY: 6 },
+          { originX: 'start', originY: 'top', overlayX: 'start', overlayY: 'bottom', offsetY: -6 },
+        ])
+        .withPush(false)
+        .withFlexibleDimensions(false);
+      // Hears the scroll of every cdkScrollable as well as the document's.
       this.overlayRef = createOverlayRef(this.injector, {
-        positionStrategy: createFlexibleConnectedPositionStrategy(this.injector, this.hostEl)
-          .withPositions([
-            { originX: 'start', originY: 'bottom', overlayX: 'start', overlayY: 'top', offsetY: 6 },
-            { originX: 'start', originY: 'top', overlayX: 'start', overlayY: 'bottom', offsetY: -6 },
-          ])
-          .withPush(false)
-          .withFlexibleDimensions(false),
+        positionStrategy: this.positionStrategy,
         scrollStrategy: createRepositionScrollStrategy(this.injector),
         usePopover: false,
         panelClass: 'kl-select-overlay',
@@ -314,7 +326,13 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
         this.close();
       }));
       this.subs.add(this.overlayRef.detachments().subscribe(() => this.isOpen.set(false)));
+      // The trigger scrolled out of its container: a list floating over
+      // other content, tied to nothing visible, goes.
+      this.subs.add(this.positionStrategy.positionChanges.subscribe(change => {
+        if (change.scrollableViewProperties.isOriginOutsideView) queueMicrotask(() => this.close());
+      }));
     }
+    this.positionStrategy?.withScrollableContainers(this.scrollDispatcher.getAncestorScrollContainers(this.hostEl));
     const width = this.hostEl.nativeElement.getBoundingClientRect().width;
     this.overlayRef.updateSize({ width: width || undefined, minWidth: 192 });
     this.forLabel.set(this.associatedLabelText());

@@ -1,5 +1,6 @@
 import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { Router, RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
+import { CdkScrollable } from '@angular/cdk/scrolling';
 import { isDevMode } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { IconComponent, TooltipDirective, type IconName } from '../shared/ui';
@@ -15,7 +16,7 @@ let sidebarHovered   = false;
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, IconComponent, TooltipDirective],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, CdkScrollable, IconComponent, TooltipDirective],
   styleUrls: ['./shell.component.scss'],
   template: `
     <div class="layout-wrapper" [class.sidebar-collapsed]="collapsedView">
@@ -27,7 +28,7 @@ let sidebarHovered   = false;
         <div class="layout-logo" aria-label="KeyLint" role="img">
           <span class="logo-k logo-key" aria-hidden="true">K</span><span class="logo-reveal logo-ey logo-key" aria-hidden="true">ey</span><span class="logo-l logo-lint" aria-hidden="true">L</span><span class="logo-reveal logo-int logo-lint" aria-hidden="true">int</span>
         </div>
-        <nav class="sidebar-nav" aria-label="Main">
+        <nav class="sidebar-nav" aria-label="Main" cdkScrollable>
           <ul>
             @for (item of navItems; track item.path) {
               <li class="nav-item">
@@ -68,7 +69,8 @@ let sidebarHovered   = false;
           </button>
         </div>
       </aside>
-      <div class="layout-main">
+      <!-- cdkScrollable: open selects and tooltips follow this area's scroll. -->
+      <div class="layout-main" cdkScrollable>
         <router-outlet />
       </div>
     </div>

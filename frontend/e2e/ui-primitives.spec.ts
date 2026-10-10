@@ -130,4 +130,65 @@ test.describe('UI primitives in the browser', () => {
     });
     expect(sameLine).toBe(true);
   });
+
+  /**
+   * How far the open panel is from sitting against its trigger (6px below,
+   * or 6px above when it flipped for room): ~0 while attached, null once it
+   * has closed.
+   */
+  async function detachment(page: Page, triggerSelector: string): Promise<number | null> {
+    return page.evaluate((sel) => {
+      const panel = document.querySelector('[role="listbox"]');
+      if (!panel) return null;
+      const p = panel.getBoundingClientRect();
+      const t = document.querySelector(sel)!.getBoundingClientRect();
+      return Math.round(Math.min(Math.abs(p.top - t.bottom - 6), Math.abs(t.top - p.bottom - 6)));
+    }, triggerSelector);
+  }
+
+  test('an open select follows its trigger when the page scrolls, and closes once it is out of view', async ({ page }) => {
+    await page.setViewportSize({ width: 1000, height: 420 });
+    await configured(page);
+    await page.goto('/settings?tab=general');
+    const trigger = page.locator('#log-level');
+    await trigger.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await trigger.click();
+    await expect(page.getByRole('listbox', { name: 'Log level' })).toBeVisible();
+    expect(await detachment(page, '#log-level')).toBe(0);
+
+    // A small scroll of the page's own scroll container: the panel moves with the trigger.
+    const moved = await page.locator('.layout-main').evaluate((el) => {
+      const top = el.scrollTop;
+      el.scrollBy(0, -40);
+      return top - el.scrollTop;
+    });
+    expect(moved, 'the page did scroll').toBeGreaterThan(20);
+    await expect.poll(() => detachment(page, '#log-level')).toBe(0);
+
+    // Scroll the trigger out of view: the panel goes rather than float detached.
+    const below = await page.locator('.layout-main').evaluate((el) => {
+      el.scrollTop = 0;
+      return document.querySelector('#log-level')!.getBoundingClientRect().top >= el.clientHeight;
+    });
+    expect(below, 'the trigger is out of view now').toBe(true);
+    await expect(page.getByRole('listbox')).toHaveCount(0);
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  test('an open select in the Pyramidize options column follows that column’s scroll', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 520 });
+    await configured(page);
+    await page.goto('/enhance');
+    await page.locator('#pz-provider').click();
+    await expect(page.getByRole('listbox', { name: 'Provider' })).toBeVisible();
+    expect(await detachment(page, '#pz-provider')).toBe(0);
+    const moved = await page.locator('app-pyramidize-options').evaluate((el) => {
+      el.scrollBy(0, 30);
+      return el.scrollTop;
+    });
+    expect(moved, 'the column did scroll').toBeGreaterThan(20);
+    // Give a stale panel the frames it would need to move, then measure.
+    await page.waitForTimeout(150);
+    await expect.poll(() => detachment(page, '#pz-provider')).toBe(0);
+  });
 });

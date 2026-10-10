@@ -4,9 +4,11 @@ import {
 } from '@angular/core';
 import { ComponentPortal } from '@angular/cdk/portal';
 import {
-  type ConnectedPosition, type OverlayRef, createFlexibleConnectedPositionStrategy, createOverlayRef,
-  createRepositionScrollStrategy,
+  type ConnectedPosition, type FlexibleConnectedPositionStrategy, type OverlayRef,
+  createFlexibleConnectedPositionStrategy, createOverlayRef, createRepositionScrollStrategy,
 } from '@angular/cdk/overlay';
+import { ScrollDispatcher } from '@angular/cdk/scrolling';
+import { Subscription } from 'rxjs';
 
 export type TooltipPosition = 'right' | 'left' | 'top' | 'bottom';
 
@@ -95,7 +97,10 @@ export class TooltipDirective implements OnDestroy {
 
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
+  private readonly scrollDispatcher = inject(ScrollDispatcher);
   private overlayRef: OverlayRef | null = null;
+  private positionStrategy: FlexibleConnectedPositionStrategy | null = null;
+  private positionSub: Subscription | null = null;
   private panel: ComponentRef<TooltipPanelComponent> | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   protected pointerDown = false;
@@ -135,14 +140,21 @@ export class TooltipDirective implements OnDestroy {
     const text = this.klTooltip();
     if (!text) return;
     if (!this.overlayRef) {
+      this.positionStrategy = createFlexibleConnectedPositionStrategy(this.injector, this.host)
+        .withPositions(POSITIONS[this.klTooltipPosition()])
+        .withPush(true);
+      // Follows the host when a cdkScrollable (or the document) scrolls, and
+      // goes once the host has scrolled out of view.
       this.overlayRef = createOverlayRef(this.injector, {
-        positionStrategy: createFlexibleConnectedPositionStrategy(this.injector, this.host)
-          .withPositions(POSITIONS[this.klTooltipPosition()])
-          .withPush(true),
+        positionStrategy: this.positionStrategy,
         scrollStrategy: createRepositionScrollStrategy(this.injector),
         usePopover: false,
       });
+      this.positionSub = this.positionStrategy.positionChanges.subscribe(change => {
+        if (change.scrollableViewProperties.isOriginOutsideView) queueMicrotask(() => this.hide());
+      });
     }
+    this.positionStrategy?.withScrollableContainers(this.scrollDispatcher.getAncestorScrollContainers(this.host));
     if (!this.overlayRef.hasAttached()) {
       this.panel = this.overlayRef.attach(new ComponentPortal(TooltipPanelComponent));
       this.panel.instance.id.set(this.id);
@@ -160,6 +172,7 @@ export class TooltipDirective implements OnDestroy {
 
   ngOnDestroy(): void {
     this.clearTimer();
+    this.positionSub?.unsubscribe();
     this.overlayRef?.dispose();
     this.overlayRef = null;
     this.panel = null;
