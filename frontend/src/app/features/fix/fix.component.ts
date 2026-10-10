@@ -6,9 +6,10 @@ import { ButtonModule } from 'primeng/button';
 import { TextareaModule } from 'primeng/textarea';
 import { MessageModule } from 'primeng/message';
 import { CheckboxModule } from 'primeng/checkbox';
-import { WailsService } from '../../core/wails.service';
+import { WailsService, type SilentFixNotice } from '../../core/wails.service';
 import { LogService } from '../../core/log.service';
 import { TextEnhancementService } from '../text-enhancement/text-enhancement.service';
+import { SilentFixNoticeService } from './silent-fix-notice.service';
 
 // Module-level cache — survives Angular route navigation (component destroy/recreate).
 let _inputCache = '';
@@ -21,6 +22,19 @@ let _autoCopyCache = true;
   imports: [CommonModule, FormsModule, ButtonModule, TextareaModule, MessageModule, CheckboxModule],
   template: `
     <div class="fix-page">
+      <!-- A clicked hotkey-fix notification: what happened, in full. -->
+      @if (silentNotice) {
+        <p-message data-testid="silent-fix-notice" severity="warn">
+          <div class="silent-notice">
+            <strong data-testid="silent-fix-notice-title">{{ silentNotice.title }}</strong>
+            <span data-testid="silent-fix-notice-body">{{ silentNotice.body }}</span>
+            @if (silentNotice.detail) {
+              <small data-testid="silent-fix-notice-detail">{{ silentNotice.detail }}</small>
+            }
+          </div>
+        </p-message>
+      }
+
       <div class="fix-textareas">
         <textarea
           data-testid="fix-input"
@@ -80,6 +94,8 @@ let _autoCopyCache = true;
     .fix-actions { display: flex; align-items: center; gap: 0.5rem; }
     .auto-copy-toggle { display: flex; align-items: center; gap: 0.5rem; margin-left: 0.75rem; font-size: 0.875rem; color: var(--p-text-muted-color); cursor: pointer; }
     .auto-copy-toggle label { cursor: pointer; }
+    .silent-notice { display: flex; flex-direction: column; gap: 0.25rem; }
+    .silent-notice small { color: var(--p-text-muted-color); }
   `],
 })
 export class FixComponent implements OnInit, OnDestroy {
@@ -89,6 +105,8 @@ export class FixComponent implements OnInit, OnDestroy {
   loading = false;
   error = '';
   done = false;
+  /** The hotkey-fix notification the user clicked to get here, if any. */
+  silentNotice: SilentFixNotice | null = null;
 
   private sub?: Subscription;
 
@@ -97,14 +115,38 @@ export class FixComponent implements OnInit, OnDestroy {
     private readonly svc: TextEnhancementService,
     private readonly cdr: ChangeDetectorRef,
     private readonly log: LogService,
+    private readonly silentNotices: SilentFixNoticeService,
   ) {}
 
   _sync(value: string): void { _inputCache = value; }
   _syncAutoCopy(value: boolean): void { _autoCopyCache = value; }
 
   ngOnInit(): void {
-    // Silent fix is handled by ShellComponent (always mounted).
-    // This component only provides the manual fix UI.
+    // The hotkey fix runs in Go with the window hidden. This page only hears
+    // of it when the user clicks its notification: then it shows what
+    // happened, with the text the fix ran on ready to try again.
+    const pending = this.silentNotices.take('fix');
+    if (pending) this.showSilentNotice(pending);
+    this.sub = this.silentNotices.notices$.subscribe(() => {
+      const notice = this.silentNotices.take('fix');
+      if (notice) {
+        this.showSilentNotice(notice);
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  private showSilentNotice(notice: SilentFixNotice): void {
+    this.silentNotice = notice;
+    this.error = '';
+    this.done = false;
+    if (notice.input) {
+      this.inputText = notice.input;
+      _inputCache = notice.input;
+      // Whatever was in the result box belongs to some earlier text.
+      this.outputText = notice.output ?? '';
+      _outputCache = this.outputText;
+    }
   }
 
   async fix(): Promise<void> {
@@ -112,6 +154,7 @@ export class FixComponent implements OnInit, OnDestroy {
     this.loading = true;
     this.error = '';
     this.done = false;
+    this.silentNotice = null;
     this.log.info('fix: enhance started');
     try {
       this.outputText = await this.svc.enhance(this.inputText);
@@ -135,6 +178,7 @@ export class FixComponent implements OnInit, OnDestroy {
     this.loading = true;
     this.error = '';
     this.done = false;
+    this.silentNotice = null;
     this.log.info('fix: clipboard enhance started');
     try {
       this.inputText = await this.wails.readClipboard();

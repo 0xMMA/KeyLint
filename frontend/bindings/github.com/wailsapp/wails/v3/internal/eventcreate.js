@@ -6,9 +6,17 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as silentfix$0 from "../../../../../keylint/internal/features/silentfix/models.js";
+
 function configure() {
     Object.freeze(Object.assign($Create.Events, {
+        "silentfix:open": $$createType0,
     }));
 }
+
+// Private type creation functions
+const $$createType0 = silentfix$0.Notice.createFrom;
 
 configure();

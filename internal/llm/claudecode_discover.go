@@ -40,7 +40,7 @@ func LocateClaudeCode() (string, error) {
 			return candidate, nil
 		}
 	}
-	return "", fmt.Errorf("%s: not found. Install Claude Code, or pick a provider with an API key in Settings", claudeCodeProvider.name)
+	return "", fmt.Errorf("%s: %w", claudeCodeProvider.name, ErrCLINotFound)
 }
 
 // systemCandidates are the machine-wide install locations on Unix. It is a

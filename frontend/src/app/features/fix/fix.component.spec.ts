@@ -5,6 +5,7 @@ import { FixComponent } from './fix.component';
 import { TextEnhancementService } from '../text-enhancement/text-enhancement.service';
 import { WailsService } from '../../core/wails.service';
 import { createWailsMock } from '../../../testing/wails-mock';
+import { SilentFixNoticeService } from './silent-fix-notice.service';
 
 describe('FixComponent', () => {
   let fixture: ComponentFixture<FixComponent>;
@@ -41,9 +42,13 @@ describe('FixComponent', () => {
     expect(el.querySelector('[data-testid="fix-btn"]')).toBeTruthy();
   });
 
-  it('output textarea is empty before a fix is run', () => {
+  it('output textarea is empty before a fix is run', async () => {
+    // The result box keeps module-level state across navigation, and spec
+    // files share a process (isolate: false), so another file's last result
+    // can be in it. ngModel writes the cleared value asynchronously.
     component.outputText = '';
     fixture.detectChanges();
+    await fixture.whenStable();
     const output = el.querySelector<HTMLTextAreaElement>('[data-testid="fix-output"]');
     expect(output?.value).toBe('');
   });
@@ -110,6 +115,50 @@ describe('FixComponent', () => {
     expect(component.loading).toBe(false);
   });
 
-  // Silent fix via shortcut is handled by ShellComponent (always mounted).
-  // See shell.component.spec.ts for shortcutFix$ tests.
+  // The hotkey fix runs in Go; this page shows a clicked notification.
+  // shell-silent-fix.spec.ts drives the same through the real router.
+  describe('a clicked hotkey-fix notification', () => {
+    const notice = {
+      id: 'silentfix-3', title: 'Fixed, not pasted', body: 'You switched windows — the fix is on the clipboard.',
+      target: 'fix', detail: '', input: 'their going home', output: "They're going home.",
+    };
+
+    async function render(): Promise<void> {
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+    }
+
+    it('shows what happened, with the text and the result in place', async () => {
+      TestBed.inject(SilentFixNoticeService).present(notice);
+      await render();
+
+      expect(el.querySelector('[data-testid="silent-fix-notice-title"]')?.textContent).toContain('Fixed, not pasted');
+      expect(el.querySelector('[data-testid="silent-fix-notice-body"]')?.textContent).toContain('You switched windows');
+      expect(el.querySelector<HTMLTextAreaElement>('[data-testid="fix-input"]')?.value).toBe('their going home');
+      expect(el.querySelector<HTMLTextAreaElement>('[data-testid="fix-output"]')?.value).toBe("They're going home.");
+    });
+
+    it('shows the full error under the reason, and clears a stale result', async () => {
+      component.outputText = 'an older result';
+      TestBed.inject(SilentFixNoticeService).present({
+        ...notice, title: 'Fix took too long', body: 'The model took too long — try a shorter selection or a faster model.',
+        detail: 'Claude took too long to answer — try a shorter selection or a faster model', output: '',
+      });
+      await render();
+
+      expect(el.querySelector('[data-testid="silent-fix-notice-detail"]')?.textContent).toContain('Claude took too long to answer');
+      expect(el.querySelector<HTMLTextAreaElement>('[data-testid="fix-output"]')?.value).toBe('');
+    });
+
+    it('goes away when the user runs the fix again', async () => {
+      TestBed.inject(SilentFixNoticeService).present(notice);
+      await render();
+      expect(el.querySelector('[data-testid="silent-fix-notice"]')).toBeTruthy();
+
+      await component.fix();
+      await render();
+      expect(el.querySelector('[data-testid="silent-fix-notice"]')).toBeFalsy();
+    });
+  });
 });

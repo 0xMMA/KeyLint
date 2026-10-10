@@ -87,7 +87,7 @@ func completeViaOpenAI(ctx context.Context, cfg Config, p provider, baseURL stri
 	}
 	logRequest(cfg, p, req.Model, params)
 
-	attempts := &httpAttempts{cfg: cfg, provider: p}
+	attempts := newHTTPAttempts(ctx, cfg, p)
 	// The service method has a pointer receiver, so the client needs a variable.
 	client := openAISDKClient(cfg, baseURL, attempts)
 	completion, err := client.Chat.Completions.New(ctx, params)
@@ -98,7 +98,7 @@ func completeViaOpenAI(ctx context.Context, cfg Config, p provider, baseURL stri
 		logger.Warn("llm: model rejected reasoning_effort, retried without it",
 			"feature", cfg.Feature, "provider", p.id, "model", req.Model, "reasoning_effort", string(params.ReasoningEffort))
 		params.ReasoningEffort = ""
-		attempts = &httpAttempts{cfg: cfg, provider: p}
+		attempts = newHTTPAttempts(ctx, cfg, p)
 		client = openAISDKClient(cfg, baseURL, attempts)
 		completion, err = client.Chat.Completions.New(ctx, params)
 	}
@@ -118,7 +118,7 @@ func completeViaOpenAI(ctx context.Context, cfg Config, p provider, baseURL stri
 	// A truncated answer would be pasted over the user's selection as a
 	// half-written sentence — the same call the Claude Code client makes.
 	if choice.FinishReason == "length" {
-		return Response{}, fmt.Errorf("%s: %s", p.name, outputLimitMessage)
+		return Response{}, fmt.Errorf("%s: %w", p.name, ErrOutputLimit)
 	}
 
 	text := choice.Message.Content
@@ -236,9 +236,12 @@ func environmentCustomHeaders() []string {
 // mapOpenAIError turns an SDK error into the wording the user sees. The raw body
 // stays out of it — see statusMessage.
 func mapOpenAIError(p provider, attempts *httpAttempts, model string, err error) error {
+	if limited, ok := rateLimitedPastDeadline(p, attempts, model, err); ok {
+		return limited
+	}
 	// The caller giving up is not a provider failure, and callers test for it
 	// with errors.Is — so it must not become a status even if an earlier
-	// attempt saw one.
+	// attempt saw one (a rate limit waited out past the deadline aside).
 	if isContextError(err) {
 		return transportError(p, err)
 	}

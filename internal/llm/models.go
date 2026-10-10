@@ -278,7 +278,7 @@ func listAnthropicModels(ctx context.Context, cfg Config) ([]ModelInfo, int, err
 }
 
 func listOpenAIModels(ctx context.Context, cfg Config) ([]ModelInfo, int, error) {
-	attempts := &httpAttempts{cfg: cfg, provider: openAIProvider}
+	attempts := newHTTPAttempts(ctx, cfg, openAIProvider)
 	client := openAISDKClient(cfg, resolveBaseURL(cfg.BaseURL, defaultOpenAIBaseURL), attempts)
 
 	page, err := client.Models.List(ctx)

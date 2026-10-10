@@ -208,7 +208,7 @@ func anthropicCatalogue(ctx context.Context, cfg Config) (models []anthropicMode
 
 // fetchAnthropicCatalogue asks the models endpoint once.
 func fetchAnthropicCatalogue(ctx context.Context, cfg Config) ([]anthropicModel, error) {
-	attempts := &httpAttempts{cfg: cfg, provider: anthropicProvider}
+	attempts := newHTTPAttempts(ctx, cfg, anthropicProvider)
 	client := (&anthropicClient{cfg: cfg}).client(attempts)
 
 	// Without a limit the SDK asks for 20 and this code never follows the

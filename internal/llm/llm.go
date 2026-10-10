@@ -215,21 +215,56 @@ type httpAttempts struct {
 	provider   provider
 	count      int
 	lastStatus int
+	// lastErr and lastTimedOut describe the previous attempt, so a retry can
+	// be skipped when it cannot fit in what is left of the deadline.
+	lastErr      error
+	lastTimedOut bool
+	// deadline is the caller's, taken from the context handed to Complete.
+	// The request a middleware sees carries the SDK's per-attempt timeout
+	// instead whenever that is the earlier one, so it cannot say how much of
+	// the caller's time is left.
+	deadline    time.Time
+	hasDeadline bool
+}
+
+// newHTTPAttempts starts the record for one SDK call made under ctx.
+func newHTTPAttempts(ctx context.Context, cfg Config, p provider) *httpAttempts {
+	deadline, ok := ctx.Deadline()
+	return &httpAttempts{cfg: cfg, provider: p, deadline: deadline, hasDeadline: ok}
 }
 
 // middleware fits both SDKs: their Middleware types are identical aliases.
 func (a *httpAttempts) middleware(req *http.Request, next func(*http.Request) (*http.Response, error)) (*http.Response, error) {
 	a.count++
 	attempt := a.count
-	// Per attempt, not cumulative: a 500 followed by a dropped connection must
-	// not let the retry be reported as "error 500".
-	a.lastStatus = 0
 
 	// Redacted() masks any password in the URL — a self-hosted Ollama behind
 	// basic auth is a realistic way for one to end up here.
 	url := req.URL.Redacted()
 
+	if attempt > 1 && !retryWorthwhile(a.lastTimedOut, a.hasDeadline, time.Until(a.deadline), a.cfg.requestTimeout()) {
+		// Hand the SDK the previous attempt's timeout back: this is its last
+		// attempt, so it returns that as the call's error and the user hears
+		// "took too long" now rather than after another wait.
+		logger.Info("llm: retry skipped, the time left cannot fit another attempt",
+			"feature", a.cfg.Feature, "provider", a.provider.id, "attempt", attempt,
+			"remaining_ms", time.Until(a.deadline).Milliseconds())
+		// The attempt can have timed out with no error of its own: a response
+		// arrived just as its context expired, and the SDK dropped it. A nil
+		// error with a nil response would make the SDK read a status off nil.
+		if a.lastErr == nil {
+			return nil, context.DeadlineExceeded
+		}
+		return nil, a.lastErr
+	}
+
+	// Per attempt, not cumulative: a 500 followed by a dropped connection must
+	// not let the retry be reported as "error 500".
+	a.lastStatus = 0
+
 	resp, err := next(req)
+	a.lastErr = err
+	a.lastTimedOut = isTimeoutCause(err) || errors.Is(req.Context().Err(), context.DeadlineExceeded)
 	if err != nil {
 		logger.Debug("llm: http", "feature", a.cfg.Feature, "provider", a.provider.id,
 			"method", req.Method, "url", url, "attempt", attempt, "err", err)
@@ -320,10 +355,25 @@ func apiErrorForModel(p provider, status int, model, rawBody string) error {
 		// retired is the likeliest 404 here — but it must not displace the other
 		// cause the old wording carried: a mistyped endpoint answers 404 too,
 		// and sending that user to the model picker wastes their time.
-		return fmt.Errorf("%s error %d: the model %q was not found, or the endpoint URL is wrong — check both in Settings → AI Providers",
-			p.name, status, model)
+		return &StatusError{Provider: p.name, Status: status, msg: fmt.Sprintf(
+			"%s error %d: the model %q was not found, or the endpoint URL is wrong — check both in Settings → AI Providers",
+			p.name, status, model)}
 	}
-	return fmt.Errorf("%s error %d: %s", p.name, status, statusMessage(status))
+	return &StatusError{Provider: p.name, Status: status, msg: fmt.Sprintf("%s error %d: %s", p.name, status, statusMessage(status))}
+}
+
+// rateLimitedPastDeadline is a rate limit the SDK was still waiting out when
+// the caller's deadline passed: the provider answered 429 with a Retry-After
+// longer than the time left. "Took too long" would send the user to a shorter
+// selection; what they need to know is that they were rate limited. Still
+// unwraps to the deadline, for callers that test for it.
+func rateLimitedPastDeadline(p provider, attempts *httpAttempts, model string, err error) (error, bool) {
+	if !errors.Is(err, context.DeadlineExceeded) || attempts.statusOrZero() != http.StatusTooManyRequests {
+		return nil, false
+	}
+	se := apiErrorForModel(p, http.StatusTooManyRequests, model, "").(*StatusError)
+	se.err = err
+	return se, true
 }
 
 // transportError is the wording for a provider we could not reach at all.
@@ -331,7 +381,13 @@ func apiErrorForModel(p provider, status int, model, rawBody string) error {
 // Never pass an SDK *apierror.Error here: its Error() concatenates the raw
 // response body, which is exactly what #41 keeps out of error strings. Map it
 // through apiError instead.
+//
+// A timeout gets its own wording (TimeoutError): "context deadline exceeded"
+// is accurate and useless to the person waiting on it.
 func transportError(p provider, err error) error {
+	if isTimeoutCause(err) {
+		return &TimeoutError{Provider: p.name, err: redactURLError(err)}
+	}
 	return fmt.Errorf("%s request failed: %w", p.name, redactURLError(err))
 }
 
