@@ -26,8 +26,8 @@
 
 | Dependency | Pinned | Latest | Note |
 |---|---|---|---|
-| `wailsapp/wails/v3` (Go) | `v3.0.0-beta.25` | `v3.0.0-beta.25` | E4 step 1 (PR #95), waiting on the Windows smoke test. No Go API break for KeyLint; Linux stays on GTK3 via `-tags gtk3` (decision below) |
-| `@wailsio/runtime` (npm) | `3.0.0-beta.25` | `3.0.0-beta.25` | pinned exactly, same version as the Go side (was alpha.79 vs alpha.72) |
+| `wailsapp/wails/v3` (Go) | `v3.0.0-beta.25` | `v3.0.0-beta.28` | E4 step 1 (PR #95), waiting on the Windows smoke test. beta.26–28 change only Windows WebView2 crash recovery among the APIs KeyLint uses — a follow-up bump. No Go API break for KeyLint; Linux stays on GTK3 via `-tags gtk3` (decision below) |
+| `@wailsio/runtime` (npm) | `3.0.0-beta.25` | `3.0.0-beta.28` | pinned exactly, same version as the Go side (was alpha.79 vs alpha.72) |
 | Angular | 21.2.0 | 22.1.x | |
 | PrimeNG / `@primeuix/themes` | 21.1.3 / 2.0.3 | 22.1.x / 3.0.x | move together |
 | TypeScript | 5.9 | 7.0 | Angular 22 requires 6.0 (`>=6.0 <6.1`); TS 7 = Go-native compiler, only when Angular CLI supports it |
