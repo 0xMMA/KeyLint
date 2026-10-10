@@ -100,6 +100,9 @@ test.describe('Pyramidize — flow', () => {
 
     await page.getByTestId('segment-preview').click();
     await expect(page.getByTestId('canvas-preview').locator('h1')).toHaveText(/Q3 travel/);
+    // Numbered, despite Tailwind's preflight taking list markers off (theme.css).
+    const list = page.getByTestId('canvas-preview').locator('ol');
+    expect(await list.evaluate(el => getComputedStyle(el).listStyleType)).toBe('decimal');
     await screenshot(page, '04-result-preview');
 
     await page.getByRole('tab', { name: 'Original' }).click();

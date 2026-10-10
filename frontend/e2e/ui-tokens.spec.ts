@@ -14,6 +14,9 @@
  * hosts; if one stops applying, a component rule has started setting that
  * property.
  *
+ * The fourth checks Tailwind's preflight reset and the two UA defaults
+ * KeyLint puts back on top of it (theme.css).
+ *
  * The last makes sure PrimeNG stays gone: it was removed in E11 phase D, and
  * its token names, class names and icon font must not creep back in.
  */
@@ -137,6 +140,29 @@ test.describe('UI tokens, fonts and Tailwind', () => {
       return `${cs.display} ${cs.columnGap}`;
     })).toBe('flex 16px');
     expect(await page.getByTestId('reset-confirm').evaluate((el) => getComputedStyle(el).marginTop)).toBe('24px');
+  });
+
+  test('the preflight base, and what KeyLint puts back on it', async ({ page }) => {
+    await configured(page);
+    await page.goto('/dev-tools');
+    const link = page.getByTestId('ui-gallery-link');
+    await expect(link).toBeVisible();
+    const base = await link.evaluate((a) => {
+      const btn = document.querySelector('button')!;
+      return {
+        // Preflight: border-box everywhere, controls take the page font.
+        boxSizing: getComputedStyle(a).boxSizing,
+        afterBoxSizing: getComputedStyle(a, '::after').boxSizing,
+        buttonFont: getComputedStyle(btn).fontFamily,
+        bodyFont: getComputedStyle(document.body).fontFamily,
+        // Put back: links stay underlined.
+        underline: getComputedStyle(a).textDecorationLine,
+      };
+    });
+    expect(base.boxSizing).toBe('border-box');
+    expect(base.afterBoxSizing).toBe('border-box');
+    expect(base.buttonFont).toBe(base.bodyFont);
+    expect(base.underline).toBe('underline');
   });
 
   test('no PrimeNG token, class or icon font is left on any screen', async ({ page }) => {

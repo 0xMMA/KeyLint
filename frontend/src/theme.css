@@ -11,7 +11,15 @@
  */
 
 /*
- * Tailwind v4, without its preflight (the global reset).
+ * Tailwind v4, with its preflight (the global reset, in @layer base): every
+ * element and pseudo-element is border-box with no margin, padding or border
+ * of its own, form controls inherit the font and colour, headings and lists
+ * carry no type or bullets, img and svg are blocks. It was off while PrimeNG
+ * was in, since it would have restyled PrimeNG's components; it went on in
+ * E11 phase D, with every screen compared before and after. Two things needed
+ * putting back: link underlines (styles.scss) and the bullets and numbers in
+ * Pyramidize's Markdown preview. So a component that wants a UA default
+ * (a list marker, a heading size, a margin) sets it itself.
  *
  * Layers: Tailwind's utilities live in @layer utilities, and every Angular
  * component style and styles.scss is unlayered. Unlayered CSS beats any
@@ -24,6 +32,7 @@
  */
 @layer theme, base, components, utilities;
 @import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
 /*
  * Classes are read from the app's sources only, not from specs, e2e or
  * bindings. Tailwind scans text, not class attributes, so words in the inline

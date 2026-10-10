@@ -351,6 +351,8 @@ function addTrace(label: string, snapshot: string): void {
     .canvas-preview ::ng-deep h3 { font-size: 16px; }
     .canvas-preview ::ng-deep :is(p, ul, ol) { margin: 0; }
     .canvas-preview ::ng-deep :is(ul, ol) { padding-left: 1.3em; }
+    .canvas-preview ::ng-deep ul { list-style: disc; }
+    .canvas-preview ::ng-deep ol { list-style: decimal; }
     .canvas-preview ::ng-deep li { margin-bottom: 0.25em; }
     .canvas-preview ::ng-deep strong { font-weight: 600; color: var(--kl-text-strong); }
     .canvas-preview ::ng-deep code {

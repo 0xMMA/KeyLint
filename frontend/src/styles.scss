@@ -1,8 +1,7 @@
-// The KeyLint tokens (--kl-*) and Tailwind live in theme.css, which angular.json
-// loads before this file. Layout utilities are Tailwind's.
-* {
-  box-sizing: border-box;
-}
+// The KeyLint tokens (--kl-*) and Tailwind, with its preflight reset, live in
+// theme.css, which angular.json loads before this file. Box-sizing, margins
+// and form-control fonts come from the preflight; the base rules here are
+// unlayered, so they win over it.
 
 body {
   margin: 0;
@@ -25,6 +24,8 @@ body {
 
 a {
   color: var(--kl-link);
+  // Preflight makes links plain text; KeyLint's are underlined.
+  text-decoration: underline;
 }
 a:hover {
   color: var(--kl-primary-text);
