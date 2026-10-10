@@ -18,9 +18,11 @@ jsdom 30 still defines none of `matchMedia`, `ResizeObserver` or
 own.
 
 No spec needs a stub today. The ones the suite carried were for PrimeNG's tabs
-(`ResizeObserver`) and overlays (`matchMedia`) and went with it in E11; KeyLint's
-own primitives and the CDK overlay they use reach for neither (every spec file
-was run on its own to check). If new code or a new library needs one, the file
+(`ResizeObserver`) and overlays (`matchMedia`) and went with it in E11. KeyLint's
+own primitives and the CDK overlay they use need neither: `kl-tabs` measures its
+row with a `ResizeObserver` where one exists and skips it where none does, so
+under jsdom it measures once, on first render (every spec file was run on its
+own to check). If new code or a new library needs one, the file
 that needs it sets it itself — **in a full run a spec may see a global anyway**,
 set by another file, so a green suite is no proof that your stub is there (see
 the runner section below). And it is never permission to use `matchMedia` in
