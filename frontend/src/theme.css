@@ -5,39 +5,22 @@
  * Tailwind's at-rules. PostCSS (.postcssrc.json, @tailwindcss/postcss) turns
  * it into ordinary CSS at build time; nothing of Tailwind ships at runtime.
  *
- * App code reads colours from the --kl-* tokens below, never from PrimeNG's
- * --p-* tokens: PrimeNG is being replaced (docs/ui/primeng-replacement.md,
- * roadmap E11), and its token names must not outlive it. The PrimeNG overrides
- * in styles.scss point PrimeNG's own tokens at these roles while it is still
- * in, so the screens not yet migrated follow the new palette roughly.
+ * App code reads colours, surfaces and radii from the --kl-* tokens below and
+ * nowhere else. (PrimeNG and its --p-* tokens were removed in roadmap E11;
+ * docs/ui/primeng-replacement.md.)
  */
 
 /*
- * Tailwind v4, without its preflight. Preflight is a global reset (margins,
- * borders, form controls, headings, img display); turned on next to PrimeNG it
- * would restyle PrimeNG components and every native element, so it stays off
- * while the two coexist. That also means utilities that rely on preflight's
- * defaults (e.g. `border` without a style, since preflight sets
- * border-style: solid everywhere) need the missing part spelled out.
+ * Tailwind v4, without its preflight (the global reset).
  *
- * Layer order matters for the coexistence with PrimeNG: PrimeNG injects its
- * theme unlayered at runtime (cssLayer: false in app.config.ts), and so is
- * every Angular component style and styles.scss. Unlayered CSS beats any
- * @layer, whatever the specificity — so a utility loses to any unlayered rule
- * that sets the same property on the same element. Checked for every utility
- * that replaced a PrimeFlex class (all on margin, width, display or gap): no
- * PrimeNG or component rule competes, so they apply as plain utilities, and
- * e2e/ui-tokens.spec.ts asserts it. If a utility on an element PrimeNG styles
- * (a styleClass) ever has to win against PrimeNG, use the important modifier
- * (`mt-4!`): important declarations in a layer beat unlayered ones, normal or
- * important. PrimeFlex made every utility !important for that reason.
- *
- * One behaviour did change with that: a running CSS animation beats normal
- * declarations from any layer but not !important ones. PrimeNG's p-message
- * leave animation ends at margin: 0, so a p-message with `mt-4` now slides its
- * margin closed over 150 ms when it goes away, where PrimeFlex's !important
- * margin used to jump. Accepted (it is what PrimeNG intends, and p-message goes
- * with E11). The same applies to `mt-4!`: it would block the animation again.
+ * Layers: Tailwind's utilities live in @layer utilities, and every Angular
+ * component style and styles.scss is unlayered. Unlayered CSS beats any
+ * @layer, whatever the specificity — so a utility loses to any component rule
+ * that sets the same property on the same element (`.foo { margin: 0 }` next
+ * to `class="foo mt-4"`). Move the property into one place, or use the
+ * important modifier (`mt-4!`), which wins against unlayered normal
+ * declarations. e2e/ui-tokens.spec.ts checks a few utilities on component
+ * hosts.
  */
 @layer theme, base, components, utilities;
 @import "tailwindcss/theme.css" layer(theme);
@@ -46,8 +29,8 @@
  * bindings. Tailwind scans text, not class attributes, so words in the inline
  * component stylesheets also produce utilities (`hidden` from overflow: hidden,
  * `block`, `fixed`, `border`, `transition`, ...). That is harmless as long as
- * no element carries a class of that name for another reason; PrimeNG's own
- * classes are all p-prefixed, and KeyLint's must not reuse a utility name.
+ * no element carries a class of that name for another reason, so KeyLint's
+ * own class names must not reuse a utility name.
  */
 @import "tailwindcss/utilities.css" layer(utilities) source(none);
 @source "./app";
@@ -102,18 +85,6 @@
   --color-success: var(--kl-success);
   --color-warn: var(--kl-warn);
   --color-error: var(--kl-error);
-  --color-surface-0: var(--kl-surface-0);
-  --color-surface-50: var(--kl-surface-50);
-  --color-surface-100: var(--kl-surface-100);
-  --color-surface-200: var(--kl-surface-200);
-  --color-surface-300: var(--kl-surface-300);
-  --color-surface-400: var(--kl-surface-400);
-  --color-surface-500: var(--kl-surface-500);
-  --color-surface-600: var(--kl-surface-600);
-  --color-surface-700: var(--kl-surface-700);
-  --color-surface-800: var(--kl-surface-800);
-  --color-surface-900: var(--kl-surface-900);
-  --color-surface-950: var(--kl-surface-950);
   --font-ui: var(--kl-font-ui);
   --font-text: var(--kl-font-text);
   --radius-md: var(--kl-radius-md);
@@ -158,7 +129,13 @@
  * primary is 6.6:1 (white would be 2.8:1).
  */
 :root {
-  /* Neutral scale: Tailwind's zinc. For the odd step a role does not cover. */
+  /* Native controls (radio dots, scrollbars, autofill, the caret) draw their
+     dark variants. PrimeNG's runtime theme used to set this; without it an
+     unchecked radio is a white disc on the dark sheet. */
+  color-scheme: dark;
+
+  /* Neutral scale: Tailwind's zinc. For the odd step a role does not cover
+     (read with var(), no utilities). */
   --kl-surface-0: #ffffff;
   --kl-surface-50: #fafafa;
   --kl-surface-100: #f4f4f5;
@@ -171,13 +148,6 @@
   --kl-surface-800: #27272a;
   --kl-surface-900: #18181b;
   --kl-surface-950: #09090b;
-
-  /* Accent palette steps that app code uses directly. */
-  --kl-amber-100: #fef3c7;
-  --kl-amber-300: #fcd34d;
-  --kl-amber-400: #fbbf24;
-  --kl-amber-900: #78350f;
-  --kl-red-400: #f87171;
 
   /* Surfaces, darkest first. */
   --kl-rail: #18181b;            /* sidebar */

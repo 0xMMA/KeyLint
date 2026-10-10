@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
-import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideRouter } from '@angular/router';
 import { TextEnhancementComponent, resetPyramidizeProviderSession } from './text-enhancement.component';
 import { TextEnhancementService } from './text-enhancement.service';
@@ -48,7 +47,6 @@ describe('TextEnhancementComponent — saved provider that is not available yet'
       imports: [TextEnhancementComponent],
       providers: [
         provideRouter([]),
-        provideAnimationsAsync(),
         { provide: WailsService, useValue: wailsMock },
         { provide: TextEnhancementService, useValue: svcMock },
       ],

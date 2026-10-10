@@ -4,7 +4,6 @@ import { By } from '@angular/platform-browser';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router, ActivatedRoute } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { ShellComponent } from './shell.component';
 import { SettingsComponent } from '../features/settings/settings.component';
 import { FixComponent } from '../features/fix/fix.component';
@@ -23,7 +22,6 @@ describe('ShellComponent — a clicked hotkey-fix notification', () => {
     await TestBed.configureTestingModule({
       imports: [ShellComponent],
       providers: [
-        provideAnimationsAsync(),
         provideRouter([
           {
             path: '',
@@ -208,7 +206,6 @@ describe('ShellComponent — a key or sign-in notification from another page', (
     await TestBed.configureTestingModule({
       imports: [ShellComponent],
       providers: [
-        provideAnimationsAsync(),
         provideRouter([
           {
             path: '',

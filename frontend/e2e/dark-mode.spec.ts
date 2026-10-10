@@ -165,9 +165,9 @@ test.describe('Dark mode — visual verification', () => {
     expect(bg, `Disabled input background: ${bg}`).toBe('rgb(24, 24, 27)');
 
     // What regressed was PrimeNG's token, which only resolved dark with the
-    // class on <html>. Pyramidize has no PrimeNG input any more (the field is
-    // klInput, E11), so PrimeNG never defines that token on this page; the
-    // class position is still checked, as every PrimeNG screen left needs it.
+    // class on <html>. PrimeNG is gone (E11), but the rule outlives it: tokens
+    // that alias other tokens resolve where they are declared, so the theme
+    // class has to sit on <html>, where KeyLint's tokens are (index.html).
     const onRoot = await page.evaluate(() => document.documentElement.classList.contains('app-dark'));
     expect(onRoot, '.app-dark must sit on <html>').toBe(true);
     await screenshot(page, '09-disabled-input-dark');

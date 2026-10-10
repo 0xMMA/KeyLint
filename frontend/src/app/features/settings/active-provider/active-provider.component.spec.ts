@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
-import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { ActiveProviderComponent, FeatureChoice } from './active-provider.component';
 import { ModelOption } from '../model-options';
 
@@ -37,7 +36,6 @@ describe('ActiveProviderComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [ActiveProviderComponent],
-      providers: [provideAnimationsAsync()],
     }).compileComponents();
   });
 

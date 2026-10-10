@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { Component, OnDestroy } from '@angular/core';
 import { ShellComponent } from './shell.component';
 import { SettingsComponent } from '../features/settings/settings.component';
@@ -10,21 +9,6 @@ import { FixComponent } from '../features/fix/fix.component';
 import { TextEnhancementComponent, resetPyramidizeProviderSession } from '../features/text-enhancement/text-enhancement.component';
 import { WailsService } from '../core/wails.service';
 import { createWailsMock, defaultSettings } from '../../testing/wails-mock';
-
-// jsdom gaps that PrimeNG reaches for. See .claude/rules/testing.md.
-(globalThis as Record<string, unknown>)['ResizeObserver'] = class {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-};
-if (!window.matchMedia) {
-  window.matchMedia = ((query: string) => ({
-    matches: false, media: query, onchange: null,
-    addListener() {}, removeListener() {},
-    addEventListener() {}, removeEventListener() {},
-    dispatchEvent: () => false,
-  })) as unknown as typeof window.matchMedia;
-}
 
 // #38: after clicking the version footer (which navigates to Settings with a
 // query param) and touching the tabs, navigating away left Settings on screen
@@ -48,7 +32,6 @@ describe('ShellComponent — routing away from Settings', () => {
     await TestBed.configureTestingModule({
       imports: [ShellComponent],
       providers: [
-        provideAnimationsAsync(),
         provideRouter([
           {
             path: '',
@@ -191,7 +174,6 @@ describe('SettingsComponent — leaving while it is still starting up', () => {
 
     await TestBed.configureTestingModule({
       providers: [
-        provideAnimationsAsync(),
         provideRouter([
           { path: 'settings', component: SettingsComponent },
           { path: 'fix', component: FixComponent },

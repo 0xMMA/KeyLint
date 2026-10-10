@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
-import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideRouter } from '@angular/router';
 import { TextEnhancementComponent, resetPyramidizeProviderSession } from './text-enhancement.component';
 import { TextEnhancementService } from './text-enhancement.service';
@@ -55,7 +54,6 @@ describe('TextEnhancementComponent — startup does not wait on the CLI probe', 
     await TestBed.configureTestingModule({
       imports: [TextEnhancementComponent],
       providers: [
-        provideAnimationsAsync(),
         provideRouter([]),
         { provide: WailsService, useValue: wailsMock },
         { provide: TextEnhancementService, useValue: makeEnhancementServiceMock() },
@@ -93,7 +91,6 @@ describe('TextEnhancementComponent — startup does not wait on the CLI probe', 
     await TestBed.configureTestingModule({
       imports: [TextEnhancementComponent],
       providers: [
-        provideAnimationsAsync(),
         provideRouter([]),
         { provide: WailsService, useValue: wailsMock },
         { provide: TextEnhancementService, useValue: makeEnhancementServiceMock() },
@@ -126,7 +123,6 @@ describe('TextEnhancementComponent — startup does not wait on the CLI probe', 
     await TestBed.configureTestingModule({
       imports: [TextEnhancementComponent],
       providers: [
-        provideAnimationsAsync(),
         provideRouter([]),
         { provide: WailsService, useValue: wailsMock },
         { provide: TextEnhancementService, useValue: makeEnhancementServiceMock() },

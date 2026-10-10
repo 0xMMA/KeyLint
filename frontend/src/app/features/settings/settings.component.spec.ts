@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { ActivatedRoute, convertToParamMap } from '@angular/router';
 import { SettingsComponent } from './settings.component';
 import { SettingsAboutComponent } from './settings-about/settings-about.component';
@@ -43,7 +42,6 @@ describe('SettingsComponent', () => {
     await TestBed.configureTestingModule({
       imports: [SettingsComponent],
       providers: [
-        provideAnimationsAsync(),
         { provide: WailsService, useValue: wailsMock },
         { provide: ActivatedRoute, useValue: makeActivatedRoute() },
       ],
@@ -221,7 +219,6 @@ describe('SettingsComponent', () => {
           await TestBed.configureTestingModule({
             imports: [SettingsComponent],
             providers: [
-              provideAnimationsAsync(),
               { provide: WailsService, useValue: wailsMock },
               { provide: ActivatedRoute, useValue: makeActivatedRoute('about') },
             ],
@@ -313,7 +310,6 @@ describe('SettingsComponent', () => {
         await TestBed.configureTestingModule({
           imports: [SettingsComponent],
           providers: [
-            provideAnimationsAsync(),
             { provide: WailsService, useValue: mock },
             { provide: ActivatedRoute, useValue: makeActivatedRoute('about') },
           ],
@@ -438,7 +434,6 @@ describe('SettingsComponent — Claude Code provider card', () => {
     await TestBed.configureTestingModule({
       imports: [SettingsComponent],
       providers: [
-        provideAnimationsAsync(),
         { provide: WailsService, useValue: wailsMock },
         { provide: ActivatedRoute, useValue: makeActivatedRoute('providers') },
       ],
@@ -605,7 +600,6 @@ describe('SettingsComponent — model selection', () => {
     await TestBed.configureTestingModule({
       imports: [SettingsComponent],
       providers: [
-        provideAnimationsAsync(),
         { provide: WailsService, useValue: wailsMock },
         { provide: ActivatedRoute, useValue: makeActivatedRoute('providers') },
       ],
@@ -738,7 +732,6 @@ describe('SettingsComponent — model selection', () => {
     await TestBed.configureTestingModule({
       imports: [SettingsComponent],
       providers: [
-        provideAnimationsAsync(),
         { provide: WailsService, useValue: wailsMock },
         { provide: ActivatedRoute, useValue: makeActivatedRoute('providers') },
       ],
@@ -1050,7 +1043,6 @@ describe('SettingsComponent — which provider is in use', () => {
     await TestBed.configureTestingModule({
       imports: [SettingsComponent],
       providers: [
-        provideAnimationsAsync(),
         { provide: WailsService, useValue: wailsMock },
         { provide: ActivatedRoute, useValue: makeActivatedRoute(setup.tab ?? 'providers') },
       ],
@@ -1588,7 +1580,6 @@ describe('SettingsComponent — AWS Bedrock is not offered yet', () => {
     await TestBed.configureTestingModule({
       imports: [SettingsComponent],
       providers: [
-        provideAnimationsAsync(),
         { provide: WailsService, useValue: wailsMock },
         { provide: ActivatedRoute, useValue: makeActivatedRoute(tab) },
       ],
@@ -1693,7 +1684,6 @@ describe('SettingsComponent — theme', () => {
     await TestBed.configureTestingModule({
       imports: [SettingsComponent],
       providers: [
-        provideAnimationsAsync(),
         { provide: WailsService, useValue: wailsMock },
         { provide: ActivatedRoute, useValue: makeActivatedRoute() },
       ],

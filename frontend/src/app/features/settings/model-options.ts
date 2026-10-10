@@ -6,8 +6,8 @@ export type Feature = 'fix' | 'pyramidize';
 /**
  * One entry in a model picker.
  *
- * `label` is deliberately the model ID, not the display name: PrimeNG writes
- * optionLabel into the editable input and submits whatever stands there as the
+ * `label` is deliberately the model ID, not the display name: the editable
+ * kl-select (like PrimeNG's p-select before it) writes optionLabel into the input and submits whatever stands there as the
  * value, so a display name there would be saved as a model ID that no provider
  * knows. The readable name lives in `display` and is rendered by the option
  * template instead; `secondary` is the muted line under it — the ID a family
@@ -75,8 +75,8 @@ export function effectiveModel(provider: string, feature: Feature, stored: strin
  * The leading "KeyLint default" entry for one feature, naming what the default
  * is today.
  *
- * Its value is null, not "": PrimeNG shows the placeholder only while the value
- * is null, and the picker passes null for a stored "" — so the empty editable
+ * Its value is null, not "": the editable select shows the placeholder only
+ * while the value is null (p-select's rule, kept by kl-select), and the picker passes null for a stored "" — so the empty editable
  * field reads "Default: Haiku (latest)" in placeholder grey, and typing
  * still starts from nothing rather than being appended to a word. The entry is
  * also a real option, so the default can be chosen back from the list. The

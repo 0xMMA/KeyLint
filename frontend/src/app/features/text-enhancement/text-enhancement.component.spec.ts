@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { ChangeDetectorRef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ComponentFixture } from '@angular/core/testing';
-import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideRouter } from '@angular/router';
 import { TextEnhancementComponent, resetPyramidizeProviderSession } from './text-enhancement.component';
 import { TextEnhancementService } from './text-enhancement.service';
@@ -57,7 +56,6 @@ describe('TextEnhancementComponent (Pyramidize)', () => {
     await TestBed.configureTestingModule({
       imports: [TextEnhancementComponent],
       providers: [
-        provideAnimationsAsync(),
         provideRouter([]),
         { provide: WailsService, useValue: wailsMock },
         { provide: TextEnhancementService, useValue: svcMock },
@@ -424,7 +422,6 @@ describe('TextEnhancementComponent — Pyramidize shortcut from another page', (
     await TestBed.configureTestingModule({
       imports: [TextEnhancementComponent],
       providers: [
-        provideAnimationsAsync(),
         provideRouter([]),
         { provide: WailsService, useValue: wailsMock },
         { provide: TextEnhancementService, useValue: makeEnhancementServiceMock() },
@@ -493,7 +490,6 @@ describe('TextEnhancementComponent — Claude Code provider', () => {
       imports: [TextEnhancementComponent],
       providers: [
         provideRouter([]),
-        provideAnimationsAsync(),
         { provide: WailsService, useValue: wailsMock },
         { provide: TextEnhancementService, useValue: makeEnhancementServiceMock() },
       ],
@@ -694,7 +690,6 @@ describe('TextEnhancementComponent — provider follows Settings', () => {
       imports: [TextEnhancementComponent],
       providers: [
         provideRouter([]),
-        provideAnimationsAsync(),
         { provide: WailsService, useValue: wailsMock },
         { provide: TextEnhancementService, useValue: makeEnhancementServiceMock() },
       ],
@@ -834,7 +829,6 @@ describe('TextEnhancementComponent — Apply button emphasis', () => {
     await TestBed.configureTestingModule({
       imports: [TextEnhancementComponent],
       providers: [
-        provideAnimationsAsync(),
         provideRouter([]),
         { provide: WailsService, useValue: createWailsMock() },
         { provide: TextEnhancementService, useValue: makeEnhancementServiceMock() },

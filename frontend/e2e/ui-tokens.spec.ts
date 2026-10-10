@@ -1,23 +1,21 @@
 /**
- * KeyLint's token layer and Tailwind, next to PrimeNG 21 (roadmap E11).
+ * KeyLint's token layer, fonts and Tailwind setup (roadmap E11).
  *
  * The first test pins the palette to docs/ui/design.md: if a token moves, the
  * design moved, and that should be a decision rather than a side effect.
  *
- * The second checks the role wiring that keeps the screens still on PrimeNG
- * in step: styles.scss points PrimeNG's semantic tokens at the --kl-* roles,
- * so a PrimeNG button is KeyLint orange with dark text, a PrimeNG field sits
- * on the field surface, and so on. If PrimeNG renames a token, this fails
- * instead of a screen quietly drifting back to Aura.
+ * The second checks that the bundled fonts load and that nothing — no font,
+ * no icon set, no stylesheet — is fetched from the network at runtime.
  *
- * The third checks that the bundled fonts load (no network at runtime).
+ * The third guards the layering. Tailwind's utilities live in @layer
+ * utilities and every component style is unlayered, so a utility loses to any
+ * component rule that sets the same property on the same element (see the
+ * comment in theme.css). The utilities below sit on KeyLint components'
+ * hosts; if one stops applying, a component rule has started setting that
+ * property.
  *
- * The last guards the layering. PrimeNG injects its theme unlayered and
- * Tailwind's utilities live in @layer utilities, so a utility loses to any
- * PrimeNG rule that sets the same property on the same element. The
- * utilities below sit on PrimeNG hosts (styleClass); if one stops applying,
- * a PrimeNG update has started setting that property, and the class needs
- * the important modifier (see the comment in theme.css).
+ * The last makes sure PrimeNG stays gone: it was removed in E11 phase D, and
+ * its token names, class names and icon font must not creep back in.
  */
 import { test, expect, Page } from '@playwright/test';
 import { installFakeBackend, fakeState, ANTHROPIC_MODELS } from './support/fake-backend';
@@ -44,22 +42,6 @@ const DESIGN: Array<[string, string]> = [
   ['--kl-radius-md', '6px'],
   ['--kl-radius-lg', '8px'],
   ['--kl-radius-sheet', '10px'],
-];
-
-/** PrimeNG token → the KeyLint role styles.scss points it at. */
-const WIRED: Array<[string, string]> = [
-  ['--p-primary-color', '--kl-primary'],
-  ['--p-primary-contrast-color', '--kl-on-primary'],
-  ['--p-text-color', '--kl-text'],
-  ['--p-text-muted-color', '--kl-muted'],
-  ['--p-content-border-color', '--kl-line'],
-  ['--p-form-field-background', '--kl-field'],
-  ['--p-form-field-border-color', '--kl-line-control'],
-  ['--p-overlay-select-background', '--kl-raised'],
-  ['--p-focus-ring-color', '--kl-focus'],
-  // Component tokens are :root aliases of the semantic ones: they follow too.
-  ['--p-button-primary-background', '--kl-primary'],
-  ['--p-button-primary-color', '--kl-on-primary'],
 ];
 
 /** What a token or literal computes to as a colour and as a radius, so #fff and rgb(255,255,255) compare equal. */
@@ -89,7 +71,7 @@ async function configured(page: Page): Promise<void> {
   }));
 }
 
-test.describe('UI tokens and Tailwind next to PrimeNG', () => {
+test.describe('UI tokens, fonts and Tailwind', () => {
   test('every KeyLint token has its design.md value', async ({ page }) => {
     await configured(page);
     await page.goto('/fix');
@@ -99,27 +81,13 @@ test.describe('UI tokens and Tailwind next to PrimeNG', () => {
       expect(await defined(page, token), `${token} is not defined`).not.toBe('');
       expect(await resolve(page, token), token).toBe(await resolve(page, value));
     }
+    // Native controls (radios, scrollbars) draw their dark variants.
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe('dark');
     // The page itself sits on the ground token, the rail on its own.
     expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(31, 31, 35)');
     expect(await page.locator('.layout-sidebar').evaluate((el) => getComputedStyle(el).backgroundColor))
       .toBe('rgb(24, 24, 27)');
-  });
-
-  test('PrimeNG’s tokens follow the KeyLint roles', async ({ page }) => {
-    await configured(page);
-    // PrimeNG defines a component's tokens only once that component renders,
-    // and Settings no longer uses any (E11 phase B): read them where it does.
-    await page.goto('/enhance');
-    await expect(page.getByTestId('pyramidize-btn')).toBeVisible();
-
-    for (const [p, kl] of WIRED) {
-      // Both sides: an undefined token would make the probe inherit, and the
-      // comparison could then pass for the wrong reason.
-      expect(await defined(page, p), `${p} is not defined`).not.toBe('');
-      expect(await defined(page, kl), `${kl} is not defined`).not.toBe('');
-      expect(await resolve(page, p), `${p} vs ${kl}`).toBe(await resolve(page, kl));
-    }
-    // And the paint: a primary button is orange with dark text.
+    // And the paint: a primary button is orange with dark text on it.
     await page.goto('/settings');
     const save = page.getByTestId('save-btn').getByRole('button');
     await expect(save).toBeVisible();
@@ -145,23 +113,23 @@ test.describe('UI tokens and Tailwind next to PrimeNG', () => {
     expect(loaded).toContain('Literata');
     expect(await page.evaluate(() => getComputedStyle(document.body).fontFamily)).toContain('Schibsted Grotesk');
     expect(await page.getByTestId('fix-input').evaluate((el) => getComputedStyle(el).fontFamily)).toContain('Literata');
+    // Only KeyLint's two families are bundled; icons are inline SVG, not a font.
+    expect([...new Set(loaded)].sort()).toEqual(['Literata', 'Schibsted Grotesk']);
     expect(external, 'no request leaves the machine').toEqual([]);
   });
 
-  test('Tailwind utilities apply on elements PrimeNG styles', async ({ page }) => {
+  test('Tailwind utilities apply on KeyLint components', async ({ page }) => {
     await configured(page);
     await page.goto('/settings?tab=providers');
     await expect(page.getByTestId('model-fix-claude')).toBeVisible();
-    // (The w-full on the model and effort p-selects is not asserted: their
-    // grid cell stretches them to the same width with or without it.)
 
-    // mt-4 on a p-message host.
+    // mt-4 on a kl-message host.
     await page.getByTestId('save-btn').getByRole('button').click();
     const banner = page.getByTestId('saved-banner');
     await expect(banner).toBeVisible();
     expect(await banner.evaluate((el) => getComputedStyle(el).marginTop)).toBe('16px');
 
-    // flex + gap-4 + mt-6 on KeyLint's own button row, for completeness.
+    // flex + gap-4 + mt-6 on a button row.
     await page.getByTestId('reset-btn').getByRole('button').click();
     const row = page.getByTestId('reset-confirm-btn').locator('xpath=..');
     expect(await row.evaluate((el) => {
@@ -169,5 +137,24 @@ test.describe('UI tokens and Tailwind next to PrimeNG', () => {
       return `${cs.display} ${cs.columnGap}`;
     })).toBe('flex 16px');
     expect(await page.getByTestId('reset-confirm').evaluate((el) => getComputedStyle(el).marginTop)).toBe('24px');
+  });
+
+  test('no PrimeNG token, class or icon font is left on any screen', async ({ page }) => {
+    await configured(page);
+    for (const url of ['/fix', '/enhance', '/settings', '/settings?tab=providers', '/settings?tab=about', '/dev-tools/ui']) {
+      await page.goto(url);
+      await page.waitForLoadState('networkidle');
+      const found = await page.evaluate(() => ({
+        tokens: Array.from(getComputedStyle(document.documentElement)).filter((n) => n.startsWith('--p-')),
+        classes: Array.from(document.querySelectorAll('[class]'))
+          .flatMap((el) => Array.from(el.classList))
+          .filter((c) => /^(p-|pi$|pi-)/.test(c)),
+        tags: Array.from(document.querySelectorAll('*'))
+          .map((el) => el.tagName.toLowerCase())
+          .filter((t) => t.startsWith('p-')),
+        fonts: Array.from(document.fonts).map((f) => f.family.replace(/"/g, '')).filter((f) => /prime/i.test(f)),
+      }));
+      expect(found, url).toEqual({ tokens: [], classes: [], tags: [], fonts: [] });
+    }
   });
 });

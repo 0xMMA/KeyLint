@@ -190,8 +190,8 @@ export class ShellComponent implements OnInit, OnDestroy {
 
   private applyTheme(): void {
     // Only the dark theme is styled (#24). theme_preference is deliberately
-    // not read: a "light" or "system" saved by an older version would drop
-    // PrimeNG into its unstyled light mode. The light theme (#25) reads it again.
+    // not read: a "light" or "system" saved by an older version would ask for
+    // a theme that does not exist yet. The light theme (#25) reads it again.
     // On <html>, not <body>: see index.html.
     document.documentElement.classList.add('app-dark');
   }

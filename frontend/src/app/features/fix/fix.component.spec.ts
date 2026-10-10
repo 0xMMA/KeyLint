@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ChangeDetectorRef } from '@angular/core';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
-import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { FixComponent } from './fix.component';
 import { TextEnhancementService } from '../text-enhancement/text-enhancement.service';
 import { WailsService } from '../../core/wails.service';
@@ -22,7 +21,6 @@ describe('FixComponent', () => {
     await TestBed.configureTestingModule({
       imports: [FixComponent],
       providers: [
-        provideAnimationsAsync(),
         { provide: WailsService, useValue: wailsMock },
         { provide: TextEnhancementService, useValue: { enhance: enhanceSpy } },
       ],
