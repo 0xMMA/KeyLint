@@ -14,6 +14,7 @@
   "packageManager": "npm@11.19.0",
   "dependencies": {
     "@angular/animations": "^21.2.25",
+    "@angular/cdk": "^21.2.14",
     "@angular/common": "^21.2.25",
     "@angular/compiler": "^21.2.25",
     "@angular/core": "^21.2.25",
@@ -22,6 +23,7 @@
     "@angular/router": "^21.2.25",
     "@primeuix/themes": "^2.0.3",
     "@wailsio/runtime": "3.0.0-beta.25",
+    "diff": "^9.0.0",
     "dotenv": "^18.0.4",
     "primeicons": "^7.0.0",
     "primeng": "^21.1.10",
