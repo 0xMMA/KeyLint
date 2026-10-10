@@ -195,7 +195,10 @@ describe('ShellComponent — a clicked hotkey-fix notification', () => {
     const el: HTMLElement = harness.fixture.nativeElement;
     expect(el.querySelectorAll('[data-testid="silent-fix-notice"]')).toHaveLength(1);
     expect(el.querySelector('[data-testid="silent-fix-notice-body"]')?.textContent).toContain('You switched windows');
-    expect(el.querySelector<HTMLTextAreaElement>('[data-testid="fix-output"]')?.value).toBe("They're going home.");
+    // The result shows the fix's marks; without the struck-out words it reads as the result.
+    const output = el.querySelector('[data-testid="fix-output"]')!.cloneNode(true) as HTMLElement;
+    output.querySelectorAll('del').forEach(n => n.remove());
+    expect(output.textContent).toBe("They're going home.");
   });
 });
 

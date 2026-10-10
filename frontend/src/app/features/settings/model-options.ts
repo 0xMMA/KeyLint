@@ -58,6 +58,20 @@ function aliasLabel(id: string): string {
 }
 
 /**
+ * A model's readable name: the provider's own label where its listing has the
+ * ID, the alias label otherwise ("Haiku (latest)"), or the ID as it is. For
+ * places that name the model in use, like the Fix page's "Sent to" chip.
+ */
+export function modelName(id: string, listed: ModelOption[]): string {
+  return listed.find(o => o.id === id)?.display ?? aliasLabel(id);
+}
+
+/** The model a feature runs on a provider: the stored choice, else KeyLint's default. */
+export function effectiveModel(provider: string, feature: Feature, stored: string | undefined): string {
+  return stored || DEFAULT_MODELS[provider]?.[feature] || '';
+}
+
+/**
  * The leading "KeyLint default" entry for one feature, naming what the default
  * is today.
  *

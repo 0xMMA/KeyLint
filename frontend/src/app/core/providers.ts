@@ -15,6 +15,15 @@ export const PROVIDER_OPTIONS: ReadonlyArray<{ label: string; value: string }> =
   { label: 'Ollama (local)', value: 'ollama' },
 ];
 
+/**
+ * A provider's name without the parenthetical ("Claude Code", "Ollama"), for
+ * tight places like a chip; the provider ID if KeyLint does not know it.
+ */
+export function providerShortLabel(provider: string): string {
+  const label = PROVIDER_OPTIONS.find(o => o.value === provider)?.label;
+  return label ? label.replace(/\s*\(.*\)$/, '') : provider;
+}
+
 /** The providers that work with an API key, and nothing else. */
 export const KEY_PROVIDERS: ReadonlyArray<string> = ['openai', 'claude'];
 
