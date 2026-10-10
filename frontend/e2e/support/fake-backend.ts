@@ -6,7 +6,9 @@
  * no keys, no CLI, nothing saved. That is enough for layout checks but not for
  * anything about which provider is configured or in use. This answers the
  * settings service's calls from an in-memory state instead, so a spec can say
- * "Anthropic key in the keyring, CLI signed in" and see what a user sees.
+ * "Anthropic key in the keyring, CLI signed in" and see what a user sees. The
+ * welcome service's two calls are answered too when a spec sets `firstRun`, so
+ * the setup wizard can be driven the same way.
  *
  * Method IDs are read from the generated bindings rather than copied here, so
  * regenerating them cannot leave this answering the wrong method. Calls to any
@@ -31,6 +33,15 @@ export interface FakeBackendState {
   saves: Record<string, unknown>[];
   /** When set, SetActiveProvider fails with this message, as a failed write would. */
   failSetActiveProvider?: string;
+  /**
+   * What IsFirstRun answers while setup is not complete. The decision itself
+   * (first start, or nothing usable) is welcome.Service's and is tested in Go;
+   * this only says whether the wizard opens. Undefined leaves the welcome
+   * service unanswered (it 404s and the app treats that as "not first run").
+   */
+  firstRun?: boolean;
+  /** How many times the app called CompleteSetup. */
+  completeSetupCalls: number;
 }
 
 /** One picker entry, as internal/llm ModelInfo serialises it. */
@@ -103,12 +114,13 @@ export function fakeState(opts: {
     modelSources: { 'claude-code': 'fixed', ...opts.modelSources },
     modelLists: { 'claude-code': CLI_ALIASES, ...opts.modelLists },
     saves: [],
+    completeSetupCalls: 0,
   };
 }
 
-/** methodID → method name, parsed from the generated settings bindings. */
-function settingsMethodIDs(): Map<number, string> {
-  const file = path.join(__dirname, '../../bindings/keylint/internal/features/settings/service.js');
+/** methodID → method name, parsed from one service's generated bindings. */
+function methodIDs(feature: string): Map<number, string> {
+  const file = path.join(__dirname, `../../bindings/keylint/internal/features/${feature}/service.js`);
   const src = fs.readFileSync(file, 'utf8');
   const ids = new Map<number, string>();
   for (const m of src.matchAll(/export function (\w+)\([^)]*\)\s*\{\s*return \$Call\.ByID\((\d+)/g)) {
@@ -118,9 +130,10 @@ function settingsMethodIDs(): Map<number, string> {
   return ids;
 }
 
-/** Routes the settings service's binding calls to `state`. */
+/** Routes the settings service's binding calls (and the welcome service's, see firstRun) to `state`. */
 export async function installFakeBackend(page: Page, state: FakeBackendState): Promise<void> {
-  const ids = settingsMethodIDs();
+  const ids = methodIDs('settings');
+  const welcomeIDs = methodIDs('welcome');
 
   await page.route('**/wails/runtime', async (route) => {
     let body: { args?: { methodID?: number; args?: unknown[] } } = {};
@@ -134,11 +147,24 @@ export async function installFakeBackend(page: Page, state: FakeBackendState): P
     const json = (value: unknown) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(value) });
     const empty = () => route.fulfill({ status: 200, contentType: 'text/plain', body: '' });
 
+    const welcomeMethod = welcomeIDs.get(body.args?.methodID ?? -1);
+    if (welcomeMethod && state.firstRun !== undefined) {
+      switch (welcomeMethod) {
+        case 'IsFirstRun':
+          return json(state.firstRun && !state.settings['completed_setup']);
+        case 'CompleteSetup':
+          state.completeSetupCalls++;
+          state.settings = { ...state.settings, completed_setup: true };
+          return empty();
+      }
+    }
+
     switch (method) {
       case 'Get':
         return json(state.settings);
       case 'Save':
-        state.settings = structuredClone(args[0] as Record<string, unknown>);
+        // Like the real Save, completed_setup is not the screen's to change.
+        state.settings = { ...structuredClone(args[0] as Record<string, unknown>), completed_setup: state.settings['completed_setup'] };
         state.saves.push(state.settings);
         return empty();
       case 'SetActiveProvider': {

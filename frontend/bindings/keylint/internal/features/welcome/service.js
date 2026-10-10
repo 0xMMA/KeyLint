@@ -23,7 +23,17 @@ export function CompleteSetup() {
 }
 
 /**
- * IsFirstRun returns true if the user has not completed the setup wizard.
+ * IsFirstRun reports whether the setup wizard should open.
+ * 
+ * Only for someone with nothing usable: completed_setup unset AND no API key
+ * for any provider (env or keyring), no signed-in Claude Code CLI, and no
+ * saved active provider that can work. Anyone with something usable is never
+ * asked for it again — their setup is marked complete here, silently, and the
+ * log line says why. The flag alone is not trusted to mean "new user": it has
+ * been seen false on a machine whose keys and CLI were all in place.
+ * 
+ * Never returns or logs a key's value: only whether one is set. (On the way,
+ * GetKeyStatus fetches it from the keyring and drops it.)
  * @returns {$CancellablePromise<boolean>}
  */
 export function IsFirstRun() {

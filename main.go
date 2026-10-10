@@ -83,6 +83,13 @@ func main() {
 	cfg := services.Settings.Get()
 	logger.Init(cfg.LogLevel, cfg.SensitiveLogging)
 	logger.Info("app initializing", "version", AppVersion)
+	// The settings service read its file before logging was up, so its own
+	// lines went nowhere; this is the record of what it found.
+	if loaded := settings.LoadOutcome(services.Settings); loaded.Found {
+		logger.Info("settings: loaded at start-up", "path", loaded.Path, "completed_setup", loaded.CompletedSetup)
+	} else {
+		logger.Info("settings: no file at start-up, using defaults", "path", loaded.Path)
+	}
 
 	// Register backend services so the frontend can call their methods.
 	wailsApp.RegisterService(application.NewService(services.Settings))

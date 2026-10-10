@@ -22,17 +22,8 @@ import { WailsService, type SilentFixNotice, Settings as AppSettings, KeyStatus,
 import { noteForModelSource } from '../../core/model-source';
 import { DOCUMENT_TYPE_OPTIONS, unavailableProviderName } from '../../core/constants';
 import { LogService } from '../../core/log.service';
+import { ENV_KEY_VARS, PROVIDER_OPTIONS, cliTag, keyPlaceholder, keyTag } from '../../core/providers';
 import { ShortcutRecorderComponent } from './shortcut-recorder/shortcut-recorder.component';
-
-/**
- * Which environment variable supplies each provider's key. The source of truth
- * is `envVars` in internal/features/settings/service.go: keep the two in sync,
- * or a card names a variable the backend does not read.
- */
-const ENV_KEY_VARS: Readonly<Record<string, string>> = {
-  openai: 'OPENAI_API_KEY',
-  claude: 'ANTHROPIC_API_KEY',
-};
 
 /** A provider's stored choices; see FeatureModels in internal/features/settings/model.go. */
 type ProviderModels = NonNullable<NonNullable<AppSettings['models']>[string]>;
@@ -266,13 +257,8 @@ interface ProviderKey {
                     <span cardStatus class="card-status">
                       @if (p.value === 'claude-code') {
                         @if (claudeCodeStatus) {
-                          @if (claudeCodeStatus.installed && claudeCodeStatus.loggedIn) {
-                            <p-tag data-testid="claude-code-status-tag" value="● signed in" severity="success" />
-                          } @else if (claudeCodeStatus.installed) {
-                            <p-tag data-testid="claude-code-status-tag" value="not signed in" severity="warn" />
-                          } @else {
-                            <p-tag data-testid="claude-code-status-tag" value="not installed" severity="secondary" />
-                          }
+                          @let tag = cliTag(claudeCodeStatus);
+                          <p-tag data-testid="claude-code-status-tag" [value]="tag.value" [severity]="tag.severity" />
                         }
                       } @else if (p.value === 'ollama') {
                         @switch (modelSource['ollama']) {
@@ -281,13 +267,8 @@ interface ProviderKey {
                           @case ('unreachable') { <p-tag data-testid="ollama-status-tag" value="not reachable" severity="secondary" /> }
                         }
                       } @else if (keyFor(p.value)?.status; as status) {
-                        @if (status.is_set && status.source === 'env') {
-                          <p-tag [attr.data-testid]="'key-status-' + p.value" value="key from env var" severity="info" />
-                        } @else if (status.is_set) {
-                          <p-tag [attr.data-testid]="'key-status-' + p.value" value="● key set" severity="success" />
-                        } @else {
-                          <p-tag [attr.data-testid]="'key-status-' + p.value" value="no key" severity="secondary" />
-                        }
+                        @let tag = keyTag(status);
+                        <p-tag [attr.data-testid]="'key-status-' + p.value" [value]="tag.value" [severity]="tag.severity" />
                       }
                     </span>
 
@@ -551,19 +532,49 @@ interface ProviderKey {
             <p-message severity="error" [text]="keyError" styleClass="mt-3" />
           }
 
-          <div class="mt-4 flex gap-3">
-            <!-- Held while a provider switch saves, and the switch is held while
-                 these run: one landing in the middle of the other could
-                 overwrite it or be overwritten by it. -->
-            <p-button data-testid="save-btn" label="Save" icon="pi pi-check" [disabled]="switchingTo !== null || formBusy" (onClick)="save()" />
-            <p-button data-testid="reset-btn" label="Reset to Defaults" icon="pi pi-refresh" severity="danger" outlined [disabled]="switchingTo !== null || formBusy" (onClick)="resetToDefaults()" />
-          </div>
+          @if (confirmingReset) {
+            <!-- Asked in place, not in a browser dialog: what goes and what
+                 stays is the whole question, so it is spelled out. -->
+            <div
+              class="reset-confirm mt-4"
+              role="group"
+              aria-labelledby="reset-confirm-title"
+              data-testid="reset-confirm"
+              (keydown.escape)="cancelReset()"
+            >
+              <p id="reset-confirm-title" class="reset-confirm-title">Reset all settings to their defaults?</p>
+              <p class="hint-text" data-testid="reset-confirm-detail">
+                Shortcuts, models and effort, app presets, the Ollama address, logging, update and
+                developer options go back to their defaults.
+                <strong>Kept:</strong> your API keys in the OS keyring, the provider in use, and your completed setup.
+              </p>
+              <div class="flex gap-3">
+                <p-button data-testid="reset-confirm-btn" label="Reset" icon="pi pi-refresh" severity="danger" [disabled]="switchingTo !== null || formBusy" (onClick)="confirmReset()" />
+                <p-button data-testid="reset-cancel-btn" label="Cancel" severity="secondary" [outlined]="true" (onClick)="cancelReset()" />
+              </div>
+            </div>
+          } @else {
+            <div class="mt-4 flex gap-3">
+              <!-- Held while a provider switch saves, and the switch is held while
+                   these run: one landing in the middle of the other could
+                   overwrite it or be overwritten by it. -->
+              <p-button data-testid="save-btn" label="Save" icon="pi pi-check" [disabled]="switchingTo !== null || formBusy" (onClick)="save()" />
+              <p-button data-testid="reset-btn" label="Reset to Defaults" icon="pi pi-refresh" severity="danger" outlined [disabled]="switchingTo !== null || formBusy" (onClick)="requestReset()" />
+            </div>
+          }
         }
       </p-card>
     </div>
   `,
   styles: [`
     .settings-page { padding: 1.5rem; max-width: 700px; }
+    .reset-confirm {
+      border: 1px solid var(--p-red-400, #f87171);
+      border-radius: var(--p-border-radius-md, 6px);
+      padding: 0.75rem 1rem;
+    }
+    .reset-confirm-title { margin: 0 0 0.25rem; font-weight: 600; }
+    .reset-confirm .hint-text { display: block; margin: 0 0 0.75rem; }
     .form-group {
       display: flex;
       flex-direction: column;
@@ -717,14 +728,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
    * Providers tab. The labels are what the General tab's pointer and the model
    * pickers show too.
    */
-  readonly providers = [
-    { label: 'OpenAI', value: 'openai' },
-    { label: 'Anthropic API', value: 'claude' },
-    { label: 'Claude Code (installed CLI)', value: 'claude-code' },
-    { label: 'Ollama (local)', value: 'ollama' },
-    // AWS Bedrock stays out until it works (#22, #23). A settings file that
-    // still names it is explained, not broken — see unavailableProvider.
-  ];
+  readonly providers = PROVIDER_OPTIONS;
+  /** Shared with the setup wizard, so a connection reads the same in both. */
+  readonly cliTag = cliTag;
+  readonly keyTag = keyTag;
 
   readonly updateChannels = [
     { label: 'Auto (detect from version)', value: '' },
@@ -1168,11 +1175,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   }
 
   keyPlaceholder(provider: string): string {
-    switch (provider) {
-      case 'openai':  return 'sk-…';
-      case 'claude':  return 'sk-ant-…';
-      default:        return 'API key';
-    }
+    return keyPlaceholder(provider);
   }
 
   startEdit(pk: ProviderKey): void {
@@ -1331,6 +1334,29 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.saved = true;
     this.cdr.detectChanges();
     setTimeout(() => { this.saved = false; this.cdr.detectChanges(); }, 3000);
+  }
+
+  /** Reset to Defaults asks first, in place; see confirmReset. */
+  confirmingReset = false;
+
+  requestReset(): void {
+    if (this.switchingTo !== null || this.formBusy) return;
+    this.confirmingReset = true;
+    this.cdr.detectChanges();
+    // Focus lands on Cancel: Enter straight after the click must not reset.
+    this.host.nativeElement
+      .querySelector<HTMLElement>('[data-testid="reset-cancel-btn"] button')?.focus();
+  }
+
+  cancelReset(): void {
+    this.confirmingReset = false;
+    this.cdr.detectChanges();
+    this.host.nativeElement.querySelector<HTMLElement>('[data-testid="reset-btn"] button')?.focus();
+  }
+
+  async confirmReset(): Promise<void> {
+    this.confirmingReset = false;
+    await this.resetToDefaults();
   }
 
   async resetToDefaults(): Promise<void> {

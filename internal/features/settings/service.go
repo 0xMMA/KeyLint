@@ -70,6 +70,9 @@ type Service struct {
 	// without spawning anything. nil means the real one.
 	probeClaudeCode func(context.Context) llm.ClaudeCodeStatus
 
+	// loaded records how the settings file was read; see LoadOutcome.
+	loaded LoadInfo
+
 	// models caches per-provider listings; see ListModels.
 	modelsMu sync.Mutex
 	models   map[string]cachedModelList
@@ -111,10 +114,31 @@ func NewService() (*Service, error) {
 		filePath: filepath.Join(dir, "settings.json"),
 		current:  Default(),
 	}
-	if err := svc.load(); err != nil && !os.IsNotExist(err) {
+	err = svc.load()
+	svc.loaded = LoadInfo{Path: svc.filePath, Found: !os.IsNotExist(err), CompletedSetup: svc.current.CompletedSetup}
+	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
 	return svc, nil
+}
+
+// LoadInfo is how the settings file was read at start-up.
+type LoadInfo struct {
+	Path string
+	// Found is false when there was no file and the defaults were used.
+	Found bool
+	// CompletedSetup is the flag as loaded, before anything changed it.
+	CompletedSetup bool
+}
+
+// LoadOutcome reports how the settings file was read when the service was
+// built. NewService runs before the logger is initialised — the log level is
+// one of the settings it reads — so its own log lines are discarded; main.go
+// logs this once logging is up.
+//
+// A package function rather than a method, so Wails does not bind it.
+func LoadOutcome(s *Service) LoadInfo {
+	return s.loaded
 }
 
 // NewServiceFrom builds a service around an explicit configuration and key
@@ -129,7 +153,10 @@ func NewServiceFrom(cfg Settings, keys KeyLookup) *Service {
 		// No lookup means no keys — never the ambient ones.
 		keys = func(string) string { return "" }
 	}
-	return &Service{current: cfg.clone(), keys: keys, isolated: true}
+	// An explicit configuration stands in for a file that was found: it is
+	// somebody's settings, not a first start.
+	loaded := LoadInfo{Found: true, CompletedSetup: cfg.CompletedSetup}
+	return &Service{current: cfg.clone(), keys: keys, isolated: true, loaded: loaded}
 }
 
 func (s *Service) load() error {
@@ -204,7 +231,9 @@ func (s Settings) clone() Settings {
 	return out
 }
 
-// Save persists the provided settings to disk.
+// Save persists the provided settings to disk — all of them except
+// completed_setup, which keeps its current value: only the welcome service
+// moves it.
 func (s *Service) Save(updated Settings) error {
 	// One save at a time, so the file and the in-memory copy end up holding the
 	// same save when two land together.
@@ -213,11 +242,18 @@ func (s *Service) Save(updated Settings) error {
 	// The settings screen is the only place shortcuts change. A combo the hook
 	// cannot use is refused here, where the screen shows the error, instead of
 	// being written and then failing to apply.
-	if shortcutsChanged(s.Get(), updated) {
+	current := s.Get()
+	if shortcutsChanged(current, updated) {
 		if err := validateShortcuts(updated); err != nil {
 			return fmt.Errorf("settings: %w", err)
 		}
 	}
+	// completed_setup is state, not a preference: only the welcome service
+	// moves it (CompleteSetup, or IsFirstRun finding a usable setup). A whole
+	// settings object sent from the screen — Reset to Defaults, or one built
+	// from the frontend's fallback defaults after a failed Get — must not
+	// send a configured user back through the wizard.
+	updated.CompletedSetup = current.CompletedSetup
 	return s.persistLocked(updated)
 }
 
@@ -640,6 +676,14 @@ func (s *Service) runClaudeCodeProbe() (status llm.ClaudeCodeStatus, timedOut bo
 }
 
 // ResetToDefaults resets settings to their default values and saves to disk.
+//
+// What makes the app work survives: API keys stay in the keyring, the setup
+// stays complete (see Save), and the active provider stays the one in use.
+// Resetting it to the default (OpenAI) would leave someone on the CLI or the
+// Anthropic API with a hotkey that fails on a key they never had, and with
+// setup complete nothing would put it right.
 func (s *Service) ResetToDefaults() error {
-	return s.Save(Default())
+	reset := Default()
+	reset.ActiveProvider = s.Get().ActiveProvider
+	return s.Save(reset)
 }

@@ -71,7 +71,6 @@ func TestSave_PersistsToDisk(t *testing.T) {
 
 	updated := settings.Default()
 	updated.ActiveProvider = "claude"
-	updated.CompletedSetup = true
 
 	if err := svc.Save(updated); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -81,8 +80,51 @@ func TestSave_PersistsToDisk(t *testing.T) {
 	if got.ActiveProvider != "claude" {
 		t.Errorf("after Save: active_provider=%q, want claude", got.ActiveProvider)
 	}
+}
+
+// completed_setup belongs to the welcome service. A whole settings object
+// from the screen carries whatever the screen loaded — defaults after a reset,
+// or the frontend's fallback after a failed Get — and must not move it either
+// way.
+func TestSave_LeavesCompletedSetupAlone(t *testing.T) {
+	svc := newServiceAt(t, t.TempDir())
+	if err := settings.Update(svc, func(c *settings.Settings) { c.CompletedSetup = true }); err != nil {
+		t.Fatal(err)
+	}
+
+	stale := settings.Default() // completed_setup false
+	stale.LogLevel = "debug"
+	if err := svc.Save(stale); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if got := svc.Get(); !got.CompletedSetup || got.LogLevel != "debug" {
+		t.Errorf("after Save: completed_setup=%v log_level=%q, want true and debug", got.CompletedSetup, got.LogLevel)
+	}
+
+	if err := svc.SetActiveProvider("claude-code"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ResetToDefaults(); err != nil {
+		t.Fatalf("ResetToDefaults: %v", err)
+	}
+	got := svc.Get()
 	if !got.CompletedSetup {
-		t.Error("after Save: expected completed_setup=true")
+		t.Error("Reset to Defaults sent a configured user back to the setup wizard")
+	}
+	// The provider in use is what works with the keys that survive a reset.
+	if got.ActiveProvider != "claude-code" || got.LogLevel != "off" {
+		t.Errorf("after reset: active_provider=%q log_level=%q, want claude-code kept and off", got.ActiveProvider, got.LogLevel)
+	}
+
+	// And the other way: Save cannot skip the wizard on its own.
+	fresh := newServiceAt(t, t.TempDir())
+	claimed := settings.Default()
+	claimed.CompletedSetup = true
+	if err := fresh.Save(claimed); err != nil {
+		t.Fatal(err)
+	}
+	if fresh.Get().CompletedSetup {
+		t.Error("Save set completed_setup; only the welcome service may")
 	}
 }
 

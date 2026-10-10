@@ -105,6 +105,12 @@ export function ListModels(provider) {
 
 /**
  * ResetToDefaults resets settings to their default values and saves to disk.
+ * 
+ * What makes the app work survives: API keys stay in the keyring, the setup
+ * stays complete (see Save), and the active provider stays the one in use.
+ * Resetting it to the default (OpenAI) would leave someone on the CLI or the
+ * Anthropic API with a hotkey that fails on a key they never had, and with
+ * setup complete nothing would put it right.
  * @returns {$CancellablePromise<void>}
  */
 export function ResetToDefaults() {
@@ -112,7 +118,9 @@ export function ResetToDefaults() {
 }
 
 /**
- * Save persists the provided settings to disk.
+ * Save persists the provided settings to disk — all of them except
+ * completed_setup, which keeps its current value: only the welcome service
+ * moves it.
  * @param {$models.Settings} updated
  * @returns {$CancellablePromise<void>}
  */

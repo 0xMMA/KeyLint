@@ -215,9 +215,14 @@ export class WailsService implements OnDestroy {
     }
   }
 
+  /**
+   * Stores a key in the OS keyring. Rejects with the backend's error — a
+   * keyring that refused the key must not look like a key that was saved.
+   * Only browser mode (no Wails runtime) resolves without doing anything.
+   */
   setKey(provider: string, key: string): Promise<void> {
     try {
-      return SettingsService.SetKey(provider, key).catch(() => {});
+      return SettingsService.SetKey(provider, key);
     } catch {
       return Promise.resolve();
     }
