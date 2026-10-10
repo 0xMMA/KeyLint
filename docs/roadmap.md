@@ -18,7 +18,7 @@
 | Latest release | `v4.4.3-beta` (2026-04-05) |
 | Last commit on `main` | 2026-09-18 — restart sprint (#39–#88) |
 | Build / tests | `go build -tags gtk3` ✅ · `go test -tags gtk3 ./internal/...` ✅ · Vitest 198/198 ✅ (2026-09-24) |
-| Open PR | #105 evals via Claude Code · #95 Wails beta · Dependabot #100–#102 |
+| Open PR | #105 evals via Claude Code |
 | Open issues | April triage #21–#30 · shortcut robustness #42 #44 · #34 E3 · #35 E4 · #36 Fix page · #38 shell · #56 shell specs · #61 model-list refresh · #80 #83 Fix prompt |
 | Stale remote branches | `feat/pyramidize`, `fix/updater-platform-aware-install` (both already merged, safe to delete) |
 
@@ -113,10 +113,10 @@ Issue: #33 (closed). Follow-ups: #47 schema enforcement (closed, parked default-
 
 | Need | Covered by | Notes |
 |---|---|---|
-| Anthropic API | `github.com/anthropics/anthropic-sdk-go` (v1.75) | official |
+| Anthropic API | `github.com/anthropics/anthropic-sdk-go` (v1.78) | official |
 | AWS Bedrock | same SDK, `bedrock.NewMantleClient` | closes #23 for free, #22 becomes moot |
 | Google Vertex | same SDK, `vertex.WithGoogleAuth` | optional |
-| OpenAI | `github.com/openai/openai-go/v3` (v3.66) | official |
+| OpenAI | `github.com/openai/openai-go/v3` (v3.68 — held below 3.69, #116) | official |
 | Ollama, OpenRouter, LM Studio, Groq, Mistral, … | `openai-go` + `option.WithBaseURL` | OpenAI-compatible endpoints; Ollama serves `/v1` |
 | Claude Code CLI | `internal/llm/claudecli` (E1, #32) | spawn |
 
@@ -203,7 +203,7 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 - [x] `docs/pyramidize/ux-roadmap.md` model strategy section is outdated (Sonnet 4.6 / GPT-5.2 era); superseded by E2 step 4 — replaced by a pointer to `internal/llm/models.go`
 - [x] Pin third-party GitHub Actions to commit SHAs, add Dependabot for actions (#51, #65, #73, #81). `actions/*` stay on floating major tags by design — GitHub's own org, and Dependabot is configured to ignore majors since #81 — so the workflows are hardened, not fully SHA-pinned
 - [ ] Quarterly dependency hygiene — Dependabot deliberately stays silent on these, so this check is the only notice. (1) Actions: check `gh api repos/actions/<name>/releases/latest` for every `actions/*` in `.github/workflows/` and bump paired actions together (artifact upload/download, pages upload/deploy). (2) Framework majors: `cd frontend && npm outdated` for Angular, PrimeNG, `@primeuix/*`, primeicons, TypeScript, Vitest. (3) Wails: `go list -m -u github.com/wailsapp/wails/v3` and its open security advisories. Next due: 2026-12.
-- [x] Add `gomod` and `npm` to Dependabot (#89) — monthly, grouped, 7-day npm cooldown (`packageManager` moved to npm 11.19 so it covers transitive packages too). It does **not** surface the drift that prompted this item: Wails is ignored on both sides, and framework majors (Angular, PrimeNG, `@primeuix/*`, primeicons, TypeScript) are blocked because they need `ng update` and a visual check. The quarterly check above surfaces those. Security updates skip the ignores, so an advisory can still arrive as a PR — as a notice, not merge-on-green
+- [x] Add `gomod` and `npm` to Dependabot (#89) — monthly, grouped, 7-day npm cooldown (`packageManager` moved to npm 11.19 so it covers transitive packages too). It does **not** surface the drift that prompted this item: Wails is ignored on both sides, and framework majors (Angular, PrimeNG, `@primeuix/*`, primeicons, TypeScript) are blocked because they need `ng update` and a visual check. The quarterly check above surfaces those. Security updates skip the ignores, so an advisory can still arrive as a PR — as a notice, not merge-on-green. openai-go is ignored by name (no range) until #116 so its advisories still arrive
 - [x] `MicrosoftEdgeWebview2Setup.exe` was curled from a redirector with no checksum or signature check and bundled into the installer users run — now `scripts/fetch-webview2.sh` refuses any file without a valid Microsoft signature, in both `release.yml` and `build-linux.yml` (#66, #74)
 - [ ] Branch protection on `main` (required checks incl. `e2e`, `test` with race detector, bindings drift) — Michael, repo settings
 - [ ] Shortcut robustness under rapid input (#42, #44) after #31 lands
