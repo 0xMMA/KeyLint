@@ -125,6 +125,12 @@ updates:
           - "@primeuix/*"
           - "primeicons"
           - "typescript"
+      # @tailwindcss/postcss pins tailwindcss to its own exact version; bumped
+      # apart, the build would carry two Tailwinds.
+      tailwind:
+        patterns:
+          - "tailwindcss"
+          - "@tailwindcss/*"
       npm-minor:
         update-types:
           - minor
