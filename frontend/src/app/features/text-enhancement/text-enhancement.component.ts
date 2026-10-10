@@ -1,31 +1,24 @@
 import { Component, OnInit, OnDestroy, ChangeDetectorRef, ElementRef, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
-import { SelectModule } from 'primeng/select';
-import { ButtonModule } from 'primeng/button';
-import { TextareaModule } from 'primeng/textarea';
-import { InputTextModule } from 'primeng/inputtext';
-import { InputNumber } from 'primeng/inputnumber';
-import { ProgressSpinnerModule } from 'primeng/progressspinner';
-import { MessageModule } from 'primeng/message';
-import { Tabs, TabList, Tab, TabPanels, TabPanel } from 'primeng/tabs';
-import { TooltipModule } from 'primeng/tooltip';
 import { WailsService } from '../../core/wails.service';
 import { noteForModelSource } from '../../core/model-source';
 import { describeError } from '../../core/error-message';
 import { DOCUMENT_TYPE_OPTIONS, unavailableProviderName } from '../../core/constants';
+import {
+  ButtonComponent, InputDirective, MessageComponent, SegmentedComponent, SpinnerComponent,
+  TabComponent, TabPanelComponent, TabsComponent, TooltipDirective, type SegmentOption,
+} from '../../shared/ui';
 import { TextEnhancementService } from './text-enhancement.service';
 import { MarkdownPipe } from './markdown.pipe';
+import { type TraceEntry } from './trace-entry';
+import { OptionsPanelComponent } from './options-panel/options-panel.component';
+import { TraceLogComponent } from './trace-log/trace-log.component';
+import { TracePeekComponent } from './trace-peek/trace-peek.component';
+import { SelectionBubbleComponent } from './selection-bubble/selection-bubble.component';
 
 // ── Module-level state (survives navigation; cleared only on full app restart) ──
-interface TraceEntry {
-  id: string;
-  label: string;
-  snapshot: string;
-  timestamp: Date;
-}
 
 // Same names as Settings › AI Providers, so "Settings uses X" below reads as
 // the same X the user sees there.
@@ -92,6 +85,14 @@ let selectedModel = '';
 let qualityThreshold = 0.65;
 let advancedOpen = false;
 
+/** Room the selection bubble needs, to keep it inside the window. */
+const BUBBLE_WIDTH = 340;
+const BUBBLE_HEIGHT = 48;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(value, Math.max(min, max)));
+}
+
 function makeId(): string {
   return Math.random().toString(36).slice(2);
 }
@@ -103,933 +104,282 @@ function addTrace(label: string, snapshot: string): void {
   ];
 }
 
+/**
+ * Pyramidize (docs/ui/design.md, mockup "Pyramidize"): the options column on
+ * the left, the text on a sheet in the middle (Editor and Original tabs), and
+ * the history column on the right when it is open.
+ *
+ * This component owns the session — state, backend calls, shortcuts; the
+ * options column, the history list, the snapshot preview and the selection
+ * bubble are presentational children.
+ */
 @Component({
   selector: 'app-text-enhancement',
   standalone: true,
   imports: [
-    CommonModule,
     FormsModule,
-    SelectModule,
-    ButtonModule,
-    TextareaModule,
-    InputTextModule,
-    InputNumber,
-    ProgressSpinnerModule,
-    MessageModule,
-    Tabs, TabList, Tab, TabPanels, TabPanel,
-    TooltipModule,
+    ButtonComponent, InputDirective, MessageComponent, SegmentedComponent, SpinnerComponent,
+    TabsComponent, TabComponent, TabPanelComponent, TooltipDirective,
+    OptionsPanelComponent, TraceLogComponent, TracePeekComponent, SelectionBubbleComponent,
     MarkdownPipe,
   ],
   template: `
     <div class="pyramidize-page">
 
-      <!-- ── Left panel ── -->
-      <div class="left-panel">
+      <app-pyramidize-options
+        [providerOptions]="providerOptions"
+        [provider]="providerView"
+        (providerPicked)="providerView = $event; onProviderChange()"
+        [sessionOverrideOf]="sessionOverrideOf"
+        [settingsProviderUnusable]="settingsProviderUnusable"
+        [unavailableProvider]="unavailableProviderView"
+        (followSettings)="followSettingsProvider()"
+        [modelOptions]="currentModelOptions"
+        [(model)]="modelView"
+        [modelListNote]="modelListNote"
+        [docTypeOptions]="docTypeOptions"
+        [(docType)]="docTypeView"
+        (docTypePicked)="onDocTypeChange()"
+        [detectedType]="detectedTypeView"
+        [commStyleOptions]="commStyleOptions"
+        [(commStyle)]="commStyleView"
+        [relLevelOptions]="relLevelOptions"
+        [(relLevel)]="relLevelView"
+        [(customInstructions)]="customInstructions"
+        [canPyramidize]="canPyramidize"
+        [loading]="isLoading"
+        [hasResult]="!!canvasTextView.trim()"
+        (pyramidize)="pyramidize()"
+        [showBanner]="!bannerDismissedView && !apiKeySet"
+        [bannerMessage]="credentialsMessage"
+        (dismissBanner)="dismissBanner()"
+        [advancedOpen]="advancedOpenView"
+        (toggleAdvanced)="toggleAdvanced()"
+        [(qualityThreshold)]="qualityThresholdView"
+        (thresholdChanged)="saveThreshold()"
+      />
 
-        @if (!bannerDismissedView && !apiKeySet) {
-          <div class="api-key-banner" data-testid="api-key-banner">
-            <span data-testid="api-key-banner-message">⚠ {{ credentialsMessage }}</span>
-            <p-button
-              icon="pi pi-times"
-              size="small"
-              severity="secondary"
-              [text]="true"
-              (onClick)="dismissBanner()"
-              pTooltip="Dismiss"
-              appendTo="body"
-            />
-          </div>
-        }
-
-        <!-- Provider + Model selectors (UX-01) -->
-        <div class="form-group">
-          <label>Provider</label>
-          <p-select
-            data-testid="provider-select"
-            [(ngModel)]="providerView"
-            [options]="providerOptions"
-            optionLabel="label"
-            optionValue="value"
-            placeholder="Choose a provider"
-            (onChange)="onProviderChange()"
-          />
-          @if (sessionOverrideOf; as settingsLabel) {
-            <small class="session-override" data-testid="provider-session-override">
-              Session override — Settings uses {{ settingsLabel }}.
-              <button type="button" class="session-override-reset" data-testid="provider-follow-settings" (click)="followSettingsProvider()">Use {{ settingsLabel }}</button>
-            </small>
-          }
-          @if (settingsProviderUnusable; as name) {
-            <small class="session-override" data-testid="provider-forced-note">
-              Settings names {{ name }}, which is not available yet, so Pyramidize uses this provider for now.
-            </small>
-          }
-          @if (unavailableProviderView; as name) {
-            <p-message data-testid="provider-unavailable" severity="warn" size="small">
-              {{ name }} is not available yet. Choose another provider here, or in Settings to keep it.
-            </p-message>
-          }
-        </div>
-
-        <div class="form-group">
-          <label>Model</label>
-          @if (modelListNote) {
-            <small class="hint-text" data-testid="model-list-note">{{ modelListNote }}</small>
-          }
-          <p-select
-            data-testid="model-select"
-            [(ngModel)]="modelView"
-            [options]="currentModelOptions"
-            optionLabel="label"
-            optionValue="id"
-          />
-        </div>
-
-        <div class="form-group">
-          <label>Document Type</label>
-          <p-select
-            data-testid="doc-type-select"
-            [(ngModel)]="docTypeView"
-            [options]="docTypeOptions"
-            optionLabel="label"
-            optionValue="value"
-            (onChange)="onDocTypeChange()"
-          />
-          @if (detectedTypeView) {
-            <div class="detection-badge">
-              <span class="detection-dot">●</span>
-              <span>{{ detectedTypeView }}</span>
-            </div>
-          }
-        </div>
-
-        <div class="form-group">
-          <label>Communication Style</label>
-          <p-select
-            [(ngModel)]="commStyleView"
-            [options]="commStyleOptions"
-            optionLabel="label"
-            optionValue="value"
-          />
-        </div>
-
-        <div class="form-group">
-          <label>Relationship Level</label>
-          <p-select
-            [(ngModel)]="relLevelView"
-            [options]="relLevelOptions"
-            optionLabel="label"
-            optionValue="value"
-          />
-        </div>
-
-        <div class="form-group">
-          <label>Custom Instructions</label>
-          <textarea
-            pTextarea
-            [(ngModel)]="customInstructions"
-            rows="3"
-            placeholder="Optional one-off instruction…"
-            class="custom-instructions-textarea"
-          ></textarea>
-        </div>
-
-        <p-button
-          data-testid="pyramidize-btn"
-          label="Pyramidize"
-          icon="pi pi-sparkles"
-          [disabled]="!originalTextView.trim() || isLoading || !!unavailableProviderView"
-          (onClick)="pyramidize()"
-          [loading]="isLoading"
-          class="pyramidize-btn-full"
-        >
-          <ng-template #content>
-            <span>Pyramidize</span>
-            <span class="shortcut-hint">Ctrl+↵</span>
-          </ng-template>
-        </p-button>
-
-        <!-- Advanced section (UX-04) -->
-        <div class="advanced-section">
-          <button class="advanced-toggle" (click)="toggleAdvanced()" type="button">
-            <i class="pi" [class.pi-chevron-right]="!advancedOpenView" [class.pi-chevron-down]="advancedOpenView"></i>
-            <span>Advanced</span>
-          </button>
-          @if (advancedOpenView) {
-            <div class="advanced-body">
-              <div class="form-group">
-                <label>Quality threshold</label>
-                <div class="threshold-row">
-                  <p-inputnumber
-                    [(ngModel)]="qualityThresholdView"
-                    [min]="0" [max]="1" [step]="0.05"
-                    [maxFractionDigits]="2"
-                    [showButtons]="false"
-                    inputStyleClass="threshold-input"
-                    (onChange)="saveThreshold()"
-                  />
-                  <span class="threshold-hint">0–1</span>
-                </div>
-                <small class="hint-text">Scores below this trigger a refinement pass (default 0.65).</small>
+      <!-- ── Editor ── -->
+      <section class="canvas-area" aria-label="Editor">
+        <div class="pz-stack">
+          <div class="pz-editor">
+            <kl-tabs class="pz-tabs" ariaLabel="Text" [value]="activeTabView" (valueChange)="onTabChange($event)"
+              [attr.inert]="isLoading ? '' : null">
+              <kl-tab value="canvas" data-testid="tab-canvas">Editor</kl-tab>
+              <kl-tab value="original" data-testid="tab-original">Original</kl-tab>
+              <div klTabsEnd class="flex items-center gap-2">
+                @if (activeTabView === 'canvas') {
+                  <kl-segmented data-testid="canvas-mode" ariaLabel="Editor view" [options]="canvasModes"
+                    [value]="isPreviewModeView ? 'preview' : 'edit'" (valueChange)="setPreviewMode($event === 'preview')" />
+                }
+                <kl-button #historyToggle data-testid="trace-log-toggle" size="sm" icon="rotate-ccw-clock"
+                  [variant]="traceLogOpenView ? 'quiet' : 'ghost'" [pressed]="traceLogOpenView"
+                  (click)="toggleTraceLog()">{{ historyLabel }}</kl-button>
               </div>
-            </div>
-          }
-        </div>
-      </div>
 
-      <!-- ── Canvas area ── -->
-      <div class="canvas-area">
-
-        @if (isLoading) {
-          <!-- Step indicator during operations -->
-          <div class="step-indicator">
-            <p-progressSpinner styleClass="step-spinner" />
-            <span class="step-label">{{ stepLabel }}</span>
-            <p-button
-              data-testid="cancel-btn"
-              label="Cancel"
-              severity="secondary"
-              size="small"
-              (onClick)="cancelOperation()"
-            />
-          </div>
-        } @else {
-          <div class="tabs-container">
-            <p-tabs [value]="activeTabView" (valueChange)="onTabChange($event)">
-              <p-tablist>
-                <p-tab value="original">Original</p-tab>
-                <p-tab value="canvas">Editor</p-tab>
-              </p-tablist>
-              <p-tabpanels>
-                <!-- Original tab -->
-                <p-tabpanel value="original">
-                  <div class="tab-panel-content">
-                    @if (!originalTextView) {
-                      <div class="empty-original">
-                        <p class="hint-text">Paste or type text to pyramidize.</p>
-                        <p-button
-                          data-testid="paste-from-clipboard-btn"
-                          label="Paste from Clipboard"
-                          icon="pi pi-clipboard"
-                          severity="secondary"
-                          (onClick)="pasteFromClipboard()"
-                        />
-                      </div>
-                    }
+              <kl-tab-panel value="canvas" class="pz-panel">
+                @if (isPreviewModeView) {
+                  <div class="pz-sheet canvas-preview" data-testid="canvas-preview" [innerHTML]="canvasTextView | markdown"></div>
+                } @else {
+                  <div class="canvas-edit-wrapper" (mouseup)="onCanvasMouseUp($event)">
                     <textarea
-                      #originalTextarea
-                      data-testid="original-textarea"
-                      pTextarea
-                      [(ngModel)]="originalTextView"
-                      (ngModelChange)="onOriginalChange($event)"
-                      placeholder="Paste or type text to pyramidize…"
-                      class="canvas-textarea"
-                      (keydown)="onOriginalKeydown($event)"
+                      #canvasTextarea
+                      data-testid="canvas-textarea"
+                      class="pz-sheet"
+                      aria-label="Pyramidized text"
+                      [(ngModel)]="canvasTextView"
+                      (ngModelChange)="onCanvasChange($event)"
+                      placeholder="The pyramidized text appears here, ready to edit."
+                      (keydown)="onCanvasKeydown($event)"
                     ></textarea>
                   </div>
-                </p-tabpanel>
+                }
+                @if (showSelectionBubble && !isPreviewModeView) {
+                  <app-selection-bubble
+                    [style.top.px]="bubbleY"
+                    [style.left.px]="bubbleX"
+                    [(instruction)]="selectionInstruction"
+                    [disabled]="!!unavailableProviderView"
+                    (apply)="applySelectionInstruction()"
+                    (closed)="dismissSelectionBubble()"
+                  />
+                }
+              </kl-tab-panel>
 
-                <!-- Editor tab -->
-                <p-tabpanel value="canvas">
-                  <div class="tab-panel-content">
-                    <div class="canvas-mode-toggle">
-                      <p-button
-                        label="Edit"
-                        size="small"
-                        [severity]="!isPreviewModeView ? 'primary' : 'secondary'"
-                        (onClick)="setPreviewMode(false)"
-                      />
-                      <p-button
-                        label="Preview"
-                        size="small"
-                        [severity]="isPreviewModeView ? 'primary' : 'secondary'"
-                        (onClick)="setPreviewMode(true)"
-                      />
-                    </div>
-
-                    @if (isPreviewModeView) {
-                      <div
-                        class="canvas-preview"
-                        [innerHTML]="canvasTextView | markdown"
-                      ></div>
-                    } @else {
-                      <div class="canvas-edit-wrapper" (mouseup)="onCanvasMouseUp($event)">
-                        <textarea
-                          #canvasTextarea
-                          data-testid="canvas-textarea"
-                          pTextarea
-                          [(ngModel)]="canvasTextView"
-                          (ngModelChange)="onCanvasChange($event)"
-                          placeholder="Editor will appear here after Pyramidize…"
-                          class="canvas-textarea"
-                          (keydown)="onCanvasKeydown($event)"
-                        ></textarea>
-                      </div>
-                    }
-
-                    <!-- Selection bubble -->
-                    @if (showSelectionBubble && !isPreviewModeView) {
-                      <div
-                        class="selection-bubble"
-                        [style.top.px]="bubbleY"
-                        [style.left.px]="bubbleX"
-                      >
-                        <input
-                          pInputText
-                          [(ngModel)]="selectionInstruction"
-                          placeholder="Ask AI…"
-                          class="bubble-input"
-                          (keydown.enter)="applySelectionInstruction()"
-                        />
-                        <p-button
-                          icon="pi pi-sparkles"
-                          label="Apply"
-                          size="small"
-                          [disabled]="!selectionInstruction.trim() || !!unavailableProviderView"
-                          (onClick)="applySelectionInstruction()"
-                        />
-                        <p-button
-                          icon="pi pi-times"
-                          size="small"
-                          severity="secondary"
-                          [text]="true"
-                          (onClick)="closeSelectionBubble()"
-                        />
-                      </div>
-                    }
+              <kl-tab-panel value="original" class="pz-panel">
+                @if (!originalTextView) {
+                  <div class="pz-empty">
+                    <p class="m-0 text-muted">Paste or type the text you want to pyramidize.</p>
+                    <kl-button data-testid="paste-from-clipboard-btn" icon="clipboard" (click)="pasteFromClipboard()">
+                      Paste from clipboard
+                    </kl-button>
                   </div>
-                </p-tabpanel>
-              </p-tabpanels>
-            </p-tabs>
-          </div>
-        }
+                }
+                <textarea
+                  #originalTextarea
+                  data-testid="original-textarea"
+                  class="pz-sheet"
+                  aria-label="Original text"
+                  [(ngModel)]="originalTextView"
+                  (ngModelChange)="onOriginalChange($event)"
+                  (keydown)="onOriginalKeydown($event)"
+                ></textarea>
+              </kl-tab-panel>
+            </kl-tabs>
 
-        <!-- Error display (UX-03) -->
-        @if (errorMessage) {
-          <div class="error-row" data-testid="error-row">
-            <span
-              class="error-text"
-              [pTooltip]="errorMessage"
-              appendTo="body"
-              tooltipPosition="top"
-            >❌ {{ errorMessage }}</span>
-            @if (errorMessage !== sendBackError) {
-              <!-- Not for a Send Back error: the text it points to is on the
-                   clipboard, and copying the error would replace it. -->
-              <p-button
-                data-testid="copy-error-btn"
-                icon="pi pi-copy"
-                size="small"
-                severity="secondary"
-                [text]="true"
-                pTooltip="Copy error"
-                appendTo="body"
-                (onClick)="copyError()"
-              />
+            @if (isLoading) {
+              <div class="pz-busy" data-testid="step-indicator">
+                <div class="pz-busy-card" role="status">
+                  <kl-spinner [size]="20" class="text-primary" />
+                  <span class="flex-1 text-sm" data-testid="step-label">{{ stepLabel }}</span>
+                  <kl-button #cancelBtn data-testid="cancel-btn" size="sm" (click)="cancelOperation()">Cancel</kl-button>
+                </div>
+              </div>
             }
-            <p-button label="Retry" size="small" severity="secondary" (onClick)="retry()" />
           </div>
-        }
 
-        <!-- Refinement warning -->
-        @if (refinementWarning) {
-          <div class="refinement-warning">
-            ⚠ {{ refinementWarning }}
-          </div>
-        }
-
-        <!-- Instruction bar -->
-        <div class="instruction-bar">
-          <input
-            #instructionInput
-            pInputText
-            data-testid="global-instruction-input"
-            [(ngModel)]="globalInstruction"
-            placeholder="Global instruction… (e.g. 'make it shorter')"
-            class="instruction-input"
-            [disabled]="!canvasTextView.trim() || isLoading"
-            (keydown.control.enter)="applyGlobalInstruction()"
-          />
-          <p-button
-            data-testid="apply-instruction-btn"
-            label="Apply"
-            icon="pi pi-play"
-            size="small"
-            [severity]="globalInstruction.trim() && !unavailableProviderView ? 'primary' : 'secondary'"
-            [disabled]="!globalInstruction.trim() || !canvasTextView.trim() || isLoading || !!unavailableProviderView"
-            (onClick)="applyGlobalInstruction()"
-          >
-            <ng-template #content>
-              <span>Apply</span>
-              <span class="shortcut-hint">Ctrl+↵</span>
-            </ng-template>
-          </p-button>
-        </div>
-
-        <!-- Action row -->
-        <div class="action-row">
-          <p-button
-            data-testid="copy-markdown-btn"
-            label="Copy Markdown"
-            icon="pi pi-copy"
-            severity="secondary"
-            size="small"
-            [disabled]="!canvasTextView"
-            (onClick)="copyAsMarkdown()"
-          />
-          <p-button
-            data-testid="copy-rich-text-btn"
-            label="Copy Rich Text"
-            icon="pi pi-file-word"
-            severity="secondary"
-            size="small"
-            [disabled]="!canvasTextView"
-            (onClick)="copyAsRichText()"
-          />
-          @if (sourceAppView) {
-            <p-button
-              data-testid="send-back-btn"
-              [label]="'Send back to ' + sourceAppView"
-              icon="pi pi-send"
-              severity="secondary"
-              size="small"
-              [disabled]="!canvasTextView || sendingBack"
-              (onClick)="sendBack()"
-            />
+          @if (errorMessage) {
+            <kl-message data-testid="error-row" severity="error">
+              <div class="flex items-center gap-2">
+                <span class="error-text" [klTooltip]="errorMessage" klTooltipPosition="top">{{ errorMessage }}</span>
+                @if (errorMessage !== sendBackError) {
+                  <!-- Not for a Send Back error: the text it points to is on the
+                       clipboard, and copying the error would replace it. -->
+                  <kl-button data-testid="copy-error-btn" variant="ghost" size="sm" icon="copy" iconOnly
+                    ariaLabel="Copy error" klTooltip="Copy error" klTooltipPosition="top" (click)="copyError()" />
+                }
+                <kl-button data-testid="retry-btn" size="sm" icon="refresh-cw" (click)="retry()">Retry</kl-button>
+              </div>
+            </kl-message>
           }
-        </div>
 
-        <!-- Trace peek overlay (UX-06) -->
-        @if (activeEntry) {
-          <div class="trace-peek-overlay" data-testid="trace-peek-overlay">
-            <div class="trace-peek-panel">
-              <div class="trace-peek-header">
-                <span class="trace-peek-title">{{ activeEntry.label }}</span>
-                <span class="trace-peek-time">{{ formatTime(activeEntry.timestamp) }}</span>
-                @if (!peekEntry) {
-                  <span class="trace-peek-hint">Click to pin</span>
-                }
-                @if (peekEntry) {
-                  <p-button
-                    icon="pi pi-times"
-                    size="small"
-                    severity="secondary"
-                    [text]="true"
-                    (onClick)="closePeek()"
-                  />
-                }
-              </div>
-              <pre class="trace-peek-content">{{ activeEntry.snapshot }}</pre>
-              <div class="trace-peek-footer">
-                <p-button
-                  label="Revert to here"
-                  size="small"
-                  severity="danger"
-                  (onClick)="revertTo(activeEntry)"
-                />
-                @if (peekEntry) {
-                  <p-button
-                    label="Close"
-                    size="small"
-                    severity="secondary"
-                    (onClick)="closePeek()"
-                  />
-                }
-              </div>
+          @if (refinementWarning) {
+            <kl-message data-testid="refinement-warning" severity="warn" [text]="refinementWarning" />
+          }
+
+          <div class="flex flex-wrap items-center gap-2.5">
+            <label for="pz-global-instruction" class="sr-only">Change the whole text</label>
+            <input
+              #instructionInput
+              klInput
+              id="pz-global-instruction"
+              data-testid="global-instruction-input"
+              class="w-auto flex-[1_1_260px]"
+              [(ngModel)]="globalInstruction"
+              placeholder="Change the whole text, e.g. make it shorter"
+              [disabled]="!canvasTextView.trim() || isLoading"
+              (keydown.control.enter)="applyGlobalInstruction()"
+            />
+            <kl-button
+              data-testid="apply-instruction-btn"
+              size="lg"
+              [variant]="globalInstruction.trim() && !unavailableProviderView ? 'primary' : 'quiet'"
+              [disabled]="!globalInstruction.trim() || !canvasTextView.trim() || isLoading || !!unavailableProviderView"
+              (click)="applyGlobalInstruction()"
+            >Apply<span klButtonEnd><kbd>Ctrl</kbd> <kbd>Enter</kbd></span></kl-button>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex flex-wrap gap-2">
+              <kl-button data-testid="copy-rich-text-btn" size="lg" icon="file-text"
+                [disabled]="!canvasTextView" (click)="copyAsRichText()">Copy as rich text</kl-button>
+              <kl-button data-testid="copy-markdown-btn" variant="ghost" size="lg" icon="copy"
+                [disabled]="!canvasTextView" (click)="copyAsMarkdown()">Copy Markdown</kl-button>
             </div>
-          </div>
-        }
-      </div>
-
-      <!-- ── Trace log panel ── -->
-      <div
-        class="trace-panel"
-        [class.collapsed]="!traceLogOpenView"
-        data-testid="trace-log-panel"
-      >
-        @if (traceLogOpenView) {
-          <div class="trace-header">
-            <span class="trace-title">Trace Log</span>
-            <p-button
-              data-testid="add-checkpoint-btn"
-              icon="pi pi-plus"
-              size="small"
-              severity="secondary"
-              [text]="true"
-              pTooltip="Add checkpoint"
-              tooltipPosition="left"
-              appendTo="body"
-              (onClick)="addCheckpoint()"
-            />
-            <p-button
-              icon="pi pi-chevron-right"
-              size="small"
-              severity="secondary"
-              [text]="true"
-              pTooltip="Collapse"
-              tooltipPosition="left"
-              appendTo="body"
-              (onClick)="toggleTraceLog()"
-            />
-          </div>
-          <div class="trace-list">
-            @for (entry of traceLogView; track entry.id) {
-              <div
-                class="trace-entry"
-                [class.active]="peekEntry?.id === entry.id"
-                (click)="peekTrace(entry)"
-                (mouseenter)="hoverTrace(entry)"
-                (mouseleave)="clearHoverTrace()"
-              >
-                <span class="trace-label">{{ entry.label }}</span>
-                <span class="trace-time">{{ formatTime(entry.timestamp) }}</span>
-              </div>
+            @if (sourceAppView) {
+              <kl-button data-testid="send-back-btn" variant="primary" size="lg" icon="corner-down-left"
+                [disabled]="!canvasTextView || sendingBack" (click)="sendBack()">{{ 'Send back to ' + sourceAppView }}</kl-button>
             }
           </div>
-        } @else {
-          <div class="trace-icon-strip">
-            <p-button
-              icon="pi pi-history"
-              size="small"
-              severity="secondary"
-              [text]="true"
-              pTooltip="Trace log"
-              tooltipPosition="left"
-              appendTo="body"
-              (onClick)="toggleTraceLog()"
-            />
-          </div>
+        </div>
+
+        <!-- A history snapshot over the editor (UX-06) -->
+        @if (!isLoading && activeEntry; as entry) {
+          <app-trace-peek
+            data-testid="trace-peek-overlay"
+            [entry]="entry"
+            [pinned]="!!peekEntry"
+            (revert)="revertTo(entry)"
+            (closed)="closePeek()"
+          />
         }
-      </div>
+      </section>
+
+      @if (traceLogOpenView) {
+        <app-trace-log
+          data-testid="trace-log-panel"
+          [attr.inert]="isLoading ? '' : null"
+          [entries]="traceLogView"
+          [pinnedId]="peekEntry?.id ?? null"
+          (pin)="peekTrace($event)"
+          (hover)="hoverTrace($event)"
+          (unhover)="clearHoverTrace()"
+          (checkpoint)="addCheckpoint()"
+          (collapse)="toggleTraceLog(); focusIn(historyToggleRef)"
+        />
+      }
     </div>
   `,
   styles: [`
     :host { display: block; height: 100%; }
+    .pyramidize-page { display: flex; height: 100%; overflow: hidden; }
 
-    .pyramidize-page {
-      display: flex;
-      flex-direction: row;
-      height: 100%;
-      overflow: hidden;
-      gap: 0;
-    }
+    .canvas-area { position: relative; flex: 1; min-width: 0; display: flex; padding: 12px 28px 24px; overflow: hidden; }
+    .pz-stack { flex: 1; min-width: 0; max-width: 880px; display: flex; flex-direction: column; gap: 16px; }
+    .pz-editor { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .pz-tabs { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 16px; }
+    /* Only the active panel: the inactive one keeps kl-tab-panel's display: none. */
+    .pz-panel:not([hidden]) { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .canvas-edit-wrapper { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
-    /* ── Left panel ── */
-    .left-panel {
-      width: 280px;
-      min-width: 280px;
-      display: flex;
-      flex-direction: column;
-      gap: 0.75rem;
-      padding: 1rem;
-      border-right: 1px solid var(--kl-line);
-      overflow-y: auto;
+    /* The user's text, on a sheet (design.md: Literata 15.5/1.7). */
+    .pz-sheet {
+      flex: 1; min-height: 0; width: 100%; margin: 0; padding: 28px 36px; resize: none; overflow-y: auto;
+      font-family: var(--kl-font-text); font-size: 15.5px; line-height: 1.7; color: var(--kl-surface-200);
+      background: var(--kl-sheet); border: 1px solid var(--kl-line); border-radius: var(--kl-radius-sheet);
     }
-
-    .api-key-banner {
-      background: var(--kl-amber-100);
-      color: var(--kl-amber-900);
-      border: 1px solid var(--kl-amber-300);
-      border-radius: 6px;
-      padding: 0.5rem 0.75rem;
-      font-size: 0.8rem;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.5rem;
+    .pz-sheet::placeholder { color: var(--kl-muted); opacity: 1; font-family: var(--kl-font-ui); font-size: 14px; }
+    .pz-sheet:focus { outline: none; border-color: var(--kl-line-control); }
+    .pz-sheet:focus-visible { outline: 2px solid var(--kl-focus); outline-offset: 2px; }
+    .canvas-preview { overflow-wrap: anywhere; }
+    /* The pipe turns a blank line into <br>, so blocks carry no margin of their own. */
+    .canvas-preview ::ng-deep :is(h1, h2, h3) {
+      margin: 0 0 0.25em; font-weight: 600; line-height: 1.35; color: var(--kl-text-strong);
     }
-
-    .detection-badge {
-      display: flex;
-      align-items: center;
-      gap: 0.3rem;
-      font-size: 0.75rem;
-      color: var(--kl-primary-text);
-      font-weight: 600;
-      letter-spacing: 0.05em;
-      margin-top: 0.25rem;
-    }
-    .detection-dot { font-size: 0.6rem; }
-
-    .session-override {
-      font-size: 0.8rem;
-      color: var(--kl-muted);
-    }
-    .session-override-reset {
-      background: none;
-      border: none;
-      padding: 0;
-      margin-left: 0.25rem;
-      font: inherit;
-      cursor: pointer;
-      color: var(--kl-primary-text);
-    }
-    .session-override-reset:hover { text-decoration: underline; }
-    .form-group {
-      display: flex;
-      flex-direction: column;
-      gap: 0.3rem;
-    }
-    label {
-      font-size: 0.8rem;
-      color: var(--kl-muted);
-    }
-
-    .custom-instructions-textarea {
-      width: 100%;
-      resize: vertical;
-      font-size: 0.85rem;
-    }
-
-    .pyramidize-btn-full {
-      width: 100%;
-    }
-    .pyramidize-btn-full ::ng-deep button {
-      width: 100%;
-      justify-content: space-between;
-    }
-
-    .shortcut-hint {
-      font-size: 0.7rem;
-      opacity: 0.6;
-      margin-left: 0.5rem;
-    }
-
-    /* Advanced section (UX-04) */
-    .advanced-section {
-      border-top: 1px solid var(--kl-line);
-      padding-top: 0.5rem;
-      margin-top: 0.25rem;
-    }
-    .advanced-toggle {
-      background: none;
-      border: none;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-      font-size: 0.8rem;
-      color: var(--kl-muted);
-      padding: 0.2rem 0;
-      width: 100%;
-    }
-    .advanced-toggle:hover { color: var(--kl-text); }
-    .advanced-body { padding-top: 0.5rem; }
-    .threshold-row {
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-    }
-    .threshold-input {
-      width: 80px !important;
-      font-size: 0.85rem;
-    }
-    .threshold-hint { font-size: 0.75rem; color: var(--kl-muted); }
-    .hint-text { font-size: 0.78rem; color: var(--kl-muted); margin: 0; }
-
-    /* ── Canvas area ── */
-    .canvas-area {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      padding: 1rem;
-      gap: 0.75rem;
-      min-width: 0;
-      min-height: 0;
-      position: relative;
-    }
-
-    .step-indicator {
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-      padding: 1rem;
-      background: var(--kl-sheet);
-      border-radius: 8px;
-    }
-    .step-spinner { width: 24px; height: 24px; }
-    .step-label { flex: 1; font-size: 0.9rem; }
-
-    /* Tabs container — must flex-grow to fill available space (UX-07) */
-    .tabs-container {
-      flex: 1;
-      overflow: hidden;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
-    }
-    .tabs-container ::ng-deep .p-tabs {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      min-height: 0;
-    }
-    /* display:flex on the CONTAINER (.p-tabpanels) is safe — it does not make hidden
-       panels visible. The [hidden] attribute sets display:none on each inactive
-       .p-tabpanel element itself, so those children don't participate in flex layout.
-       Without display:flex here the active panel's flex:1 has no effect (flex
-       properties only work inside a flex formatting context). */
-    .tabs-container ::ng-deep .p-tabpanels {
-      flex: 1;
-      overflow: hidden;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
-    }
-    /* Active panel fills the .p-tabpanels flex container.
-       We must NOT set display on the generic .p-tabpanel selector — that would
-       override the UA-stylesheet display:none applied via the [hidden] attribute
-       on inactive panels and make them visible simultaneously. */
-    .tabs-container ::ng-deep .p-tabpanel:not([hidden]) {
-      flex: 1;
-      overflow: hidden;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .tab-panel-content {
-      flex: 1;
-      overflow: hidden;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-      position: relative;
-    }
-
-    .empty-original {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 0.75rem;
-      pointer-events: none;
-      z-index: 1;
-    }
-    .empty-original p-button { pointer-events: all; }
-
-    /* Canvas textarea and preview fill remaining height (UX-07) */
-    .canvas-textarea {
-      flex: 1;
-      min-height: 0;
-      resize: none;
-      width: 100%;
-      /* Was var(--p-font-family), which Aura never defined: the declaration was
-         invalid and the element inherited the page font; inherit says so. */
-      font-family: inherit;
-      font-size: 0.9rem;
-      line-height: 1.6;
-    }
-
-    .canvas-mode-toggle {
-      display: flex;
-      gap: 0.5rem;
-      flex-shrink: 0;
-    }
-
-    .canvas-preview {
-      flex: 1;
-      min-height: 0;
-      padding: 1rem;
-      border: 1px solid var(--kl-line);
-      border-radius: 6px;
-      overflow-y: auto;
-      line-height: 1.7;
-    }
-    .canvas-preview ::ng-deep h1 { font-size: 1.4rem; margin: 0.5rem 0; }
-    .canvas-preview ::ng-deep h2 { font-size: 1.2rem; margin: 0.5rem 0; }
-    .canvas-preview ::ng-deep h3 { font-size: 1rem; margin: 0.4rem 0; }
-    .canvas-preview ::ng-deep p  { margin: 0.4rem 0; }
-    .canvas-preview ::ng-deep ul, .canvas-preview ::ng-deep ol { padding-left: 1.5rem; margin: 0.4rem 0; }
+    .canvas-preview ::ng-deep h1 { font-size: 21px; }
+    .canvas-preview ::ng-deep h2 { font-size: 18px; }
+    .canvas-preview ::ng-deep h3 { font-size: 16px; }
+    .canvas-preview ::ng-deep :is(p, ul, ol) { margin: 0; }
+    .canvas-preview ::ng-deep :is(ul, ol) { padding-left: 1.3em; }
+    .canvas-preview ::ng-deep li { margin-bottom: 0.25em; }
+    .canvas-preview ::ng-deep strong { font-weight: 600; color: var(--kl-text-strong); }
     .canvas-preview ::ng-deep code {
-      background: var(--kl-sheet);
-      padding: 1px 4px;
-      border-radius: 3px;
-      font-family: monospace;
-      font-size: 0.85em;
+      padding: 1px 5px; font-family: ui-monospace, monospace; font-size: 0.85em;
+      background: var(--kl-raised); border-radius: var(--kl-radius-sm);
     }
 
-    .canvas-edit-wrapper {
-      flex: 1;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
-      position: relative;
+    .pz-empty {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1;
+      display: flex; flex-direction: column; align-items: center; gap: 12px; font-size: 14px;
+      text-align: center; pointer-events: none;
+    }
+    .pz-empty kl-button { pointer-events: auto; }
+
+    .pz-busy {
+      position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center;
+      background: color-mix(in srgb, var(--kl-ground), transparent 25%); border-radius: var(--kl-radius-sheet);
+    }
+    .pz-busy-card {
+      display: flex; align-items: center; gap: 14px; min-width: 300px; padding: 14px 14px 14px 18px;
+      background: var(--kl-raised); border: 1px solid var(--kl-line-control); border-radius: var(--kl-radius-lg);
+      box-shadow: var(--kl-shadow-overlay);
     }
 
-    /* Selection bubble */
-    .selection-bubble {
-      position: fixed;
-      /* Was var(--p-surface-overlay, var(--p-surface-card)). Aura defines neither,
-         so the bubble has always rendered without a background. Kept as is in
-         the token move (E11 step 2 is a visual no-op); the bubble gets a real
-         surface when this screen moves to the new look. */
-      background: transparent;
-      border: 1px solid var(--kl-line);
-      border-radius: 8px;
-      padding: 0.5rem;
-      display: flex;
-      gap: 0.4rem;
-      align-items: center;
-      z-index: 1000;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.25);
-    }
-    .bubble-input { width: 180px; font-size: 0.85rem; }
-
-    /* Error row — clipped to 2 lines (UX-03) */
-    .error-row {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      color: var(--kl-error);
-      font-size: 0.85rem;
-      padding: 0.5rem 0.75rem;
-      background: var(--kl-sheet);
-      border-radius: 6px;
-      flex-shrink: 0;
-    }
+    /* Clipped to two lines; the tooltip has it all (UX-03). */
     .error-text {
-      flex: 1;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
-      word-break: break-word;
-      cursor: default;
+      flex: 1; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+      overflow: hidden; overflow-wrap: anywhere;
     }
-
-    .refinement-warning {
-      font-size: 0.8rem;
-      color: var(--kl-warn);
-      padding: 0.4rem 0.5rem;
-      flex-shrink: 0;
-    }
-
-    /* Instruction bar */
-    .instruction-bar {
-      display: flex;
-      gap: 0.5rem;
-      align-items: center;
-      border-top: 1px solid var(--kl-line);
-      padding-top: 0.75rem;
-      flex-shrink: 0;
-    }
-    .instruction-input { flex: 1; }
-
-    /* Action row */
-    .action-row {
-      display: flex;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-      flex-shrink: 0;
-    }
-
-    /* Trace peek overlay — covers the canvas area (UX-06) */
-    .trace-peek-overlay {
-      position: absolute;
-      inset: 0;
-      background: rgba(0,0,0,0.45);
-      display: flex;
-      align-items: stretch;
-      z-index: 50;
-      padding: 0.75rem;
-    }
-    .trace-peek-panel {
-      flex: 1;
-      background: var(--kl-surface-900);
-      border: 1px solid var(--kl-line);
-      border-radius: 8px;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
-    .trace-peek-header {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.75rem 1rem;
-      border-bottom: 1px solid var(--kl-line);
-      flex-shrink: 0;
-    }
-    .trace-peek-title { flex: 1; font-weight: 600; font-size: 0.9rem; }
-    .trace-peek-time { font-size: 0.75rem; color: var(--kl-muted); }
-    .trace-peek-hint { font-size: 0.7rem; color: var(--kl-muted); font-style: italic; }
-    .trace-peek-content {
-      flex: 1;
-      overflow-y: auto;
-      white-space: pre-wrap;
-      word-break: break-word;
-      padding: 1rem;
-      margin: 0;
-      font-size: 0.85rem;
-      line-height: 1.6;
-      /* Was var(--p-font-family), which Aura never defined: the declaration was
-         invalid and the element inherited the page font; inherit says so. */
-      font-family: inherit;
-    }
-    .trace-peek-footer {
-      display: flex;
-      gap: 0.5rem;
-      padding: 0.75rem 1rem;
-      border-top: 1px solid var(--kl-line);
-      flex-shrink: 0;
-    }
-
-    /* ── Trace log panel ── */
-    .trace-panel {
-      width: 260px;
-      min-width: 260px;
-      border-left: 1px solid var(--kl-line);
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      transition: width 0.2s ease;
-    }
-    .trace-panel.collapsed {
-      width: 42px;
-      min-width: 42px;
-    }
-
-    .trace-icon-strip {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 0.5rem 0;
-    }
-
-    .trace-header {
-      display: flex;
-      align-items: center;
-      gap: 0.25rem;
-      padding: 0.5rem 0.75rem;
-      border-bottom: 1px solid var(--kl-line);
-    }
-    .trace-title { flex: 1; font-size: 0.8rem; font-weight: 600; }
-
-    .trace-list {
-      flex: 1;
-      overflow-y: auto;
-      padding: 0.25rem 0;
-    }
-
-    .trace-entry {
-      display: flex;
-      flex-direction: column;
-      padding: 0.4rem 0.75rem;
-      cursor: pointer;
-      border-bottom: 1px solid var(--kl-line);
-      transition: background 0.1s;
-    }
-    .trace-entry:hover { background: var(--kl-hover); }
-    .trace-entry.active { background: var(--kl-highlight); }
-    .trace-label { font-size: 0.8rem; }
-    .trace-time { font-size: 0.7rem; color: var(--kl-muted); }
   `],
 })
 export class TextEnhancementComponent implements OnInit, OnDestroy {
@@ -1135,8 +485,63 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   private sub?: Subscription;
 
   @ViewChild('canvasTextarea') canvasTextareaRef?: ElementRef<HTMLTextAreaElement>;
+  @ViewChild('originalTextarea') private originalTextareaRef?: ElementRef<HTMLTextAreaElement>;
+  @ViewChild('historyToggle', { read: ElementRef }) historyToggleRef?: ElementRef<HTMLElement>;
+
+  /**
+   * While a step runs the tabs are inert, which drops the focus of a textarea
+   * that started it (Ctrl+Enter); Cancel takes it. When the step ends, a focus
+   * left nowhere goes back to the text.
+   */
+  @ViewChild('cancelBtn', { read: ElementRef })
+  private set cancelBtn(ref: ElementRef<HTMLElement> | undefined) {
+    queueMicrotask(() => {
+      if (this.destroyed) return;
+      const active = document.activeElement;
+      const lost = !active || active === document.body;
+      if (ref) {
+        if (lost || this.host.nativeElement.querySelector('kl-tabs')?.contains(active)) this.focusIn(ref);
+      } else if (lost) {
+        const text = activeTab === 'canvas' ? this.canvasTextareaRef : this.originalTextareaRef;
+        text?.nativeElement.focus();
+      }
+    });
+  }
+
+  /** Focuses the first focusable element in `ref` (a kl-button host, say). */
+  focusIn(ref: ElementRef<HTMLElement> | undefined): void {
+    const el = ref?.nativeElement;
+    const target = el?.matches('button, input, textarea') ? el : el?.querySelector<HTMLElement>('button, input, textarea');
+    target?.focus();
+  }
+
+  /** After a pinned preview closes, the focus goes back to its history entry. */
+  private focusEntry(id: string | undefined): void {
+    if (!id) return;
+    // Its focus would open the preview again, as a keyboard focus does.
+    this.restoringFocus = true;
+    this.host.nativeElement.querySelector<HTMLElement>(`[data-entry-id="${id}"]`)?.focus();
+    this.restoringFocus = false;
+  }
+  private restoringFocus = false;
 
   readonly providerOptions = PROVIDER_OPTIONS;
+
+  readonly canvasModes: readonly SegmentOption[] = [
+    { value: 'edit', label: 'Edit' },
+    { value: 'preview', label: 'Preview' },
+  ];
+
+  /** Whether the Pyramidize button (and its Ctrl+Enter) can run now. */
+  get canPyramidize(): boolean {
+    return !!originalText.trim() && !this.isLoading && !this.unavailableProviderView;
+  }
+
+  /** The history toggle's label, with how many snapshots there are. */
+  get historyLabel(): string {
+    const n = traceLog.length;
+    return n === 0 ? 'History' : `History, ${n} ${n === 1 ? 'step' : 'steps'}`;
+  }
 
   /** The provider's models, with a leading entry for the configured default. */
   modelOptions: Array<{ id: string; label: string }> = [DEFAULT_MODEL_OPTION];
@@ -1149,7 +554,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
 
 
   readonly docTypeOptions = [
-    { label: 'AUTO (detect)', value: 'auto' },
+    { label: 'Detect automatically', value: 'auto' },
     ...DOCUMENT_TYPE_OPTIONS,
   ];
 
@@ -1176,6 +581,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     private readonly svc: TextEnhancementService,
     private readonly cdr: ChangeDetectorRef,
     private readonly router: Router,
+    private readonly host: ElementRef<HTMLElement>,
   ) {}
 
   async ngOnInit(): Promise<void> {
@@ -1241,6 +647,8 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     pyramidizedText = '';
     canvasText = '';
     traceLog = [];
+    this.peekEntry = null;
+    this.hoverEntry = null;
     this.detectedTypeView = '';
     activeTab = 'original';
     this.errorMessage = '';
@@ -1408,7 +816,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     if (!originalText.trim() || unavailableProviderName(selectedProvider)) return;
 
     if (canvasText.trim()) {
-      if (!confirm('Re-pyramidize? The current editor content will be saved to the trace log.')) {
+      if (!confirm('Re-pyramidize? The current editor content will be saved to the history.')) {
         return;
       }
       addTrace('Editor (saved)', canvasText);
@@ -1439,7 +847,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
       const result = await this.svc.pyramidize(req);
 
       if (docType === 'auto' && result.detectedType) {
-        this.detectedTypeView = result.detectedType.toUpperCase();
+        this.detectedTypeView = this.docTypeLabel(result.detectedType);
         this.stepLabel = 'Step 2/2: Structuring…';
         this.cdr.detectChanges();
       }
@@ -1459,6 +867,11 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
       this.cdr.detectChanges();
       try {
         await doCall();
+      } catch (e: unknown) {
+        // A failed retry used to clear the error row and show nothing.
+        if (!wasCancelled) {
+          this.errorMessage = `Pyramidize failed: ${describeError(e)}`;
+        }
       } finally {
         this.isLoading = false;
         this.cdr.detectChanges();
@@ -1522,24 +935,33 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   }
 
   onCanvasMouseUp(event: MouseEvent): void {
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+    // The textarea's own selection, not window.getSelection(): in Chromium
+    // (WebView2, so every Windows user) a selection inside a textarea leaves
+    // the document selection collapsed, and the bubble never appeared.
+    const textarea = this.canvasTextareaRef?.nativeElement;
+    const start = textarea?.selectionStart ?? 0;
+    const end = textarea?.selectionEnd ?? 0;
+    if (!textarea || !textarea.value.slice(start, end).trim()) {
       this.showSelectionBubble = false;
       this.cdr.detectChanges();
       return;
     }
 
-    const textarea = this.canvasTextareaRef?.nativeElement;
-    if (textarea) {
-      this.selectionStart = textarea.selectionStart;
-      this.selectionEnd = textarea.selectionEnd;
-    }
+    this.selectionStart = start;
+    this.selectionEnd = end;
 
     this.showSelectionBubble = true;
-    this.bubbleX = event.clientX - 100;
-    this.bubbleY = event.clientY - 80;
+    // Above and left of the pointer, but never off the window.
+    this.bubbleX = clamp(event.clientX - 100, 8, window.innerWidth - BUBBLE_WIDTH - 8);
+    this.bubbleY = clamp(event.clientY - 80, 8, window.innerHeight - BUBBLE_HEIGHT - 8);
     this.selectionInstruction = '';
     this.cdr.detectChanges();
+  }
+
+  /** Escape or the bubble's close button: back to the text the selection is in. */
+  dismissSelectionBubble(): void {
+    this.closeSelectionBubble();
+    this.canvasTextareaRef?.nativeElement.focus();
   }
 
   closeSelectionBubble(): void {
@@ -1601,13 +1023,15 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   }
 
   peekTrace(entry: TraceEntry): void {
+    // One Escape closes one thing: an open bubble would close with the preview.
+    this.closeSelectionBubble();
     this.peekEntry = entry;
     this.hoverEntry = null;
     this.cdr.detectChanges();
   }
 
   hoverTrace(entry: TraceEntry): void {
-    if (!this.peekEntry) {
+    if (!this.peekEntry && !this.restoringFocus) {
       this.hoverEntry = entry;
       this.cdr.detectChanges();
     }
@@ -1619,8 +1043,11 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   }
 
   closePeek(): void {
+    const id = this.peekEntry?.id;
     this.peekEntry = null;
     this.hoverEntry = null;
+    this.cdr.detectChanges();
+    this.focusEntry(id);
   }
 
   revertTo(entry: TraceEntry): void {
@@ -1629,6 +1056,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     this.peekEntry = null;
     activeTab = 'canvas';
     this.cdr.detectChanges();
+    this.focusEntry(entry.id);
   }
 
   async copyAsMarkdown(): Promise<void> {
@@ -1683,8 +1111,10 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     }
   }
 
-  formatTime(d: Date): string {
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  /** "Email" for a detected "EMAIL"; an unknown type as the backend named it. */
+  private docTypeLabel(type: string): string {
+    const known = DOCUMENT_TYPE_OPTIONS.find(o => o.value === type.toLowerCase());
+    return known?.label ?? type.charAt(0).toUpperCase() + type.slice(1).toLowerCase();
   }
 
   ngOnDestroy(): void {

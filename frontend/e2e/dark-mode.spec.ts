@@ -164,26 +164,24 @@ test.describe('Dark mode — visual verification', () => {
     // The rail surface (--kl-rail, #18181b): darker than an enabled field.
     expect(bg, `Disabled input background: ${bg}`).toBe('rgb(24, 24, 27)');
 
-    // The colour above comes from KeyLint's own override and would hold with
-    // .app-dark on <body> too. What regressed was PrimeNG's token, which only
-    // resolves dark when the class sits on <html> (on <body> it read #e2e8f0);
-    // it now follows KeyLint's rail token through styles.scss.
+    // What regressed was PrimeNG's token, which only resolved dark with the
+    // class on <html>. Pyramidize has no PrimeNG input any more (the field is
+    // klInput, E11), so PrimeNG never defines that token on this page; the
+    // class position is still checked, as every PrimeNG screen left needs it.
     const onRoot = await page.evaluate(() => document.documentElement.classList.contains('app-dark'));
     expect(onRoot, '.app-dark must sit on <html>').toBe(true);
-    const token = await input.evaluate((el) =>
-      getComputedStyle(el).getPropertyValue('--p-inputtext-disabled-background').trim());
-    expect(token, `--p-inputtext-disabled-background: ${token}`).toBe('#18181b');
     await screenshot(page, '09-disabled-input-dark');
   });
 
-  // Same root cause as above: the dropdown panel's background is a :root alias
-  // of the overlay token and used to resolve to white.
+  // Same root cause as above: PrimeNG's dropdown panel background was a :root
+  // alias of the overlay token and used to resolve to white. Pyramidize's
+  // selects are kl-select now (E11), whose panel takes the raised token.
   test('an open select panel is dark', async ({ page }) => {
     await page.goto('/enhance');
     await page.waitForLoadState('networkidle');
 
     await page.locator('[data-testid="provider-select"]').click();
-    const panel = page.locator('.p-select-overlay');
+    const panel = page.getByRole('listbox');
     await expect(panel).toBeVisible();
     const bg = await panel.evaluate((el) => getComputedStyle(el).backgroundColor);
     console.log(`select panel bg: ${bg}`);
