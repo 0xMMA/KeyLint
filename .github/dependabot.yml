@@ -91,6 +91,10 @@ updates:
       # half-bump is a runtime mismatch. Done by hand, with a Windows smoke
       # test — see docs/roadmap.md E4.
       - dependency-name: github.com/wailsapp/wails/v3
+      # v3.69.0 refuses plain HTTP for any request with a key, which is how
+      # the Ollama provider talks to its daemon. Held until #116 is fixed.
+      - dependency-name: github.com/openai/openai-go/v3
+        versions: [">=3.69.0"]
 
   - package-ecosystem: npm
     directory: /frontend
