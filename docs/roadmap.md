@@ -17,8 +17,8 @@
 |---|---|
 | Latest release | `v4.4.3-beta` (2026-04-05) |
 | Last commit on `main` | 2026-09-18 — restart sprint (#39–#88) |
-| Build / tests | `go build` ✅ · `go test ./internal/...` ✅ · Vitest 198/198 ✅ (2026-09-24) |
-| Open PR | #105 evals via Claude Code · #95 Wails beta · Dependabot #100–#102 |
+| Build / tests | `go build -tags gtk3` ✅ · `go test -tags gtk3 ./internal/...` ✅ · Vitest 198/198 ✅ (2026-09-24) |
+| Open PR | #105 evals via Claude Code |
 | Open issues | April triage #21–#30 · shortcut robustness #42 #44 · #34 E3 · #35 E4 · #36 Fix page · #38 shell · #56 shell specs · #61 model-list refresh · #80 #83 Fix prompt |
 | Stale remote branches | `feat/pyramidize`, `fix/updater-platform-aware-install` (both already merged, safe to delete) |
 
@@ -26,8 +26,8 @@
 
 | Dependency | Pinned | Latest | Note |
 |---|---|---|---|
-| `wailsapp/wails/v3` (Go) | `v3.0.0-alpha.72` | `v3.0.0-beta.23` | v3 Beta shipped Aug 2026; community reports alpha→beta is a version bump, no known breaking changes |
-| `@wailsio/runtime` (npm) | `3.0.0-alpha.79` | `3.0.0-beta.23` | already **mismatched** with the Go side (alpha.72 vs alpha.79) |
+| `wailsapp/wails/v3` (Go) | `v3.0.0-beta.25` | `v3.0.0-beta.28` | E4 step 1 (PR #95), waiting on the Windows smoke test. beta.26–28 change only Windows WebView2 crash recovery among the APIs KeyLint uses — a follow-up bump. No Go API break for KeyLint; Linux stays on GTK3 via `-tags gtk3` (decision below) |
+| `@wailsio/runtime` (npm) | `3.0.0-beta.25` | `3.0.0-beta.28` | pinned exactly, same version as the Go side (was alpha.79 vs alpha.72) |
 | Angular | 21.2.0 | 22.1.x | |
 | PrimeNG / `@primeuix/themes` | 21.1.3 / 2.0.3 | 22.1.x / 3.0.x | move together |
 | TypeScript | 5.9 | 7.0 | Angular 22 requires 6.0 (`>=6.0 <6.1`); TS 7 = Go-native compiler, only when Angular CLI supports it |
@@ -113,10 +113,10 @@ Issue: #33 (closed). Follow-ups: #47 schema enforcement (closed, parked default-
 
 | Need | Covered by | Notes |
 |---|---|---|
-| Anthropic API | `github.com/anthropics/anthropic-sdk-go` (v1.75) | official |
+| Anthropic API | `github.com/anthropics/anthropic-sdk-go` (v1.78) | official |
 | AWS Bedrock | same SDK, `bedrock.NewMantleClient` | closes #23 for free, #22 becomes moot |
 | Google Vertex | same SDK, `vertex.WithGoogleAuth` | optional |
-| OpenAI | `github.com/openai/openai-go/v3` (v3.66) | official |
+| OpenAI | `github.com/openai/openai-go/v3` (v3.68 — held below 3.69, #116) | official |
 | Ollama, OpenRouter, LM Studio, Groq, Mistral, … | `openai-go` + `option.WithBaseURL` | OpenAI-compatible endpoints; Ollama serves `/v1` |
 | Claude Code CLI | `internal/llm/claudecli` (E1, #32) | spawn |
 
@@ -155,7 +155,8 @@ Hypothesis: with Opus 5 / Sonnet 5 a single well-structured call matches the det
 Issue: #35.
 
 Order matters:
-1. Wails: bump Go module to `v3.0.0-beta.23` **and** `@wailsio/runtime` to the same version; regenerate bindings; smoke test tray, window hide/show, events, Windows build.
+1. Wails: bump Go module to `v3.0.0-beta.25` **and** `@wailsio/runtime` to the same version; regenerate bindings; smoke test tray, window hide/show, events, Windows build. **PR #95** — bindings unchanged, clears the 8 go-git/go-billy govulncheck findings; Linux builds with `-tags gtk3` to keep the status quo; waiting on the Windows smoke test in the PR body.
+   - [ ] **Decision for Michael, due before the Wails v3.1 bump (v3.1 removes `gtk3`):** Wails' default Linux stack is GTK4 + WebKitGTK 6.0, which always sandboxes with bubblewrap; stock Ubuntu 23.10+ blocks that (`kernel.apparmor_restrict_unprivileged_userns=1`) and the app aborts at start. Options: ship an AppArmor profile in the deb (as Ubuntu does for GNOME Web), declare Linux dev-only and stop publishing Linux binaries/updates, or stay on GTK3 until forced. Whatever is chosen, the Linux self-updater must not replace a working GTK3 binary with a GTK4 one that cannot start.
 2. **Blocked on a licensing decision (Michael).** PrimeNG 22 is no longer MIT: PrimeTek moved it, `@primeuix/*` 3.x and primeicons 8 to the commercial *PrimeUI License* (checked 2026-09-25 in the npm tarballs; [announcement](https://primeui.dev/nextchapter)). A licence key is required; without one `providePrimeNG()` shows a red "Invalid PrimeUI License" banner. The free Community tier covers "non-commercial open source projects" and small organisations, needs yearly renewal, and forbids publishing the key — so it would live in a CI secret and every other build shows the banner. PrimeNG 21.1.10 declares `@angular/core ^21`, so **Angular 22 is blocked with it**. Options: (a) stay on Angular 21 + PrimeNG 21 (MIT, still receives 21.x releases), (b) Community key via CI secret, (c) move off PrimeNG before Angular 21 support ends. Dependabot fences the non-MIT versions (#89). Originally: Angular 22 + PrimeNG 22 + `@primeuix/themes` 3 together (`ng update`); re-check the custom wizard (`@switch`) and dark-mode CSS overrides in `styles.scss`, which patch PrimeNG gaps that may be fixed or moved.
 3. ~~Playwright 1.63, jsdom 30, Prettier~~ **done (#84)**, Vitest to 4.1. Vitest 5 waits until `@angular/build` is on >= 22.2, the first to declare `^5` (i.e. with step 2) — then handle the `clearMocks` default flip and the reporter change in the same PR (`.claude/rules/testing.md`).
 4. TypeScript: Angular dictates it — Angular 22 requires `>=6.0 <6.1`, so step 2 moves TypeScript 5.9 → 6.0 with it. TypeScript 7 only once `@angular/build` lists it.
@@ -202,7 +203,7 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 - [x] `docs/pyramidize/ux-roadmap.md` model strategy section is outdated (Sonnet 4.6 / GPT-5.2 era); superseded by E2 step 4 — replaced by a pointer to `internal/llm/models.go`
 - [x] Pin third-party GitHub Actions to commit SHAs, add Dependabot for actions (#51, #65, #73, #81). `actions/*` stay on floating major tags by design — GitHub's own org, and Dependabot is configured to ignore majors since #81 — so the workflows are hardened, not fully SHA-pinned
 - [ ] Quarterly dependency hygiene — Dependabot deliberately stays silent on these, so this check is the only notice. (1) Actions: check `gh api repos/actions/<name>/releases/latest` for every `actions/*` in `.github/workflows/` and bump paired actions together (artifact upload/download, pages upload/deploy). (2) Framework majors: `cd frontend && npm outdated` for Angular, PrimeNG, `@primeuix/*`, primeicons, TypeScript, Vitest. (3) Wails: `go list -m -u github.com/wailsapp/wails/v3` and its open security advisories. Next due: 2026-12.
-- [x] Add `gomod` and `npm` to Dependabot (#89) — monthly, grouped, 7-day npm cooldown (`packageManager` moved to npm 11.19 so it covers transitive packages too). It does **not** surface the drift that prompted this item: Wails is ignored on both sides, and framework majors (Angular, PrimeNG, `@primeuix/*`, primeicons, TypeScript) are blocked because they need `ng update` and a visual check. The quarterly check above surfaces those. Security updates skip the ignores, so an advisory can still arrive as a PR — as a notice, not merge-on-green
+- [x] Add `gomod` and `npm` to Dependabot (#89) — monthly, grouped, 7-day npm cooldown (`packageManager` moved to npm 11.19 so it covers transitive packages too). It does **not** surface the drift that prompted this item: Wails is ignored on both sides, and framework majors (Angular, PrimeNG, `@primeuix/*`, primeicons, TypeScript) are blocked because they need `ng update` and a visual check. The quarterly check above surfaces those. Security updates skip the ignores, so an advisory can still arrive as a PR — as a notice, not merge-on-green. openai-go is ignored by name (no range) until #116 so its advisories still arrive
 - [x] `MicrosoftEdgeWebview2Setup.exe` was curled from a redirector with no checksum or signature check and bundled into the installer users run — now `scripts/fetch-webview2.sh` refuses any file without a valid Microsoft signature, in both `release.yml` and `build-linux.yml` (#66, #74)
 - [ ] Branch protection on `main` (required checks incl. `e2e`, `test` with race detector, bindings drift) — Michael, repo settings
 - [ ] Shortcut robustness under rapid input (#42, #44) after #31 lands
