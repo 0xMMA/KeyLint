@@ -1,4 +1,5 @@
 import type { ClaudeCodeStatus, KeyStatus } from './wails.service';
+import { unavailableProviderName } from './constants';
 
 /**
  * The providers a user can choose, in the order Settings › AI Providers lists
@@ -17,11 +18,12 @@ export const PROVIDER_OPTIONS: ReadonlyArray<{ label: string; value: string }> =
 
 /**
  * A provider's name without the parenthetical ("Claude Code", "Ollama"), for
- * tight places like a chip; the provider ID if KeyLint does not know it.
+ * tight places like a chip; a known but unavailable one by its name ("AWS
+ * Bedrock"); the provider ID only if KeyLint does not know it at all.
  */
 export function providerShortLabel(provider: string): string {
   const label = PROVIDER_OPTIONS.find(o => o.value === provider)?.label;
-  return label ? label.replace(/\s*\(.*\)$/, '') : provider;
+  return label ? label.replace(/\s*\(.*\)$/, '') : (unavailableProviderName(provider) ?? provider);
 }
 
 /** The providers that work with an API key, and nothing else. */

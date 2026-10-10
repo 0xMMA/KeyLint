@@ -201,17 +201,29 @@ describe('FixComponent', () => {
     expect(q('fix-provider')?.textContent?.trim()).toBe('OpenAI');
     expect(q('fix-model')?.textContent?.trim()).toBe('gpt-6-luna');
 
+    // Read again each time the page opens (Go sends no settings event).
     wailsMock.loadSettings.mockResolvedValue({
       ...defaultSettings,
       active_provider: 'claude-code',
       models: { 'claude-code': { fix: 'sonnet', pyramidize: '', fix_effort: '', pyramidize_effort: '' } },
     });
-    wailsMock._settingsChanged$.next();
-    await render();
-    await render();
-    expect(q('fix-provider')?.textContent?.trim()).toBe('Claude Code');
-    // Named as the listing names it (wails-mock lists "Sonnet (latest)").
-    expect(q('fix-model')?.textContent?.trim()).toBe('Sonnet (latest)');
+    const again = TestBed.createComponent(FixComponent);
+    again.detectChanges();
+    await again.whenStable();
+    await vi.waitFor(() => expect(again.nativeElement.querySelector('[data-testid="fix-model"]')?.textContent?.trim())
+      .toBe('Sonnet (latest)'));
+    expect(again.nativeElement.querySelector('[data-testid="fix-provider"]')?.textContent?.trim()).toBe('Claude Code');
+    again.destroy();
+  });
+
+  it('names a saved provider that is not available yet by its name, not its ID', async () => {
+    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, active_provider: 'bedrock' });
+    const again = TestBed.createComponent(FixComponent);
+    again.detectChanges();
+    await again.whenStable();
+    again.detectChanges();
+    expect(again.nativeElement.querySelector('[data-testid="fix-provider"]')?.textContent?.trim()).toBe('AWS Bedrock');
+    again.destroy();
   });
 
   it('shows error message in DOM on service failure', async () => {

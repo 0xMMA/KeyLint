@@ -300,8 +300,9 @@ export class FixComponent implements OnInit, OnDestroy {
           this.cdr.detectChanges();
         }
       }),
-      this.wails.settingsChanged$.subscribe(() => void this.loadSentTo()),
     );
+    // Once per visit: the page is made anew on each navigation, and Go sends
+    // no settings event to follow a change made elsewhere.
     void this.loadSentTo();
   }
 
