@@ -24,7 +24,7 @@ One thing is loud, everything else is quiet. The loud thing is the corrections: 
 
 Radii: sheets 10px, controls 6px, menus 8px, tags pill. Shadows only on overlays.
 
-In code these are the `--kl-*` tokens in `frontend/src/theme.css`, with Tailwind utilities on top (`bg-sheet`, `text-muted`, `border-line`). The names follow this table, except orange → `--kl-primary` and orange-text → `--kl-primary-text`. Until the new look is switched on, their values are still the Aura ones the app renders today (E11 step 2 was a visual no-op).
+In code these are the `--kl-*` tokens in `frontend/src/theme.css`, with Tailwind utilities on top (`bg-sheet`, `text-muted`, `border-line`). The names follow this table, except orange → `--kl-primary`, orange-text → `--kl-primary-text`, and the text colour's utility is `text-fg` (not `text-text`). Until the new look is switched on, their values are still the Aura ones the app renders today (E11 step 2 was a visual no-op).
 
 ## Type
 

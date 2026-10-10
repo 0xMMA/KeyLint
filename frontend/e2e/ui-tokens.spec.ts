@@ -65,6 +65,10 @@ test.describe('UI tokens and Tailwind next to PrimeNG', () => {
     for (const [kl, p] of MIRRORS) {
       const defined = await page.evaluate((t) => getComputedStyle(document.documentElement).getPropertyValue(t).trim(), kl);
       expect(defined, `${kl} is not defined`).not.toBe('');
+      // Both sides: an undefined --p-* would make the probe inherit, and the
+      // comparison could then pass for the wrong reason.
+      const mirrored = await page.evaluate((t) => getComputedStyle(document.documentElement).getPropertyValue(t).trim(), p);
+      expect(mirrored, `${p} is not defined`).not.toBe('');
       expect(await resolve(page, kl), `${kl} vs ${p}`).toBe(await resolve(page, p));
     }
     // The page itself sits on the ground token.

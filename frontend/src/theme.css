@@ -30,6 +30,13 @@
  * (a styleClass) ever has to win against PrimeNG, use the important modifier
  * (`mt-4!`): important declarations in a layer beat unlayered ones, normal or
  * important. PrimeFlex made every utility !important for that reason.
+ *
+ * One behaviour did change with that: a running CSS animation beats normal
+ * declarations from any layer but not !important ones. PrimeNG's p-message
+ * leave animation ends at margin: 0, so a p-message with `mt-4` now slides its
+ * margin closed over 150 ms when it goes away, where PrimeFlex's !important
+ * margin used to jump. Accepted (it is what PrimeNG intends, and p-message goes
+ * with E11). The same applies to `mt-4!`: it would block the animation again.
  */
 @layer theme, base, components, utilities;
 @import "tailwindcss/theme.css" layer(theme);

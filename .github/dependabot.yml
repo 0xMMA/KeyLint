@@ -159,6 +159,15 @@ updates:
       - dependency-name: "typescript"
         update-types:
           - version-update:semver-major
+      # Tailwind is a build tool, but a major changes what the utilities and
+      # the @theme/@layer setup in src/theme.css mean — same reasoning as the
+      # framework majors above.
+      - dependency-name: "tailwindcss"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "@tailwindcss/*"
+        update-types:
+          - version-update:semver-major
       # LICENCE FENCE — explicit `versions:` ranges, because unlike the rules
       # above they also bind security updates. From these versions on, the
       # PrimeTek packages are no longer MIT but the commercial "PrimeUI
