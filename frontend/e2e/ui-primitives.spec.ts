@@ -79,4 +79,55 @@ test.describe('UI primitives in the browser', () => {
     // The page itself did not scroll sideways to get there.
     expect(await page.evaluate(() => window.scrollX)).toBe(0);
   });
+
+  test('a squeezed tab row neither loops nor gets squeezed: the end content wraps above it', async ({ page }) => {
+    // Regression: the selected tab wider than a row squeezed by the History
+    // button made reveal() scroll back and forth for ever (NG0103 ~60/s).
+    const ng0103: string[] = [];
+    page.on('console', (m) => { if (m.text().includes('NG0103')) ng0103.push(m.text()); });
+    await page.setViewportSize({ width: 700, height: 800 });
+    await configured(page);
+    await page.goto('/enhance');
+    await page.getByRole('tab', { name: 'Editor' }).click();
+    // Attached, not visible: before the fix the row was 0px wide.
+    const list = page.getByRole('tablist', { name: 'Text' });
+    await expect(list).toBeAttached();
+
+    const work = await list.evaluate(async (el) => {
+      let scrolls = 0;
+      let classFlips = 0;
+      el.addEventListener('scroll', () => scrolls++);
+      new MutationObserver((r) => (classFlips += r.length)).observe(el, { attributeFilter: ['class'] });
+      await new Promise((r) => setTimeout(r, 800));
+      const bar = el.parentElement!.getBoundingClientRect();
+      const row = el.getBoundingClientRect();
+      const end = el.closest('kl-tabs')!.querySelector('[klTabsEnd]')!.getBoundingClientRect();
+      return {
+        scrolls, classFlips,
+        fits: el.scrollWidth <= el.clientWidth + 1,
+        onDivider: Math.abs(row.bottom - bar.bottom) < 1,
+        endAbove: end.bottom <= row.top + 1,
+      };
+    });
+    expect(work.scrolls, 'the row is at rest').toBeLessThanOrEqual(1);
+    expect(work.classFlips, 'the fades are at rest').toBeLessThanOrEqual(1);
+    expect(ng0103).toEqual([]);
+    expect(work.fits, 'both tabs fully visible').toBe(true);
+    expect(work.onDivider, 'the tabs stay on the divider').toBe(true);
+    expect(work.endAbove, 'the History row moved above the tabs').toBe(true);
+  });
+
+  test('on a wide window the end content sits beside the tabs', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await configured(page);
+    await page.goto('/enhance');
+    const list = page.getByRole('tablist', { name: 'Text' });
+    await expect(list).toBeVisible();
+    const sameLine = await list.evaluate((el) => {
+      const row = el.getBoundingClientRect();
+      const end = el.closest('kl-tabs')!.querySelector('[klTabsEnd]')!.getBoundingClientRect();
+      return end.top < row.bottom && end.bottom > row.top && end.left >= row.right;
+    });
+    expect(sameLine).toBe(true);
+  });
 });

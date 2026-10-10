@@ -1,6 +1,6 @@
 import {
-  ChangeDetectionStrategy, Component, ElementRef, afterEveryRender, afterRenderEffect, booleanAttribute, computed,
-  contentChildren, inject, input, model, signal, viewChild,
+  ChangeDetectionStrategy, Component, DestroyRef, ElementRef, afterNextRender, afterRenderEffect, booleanAttribute,
+  computed, contentChildren, inject, input, model, signal, untracked, viewChild,
 } from '@angular/core';
 
 let nextId = 0;
@@ -33,13 +33,19 @@ const FOCUSABLE = [
  *
  * On a narrow window the tab row scrolls sideways instead of wrapping onto a
  * second line: the selected tab is kept in view, and the edge with more tabs
- * behind it fades out so the row reads as scrollable.
+ * behind it fades out so the row reads as scrollable. The klTabsEnd content
+ * gives way first: when tabs and end content do not fit side by side, the end
+ * content moves onto a line above the tabs (wrap-reverse keeps the tabs on the
+ * divider), so it never squeezes the tab row.
+ *
+ * The row is measured when it scrolls or changes size (a ResizeObserver on
+ * the row and its tabs), not on every render of the app.
  */
 @Component({
   selector: 'kl-tabs',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'kl-tabs', '(window:resize)': 'measureRow()' },
+  host: { class: 'kl-tabs' },
   template: `
     <div class="kl-tabs-bar">
       <div #row role="tablist" class="kl-tablist" [attr.aria-label]="ariaLabel() || null"
@@ -47,7 +53,7 @@ const FOCUSABLE = [
         (keydown)="onKeydown($event)" (scroll)="measureRow()">
         <ng-content select="kl-tab" />
       </div>
-      <ng-content select="[klTabsEnd]" />
+      <div class="kl-tabs-end"><ng-content select="[klTabsEnd]" /></div>
     </div>
     <ng-content />
   `,
@@ -55,14 +61,19 @@ const FOCUSABLE = [
     :host { display: block; }
     /* The divider is an inset shadow, not a border, so the tabs' 2px marker can
        sit inside the scrolling tab row and still cover it. */
+    /* wrap-reverse: end content that does not fit beside the tabs goes onto a
+       line above them, and the tabs stay on the divider. The row keeps its
+       natural width (flex-basis auto) unless the bar is narrower than it. */
     .kl-tabs-bar {
-      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      display: flex; flex-wrap: wrap-reverse; align-items: center; column-gap: 12px;
       box-shadow: inset 0 -1px 0 var(--kl-line);
     }
     .kl-tablist {
-      display: flex; flex-wrap: nowrap; gap: 24px; min-width: 0;
+      display: flex; flex-wrap: nowrap; gap: 24px; flex: 0 1 auto; min-width: 0; max-width: 100%;
       overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
     }
+    .kl-tabs-end { display: flex; justify-content: flex-end; min-width: 0; max-width: 100%; margin-left: auto; }
+    .kl-tabs-end:empty { display: none; }
     .kl-tablist::-webkit-scrollbar { display: none; }
     .kl-tablist.more-end { mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }
     .kl-tablist.more-start { mask-image: linear-gradient(to right, transparent, #000 32px); }
@@ -83,16 +94,31 @@ export class TabsComponent {
   protected readonly moreStart = signal(false);
   protected readonly moreEnd = signal(false);
 
+  private resizeObserver: ResizeObserver | null = null;
+
   constructor() {
-    afterEveryRender(() => this.measureRow());
+    afterNextRender(() => {
+      this.measureRow();
+      if (typeof ResizeObserver === 'undefined') return;
+      // The row's width (window, end content) and its content's width (a tab
+      // label that changes) both move the fades; nothing else does.
+      this.resizeObserver = new ResizeObserver(() => this.measureRow());
+      this.resizeObserver.observe(this.row().nativeElement);
+      for (const tab of this.row().nativeElement.children) this.resizeObserver.observe(tab);
+    });
+    inject(DestroyRef).onDestroy(() => this.resizeObserver?.disconnect());
   }
 
-  /** Brings a tab fully into the row's view, scrolling only the row, never the page. */
+  /**
+   * Brings a tab into the row's view, scrolling only the row, never the page.
+   * A tab wider than the row shows its start: aligning both edges in turn
+   * would scroll back and forth.
+   */
   reveal(tab: HTMLElement): void {
     const row = this.row().nativeElement;
     const r = row.getBoundingClientRect();
     const t = tab.getBoundingClientRect();
-    if (t.left < r.left) row.scrollLeft -= r.left - t.left;
+    if (t.left < r.left || t.width > r.width) row.scrollLeft += t.left - r.left;
     else if (t.right > r.right) row.scrollLeft += t.right - r.right;
     this.measureRow();
   }
@@ -181,8 +207,10 @@ export class TabComponent {
   constructor() {
     // Also on the first render: a page opened on its last tab (?tab=about)
     // must not start with that tab scrolled out of a narrow row.
+    // Only `selected` is tracked: reveal reads the row's fade signals, and an
+    // effect that tracked them would re-run on every fade it causes (NG0103).
     afterRenderEffect(() => {
-      if (this.selected()) this.tabs.reveal(this.el.nativeElement);
+      if (this.selected()) untracked(() => this.tabs.reveal(this.el.nativeElement));
     });
   }
 
@@ -222,14 +250,24 @@ export class TabPanelComponent {
   readonly active = computed(() => this.tabs.active() === this.value());
   /** Something inside can take the focus, so the panel itself needs no Tab stop. */
   protected readonly hasFocusable = signal(false);
+  private readonly destroyRef = inject(DestroyRef);
 
   constructor() {
     // Content is projected and changes with state (a message appears, a form
-    // is replaced), so look again after each render; the signal only moves
-    // when the answer does.
-    afterEveryRender(() => {
+    // is replaced), so look again when the panel's DOM changes rather than on
+    // every render of the app; the signal only moves when the answer does.
+    const check = () => {
       const found = this.el.nativeElement.querySelector(FOCUSABLE) !== null;
       if (found !== this.hasFocusable()) this.hasFocusable.set(found);
+    };
+    afterNextRender(() => {
+      check();
+      const observer = new MutationObserver(check);
+      observer.observe(this.el.nativeElement, {
+        childList: true, subtree: true,
+        attributes: true, attributeFilter: ['disabled', 'tabindex', 'href', 'contenteditable', 'type'],
+      });
+      this.destroyRef.onDestroy(() => observer.disconnect());
     });
   }
 }

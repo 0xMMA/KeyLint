@@ -167,7 +167,7 @@ function addTrace(label: string, snapshot: string): void {
               [attr.inert]="isLoading ? '' : null">
               <kl-tab value="canvas" data-testid="tab-canvas">Editor</kl-tab>
               <kl-tab value="original" data-testid="tab-original">Original</kl-tab>
-              <div klTabsEnd class="flex items-center gap-2">
+              <div klTabsEnd class="flex flex-wrap items-center justify-end gap-2 py-1">
                 @if (activeTabView === 'canvas') {
                   <kl-segmented data-testid="canvas-mode" ariaLabel="Editor view" [options]="canvasModes"
                     [value]="isPreviewModeView ? 'preview' : 'edit'" (valueChange)="setPreviewMode($event === 'preview')" />
@@ -264,7 +264,7 @@ function addTrace(label: string, snapshot: string): void {
               klInput
               id="pz-global-instruction"
               data-testid="global-instruction-input"
-              class="w-auto flex-[1_1_260px]"
+              class="w-auto min-w-0 flex-[1_1_260px]"
               [(ngModel)]="globalInstruction"
               placeholder="Change the whole text, e.g. make it shorter"
               [disabled]="!canvasTextView.trim() || isLoading"
