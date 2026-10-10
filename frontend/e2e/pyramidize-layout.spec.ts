@@ -43,8 +43,8 @@ test.describe('Pyramidize — tab switching', () => {
     await gotoEnhance(page);
 
     // Original tab is active by default.
-    const originalPanel = page.locator('p-tabpanel[value="original"]');
-    const canvasPanel   = page.locator('p-tabpanel[value="canvas"]');
+    const originalPanel = page.locator('[role="tabpanel"][data-value="original"]');
+    const canvasPanel   = page.locator('[role="tabpanel"][data-value="canvas"]');
 
     await expect(originalPanel).toBeVisible();
 
@@ -52,7 +52,7 @@ test.describe('Pyramidize — tab switching', () => {
     await expect(canvasPanel).toBeHidden();
 
     // Switch to canvas tab.
-    await page.locator('p-tab[value="canvas"]').click();
+    await page.getByRole('tab', { name: 'Editor' }).click();
 
     await expect(canvasPanel).toBeVisible();
     await expect(originalPanel).toBeHidden();
@@ -63,7 +63,7 @@ test.describe('Pyramidize — tab switching', () => {
 
     // toHaveCount retries where count() samples once — see
     // router-leave-settings.spec.ts for the failure that taught us.
-    const panels = page.locator('p-tabpanel');
+    const panels = page.locator('[role="tabpanel"]');
     await expect(panels).toHaveCount(2);
 
     // Measure how many panels have height > 0 on the initial render.
@@ -74,7 +74,7 @@ test.describe('Pyramidize — tab switching', () => {
     expect(visible.length).toBe(1);
 
     // Switch tab, re-check.
-    await page.locator('p-tab[value="canvas"]').click();
+    await page.getByRole('tab', { name: 'Editor' }).click();
     const heights2 = await panels.evaluateAll((els) =>
       els.map((el) => el.getBoundingClientRect().height),
     );
@@ -95,7 +95,7 @@ test.describe('Pyramidize — textarea fills available space', () => {
 
   test('canvas textarea is taller than 200px after switching to canvas tab', async ({ page }) => {
     await gotoEnhance(page);
-    await page.locator('p-tab[value="canvas"]').click();
+    await page.getByRole('tab', { name: 'Editor' }).click();
 
     const r = await rect(page, '[data-testid="canvas-textarea"]');
     expect(r.height).toBeGreaterThan(200);
@@ -158,22 +158,21 @@ test.describe('Pyramidize — left panel', () => {
 // ── Trace log panel ───────────────────────────────────────────────────────────
 
 test.describe('Pyramidize — trace log panel', () => {
-  test('trace panel starts collapsed and can be expanded', async ({ page }) => {
+  test('the history starts closed, opens from the tab bar and closes again', async ({ page }) => {
     await gotoEnhance(page);
 
     const panel = page.locator('[data-testid="trace-log-panel"]');
+    await expect(panel).toHaveCount(0);
+
+    await page.getByTestId('trace-log-toggle').getByRole('button').click();
     await expect(panel).toBeVisible();
-
-    // In collapsed state the width should be narrow (≤ 50px).
     const r = await rect(page, '[data-testid="trace-log-panel"]');
-    expect(r.width).toBeLessThanOrEqual(50);
+    expect(r.width).toBeGreaterThan(200);
+    // A column of its own: the editor beside it keeps its full height.
+    expect(r.height).toBeGreaterThan(400);
 
-    // Click the history icon to expand.
-    await page.locator('[data-testid="trace-log-panel"] button').first().click();
-    await page.waitForTimeout(250); // transition
-
-    const r2 = await rect(page, '[data-testid="trace-log-panel"]');
-    expect(r2.width).toBeGreaterThan(50);
+    await page.getByTestId('trace-log-close').getByRole('button').click();
+    await expect(panel).toHaveCount(0);
   });
 });
 
@@ -210,15 +209,15 @@ test.describe('Pyramidize — canvas preview mode', () => {
     await gotoEnhance(page);
 
     // Switch to canvas tab and click Preview.
-    await page.locator('p-tab[value="canvas"]').click();
-    await page.locator('button:has-text("Preview")').click();
+    await page.getByRole('tab', { name: 'Editor' }).click();
+    await page.getByTestId('segment-preview').click();
 
     const viewportHeight = page.viewportSize()!.height;
-    const previewEl = page.locator('.canvas-preview');
+    const previewEl = page.getByTestId('canvas-preview');
 
     await expect(previewEl).toBeVisible();
 
-    const r = await rect(page, '.canvas-preview');
+    const r = await rect(page, '[data-testid="canvas-preview"]');
     expect(r.height).toBeGreaterThan(100);
     expect(r.bottom).toBeLessThanOrEqual(viewportHeight + 1);
   });

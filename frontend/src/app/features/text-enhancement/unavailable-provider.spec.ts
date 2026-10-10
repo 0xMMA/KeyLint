@@ -7,14 +7,6 @@ import { TextEnhancementService } from './text-enhancement.service';
 import { WailsService } from '../../core/wails.service';
 import { createWailsMock, defaultSettings } from '../../../testing/wails-mock';
 
-// PrimeNG TabList uses ResizeObserver, which jsdom lacks. Set here rather than
-// relied on from another spec: files share globals only by scheduling.
-(globalThis as Record<string, unknown>)['ResizeObserver'] = class {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-};
-
 function makeEnhancementServiceMock() {
   return {
     pyramidize: vi.fn().mockResolvedValue({}),
@@ -117,7 +109,7 @@ describe('TextEnhancementComponent — saved provider that is not available yet'
 
     const apply = el.querySelector<HTMLButtonElement>('[data-testid="apply-instruction-btn"] button')!;
     expect(apply.disabled).toBe(true);
-    expect(apply.classList).toContain('p-button-secondary');
+    expect(apply.classList).toContain('quiet');
 
     await component.applyGlobalInstruction();
     component.selectionInstruction = 'rephrase';

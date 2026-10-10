@@ -7,13 +7,6 @@ import { TextEnhancementService } from './text-enhancement.service';
 import { WailsService } from '../../core/wails.service';
 import { createWailsMock, defaultSettings } from '../../../testing/wails-mock';
 
-// PrimeNG TabList uses ResizeObserver which is not available in jsdom.
-(globalThis as Record<string, unknown>)['ResizeObserver'] = class {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-};
-
 // Needs claude-code, the only provider that probes the CLI. The selected
 // provider is module-level and survives between tests, so each test resets it
 // with resetPyramidizeProviderSession(); from a fresh session ngOnInit follows
