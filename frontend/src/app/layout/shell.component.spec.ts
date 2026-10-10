@@ -67,6 +67,32 @@ describe('ShellComponent — theme / body class', () => {
     expect(el.querySelector('nav.sidebar-nav')).toBeTruthy();
   });
 
+  it('names every nav item, with labels shown when expanded and as aria-label when collapsed', async () => {
+    const fixture = await createAndWait('dark');
+    const el: HTMLElement = fixture.nativeElement;
+    const btn = el.querySelector<HTMLButtonElement>('[data-testid="collapse-btn"]')!;
+    const fix = () => el.querySelector<HTMLElement>('[data-testid="nav-fix"]')!;
+    expect(btn.getAttribute('aria-label')).toBe('Collapse sidebar');
+    expect(btn.getAttribute('aria-expanded')).toBe('true');
+    expect(fix().textContent?.trim()).toBe('Fix');
+    expect(fix().getAttribute('aria-label')).toBeNull();
+    expect(fix().querySelector('kl-icon[data-icon="sparkle"]')).toBeTruthy();
+
+    // The collapsed state is module-level (it survives navigation), so put it back.
+    btn.click();
+    try {
+      expect(btn.getAttribute('aria-label')).toBe('Expand sidebar');
+      expect(btn.getAttribute('aria-expanded')).toBe('false');
+      expect(fix().querySelector('span')).toBeNull();
+      expect(fix().getAttribute('aria-label')).toBe('Fix');
+      expect(el.querySelector('[data-testid="version-text"]')).toBeNull();
+      expect(btn.querySelector('kl-icon[data-icon="chevron-right"]')).toBeTruthy();
+    } finally {
+      btn.click();
+    }
+    expect(fix().getAttribute('aria-label')).toBeNull();
+  });
+
   it('displays version in sidebar footer', async () => {
     wailsMock.getVersion.mockResolvedValue('4.1.7');
     const fixture = await createAndWait('dark');

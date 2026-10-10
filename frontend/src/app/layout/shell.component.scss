@@ -1,13 +1,20 @@
+// The sidebar in the approved look (docs/ui/design.md): a dark rail, the
+// active item a grey fill with an orange icon (not an orange fill), the
+// two-tone Key/Lint wordmark.
+
+$expanded: 13rem;
+$collapsed: 3.5rem;
+
 .layout-wrapper {
   display: block;
   height: 100vh;
   overflow: hidden;
   position: relative;
 
-  // When collapsed, main content reserves only the 3rem strip.
+  // When collapsed, main content reserves only the rail.
   // Hover-expand overlays without shifting the main content.
   &.sidebar-collapsed .layout-main {
-    margin-left: 3rem;
+    margin-left: $collapsed;
   }
 }
 
@@ -16,18 +23,17 @@
   left: 0;
   top: 0;
   height: 100%;
-  width: 17rem;
+  width: $expanded;
   z-index: 50;
   display: flex;
   flex-direction: column;
   background: var(--kl-rail);
   border-right: 1px solid var(--kl-line);
-  box-shadow: 2px 0 6px rgba(0, 0, 0, 0.3);
   transition: width 0.2s ease;
   overflow: hidden;
 
   &.collapsed {
-    width: 3rem;
+    width: $collapsed;
 
     .nav-item a {
       justify-content: center;
@@ -35,29 +41,42 @@
       padding-right: 0;
     }
 
+    .layout-logo {
+      justify-content: center;
+      padding-left: 0;
+      padding-right: 0;
+    }
+
     .version-row {
       padding: 0;
+      justify-content: center;
     }
 
     // Collapsed (not hover-expanded): contract "ey" and "int" so only "K" and "L" show.
-    &:not(.hover-expanded) .layout-logo {
-      .logo-reveal {
-        max-width: 0;
-      }
+    &:not(.hover-expanded) .layout-logo .logo-reveal {
+      max-width: 0;
     }
 
     // Hover-expand: full sidebar overlays main content without layout shift.
+    // The only shadow on the rail: it floats over the page here.
     &.hover-expanded {
-      width: 17rem;
+      width: $expanded;
+      box-shadow: var(--kl-shadow-overlay);
 
       .nav-item a {
         justify-content: flex-start;
-        padding-left: 1rem;
-        padding-right: 1rem;
+        padding-left: 12px;
+        padding-right: 12px;
+      }
+
+      .layout-logo {
+        justify-content: flex-start;
+        padding-left: 24px;
       }
 
       .version-row {
-        padding: 0.5rem 1rem;
+        padding: 4px 12px;
+        justify-content: flex-start;
       }
     }
   }
@@ -66,21 +85,19 @@
 .layout-logo {
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 1.5rem 1rem 1rem;
-  border-bottom: 1px solid var(--kl-line);
+  padding: 24px 12px 0 24px;
+  height: 52px;
   overflow: hidden;
 
-  // Shared type styles for all logo character spans.
   .logo-k, .logo-reveal, .logo-l {
-    font-size: 1.25rem;
+    font-size: 21px;
     font-weight: 700;
-    letter-spacing: -0.025em;
+    letter-spacing: -0.01em;
     line-height: 1;
   }
 
-  .logo-key { color: var(--kl-surface-50); }
-  .logo-lint { color: var(--kl-primary-text); }
+  .logo-key { color: var(--kl-text-strong); }
+  .logo-lint { color: var(--kl-primary); }
 
   // "ey" and "int" expand in as the sidebar opens.
   // max-width clips characters without affecting flex alignment of neighbours.
@@ -94,7 +111,7 @@
 
 .sidebar-nav {
   flex: 1;
-  padding: 0.75rem 0;
+  padding: 28px 0 12px;
   overflow-y: auto;
   overflow-x: hidden;
 
@@ -102,60 +119,56 @@
     list-style: none;
     padding: 0;
     margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
 }
 
 .nav-item a {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  border-radius: 6px;
-  margin: 2px 0.5rem;
-  color: var(--kl-surface-200);
+  gap: 12px;
+  height: 40px;
+  padding: 0 12px;
+  margin: 0 8px;
+  border-radius: var(--kl-radius-md);
+  color: var(--kl-muted);
   text-decoration: none;
-  font-size: 0.9rem;
-  transition: background 0.15s, color 0.15s;
+  font-size: 14px;
+  font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
+  transition: background-color 0.15s, color 0.15s;
 
-  // line-height:1 on the text label keeps its box height = font-size (0.9rem),
-  // which is shorter than the icon height (1rem). This prevents the <a> from
-  // growing taller when the label appears on hover-expand, which would cause
-  // align-items:center to re-center the icon — the visible 1-2px "drop" bug.
+  // line-height:1 keeps the label's box shorter than the icon, so the link
+  // does not grow when the label appears on hover-expand (the old 1–2px
+  // "drop" bug); the fixed height above makes sure of it.
   span {
     line-height: 1;
   }
 
-  i {
-    font-size: 1rem;
-    width: 1.25rem;
-    min-width: 1.25rem;
-    text-align: center;
-    color: var(--kl-muted);
-    transition: color 0.15s;
-  }
-
-  .nav-icon-svg {
-    min-width: 1rem;
+  .nav-icon {
     transition: color 0.15s;
   }
 
   &:hover {
-    background: var(--kl-hover);
-    color: var(--kl-surface-50);
+    background: var(--kl-field);
+    color: var(--kl-text);
+  }
 
-    i, .nav-icon-svg {
-      color: var(--kl-primary-text);
-    }
+  &:focus-visible {
+    outline: 2px solid var(--kl-focus);
+    outline-offset: -2px;
   }
 
   &.active-route {
-    background: var(--kl-primary);
-    color: #fff;
+    background: var(--kl-raised);
+    color: var(--kl-text-strong);
+    font-weight: 600;
 
-    i, .nav-icon-svg {
-      color: #fff;
+    .nav-icon {
+      color: var(--kl-primary);
     }
   }
 }
@@ -169,24 +182,39 @@
 .version-row {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  cursor: pointer;
-  transition: background 0.15s;
+  padding: 4px 12px;
   white-space: nowrap;
   overflow: hidden;
+}
+
+.version-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 2px 12px;
+  font: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: var(--kl-radius-md);
+  cursor: pointer;
+  transition: background-color 0.15s;
 
   &:hover {
-    background: var(--kl-hover);
+    background: var(--kl-field);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--kl-focus);
+    outline-offset: -2px;
   }
 
   .version-text {
-    font-size: 0.75rem;
+    font-size: 12px;
     color: var(--kl-muted);
   }
 
   .update-indicator {
-    font-size: 0.875rem;
     color: var(--kl-primary-text);
     animation: pulse-glow 2s ease-in-out infinite;
   }
@@ -202,18 +230,20 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0.875rem 0.5rem;
+  height: 44px;
+  padding: 0;
   color: var(--kl-muted);
-  transition: background 0.15s, color 0.15s;
+  transition: background-color 0.15s, color 0.15s;
   width: 100%;
 
-  i {
-    font-size: 0.85rem;
+  &:hover {
+    background: var(--kl-field);
+    color: var(--kl-text);
   }
 
-  &:hover {
-    background: var(--kl-hover);
-    color: var(--kl-surface-50);
+  &:focus-visible {
+    outline: 2px solid var(--kl-focus);
+    outline-offset: -2px;
   }
 }
 
@@ -226,6 +256,6 @@
   height: 100vh;
   overflow: auto;
   background: var(--kl-ground);
-  margin-left: 17rem;
+  margin-left: $expanded;
   transition: margin-left 0.2s ease;
 }
