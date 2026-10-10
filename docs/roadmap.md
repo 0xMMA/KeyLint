@@ -185,11 +185,11 @@ One key, many vendors' models — for users who don't want a separate account pe
 - **Settings UI:** one more connection card in the AI Providers tab (#108 layout); no new screen.
 - **Not eval'd until measured:** the same model through OpenRouter can be routed to different hosts; record the provider in eval runs if it is ever measured.
 
-#### E11 · Own UI on CDK + Tailwind (PrimeNG out) — not started
+#### E11 · Own UI on CDK + Tailwind (PrimeNG out) — in progress
 Decision and research: [`docs/ui/primeng-replacement.md`](ui/primeng-replacement.md). About 120 PrimeNG usages in 11 files, 142 `var(--p-*)` references, ~90 PrimeNG DOM selectors in tests. Incremental, one PR per step, Windows visual check by Michael after the design-relevant steps:
 1. ~~Design direction~~ **approved 2026-10-10**: [`docs/ui/design.md`](ui/design.md) (tokens, type, patterns, mockup link)
-2. Tokens in Tailwind (`--kl-*`), the 142 `--p-*` references moved onto them, coexistence check with PrimeNG 21 — visually a no-op
-3. PrimeFlex and primeicons out (Tailwind utilities, vendored SVGs)
+2. ~~Tokens in Tailwind (`--kl-*`), the 142 `--p-*` references moved onto them, coexistence check with PrimeNG 21 — visually a no-op~~ **done** (`frontend/src/theme.css`; PrimeFlex went in the same PR, since Tailwind replaces it). Values are still today's Aura ones; the design.md palette is switched on there, by value, when the first redesigned screen lands
+3. ~~PrimeFlex~~ and primeicons out (vendored SVGs)
 4. Own components: message, tag, button (severity, loading) — the high-count, low-risk ones
 5. Form controls, card, tabs, tooltip
 6. Select/combobox on CDK primitives — tests first for the null-vs-`""` semantics in `model-options.ts`

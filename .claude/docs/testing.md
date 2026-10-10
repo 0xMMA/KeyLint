@@ -15,7 +15,7 @@ Runner: `@angular/build:unit-test` with `runner: vitest` (configured in `angular
 
 **`@switch` navigation tests:** click the real inner `<button>` element (PrimeNG wraps `p-button`), not the `p-button` host. Directly mutating `component.step` won't trigger Angular change detection the same way.
 
-**PrimeFlex / TabList in jsdom:** TabList uses `ResizeObserver` which doesn't exist in jsdom. Mock it at the top of any spec that imports tab components:
+**TabList in jsdom:** TabList uses `ResizeObserver` which doesn't exist in jsdom. Mock it at the top of any spec that imports tab components:
 ```typescript
 (globalThis as any)['ResizeObserver'] = class { observe() {} unobserve() {} disconnect() {} };
 ```

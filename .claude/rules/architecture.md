@@ -24,6 +24,12 @@ Dark only, for now: `<html class="app-dark">` in `index.html`, and `ShellCompone
 
 Import individual symbols: `import { Tabs, TabList, Tab } from 'primeng/tabs'` — not module classes.
 
+## Styling: tokens and Tailwind
+
+PrimeNG is being replaced (roadmap E11), so app styles never read PrimeNG's `--p-*` tokens. Colours, surfaces and radii come from the `--kl-*` tokens in `frontend/src/theme.css` (`var(--kl-muted)`, `var(--kl-line)`, …); the only `--p-*` left in app code are the PrimeNG overrides in `styles.scss`, which patch PrimeNG and go with it. New colour needed? Add a token there, don't hard-code it or borrow a `--p-*`.
+
+Layout utilities are Tailwind v4 (`mt-4`, `flex`, `gap-4`, `text-muted`, `bg-sheet`) — PrimeFlex is gone, and Tailwind's spacing step is 0.25rem (`mt-4` = 1rem). Only KeyLint's colours exist as utilities. Preflight is off while PrimeNG is in, so no global reset. A utility on an element PrimeNG styles (`styleClass` on `p-button`, `p-message`, `p-select`, …) loses to any PrimeNG rule for the same property, because PrimeNG's theme is unlayered and utilities sit in `@layer utilities`: use the important modifier there (`mt-4!`) when PrimeNG sets that property. `e2e/ui-tokens.spec.ts` guards both the token values and that layering.
+
 ## Component Structure
 
 **Frontend (Angular):** every component lives in its own folder — `feature-name/feature-name.component.ts`. Subcomponents go in nested folders: `feature-name/sub-part/sub-part.component.ts`. Colocate specs, services, and related files in the same folder as the component they belong to. Decompose large components into focused subcomponents rather than growing monolithic templates.
