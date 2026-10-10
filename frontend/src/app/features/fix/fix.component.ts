@@ -171,14 +171,22 @@ const NO_DIFF: WordDiff = { segments: [], corrections: 0 };
     .notice-title { color: var(--kl-text-strong); }
     .notice-detail { color: var(--kl-muted); font-size: 13px; }
 
+    /* Two columns from 600px inside the sheet, else stacked. The rows share
+       the height, so on a short window each half scrolls its own text instead
+       of running past the sheet (whose min height, via .fix-page, keeps both
+       rows at 160px or more). */
     .fix-sheet {
       flex: 1; min-height: 0;
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); grid-auto-rows: minmax(160px, 1fr);
       background: var(--kl-sheet); border: 1px solid var(--kl-line); border-radius: var(--kl-radius-sheet);
-      overflow: hidden;
+      overflow: hidden; container-type: inline-size;
     }
     .fix-half { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
     .fix-input-half { border-right: 1px solid var(--kl-line); }
+    /* The same 600px the grid wraps at (2 x 300px, no gap): the divider turns. */
+    @container (width < 600px) {
+      .fix-input-half { border-right: 0; border-bottom: 1px solid var(--kl-line); }
+    }
     .fix-result-half { background: var(--kl-sheet-alt); }
     .fix-half-head {
       flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -189,7 +197,7 @@ const NO_DIFF: WordDiff = { segments: [], corrections: 0 };
     .fix-count { font-size: 12px; color: var(--kl-muted); }
 
     .fix-text {
-      flex: 1; min-height: 240px; margin: 0; padding: 20px 24px;
+      flex: 1; min-height: 0; margin: 0; padding: 20px 24px;
       font-family: var(--kl-font-text); font-size: 15.5px; line-height: 1.7;
       overflow-y: auto; overflow-wrap: anywhere;
     }
