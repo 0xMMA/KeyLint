@@ -1,103 +1,87 @@
-import { Component, input, output } from '@angular/core';
-import { Button } from 'primeng/button';
-import { Tag } from 'primeng/tag';
-import { Message } from 'primeng/message';
+import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { ButtonComponent, MessageComponent } from '../../../shared/ui';
 
 /**
- * One provider on Settings › AI Providers: its name, whether KeyLint is using
- * it, and the one-click switch to it.
+ * One provider in the Connections list on Settings › AI Providers: a dot for
+ * its state, its name and status, and the one-click switch to it.
  *
- * Every provider gets the same frame so "which one is in use" reads the same
- * way on all four; what goes inside (a key editor, the CLI's detection result,
- * the Ollama URL) is projected by the settings page.
+ * Every provider gets the same row so "which one is in use" reads the same
+ * way on all four; what goes inside is projected by the settings page:
+ *
+ * - `[cardSummary]`: the status in words under the name (where the CLI was found, …)
+ * - `[cardActions]`: buttons before "Use this" (Add key, Check again)
+ * - the rest: full-width details under the row (a key editor, the Ollama URL)
  *
  * A provider that cannot work yet can still be chosen. The choice stays the
- * user's; the card says why it will not work rather than refusing the click,
+ * user's; the row says why it will not work rather than refusing the click,
  * because a button that silently does nothing is the confusion this replaces.
  */
 @Component({
   selector: 'app-provider-card',
   standalone: true,
-  imports: [Button, Tag, Message],
+  imports: [ButtonComponent, MessageComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { role: 'listitem', '[class.in-use]': 'inUse()' },
   template: `
-    <div
-      class="provider-card"
-      [class.in-use]="inUse()"
-      [attr.data-testid]="'provider-card-' + providerId()"
-    >
-      <div class="provider-card-header">
+    <div class="row" [attr.data-testid]="'provider-card-' + providerId()">
+      <span class="dot" [class.ready]="ready()" aria-hidden="true"></span>
+      <div class="main">
         <!-- A heading, so a screen reader can jump between providers, and
              the focus target after a switch: it carries the provider's name. -->
-        <h3
-          class="provider-card-label"
-          tabindex="-1"
-          [attr.data-testid]="'provider-heading-' + providerId()"
-        >{{ label() }}@if (inUse()) {<span class="sr-only"> (in use)</span>}</h3>
-        <ng-content select="[cardStatus]" />
-        <span class="provider-card-spacer"></span>
+        <h3 class="name" tabindex="-1" [attr.data-testid]="'provider-heading-' + providerId()"
+          >{{ label() }}@if (inUse()) {<span class="sr-only"> (in use)</span>}</h3>
+        <div class="summary"><ng-content select="[cardSummary]" /></div>
+      </div>
+      <div class="actions">
+        <ng-content select="[cardActions]" />
         @if (inUse()) {
-          <p-tag
-            [attr.data-testid]="'provider-in-use-' + providerId()"
-            value="In use"
-            icon="pi pi-check"
-          />
+          <span class="in-use-mark" [attr.data-testid]="'provider-in-use-' + providerId()">In use</span>
         } @else {
-          <p-button
+          <kl-button
             [attr.data-testid]="'provider-use-' + providerId()"
-            label="Use this"
-            size="small"
-            severity="secondary"
-            [outlined]="true"
+            size="sm"
             [ariaLabel]="'Use this: ' + label()"
             [loading]="switching()"
+            loadingLabel="Switching…"
             [disabled]="locked()"
-            (onClick)="use.emit()"
-          />
+            (click)="use.emit()"
+          >Use this</kl-button>
         }
       </div>
-
-      @if (inUse() && problem(); as why) {
-        <p-message
-          [attr.data-testid]="'provider-not-ready-' + providerId()"
-          severity="warn"
-          size="small"
-          styleClass="provider-card-warning"
-        >{{ why }}</p-message>
-      }
-
-      <ng-content />
+      <div class="details">
+        @if (inUse() && problem(); as why) {
+          <kl-message [attr.data-testid]="'provider-not-ready-' + providerId()" severity="warn">{{ why }}</kl-message>
+        }
+        <ng-content />
+      </div>
     </div>
   `,
   styles: [`
-    .provider-card {
-      border: 1px solid var(--kl-line);
-      border-radius: var(--kl-radius-md);
-      padding: 0.75rem 1rem;
-      margin-bottom: 0.75rem;
+    :host { display: block; }
+    :host(:not(:first-child)) { border-top: 1px solid var(--kl-line); }
+    :host(.in-use) { background: var(--kl-sheet-alt); }
+    .row {
+      display: grid; grid-template-columns: 9px minmax(0, 1fr) auto;
+      align-items: center; gap: 4px 16px; padding: 16px 20px;
     }
-    /* The one KeyLint uses: the theme's accent, so it is found at a glance
-       without reading every card's tag. */
-    .provider-card.in-use {
-      border-color: var(--kl-primary);
-      box-shadow: inset 3px 0 0 var(--kl-primary);
+    .dot { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--kl-faint); }
+    .dot.ready { background: var(--kl-muted); border-color: var(--kl-muted); }
+    :host(.in-use) .dot { background: var(--kl-primary); border-color: var(--kl-primary); }
+    .main { min-width: 0; }
+    .name { margin: 0; font-size: 15px; font-weight: 600; color: var(--kl-text-strong); }
+    .name:focus { outline: none; }
+    .name:focus-visible { outline: 2px solid var(--kl-focus); outline-offset: 2px; border-radius: 2px; }
+    .summary { margin-top: 2px; font-size: 13px; line-height: 1.45; color: var(--kl-muted); overflow-wrap: anywhere; }
+    .summary:empty { display: none; }
+    .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; }
+    .in-use-mark { font-size: 13px; font-weight: 600; color: var(--kl-primary-text); padding: 0 4px; }
+    .details { grid-column: 2 / -1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+    .details:empty { display: none; }
+    .details:not(:empty) { margin-top: 10px; }
+    @media (max-width: 560px) {
+      .row { grid-template-columns: 9px minmax(0, 1fr); }
+      .actions { grid-column: 2; justify-content: flex-start; }
     }
-    .provider-card-header {
-      display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 0.75rem;
-      margin-bottom: 0.5rem;
-    }
-    .provider-card-label {
-      margin: 0;
-      font-weight: 600;
-      font-size: 0.9rem;
-    }
-    .provider-card-label:focus { outline: none; }
-    .provider-card-label:focus-visible { outline: 2px solid var(--kl-focus); outline-offset: 2px; }
-
-    .provider-card-spacer { flex: 1; }
-    :host ::ng-deep .provider-card-warning { margin-bottom: 0.75rem; }
   `],
 })
 export class ProviderCardComponent {
@@ -105,6 +89,8 @@ export class ProviderCardComponent {
   readonly label = input.required<string>();
   /** Whether this is the provider saved as active. */
   readonly inUse = input(false);
+  /** Set up and answering (key set, CLI signed in, daemon up): a filled dot. */
+  readonly ready = input(false);
   /** Why this provider cannot work right now, or null when nothing is known to be wrong. */
   readonly problem = input<string | null>(null);
   /** This card's switch is being saved. */

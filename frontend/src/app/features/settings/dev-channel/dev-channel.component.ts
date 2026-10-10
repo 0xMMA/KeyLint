@@ -1,8 +1,6 @@
 import { Component, OnInit, OnDestroy, ChangeDetectorRef, input } from '@angular/core';
 import { DatePipe } from '@angular/common';
-import { Button } from 'primeng/button';
-import { Tag } from 'primeng/tag';
-import { Message } from 'primeng/message';
+import { ButtonComponent, MessageComponent, TagComponent } from '../../../shared/ui';
 import { WailsService, DevBuild, DevChannel, BuildIdentity, InstallResult } from '../../../core/wails.service';
 import { versionLabel, isDevVersion } from '../../../core/version-label';
 
@@ -22,40 +20,40 @@ import { versionLabel, isDevVersion } from '../../../core/version-label';
 @Component({
   selector: 'app-dev-channel',
   standalone: true,
-  imports: [DatePipe, Button, Tag, Message],
+  imports: [DatePipe, ButtonComponent, MessageComponent, TagComponent],
   template: `
-    <section class="dev-channel" data-testid="dev-channel" aria-labelledby="dev-channel-heading">
-      <h4 id="dev-channel-heading" class="dev-channel-heading">Dev channel</h4>
-      <small class="hint-text">Test builds made by CI from main and from open pull requests. They are not releases: each one is replaced on the next push and removed when its pull request closes.</small>
+    <section class="flex flex-col gap-3" data-testid="dev-channel" aria-labelledby="dev-channel-heading">
+      <div>
+        <h2 id="dev-channel-heading" class="m-0 text-base font-bold text-fg-strong">Dev channel</h2>
+        <p class="mt-1 mb-0 text-sm text-muted">Test builds made by CI from main and from open pull requests. They are not releases: each one is replaced on the next push and removed when its pull request closes.</p>
+      </div>
 
-      <p class="dev-identity" data-testid="dev-identity">{{ identityText() }}</p>
+      <p class="m-0 text-sm" data-testid="dev-identity">{{ identityText() }}</p>
 
       @if (channel?.orphaned) {
-        <div class="return-offer" data-testid="return-offer">
-          <p-message
+        <div class="flex flex-col gap-3" data-testid="return-offer">
+          <kl-message
             severity="warn"
             [text]="'Your test build for PR #' + channel!.current.pr + ' is gone (merged or closed). Install the current main build?'"
           />
-          <div class="return-actions">
+          <div class="flex flex-wrap gap-2">
             @if (mainBuild?.installable) {
-              <p-button
+              <kl-button
                 data-testid="return-main-btn"
-                label="Install main build"
-                icon="pi pi-download"
+                variant="primary"
+                icon="download"
                 [loading]="installing === mainBuild!.tag"
                 [disabled]="installing !== null"
-                (onClick)="install(mainBuild!.tag)"
-              />
+                (click)="install(mainBuild!.tag)"
+              >Install main build</kl-button>
             }
             @if (channel!.latest_release) {
-              <p-button
+              <kl-button
                 data-testid="return-release-btn"
-                [label]="'Install latest release (v' + channel!.latest_release + ')'"
-                severity="secondary"
                 [loading]="installing === LATEST"
                 [disabled]="installing !== null"
-                (onClick)="installLatest()"
-              />
+                (click)="installLatest()"
+              >Install latest release (v{{ channel!.latest_release }})</kl-button>
             }
           </div>
         </div>
@@ -65,130 +63,107 @@ import { versionLabel, isDevVersion } from '../../../core/version-label';
            silenced, so this is also where it hears about a new release.
            The return offer above already carries it when the PR is gone. -->
       @if (runningDevBuild() && channel && !channel.orphaned && channel.latest_release) {
-        <div class="back-to-release" data-testid="back-to-release">
+        <div class="flex flex-col items-start gap-2" data-testid="back-to-release">
           @if (channel.new_release_since_build) {
-            <p-message
+            <kl-message
+              class="self-stretch"
               data-testid="new-release-msg"
               severity="info"
               [text]="'A new release is out: v' + channel.latest_release + releasedOn(' on ') + '.'"
-              styleClass="mb-2"
             />
           } @else {
-            <p class="hint-text" data-testid="latest-release-line">Latest release: v{{ channel.latest_release }}{{ releasedOn(', released ') }}.</p>
+            <p class="m-0 text-sm text-muted" data-testid="latest-release-line">Latest release: v{{ channel.latest_release }}{{ releasedOn(', released ') }}.</p>
           }
-          <p-button
+          <kl-button
             data-testid="back-to-release-btn"
-            [label]="'Back to latest release (v' + channel.latest_release + ')'"
-            icon="pi pi-replay"
-            severity="secondary"
+            icon="rotate-ccw"
             [loading]="installing === LATEST"
             [disabled]="installing !== null"
-            (onClick)="installLatest()"
-          />
+            (click)="installLatest()"
+          >Back to latest release (v{{ channel.latest_release }})</kl-button>
         </div>
       }
 
       @if (channel?.error) {
-        <p-message data-testid="dev-channel-error" severity="warn" [text]="channel!.error" styleClass="mb-2" />
+        <kl-message data-testid="dev-channel-error" severity="warn" [text]="channel!.error" />
       }
 
       @if (channel === null) {
-        <p class="hint-text" data-testid="dev-channel-loading">Looking for test builds…</p>
+        <p class="m-0 text-sm text-muted" data-testid="dev-channel-loading">Looking for test builds…</p>
       } @else {
-        <ul class="dev-build-list" data-testid="dev-build-list">
+        <ul class="builds" data-testid="dev-build-list">
           @for (b of channel.builds; track b.tag) {
-            <li class="dev-build" [class.installed]="b.installed" [attr.data-testid]="'dev-build-' + b.tag">
-              <div class="dev-build-text">
-                <div class="dev-build-name">
+            <li class="build" [class.installed]="b.installed" [attr.data-testid]="'dev-build-' + b.tag">
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2 text-[15px] font-semibold">
                   <span>{{ b.kind === 'main' ? 'main (latest)' : 'PR #' + b.pr }}</span>
                   @if (b.installed) {
-                    <p-tag data-testid="dev-build-installed" value="installed" severity="success" />
+                    <kl-tag data-testid="dev-build-installed" value="installed" severity="success" />
                   }
                   @if (b.newer_build) {
-                    <p-tag data-testid="dev-build-newer" value="newer build" severity="info" />
+                    <kl-tag data-testid="dev-build-newer" value="newer build" severity="info" />
                   }
                 </div>
                 @if (b.title) {
-                  <div class="dev-build-title">{{ b.title }}</div>
+                  <div class="text-sm [overflow-wrap:anywhere]">{{ b.title }}</div>
                 }
-                <small class="dev-build-meta">
+                <small class="text-xs text-muted">
                   @if (b.date) { {{ b.date | date: 'd MMM y, HH:mm' }} }
                   @if (b.date && b.commit) { · }
                   @if (b.commit) { <code>{{ b.commit }}</code> }
                 </small>
               </div>
-              <p-button
+              <kl-button
+                class="flex-none"
                 [attr.data-testid]="'install-' + b.tag"
-                [label]="b.installed ? 'Reinstall' : 'Install'"
-                [title]="b.installable ? '' : 'No build for this platform'"
-                size="small"
-                [severity]="b.installed ? 'secondary' : 'primary'"
+                [attr.title]="b.installable ? null : 'No build for this platform'"
+                size="sm"
+                [variant]="b.installed ? 'quiet' : 'primary'"
                 [loading]="installing === b.tag"
                 [disabled]="!b.installable || installing !== null"
-                (onClick)="install(b.tag)"
-              />
+                (click)="install(b.tag)"
+              >{{ b.installed ? 'Reinstall' : 'Install' }}</kl-button>
             </li>
           } @empty {
-            <li class="hint-text" data-testid="dev-build-empty">No test builds published right now.</li>
+            <li class="build text-sm text-muted" data-testid="dev-build-empty">No test builds published right now.</li>
           }
         </ul>
-        <p-button
-          data-testid="dev-channel-refresh"
-          label="Refresh"
-          icon="pi pi-refresh"
-          severity="secondary"
-          text
-          size="small"
-          [loading]="refreshing"
-          [disabled]="installing !== null"
-          (onClick)="load(true)"
-        />
+        <div>
+          <kl-button
+            data-testid="dev-channel-refresh"
+            variant="ghost"
+            size="sm"
+            icon="refresh-cw"
+            [loading]="refreshing"
+            [disabled]="installing !== null"
+            (click)="load(true)"
+          >Refresh</kl-button>
+        </div>
       }
 
       @if (installResult) {
-        <p-message
+        <kl-message
           data-testid="dev-install-success"
           severity="success"
           [text]="installResult.restart_required
             ? 'Installing — the app will close shortly.'
             : 'Installed. Restart KeyLint to use it.'"
-          styleClass="mt-2"
         />
       }
       @if (installError) {
-        <p-message data-testid="dev-install-error" severity="error" [text]="installError" styleClass="mt-2" />
+        <kl-message data-testid="dev-install-error" severity="error" [text]="installError" />
       }
     </section>
   `,
   styles: [`
-    .dev-channel {
-      margin-top: 1.5rem;
-      padding-top: 1rem;
-      border-top: 1px solid var(--kl-line);
+    .builds {
+      list-style: none; margin: 0; padding: 0;
+      border: 1px solid var(--kl-line); border-radius: var(--kl-radius-sheet); background: var(--kl-sheet); overflow: hidden;
     }
-    .dev-channel-heading { margin: 0 0 0.25rem; font-size: 1rem; }
-    .hint-text { display: block; font-size: 0.8rem; color: var(--kl-muted); margin-bottom: 0.75rem; }
-    .dev-identity { margin: 0 0 0.75rem; font-size: 0.9rem; }
-    .return-offer { margin-bottom: 1rem; }
-    .back-to-release { margin-bottom: 1rem; }
-    .return-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
-    .dev-build-list { list-style: none; margin: 0 0 0.5rem; padding: 0; }
-    .dev-build {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-      padding: 0.6rem 0.75rem;
-      border: 1px solid var(--kl-line);
-      border-radius: var(--kl-radius-md);
-      margin-bottom: 0.5rem;
-    }
-    .dev-build.installed { border-color: var(--kl-primary); }
-    .dev-build-text { min-width: 0; }
-    .dev-build-name { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; }
-    .dev-build-title { font-size: 0.875rem; overflow-wrap: anywhere; }
-    .dev-build-meta { color: var(--kl-muted); font-size: 0.75rem; }
-    .dev-build p-button { flex-shrink: 0; }
+    .build { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 20px; }
+    .build + .build { border-top: 1px solid var(--kl-line); }
+    .build.installed { background: var(--kl-sheet-alt); box-shadow: inset 3px 0 0 var(--kl-primary); }
+    code { font-size: 12px; padding: 1px 4px; border-radius: 3px; background: var(--kl-selected); }
   `],
 })
 export class DevChannelComponent implements OnInit, OnDestroy {

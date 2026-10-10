@@ -12,22 +12,6 @@ import { WailsService, type SilentFixNotice } from '../core/wails.service';
 import { createWailsMock } from '../../testing/wails-mock';
 import { SilentFixNoticeService } from '../features/fix/silent-fix-notice.service';
 
-// jsdom gaps that PrimeNG reaches for (the Settings tabs). Set here, not
-// borrowed from another file: see .claude/rules/testing.md.
-(globalThis as Record<string, unknown>)['ResizeObserver'] = class {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-};
-if (!window.matchMedia) {
-  window.matchMedia = ((query: string) => ({
-    matches: false, media: query, onchange: null,
-    addListener() {}, removeListener() {},
-    addEventListener() {}, removeEventListener() {},
-    dispatchEvent: () => false,
-  })) as unknown as typeof window.matchMedia;
-}
-
 // A click on a hotkey-fix notification, through the real shell and router:
 // what the user sees is the page that can fix the problem, already showing it.
 describe('ShellComponent — a clicked hotkey-fix notification', () => {
@@ -86,7 +70,7 @@ describe('ShellComponent — a clicked hotkey-fix notification', () => {
     wailsMock._silentFixOpen$.next(notice({ body: 'No API key for Anthropic.', target: 'providers' }));
     await settle(harness);
 
-    expect(selectedTab(el)).toBe('AI Providers');
+    expect(selectedTab(el)).toBe('AI providers');
     expect(el.querySelector('[data-testid="silent-fix-note"]')?.textContent?.trim())
       .toBe("Fix didn't run: No API key for Anthropic.");
   });
@@ -111,7 +95,7 @@ describe('ShellComponent — a clicked hotkey-fix notification', () => {
 
     wailsMock._silentFixOpen$.next(notice({ id: 'silentfix-2', body: "Claude Code CLI isn't signed in.", target: 'providers' }));
     await settle(harness);
-    expect(selectedTab(el)).toBe('AI Providers');
+    expect(selectedTab(el)).toBe('AI providers');
   });
 
   it('lets the user dismiss the note', async () => {

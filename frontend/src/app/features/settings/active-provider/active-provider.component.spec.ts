@@ -1,18 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { ActiveProviderComponent, FeatureChoice } from './active-provider.component';
 import { ModelOption } from '../model-options';
-
-// PrimeNG's select overlay asks matchMedia whether to go modal; jsdom has none.
-// Test-only — see .claude/rules/testing.md.
-if (!window.matchMedia) {
-  window.matchMedia = ((query: string) => ({
-    matches: false, media: query, onchange: null,
-    addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {},
-    dispatchEvent: () => false,
-  })) as unknown as typeof window.matchMedia;
-}
 
 const OPTIONS: ModelOption[] = [
   { id: null, label: '', display: 'Default: Haiku (latest)', secondary: 'claude-haiku-5-5' },
@@ -41,6 +31,9 @@ describe('ActiveProviderComponent', () => {
 
   const q = (testid: string) => el.querySelector<HTMLElement>(`[data-testid="${testid}"]`);
 
+  // The options open in the CDK overlay container on <body>, which spec files share.
+  afterEach(() => document.querySelector('.cdk-overlay-container')?.replaceChildren());
+
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [ActiveProviderComponent],
@@ -52,6 +45,14 @@ describe('ActiveProviderComponent', () => {
     await render({});
     expect(q('active-provider-name')?.textContent).toBe('Anthropic API');
     expect(q('active-provider')?.textContent).toContain('In use');
+  });
+
+  it('names each picker by its feature and column, for a screen reader', async () => {
+    await render({ showEffort: true, effortNote: 'More effort means more reasoning.' });
+    const model = q('model-fix-claude')!.querySelector('[role="combobox"]')!;
+    const names = model.getAttribute('aria-labelledby')!.split(' ').map(id => el.querySelector(`#${id}`)?.textContent?.trim());
+    expect(names).toEqual(['Fix', 'Model']);
+    expect(q('effort-pyramidize-claude')!.querySelector('[role="combobox"]')!.getAttribute('aria-label')).toBe('Pyramidize effort');
   });
 
   it('says which model an alias runs today, and nothing for a pinned ID', async () => {
@@ -78,10 +79,10 @@ describe('ActiveProviderComponent', () => {
     const changes: FeatureChoice[] = [];
     fixture.componentInstance.modelChange.subscribe(c => changes.push(c));
 
-    q('model-fix-claude')!.click();
+    // The chevron: the editable picker's only button.
+    q('model-fix-claude')!.querySelector('button')!.click();
     fixture.detectChanges();
-    Array.from(document.querySelectorAll<HTMLElement>('.p-select-option'))
-      .find(o => o.textContent?.includes('Default: Haiku (latest)'))!.click();
+    document.querySelector<HTMLElement>('.cdk-overlay-container [data-testid="model-option-default"]')!.click();
 
     expect(changes).toEqual([{ feature: 'fix', value: '' }]);
   });

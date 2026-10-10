@@ -56,13 +56,13 @@ export interface ConnectionTag {
 }
 
 export function cliTag(status: ClaudeCodeStatus): ConnectionTag {
-  if (status.installed && status.loggedIn) return { value: '● signed in', severity: 'success' };
+  if (status.installed && status.loggedIn) return { value: 'signed in', severity: 'success' };
   if (status.installed) return { value: 'not signed in', severity: 'warn' };
   return { value: 'not installed', severity: 'secondary' };
 }
 
 export function keyTag(status: KeyStatus): ConnectionTag {
   if (status.is_set && status.source === 'env') return { value: 'key from env var', severity: 'info' };
-  if (status.is_set) return { value: '● key set', severity: 'success' };
+  if (status.is_set) return { value: 'key set', severity: 'success' };
   return { value: 'no key', severity: 'secondary' };
 }

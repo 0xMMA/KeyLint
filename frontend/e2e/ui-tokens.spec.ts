@@ -107,8 +107,10 @@ test.describe('UI tokens and Tailwind next to PrimeNG', () => {
 
   test('PrimeNG’s tokens follow the KeyLint roles', async ({ page }) => {
     await configured(page);
-    await page.goto('/settings');
-    await expect(page.getByTestId('save-btn')).toBeVisible();
+    // PrimeNG defines a component's tokens only once that component renders,
+    // and Settings no longer uses any (E11 phase B): read them where it does.
+    await page.goto('/enhance');
+    await expect(page.getByTestId('pyramidize-btn')).toBeVisible();
 
     for (const [p, kl] of WIRED) {
       // Both sides: an undefined token would make the probe inherit, and the
@@ -117,8 +119,10 @@ test.describe('UI tokens and Tailwind next to PrimeNG', () => {
       expect(await defined(page, kl), `${kl} is not defined`).not.toBe('');
       expect(await resolve(page, p), `${p} vs ${kl}`).toBe(await resolve(page, kl));
     }
-    // And the paint: a primary PrimeNG button is orange with dark text.
+    // And the paint: a primary button is orange with dark text.
+    await page.goto('/settings');
     const save = page.getByTestId('save-btn').getByRole('button');
+    await expect(save).toBeVisible();
     expect(await save.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgb(249, 115, 22)');
     expect(await save.evaluate((el) => getComputedStyle(el).color)).toBe('rgb(28, 18, 9)');
   });

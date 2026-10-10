@@ -71,7 +71,7 @@ const LISTED: ModelOption[] = [
           <kl-tag severity="primary" icon="check">In use</kl-tag>
           <kl-tag>Haiku 5.5</kl-tag>
           <kl-tag severity="muted">Not set up</kl-tag>
-          <kl-tag severity="success" value="● signed in" />
+          <kl-tag severity="success" value="signed in" />
           <kl-tag severity="warn" value="not signed in" />
           <kl-tag severity="info" value="key from env var" />
         </div>
