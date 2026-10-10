@@ -186,7 +186,7 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 |---|---|
 | `v4.5.0-beta` | ✅ released 2026-10-08: ~~E2 step 1~~ · ~~E1 Claude Code provider~~ · quick UI bugs #21 #24 #26 #28 · provider switch (#104) · dev channel (#107). E0 (#31) landed after the tag, ships next |
 | `v4.6.0-beta` | ✅ released 2026-10-10: E0 shortcut hook (#31) · E2 step 5 model families + effort + AI Providers redesign (#108) · silent fix in Go with toast feedback, closes #93 (#110) · setup wizard never blocks (#109). Follow-ups #112–#115 |
-| `v4.7.0-beta` | E4 upgrade wave · Fix page redesign · border glitch |
+| `v4.7.0-beta` (next) | E3 one-shot overhaul with eval · E4 upgrade wave · Fix page redesign · border glitch |
 | `v5.0.0` | Bedrock UI · light theme · HTML clipboard · Codex/Gemini CLI providers |
 
 ---
