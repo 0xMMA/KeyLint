@@ -74,7 +74,7 @@ describe('TextEnhancementComponent — startup does not wait on the CLI probe', 
     expect(el.querySelector('.pyramidize-page')).not.toBeNull();
     // The work sequenced after the probe in ngOnInit. These are what a hanging
     // CLI used to swallow.
-    expect(wailsMock.getQualityThreshold, 'startup stopped at the probe').toHaveBeenCalled();
+    expect(wailsMock.takePendingPyramidize, 'startup stopped at the probe').toHaveBeenCalled();
     expect(wailsMock.listModels, 'the model list never loaded').toHaveBeenCalled();
 
     release({ installed: true, path: '/usr/bin/claude', version: '1.0', loggedIn: true });

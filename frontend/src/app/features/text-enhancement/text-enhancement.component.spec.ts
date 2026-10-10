@@ -31,8 +31,6 @@ function makeEnhancementServiceMock() {
     getAppPresets: vi.fn().mockResolvedValue([]),
     setAppPreset: vi.fn().mockResolvedValue(undefined),
     deleteAppPreset: vi.fn().mockResolvedValue(undefined),
-    getQualityThreshold: vi.fn().mockResolvedValue(0.65),
-    setQualityThreshold: vi.fn().mockResolvedValue(undefined),
     enhance: vi.fn().mockResolvedValue('Enhanced text.'),
   };
 }
@@ -923,7 +921,6 @@ describe('TextEnhancementComponent — page', () => {
     component.canvasTextView = '';
     component.docTypeView = 'auto';
     if (component.traceLogOpenView) component.toggleTraceLog();
-    if (component.advancedOpenView) component.toggleAdvanced();
     component.onTabChange('original');
     component.setPreviewMode(false);
     fixture.destroy();
@@ -1109,78 +1106,6 @@ describe('TextEnhancementComponent — page', () => {
     expect(component.traceLogView.length).toBe(before + 1);
   });
 
-  it('saves a quality threshold typed under Advanced, and ignores one out of range', async () => {
-    const toggle = q<HTMLButtonElement>('advanced-toggle')!;
-    expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    toggle.click();
-    await refresh();
-    expect(toggle.getAttribute('aria-expanded')).toBe('true');
-
-    const input = q<HTMLInputElement>('quality-threshold-input')!;
-    expect(input.value).toBe('0.65');
-    input.value = '1.5';
-    input.dispatchEvent(new Event('input'));
-    input.dispatchEvent(new Event('change'));
-    await refresh();
-    expect(input.getAttribute('aria-invalid')).toBe('true');
-    expect(wailsMock.setQualityThreshold).not.toHaveBeenCalled();
-
-    // Typing alone saves nothing: "0.75" would otherwise pass through 0 and 0.7.
-    input.value = '0.8';
-    input.dispatchEvent(new Event('input'));
-    await refresh();
-    expect(input.getAttribute('aria-invalid')).toBeNull();
-    expect(wailsMock.setQualityThreshold).not.toHaveBeenCalled();
-
-    input.dispatchEvent(new Event('change'));
-    await fixture.whenStable();
-    expect(wailsMock.setQualityThreshold).toHaveBeenCalledTimes(1);
-    expect(wailsMock.setQualityThreshold).toHaveBeenCalledWith(0.8);
-    expect(component.qualityThresholdView).toBe(0.8);
-  });
-
-  it('refuses a quality threshold below 0.05: Go reads 0 as unset and would use 0.65', async () => {
-    q<HTMLButtonElement>('advanced-toggle')!.click();
-    await refresh();
-    const input = q<HTMLInputElement>('quality-threshold-input')!;
-    expect(input.min).toBe('0.05');
-    expect(q('advanced-body')!.textContent).toContain('0.05–1');
-    for (const raw of ['0', '0.01', '-0.1']) {
-      input.value = raw;
-      input.dispatchEvent(new Event('input'));
-      input.dispatchEvent(new Event('change'));
-      await refresh();
-      expect(input.getAttribute('aria-invalid'), raw).toBe('true');
-    }
-    expect(wailsMock.setQualityThreshold).not.toHaveBeenCalled();
-
-    input.value = '0.05';
-    input.dispatchEvent(new Event('input'));
-    input.dispatchEvent(new Event('change'));
-    await fixture.whenStable();
-    expect(input.getAttribute('aria-invalid')).toBeNull();
-    expect(wailsMock.setQualityThreshold).toHaveBeenCalledWith(0.05);
-  });
-
-  it('drops the invalid mark when Advanced is closed and opened again', async () => {
-    const toggle = q<HTMLButtonElement>('advanced-toggle')!;
-    toggle.click();
-    await refresh();
-    let input = q<HTMLInputElement>('quality-threshold-input')!;
-    input.value = '1.5';
-    input.dispatchEvent(new Event('input'));
-    await refresh();
-    expect(input.getAttribute('aria-invalid')).toBe('true');
-
-    toggle.click();
-    await refresh();
-    toggle.click();
-    await refresh();
-    input = q<HTMLInputElement>('quality-threshold-input')!;
-    expect(input.value).toBe('0.65');
-    expect(input.getAttribute('aria-invalid')).toBeNull();
-  });
-
   it('keeps the chosen model when the provider in use is picked again', async () => {
     component.modelView = 'claude-opus-4';
     await refresh();
@@ -1294,5 +1219,140 @@ describe('TextEnhancementComponent — page', () => {
     await fixture.whenStable();
     await refresh();
     expect(svcMock.pyramidize).toHaveBeenCalledTimes(2);
+  });
+});
+
+// The Effort picker under Model: Settings' levels, a session override like the
+// model (never written to settings), sent with every call the page makes.
+describe('TextEnhancementComponent — effort', () => {
+  let fixture: ComponentFixture<TextEnhancementComponent>;
+  let component: TextEnhancementComponent;
+  let el: HTMLElement;
+  let wailsMock: ReturnType<typeof createWailsMock>;
+  let svcMock: ReturnType<typeof makeEnhancementServiceMock>;
+
+  async function open(settings: Partial<typeof defaultSettings> = {}): Promise<void> {
+    wailsMock = createWailsMock();
+    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, ...settings });
+    svcMock = makeEnhancementServiceMock();
+    await TestBed.configureTestingModule({
+      imports: [TextEnhancementComponent],
+      providers: [
+        provideRouter([]),
+        { provide: WailsService, useValue: wailsMock },
+        { provide: TextEnhancementService, useValue: svcMock },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(TextEnhancementComponent);
+    component = fixture.componentInstance;
+    el = fixture.nativeElement;
+    component.originalTextView = '';
+    component.canvasTextView = '';
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await refresh();
+  }
+
+  async function refresh(): Promise<void> {
+    fixture.debugElement.injector.get(ChangeDetectorRef).markForCheck();
+    fixture.detectChanges();
+    await fixture.whenStable();
+  }
+
+  const q = (testid: string) => el.querySelector<HTMLElement>(`[data-testid="${testid}"]`);
+  const overlayOptions = () => Array.from(document.querySelectorAll<HTMLElement>('.cdk-overlay-container [role="option"]'));
+
+  async function pickEffort(label: string): Promise<void> {
+    q('effort-select')!.querySelector<HTMLButtonElement>('button')!.click();
+    await refresh();
+    overlayOptions().find(o => o.textContent!.trim() === label)!.click();
+    await refresh();
+  }
+
+  async function effortLabels(): Promise<string[]> {
+    q('effort-select')!.querySelector<HTMLButtonElement>('button')!.click();
+    await refresh();
+    const labels = overlayOptions().map(o => o.textContent!.trim());
+    q('effort-select')!.querySelector<HTMLButtonElement>('button')!.click();
+    await refresh();
+    return labels;
+  }
+
+  afterEach(() => {
+    component.originalTextView = '';
+    component.canvasTextView = '';
+    fixture.destroy();
+    document.querySelector('.cdk-overlay-container')?.replaceChildren();
+  });
+
+  it('offers Settings’ levels under Model, led by "Model default", with what effort does there', async () => {
+    await open({ active_provider: 'claude' });
+    expect(q('effort-select')).not.toBeNull();
+    expect(await effortLabels()).toEqual(['Model default', 'Low', 'Medium', 'High', 'Extra high', 'Max']);
+    expect(q('effort-note')!.textContent).toContain('more reasoning');
+    expect(q('effort-select')!.textContent).toContain('Model default');
+  });
+
+  it('names Settings’ level first when Settings has one, and offers "Model default" to send none', async () => {
+    await open({
+      active_provider: 'claude',
+      models: { claude: { fix: '', pyramidize: '', fix_effort: '', pyramidize_effort: 'high' } },
+    });
+    expect(await effortLabels()).toEqual(['Settings: High', 'Model default', 'Low', 'Medium', 'High', 'Extra high', 'Max']);
+    expect(q('effort-select')!.textContent).toContain('Settings: High');
+  });
+
+  it('is not there on a provider that does nothing with effort (Ollama)', async () => {
+    await open({ active_provider: 'ollama' });
+    expect(q('model-select')).not.toBeNull();
+    expect(q('effort-select')).toBeNull();
+    expect(q('effort-note')).toBeNull();
+  });
+
+  it('is not there for a provider that is not available yet', async () => {
+    await open({ active_provider: 'bedrock' });
+    expect(q('effort-select')).toBeNull();
+  });
+
+  it('sends the chosen effort with Pyramidize, a whole-text change and a splice; never saves it', async () => {
+    await open({ active_provider: 'claude' });
+    await pickEffort('Extra high');
+
+    component.originalTextView = 'Some text';
+    await component.pyramidize();
+    expect(svcMock.pyramidize).toHaveBeenCalledWith(expect.objectContaining({ provider: 'claude', effort: 'xhigh' }));
+
+    component.canvasTextView = 'Canvas';
+    component.globalInstruction = 'Shorter';
+    await component.applyGlobalInstruction();
+    expect(svcMock.refineGlobal).toHaveBeenCalledWith(expect.objectContaining({ effort: 'xhigh' }));
+
+    expect(wailsMock.saveSettings).not.toHaveBeenCalled();
+  });
+
+  it('sends "none" for "Model default" over a level in Settings, and "" while it follows Settings', async () => {
+    await open({
+      active_provider: 'claude',
+      models: { claude: { fix: '', pyramidize: '', fix_effort: '', pyramidize_effort: 'high' } },
+    });
+    component.originalTextView = 'Some text';
+    await component.pyramidize();
+    expect(svcMock.pyramidize).toHaveBeenLastCalledWith(expect.objectContaining({ effort: '' }));
+
+    await pickEffort('Model default');
+    component.canvasTextView = '';
+    await component.pyramidize();
+    expect(svcMock.pyramidize).toHaveBeenLastCalledWith(expect.objectContaining({ effort: 'none' }));
+  });
+
+  it('goes back to following Settings when the provider changes, as the model does', async () => {
+    await open({ active_provider: 'claude' });
+    await pickEffort('Max');
+    expect(component.effortView).toBe('max');
+    component.providerView = 'openai';
+    await component.onProviderChange();
+    await refresh();
+    expect(component.effortView).toBe('');
+    expect(component.modelView).toBe('');
   });
 });

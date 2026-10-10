@@ -182,14 +182,21 @@ test.describe('Pyramidize — flow', () => {
     await screenshot(page, '10-provider-unavailable');
   });
 
-  test('opens Advanced with the quality threshold', async ({ page }) => {
-    await open(page);
+  test('sends the effort picked under Model with the request', async ({ page }) => {
+    const state = await open(page);
 
-    const toggle = page.getByTestId('advanced-toggle');
-    await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(page.getByLabel('Quality threshold')).toHaveValue('0.65');
-    await screenshot(page, '11-advanced');
+    await page.locator('#pz-effort').click();
+    await page.getByRole('option', { name: 'High', exact: true }).click();
+    await expect(page.locator('#pz-effort')).toContainText('High');
+    await screenshot(page, '11-effort');
+    await pyramidizeOnce(page);
+    expect(state.requests.at(-1)).toMatchObject({ provider: 'claude', effort: 'high' });
+  });
+
+  test('has no effort picker on Ollama, which does nothing with it', async ({ page }) => {
+    await open(page, {}, 'ollama');
+    await expect(page.getByTestId('model-select')).toBeVisible();
+    await expect(page.getByTestId('effort-select')).toHaveCount(0);
   });
 
   test('sends the editor text back to the window it came from', async ({ page }) => {

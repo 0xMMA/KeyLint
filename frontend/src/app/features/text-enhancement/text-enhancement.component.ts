@@ -17,6 +17,7 @@ import { OptionsPanelComponent } from './options-panel/options-panel.component';
 import { TraceLogComponent } from './trace-log/trace-log.component';
 import { TracePeekComponent } from './trace-peek/trace-peek.component';
 import { SelectionBubbleComponent } from './selection-bubble/selection-bubble.component';
+import { EFFORT_OPTIONS, effortNote, type EffortOption } from '../settings/model-options';
 
 // ── Module-level state (survives navigation; cleared only on full app restart) ──
 
@@ -31,6 +32,9 @@ const PROVIDER_OPTIONS = [
 
 /** Lets a user say "use what Settings says" without knowing the model name. */
 const DEFAULT_MODEL_OPTION = { id: '', label: 'KeyLint default' };
+
+/** A request effort that sends none, whatever Settings say: pyramidize.EffortNone in Go. */
+const EFFORT_NONE = 'none';
 
 /** Providers that need no credential at all. */
 const KEYLESS_PROVIDERS = new Set(['ollama']);
@@ -77,13 +81,15 @@ let pickedWhileSettingsWas = '';
 export function resetPyramidizeProviderSession(): void {
   selectedProvider = '';
   selectedModel = '';
+  selectedEffort = '';
   providerPickedThisSession = false;
   pickedWhileSettingsWas = '';
 }
 // Empty means "whatever settings say for this provider" — the backend resolves it.
 let selectedModel = '';
-let qualityThreshold = 0.65;
-let advancedOpen = false;
+// The same for effort: a session override, never written to settings. Empty
+// follows Settings' Pyramidize effort for the provider; EFFORT_NONE sends none.
+let selectedEffort = '';
 
 /** Room the selection bubble needs, to keep it inside the window. */
 const BUBBLE_WIDTH = 340;
@@ -137,6 +143,9 @@ function addTrace(label: string, snapshot: string): void {
         [modelOptions]="currentModelOptions"
         [(model)]="modelView"
         [modelListNote]="modelListNote"
+        [effortOptions]="effortOptions"
+        [(effort)]="effortView"
+        [effortNote]="effortNoteView"
         [docTypeOptions]="docTypeOptions"
         [(docType)]="docTypeView"
         (docTypePicked)="onDocTypeChange()"
@@ -153,10 +162,6 @@ function addTrace(label: string, snapshot: string): void {
         [showBanner]="!bannerDismissedView && !apiKeySet"
         [bannerMessage]="credentialsMessage"
         (dismissBanner)="dismissBanner()"
-        [advancedOpen]="advancedOpenView"
-        (toggleAdvanced)="toggleAdvanced()"
-        [(qualityThreshold)]="qualityThresholdView"
-        (thresholdChanged)="saveThreshold()"
       />
 
       <!-- ── Editor ── -->
@@ -443,14 +448,44 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   get modelView(): string { return selectedModel; }
   set modelView(v: string) { selectedModel = v; }
 
-  get qualityThresholdView(): number { return qualityThreshold; }
-  set qualityThresholdView(v: number) { qualityThreshold = v; }
+  get effortView(): string { return selectedEffort; }
+  set effortView(v: string) { selectedEffort = v; }
 
-  get advancedOpenView(): boolean { return advancedOpen; }
+  /**
+   * Settings' levels (EFFORT_OPTIONS), led by what an untouched picker does:
+   * follow Settings' Pyramidize effort for this provider. Where Settings names
+   * a level, "Model default" is offered too, to send none for this session.
+   */
+  get effortOptions(): readonly EffortOption[] {
+    // Kept while Settings' level is the same: a new array on every check
+    // would be a changed binding each time (NG0100).
+    const stored = this.settingsEffortFor(selectedProvider);
+    if (this.effortOptionsCache?.stored !== stored) {
+      const levels = EFFORT_OPTIONS.filter(o => o.value !== '');
+      const name = EFFORT_OPTIONS.find(o => o.value === stored)?.label ?? stored;
+      const options = stored
+        ? [{ value: '', label: `Settings: ${name}` }, { value: EFFORT_NONE, label: 'Model default' }, ...levels]
+        : [{ value: '', label: 'Model default' }, ...levels];
+      this.effortOptionsCache = { stored, options };
+    }
+    return this.effortOptionsCache.options;
+  }
+  private effortOptionsCache: { stored: string; options: readonly EffortOption[] } | null = null;
+
+  /** What effort does on the provider in use; null hides the picker. */
+  get effortNoteView(): string | null {
+    return unavailableProviderName(selectedProvider) ? null : effortNote(selectedProvider);
+  }
 
   // ── Component-local state ──
   /** The provider Settings names, read on every visit. */
   settingsProvider = '';
+  /** Settings' Pyramidize effort per provider, read on every visit with the provider. */
+  private settingsEfforts: Record<string, string> = {};
+
+  private settingsEffortFor(provider: string): string {
+    return this.settingsEfforts[provider] ?? '';
+  }
   isLoading = false;
   stepLabel = '';
   errorMessage = '';
@@ -595,6 +630,8 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     // navigation, and the backend never emits settings:changed, so this is
     // where a switch made in Settings reaches this panel.
     this.settingsProvider = settings.active_provider ?? '';
+    this.settingsEfforts = Object.fromEntries(
+      Object.entries(settings.models ?? {}).map(([provider, m]) => [provider, m?.pyramidize_effort ?? '']));
     if (providerPickedThisSession) {
       const caughtUp = selectedProvider === this.settingsProvider;
       const forcedPickOutlived = !!unavailableProviderName(pickedWhileSettingsWas)
@@ -610,6 +647,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
       selectedProvider = this.settingsProvider;
       // Empty means "whatever Settings says for this provider".
       selectedModel = '';
+      selectedEffort = '';
     }
 
     // Not awaited: for the claude-code provider this probes the CLI, which
@@ -619,8 +657,6 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     void this.refreshCredentialsBanner();
     // Same reasoning: the page has nothing to show from the model list yet.
     void this.loadModelOptions();
-
-    qualityThreshold = await this.wails.getQualityThreshold();
 
     this.cdr.detectChanges();
 
@@ -681,8 +717,9 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     providerPickedThisSession = selectedProvider !== this.settingsProvider;
     pickedWhileSettingsWas = this.settingsProvider;
     // Back to "whatever settings say": a model from the previous provider would
-    // not exist on this one.
+    // not exist on this one, and its effort was chosen for that model.
     selectedModel = '';
+    selectedEffort = '';
     await this.loadModelOptions();
     // The "no API key" banner belongs to the provider, so re-evaluate it here.
     await this.refreshCredentialsBanner();
@@ -775,20 +812,8 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     this.peekEntry = null;
   }
 
-  toggleAdvanced(): void {
-    advancedOpen = !advancedOpen;
-  }
-
   dismissBanner(): void {
     bannerDismissed = true;
-  }
-
-  async saveThreshold(): Promise<void> {
-    try {
-      await this.wails.setQualityThreshold(qualityThreshold);
-    } catch {
-      // best-effort
-    }
   }
 
   onOriginalKeydown(event: KeyboardEvent): void {
@@ -839,6 +864,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
       customInstructions: this.customInstructions,
       provider: selectedProvider,
       model: selectedModel,
+      effort: selectedEffort,
       promptVariant: 0,
     };
 
@@ -922,6 +948,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
         relationshipLevel: relLevel,
         provider: selectedProvider,
         model: selectedModel,
+        effort: selectedEffort,
       });
       addTrace(`Refined: "${instruction.slice(0, 30)}"`, canvasText);
       canvasText = result.newCanvas;
@@ -1001,6 +1028,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
         instruction,
         provider: selectedProvider,
         model: selectedModel,
+        effort: selectedEffort,
       });
       const before = canvasText.slice(0, start);
       const after = canvasText.slice(end);

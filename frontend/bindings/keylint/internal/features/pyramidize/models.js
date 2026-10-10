@@ -109,6 +109,14 @@ export class PyramidizeRequest {
              */
             this["model"] = "";
         }
+        if (!("effort" in $$source)) {
+            /**
+             * optional override: "" follows settings, EffortNone sends none, else a level (llm.Effort*)
+             * @member
+             * @type {string}
+             */
+            this["effort"] = "";
+        }
         if (!("promptVariant" in $$source)) {
             /**
              * 0 = latest (default), 1 = v1, 2 = v2, etc.
@@ -312,6 +320,14 @@ export class RefineGlobalRequest {
              */
             this["model"] = "";
         }
+        if (!("effort" in $$source)) {
+            /**
+             * see PyramidizeRequest.Effort
+             * @member
+             * @type {string}
+             */
+            this["effort"] = "";
+        }
 
         Object.assign(this, $$source);
     }
@@ -408,6 +424,14 @@ export class SpliceRequest {
              * @type {string}
              */
             this["model"] = "";
+        }
+        if (!("effort" in $$source)) {
+            /**
+             * see PyramidizeRequest.Effort
+             * @member
+             * @type {string}
+             */
+            this["effort"] = "";
         }
 
         Object.assign(this, $$source);

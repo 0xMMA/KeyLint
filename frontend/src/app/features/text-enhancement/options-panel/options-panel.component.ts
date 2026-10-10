@@ -1,15 +1,16 @@
-import { ChangeDetectionStrategy, Component, effect, input, model, output, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, model, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CdkScrollable } from '@angular/cdk/scrolling';
-import { ButtonComponent, IconComponent, InputDirective, MessageComponent, SelectComponent } from '../../../shared/ui';
+import { ButtonComponent, InputDirective, MessageComponent, SelectComponent } from '../../../shared/ui';
+import type { EffortOption } from '../../settings/model-options';
 
 export interface LabelledOption { label: string; value: string }
 export interface ModelOption { id: string; label: string }
 
 /**
- * The Pyramidize options column (mockup "Pyramidize", left): provider and
- * model, document type, style, relationship, a one-off instruction, the
- * Pyramidize button and the Advanced section.
+ * The Pyramidize options column (mockup "Pyramidize", left): provider,
+ * model and effort, document type, style, relationship, a one-off
+ * instruction and the Pyramidize button.
  *
  * Presentational: the page owns the state (module-level, so it survives
  * navigation) and every decision; this only shows it and reports what the
@@ -19,7 +20,7 @@ export interface ModelOption { id: string; label: string }
 @Component({
   selector: 'app-pyramidize-options',
   standalone: true,
-  imports: [FormsModule, ButtonComponent, IconComponent, InputDirective, MessageComponent, SelectComponent],
+  imports: [FormsModule, ButtonComponent, InputDirective, MessageComponent, SelectComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   // The column scrolls on its own; cdkScrollable lets an open select follow it.
   hostDirectives: [CdkScrollable],
@@ -78,6 +79,22 @@ export interface ModelOption { id: string; label: string }
       }
     </div>
 
+    <!-- Only where the provider does something with effort (not Ollama). -->
+    @if (effortNote(); as note) {
+      <div class="pz-field">
+        <label class="pz-label" for="pz-effort">Effort</label>
+        <kl-select
+          data-testid="effort-select"
+          inputId="pz-effort"
+          [options]="effortOptions()"
+          optionLabel="label"
+          optionValue="value"
+          [(ngModel)]="effort"
+        />
+        <small class="pz-hint" data-testid="effort-note">{{ note }}</small>
+      </div>
+    }
+
     <div class="pz-field">
       <label class="pz-label" for="pz-doc-type">Document type</label>
       <kl-select
@@ -130,38 +147,6 @@ export interface ModelOption { id: string; label: string }
       [disabled]="!canPyramidize()"
       (click)="run()"
     >{{ hasResult() ? 'Pyramidize again' : 'Pyramidize' }}<span klButtonEnd><kbd>Ctrl</kbd> <kbd>Enter</kbd></span></kl-button>
-
-    <div class="pz-advanced">
-      <button type="button" class="pz-advanced-toggle" data-testid="advanced-toggle"
-        [attr.aria-controls]="advancedOpen() ? 'pz-advanced-body' : null" [attr.aria-expanded]="advancedOpen()" (click)="toggleAdvanced.emit()">
-        <kl-icon [name]="advancedOpen() ? 'chevron-down' : 'chevron-right'" />
-        Advanced
-      </button>
-      @if (advancedOpen()) {
-        <div id="pz-advanced-body" class="pz-field pt-3" data-testid="advanced-body">
-          <label class="pz-label" for="pz-threshold">Quality threshold</label>
-          <div class="flex items-center gap-2">
-            <input
-              klInput
-              id="pz-threshold"
-              data-testid="quality-threshold-input"
-              type="number"
-              [min]="minThreshold"
-              max="1"
-              step="0.05"
-              class="w-24"
-              aria-describedby="pz-threshold-hint"
-              [invalid]="thresholdInvalid()"
-              [value]="qualityThreshold()"
-              (input)="checkThreshold($event)"
-              (change)="saveThreshold($event)"
-            />
-            <span class="pz-hint">0.05–1</span>
-          </div>
-          <small id="pz-threshold-hint" class="pz-hint">Scores below this trigger a refinement pass (default 0.65). The lowest is 0.05, which all but turns it off.</small>
-        </div>
-      }
-    </div>
   `,
   styles: [`
     :host {
@@ -179,14 +164,7 @@ export interface ModelOption { id: string; label: string }
       color: var(--kl-link); cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
     }
     .pz-link:hover { color: var(--kl-primary-text); }
-    .pz-link:focus-visible, .pz-advanced-toggle:focus-visible { outline: 2px solid var(--kl-focus); outline-offset: 2px; border-radius: 2px; }
-    .pz-advanced { border-top: 1px solid var(--kl-line); padding-top: 12px; }
-    .pz-advanced-toggle {
-      display: flex; align-items: center; gap: 6px; width: 100%; padding: 4px 0;
-      font: inherit; font-size: 13px; font-weight: 500; color: var(--kl-muted);
-      background: none; border: 0; cursor: pointer;
-    }
-    .pz-advanced-toggle:hover { color: var(--kl-text); }
+    .pz-link:focus-visible { outline: 2px solid var(--kl-focus); outline-offset: 2px; border-radius: 2px; }
   `],
 })
 export class OptionsPanelComponent {
@@ -200,6 +178,10 @@ export class OptionsPanelComponent {
   readonly modelOptions = input<readonly ModelOption[]>([]);
   readonly model = model('');
   readonly modelListNote = input('');
+  readonly effortOptions = input<readonly EffortOption[]>([]);
+  readonly effort = model('');
+  /** What effort does on this provider; null hides the picker (it does nothing there). */
+  readonly effortNote = input<string | null>(null);
 
   readonly docTypeOptions = input<readonly LabelledOption[]>([]);
   readonly docType = model('auto');
@@ -219,30 +201,11 @@ export class OptionsPanelComponent {
   readonly showBanner = input(false);
   readonly bannerMessage = input('');
 
-  readonly advancedOpen = input(false);
-  readonly qualityThreshold = model(0.65);
-
   readonly providerPicked = output<string>();
   readonly followSettings = output<void>();
   readonly docTypePicked = output<void>();
   readonly pyramidize = output<void>();
   readonly dismissBanner = output<void>();
-  readonly toggleAdvanced = output<void>();
-  /** A valid threshold (0.05–1) was committed (blur, Enter, spinner); it is in `qualityThreshold` already. */
-  readonly thresholdChanged = output<number>();
-
-  /** The threshold field holds something that is not a number from 0.05 to 1. */
-  protected readonly thresholdInvalid = signal(false);
-  protected readonly minThreshold = MIN_THRESHOLD;
-
-  constructor() {
-    // Reopening Advanced renders the field afresh with the saved value, so a
-    // mark left from text typed before it was closed would be stale.
-    effect(() => {
-      this.advancedOpen();
-      untracked(() => this.thresholdInvalid.set(false));
-    });
-  }
 
   /** The button and Ctrl+Enter in the instruction field: only when the button could be pressed. */
   protected run(): void {
@@ -256,31 +219,4 @@ export class OptionsPanelComponent {
   protected onProviderPicked(value: unknown): void {
     if (typeof value === 'string') this.providerPicked.emit(value);
   }
-
-  /** Marks the field while typed; nothing is saved until the value is committed. */
-  protected checkThreshold(event: Event): void {
-    this.thresholdInvalid.set(parseThreshold((event.target as HTMLInputElement).value) === null);
-  }
-
-  protected saveThreshold(event: Event): void {
-    const value = parseThreshold((event.target as HTMLInputElement).value);
-    this.thresholdInvalid.set(value === null);
-    if (value === null || value === this.qualityThreshold()) return;
-    this.qualityThreshold.set(value);
-    this.thresholdChanged.emit(value);
-  }
-}
-
-/**
- * The lowest threshold that works as typed. The backend reads a stored 0 as
- * "unset" and runs with the default 0.65 (pyramidize/service.go), so 0 would
- * save and then behave as the opposite of what was asked.
- */
-const MIN_THRESHOLD = 0.05;
-
-/** A threshold from 0.05 to 1, or null for anything else (empty, half typed, out of range). */
-function parseThreshold(raw: string): number | null {
-  if (raw.trim() === '') return null;
-  const value = Number(raw);
-  return Number.isFinite(value) && value >= MIN_THRESHOLD && value <= 1 ? value : null;
 }

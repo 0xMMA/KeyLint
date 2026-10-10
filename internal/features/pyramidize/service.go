@@ -152,9 +152,9 @@ func (svc *Service) Pyramidize(req PyramidizeRequest) (PyramidizeResult, error) 
 	defer cancel()
 
 	cfg := svc.settings.Get()
-	opts := aiOpts{provider: req.Provider, model: req.Model}
+	opts := aiOpts{provider: req.Provider, model: req.Model, effort: req.Effort}
 	logger.Info("pyramidize: start", "docType", req.DocumentType, "provider", cfg.ActiveProvider,
-		"overrideProvider", req.Provider, "overrideModel", req.Model)
+		"overrideProvider", req.Provider, "overrideModel", req.Model, "overrideEffort", req.Effort)
 
 	var result PyramidizeResult
 	docType := strings.ToLower(req.DocumentType)
@@ -251,7 +251,7 @@ func (svc *Service) RefineGlobal(req RefineGlobalRequest) (RefineGlobalResult, e
 	defer cancel()
 
 	cfg := svc.settings.Get()
-	opts := aiOpts{provider: req.Provider, model: req.Model}
+	opts := aiOpts{provider: req.Provider, model: req.Model, effort: req.Effort}
 	systemPrompt, userMessage := buildGlobalRefinePrompt(
 		req.FullCanvas, req.OriginalText, req.Instruction,
 		req.DocumentType, req.CommunicationStyle, req.RelationshipLevel,
@@ -281,7 +281,7 @@ func (svc *Service) Splice(req SpliceRequest) (SpliceResult, error) {
 	defer cancel()
 
 	cfg := svc.settings.Get()
-	opts := aiOpts{provider: req.Provider, model: req.Model}
+	opts := aiOpts{provider: req.Provider, model: req.Model, effort: req.Effort}
 	systemPrompt, userMessage := buildSplicePrompt(
 		req.FullCanvas, req.OriginalText, req.SelectedText, req.Instruction,
 	)
@@ -372,6 +372,9 @@ func (svc *Service) SetQualityThreshold(v float64) error {
 type aiOpts struct {
 	provider string // if empty, uses cfg.ActiveProvider
 	model    string // if empty, uses provider built-in default
+	// effort overrides the provider's Pyramidize effort from settings for one
+	// run: "" follows settings, EffortNone sends none, a level is sent as is.
+	effort string
 	// temperature pins sampling. nil leaves it to the provider, which is what
 	// the product does; the eval judge sets it so its scores are repeatable.
 	temperature *float64
@@ -584,11 +587,19 @@ func isValidDocType(s string) bool {
 	return false
 }
 
-// pyramidizeEffort is the effort a call sends: the provider's Pyramidize
-// effort from settings, or none for a call that must not take it.
+// pyramidizeEffort is the effort a call sends: the panel's choice for this
+// run, else the provider's Pyramidize effort from settings, or none for a call
+// that must not take it. An override that is no level is ignored, as an
+// unknown level in settings is.
 func pyramidizeEffort(cfg settings.Settings, provider string, opts aiOpts) string {
 	if opts.noEffort {
 		return ""
+	}
+	switch effort := strings.TrimSpace(opts.effort); {
+	case effort == EffortNone:
+		return ""
+	case llm.IsEffortLevel(effort):
+		return effort
 	}
 	return cfg.EffortFor(provider, llm.FeaturePyramidize)
 }

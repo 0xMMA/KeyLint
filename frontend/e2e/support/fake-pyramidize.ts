@@ -61,9 +61,6 @@ export async function installFakePyramidize(page: Page, state: FakePyramidizeSta
     switch (ids.get(id)) {
       case 'GetSourceApp':
         return json(state.sourceApp);
-      case 'GetQualityThreshold':
-        return json(0.65);
-      case 'SetQualityThreshold':
       case 'CancelOperation':
         return empty();
       case 'Pyramidize': {

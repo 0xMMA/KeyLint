@@ -9,8 +9,14 @@ type PyramidizeRequest struct {
 	CustomInstructions string `json:"customInstructions"` // optional, not persisted
 	Provider           string `json:"provider"`           // optional override: "claude"|"openai"|"ollama" — falls back to settings.ActiveProvider
 	Model              string `json:"model"`              // optional override, e.g. "claude-sonnet-4-6" — falls back to provider default
+	Effort             string `json:"effort"`             // optional override: "" follows settings, EffortNone sends none, else a level (llm.Effort*)
 	PromptVariant      int    `json:"promptVariant"`      // 0 = latest (default), 1 = v1, 2 = v2, etc.
 }
+
+// EffortNone, as a request's Effort, sends no effort for that run even when
+// settings name one for Pyramidize: the panel's "Model default". An empty
+// Effort follows settings instead, as an empty Model does.
+const EffortNone = "none"
 
 // PyramidizeResult is the RPC response from the main Pyramidize call.
 type PyramidizeResult struct {
@@ -40,6 +46,7 @@ type RefineGlobalRequest struct {
 	RelationshipLevel  string `json:"relationshipLevel"`
 	Provider           string `json:"provider"`
 	Model              string `json:"model"`
+	Effort             string `json:"effort"` // see PyramidizeRequest.Effort
 }
 
 // RefineGlobalResult is the RPC response for a full-canvas AI revision.
@@ -55,6 +62,7 @@ type SpliceRequest struct {
 	Instruction  string `json:"instruction"`
 	Provider     string `json:"provider"`
 	Model        string `json:"model"`
+	Effort       string `json:"effort"` // see PyramidizeRequest.Effort
 }
 
 // SpliceResult is the RPC response for rewriting a selected canvas section.

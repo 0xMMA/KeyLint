@@ -422,3 +422,74 @@ func TestCallAISyncSendsTheProvidersPyramidizeEffort(t *testing.T) {
 		t.Errorf("Effort = %q NoThinking = %v, want high and false", got.Effort, got.NoThinking)
 	}
 }
+
+// TestCallAISyncEffortOverride: the Pyramidize panel can pick an effort for
+// one run, the way it picks a model. "" follows settings, "none" sends none
+// whatever settings say, a level wins over settings, and anything else is
+// ignored like an unknown level in settings is. The judge's noEffort wins
+// over all of it.
+func TestCallAISyncEffortOverride(t *testing.T) {
+	cases := []struct {
+		name     string
+		opts     aiOpts
+		settings string
+		want     string
+	}{
+		{"empty follows settings", aiOpts{}, "high", "high"},
+		{"a level wins over settings", aiOpts{effort: "low"}, "high", "low"},
+		{"a level with nothing in settings", aiOpts{effort: "max"}, "", "max"},
+		{"none sends none", aiOpts{effort: EffortNone}, "high", ""},
+		{"an unknown value is ignored", aiOpts{effort: "turbo"}, "high", "high"},
+		{"the judge's noEffort wins", aiOpts{effort: "max", noEffort: true}, "high", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, rec := newTestService()
+			cfg := settings.Default()
+			cfg.ActiveProvider = llm.ProviderClaude
+			cfg.Models = map[string]settings.FeatureModels{llm.ProviderClaude: {PyramidizeEffort: tc.settings}}
+			if _, err := svc.callAISync(context.Background(), cfg, tc.opts, "k", "system", "user", nil); err != nil {
+				t.Fatal(err)
+			}
+			if got := rec.client.gotRequest.Effort; got != tc.want {
+				t.Errorf("Effort = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// effortClient records the effort of every request and answers with a
+// v2-shaped document.
+type effortClient struct{ efforts []string }
+
+func (c *effortClient) Complete(_ context.Context, req llm.Request) (llm.Response, error) {
+	c.efforts = append(c.efforts, req.Effort)
+	return llm.Response{Text: replyWithoutSelfQA}, nil
+}
+
+// TestTheRequestEffortReachesEveryPanelCall: Pyramidize, a whole-text change
+// and a splice all carry the effort the panel sent, as they carry its model.
+func TestTheRequestEffortReachesEveryPanelCall(t *testing.T) {
+	cfg := settings.Default()
+	cfg.ActiveProvider = llm.ProviderClaude
+	cfg.Models = map[string]settings.FeatureModels{llm.ProviderClaude: {PyramidizeEffort: "high"}}
+	settingsSvc := settings.NewServiceFrom(cfg, func(string) string { return "key" })
+	svc := NewService(settingsSvc, nil)
+	client := &effortClient{}
+	svc.newClient = func(string, llm.Config) (llm.Client, error) { return client, nil }
+
+	if _, err := svc.Pyramidize(PyramidizeRequest{
+		Text: "draft", DocumentType: "email", PromptVariant: LatestEmailVariant, Effort: "max",
+	}); err != nil {
+		t.Fatalf("Pyramidize: %v", err)
+	}
+	// The replies do not fit these two calls' schemas; only the request matters here.
+	_, _ = svc.RefineGlobal(RefineGlobalRequest{FullCanvas: "c", OriginalText: "o", Instruction: "i", Effort: "low"})
+	_, _ = svc.Splice(SpliceRequest{FullCanvas: "c", OriginalText: "o", SelectedText: "c", Instruction: "i", Effort: EffortNone})
+	_, _ = svc.Splice(SpliceRequest{FullCanvas: "c", OriginalText: "o", SelectedText: "c", Instruction: "i"})
+
+	want := []string{"max", "low", "", "high"}
+	if strings.Join(client.efforts, ",") != strings.Join(want, ",") {
+		t.Errorf("efforts = %q, want %q", client.efforts, want)
+	}
+}
