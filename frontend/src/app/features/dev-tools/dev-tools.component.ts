@@ -23,7 +23,7 @@ import { WailsService, Settings as AppSettings } from '../../core/wails.service'
         />
       </p-card>
 
-      <p-card header="Current Settings" styleClass="mt-3">
+      <p-card header="Current Settings" styleClass="mt-4">
         @if (settings) {
           <pre>{{ settings | json }}</pre>
         } @else {
@@ -35,21 +35,20 @@ import { WailsService, Settings as AppSettings } from '../../core/wails.service'
   styles: [`
     .dev-tools-container {
       padding: 2rem;
-      color: var(--p-surface-100, #f4f4f5);
+      color: var(--kl-surface-100);
       max-width: 700px;
     }
-    h2 { margin: 0 0 0.5rem; color: var(--p-primary-color, #f97316); }
-    .note { color: var(--p-surface-400, #a1a1aa); margin-bottom: 1.5rem; }
+    h2 { margin: 0 0 0.5rem; color: var(--kl-primary-text); }
+    .note { color: var(--kl-muted); margin-bottom: 1.5rem; }
     pre {
-      background: var(--p-surface-800, #27272a);
+      background: var(--kl-sheet);
       padding: 1rem;
       border-radius: 6px;
       font-size: 0.8rem;
       overflow: auto;
     }
-    .mt-3 { margin-top: 1rem; }
     code {
-      background: var(--p-surface-800, #27272a);
+      background: var(--kl-sheet);
       padding: 2px 5px;
       border-radius: 3px;
       font-family: monospace;

@@ -70,16 +70,16 @@ import { Message } from 'primeng/message';
   `,
   styles: [`
     .provider-card {
-      border: 1px solid var(--p-content-border-color);
-      border-radius: var(--p-border-radius-md, 6px);
+      border: 1px solid var(--kl-line);
+      border-radius: var(--kl-radius-md);
       padding: 0.75rem 1rem;
       margin-bottom: 0.75rem;
     }
     /* The one KeyLint uses: the theme's accent, so it is found at a glance
        without reading every card's tag. */
     .provider-card.in-use {
-      border-color: var(--p-primary-color);
-      box-shadow: inset 3px 0 0 var(--p-primary-color);
+      border-color: var(--kl-primary);
+      box-shadow: inset 3px 0 0 var(--kl-primary);
     }
     .provider-card-header {
       display: flex;
@@ -94,7 +94,7 @@ import { Message } from 'primeng/message';
       font-size: 0.9rem;
     }
     .provider-card-label:focus { outline: none; }
-    .provider-card-label:focus-visible { outline: 2px solid var(--p-primary-color); outline-offset: 2px; }
+    .provider-card-label:focus-visible { outline: 2px solid var(--kl-primary); outline-offset: 2px; }
 
     .provider-card-spacer { flex: 1; }
     :host ::ng-deep .provider-card-warning { margin-bottom: 0.75rem; }

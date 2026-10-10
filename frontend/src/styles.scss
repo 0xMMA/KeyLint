@@ -1,10 +1,17 @@
+// The KeyLint tokens (--kl-*) and Tailwind live in theme.css, which angular.json
+// loads before this file. PrimeFlex is gone: layout utilities are Tailwind's.
 @import "primeicons/primeicons.css";
-@import "primeflex/primeflex.css";
 
 * {
   box-sizing: border-box;
 }
 
+// PrimeNG overrides. Everything from here to `body` patches PrimeNG's own
+// classes and tokens, and goes when PrimeNG does (roadmap E11, last step).
+// Colours come from the KeyLint tokens like everywhere else; only the
+// selectors and --p-card-background, a PrimeNG token set on purpose, are
+// PrimeNG's.
+//
 // .app-dark sits on <html> (see index.html). PrimeNG declares component
 // tokens on :root as aliases of the theme tokens, and an alias resolves where
 // it is declared — so while the class sat on <body>, every aliased token came
@@ -13,34 +20,29 @@
 // tabs, checkboxes, focus rings and text colours all moved (see PR #94). The
 // overrides below were written against the old gap; they are kept so surfaces
 // that were already dark stay exactly as they were.
-// --p-surface-ground is KeyLint's own variable (Aura has none); the light
-// --p-card-background below loses to PrimeNG's later :root, so both light
-// values only matter once a light theme exists (#25).
-:root {
-  --p-surface-ground: var(--p-surface-50);   // page bg in light mode
-  --p-card-background: var(--p-surface-0);   // card bg in light mode
-}
+//
 // :root.app-dark, not .app-dark: PrimeNG's card tokens also sit on :root and
 // are injected after this file, so equal specificity would lose to them and
-// raise the settings card off the page.
+// raise the settings card off the page. (A light value used to sit on plain
+// :root; it always lost to PrimeNG's later :root, so it did nothing. The light
+// theme, #25, sets its own.)
 :root.app-dark {
-  --p-surface-ground: var(--p-surface-950);
-  --p-card-background: var(--p-surface-ground);
+  --p-card-background: var(--kl-ground);
 }
 .app-dark {
   // Tabs (tablist bar + tabpanel content area) — match page background
   .p-tablist,
   .p-tabpanels {
-    background: var(--p-surface-ground);
+    background: var(--kl-ground);
   }
 
   // Form fields: input, textarea, select
   .p-textarea,
   .p-inputtext,
   .p-select {
-    background: var(--p-surface-950);
-    color: var(--p-text-color);
-    border-color: var(--p-surface-700);
+    background: var(--kl-surface-950);
+    color: var(--kl-text);
+    border-color: var(--kl-surface-700);
   }
   // Disabled fields (#28): Aura's dark disabled fill is zinc-700, a grey block
   // that reads like a button on this near-black page. Keep them on a dark
@@ -48,23 +50,23 @@
   .p-textarea:disabled,
   .p-inputtext:disabled,
   .p-select.p-disabled {
-    background: var(--p-surface-900);
-    color: var(--p-text-muted-color);
+    background: var(--kl-surface-900);
+    color: var(--kl-muted);
   }
   // .p-select-label is a square span 1px inside the rounded .p-select box.
   // An opaque background here paints over the border's corner arcs at
   // top-left / bottom-left (#37). Keep Aura's transparent background;
   // only the text color needs the dark-mode fix.
   .p-select-label {
-    color: var(--p-text-color);
+    color: var(--kl-text);
   }
 }
 
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: var(--p-surface-ground);
-  color: var(--p-text-color);
+  background: var(--kl-ground);
+  color: var(--kl-text);
 }
 
 /* Visually hidden, still read by screen readers. Global so every component

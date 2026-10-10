@@ -92,10 +92,10 @@ let _autoCopyCache = true;
     .fix-textareas { display: flex; gap: 2.75rem; flex: 1; }
     .fix-textarea { flex: 1; resize: none; min-height: 200px; }
     .fix-actions { display: flex; align-items: center; gap: 0.5rem; }
-    .auto-copy-toggle { display: flex; align-items: center; gap: 0.5rem; margin-left: 0.75rem; font-size: 0.875rem; color: var(--p-text-muted-color); cursor: pointer; }
+    .auto-copy-toggle { display: flex; align-items: center; gap: 0.5rem; margin-left: 0.75rem; font-size: 0.875rem; color: var(--kl-muted); cursor: pointer; }
     .auto-copy-toggle label { cursor: pointer; }
     .silent-notice { display: flex; flex-direction: column; gap: 0.25rem; }
-    .silent-notice small { color: var(--p-text-muted-color); }
+    .silent-notice small { color: var(--kl-muted); }
   `],
 })
 export class FixComponent implements OnInit, OnDestroy {

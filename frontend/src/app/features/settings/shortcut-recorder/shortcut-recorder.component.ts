@@ -41,25 +41,25 @@ const KEY_TO_NAME: Record<string, string> = {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      border: 1px solid var(--p-content-border-color);
+      border: 1px solid var(--kl-line);
       border-radius: 6px;
       padding: 0.5rem 0.75rem;
-      background: var(--p-content-hover-background);
+      background: var(--kl-sheet);
       min-height: 2.5rem;
       outline: none;
     }
     .recorder-wrapper.recording {
-      border-color: var(--p-primary-color);
-      box-shadow: 0 0 0 1px var(--p-primary-color);
+      border-color: var(--kl-primary);
+      box-shadow: 0 0 0 1px var(--kl-primary);
     }
     .combo-text {
       font-family: monospace;
       font-size: 0.9rem;
-      color: var(--p-text-color);
+      color: var(--kl-text);
     }
     .recording-text {
       font-size: 0.85rem;
-      color: var(--p-text-muted-color);
+      color: var(--kl-muted);
       animation: pulse 1.5s ease-in-out infinite;
     }
     @keyframes pulse {

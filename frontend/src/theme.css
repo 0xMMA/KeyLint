@@ -1,0 +1,148 @@
+/*
+ * KeyLint's design tokens and the Tailwind setup that carries them.
+ *
+ * Plain CSS, listed before styles.scss in angular.json so Sass never sees
+ * Tailwind's at-rules. PostCSS (.postcssrc.json, @tailwindcss/postcss) turns
+ * it into ordinary CSS at build time; nothing of Tailwind ships at runtime.
+ *
+ * App code reads colours from the --kl-* tokens below, never from PrimeNG's
+ * --p-* tokens: PrimeNG is being replaced (docs/ui/primeng-replacement.md,
+ * roadmap E11), and its token names must not outlive it. The PrimeNG overrides
+ * in styles.scss still set PrimeNG's own tokens where they patch PrimeNG.
+ */
+
+/*
+ * Tailwind v4, without its preflight. Preflight is a global reset (margins,
+ * borders, form controls, headings, img display); turned on next to PrimeNG it
+ * would restyle PrimeNG components and every native element, so it stays off
+ * while the two coexist. That also means utilities that rely on preflight's
+ * defaults (e.g. `border` without a style, since preflight sets
+ * border-style: solid everywhere) need the missing part spelled out.
+ *
+ * Layer order matters for the coexistence with PrimeNG: PrimeNG injects its
+ * theme unlayered at runtime (cssLayer: false in app.config.ts), and so is
+ * every Angular component style and styles.scss. Unlayered CSS beats any
+ * @layer, whatever the specificity — so a utility loses to any unlayered rule
+ * that sets the same property on the same element. Checked for every utility
+ * that replaced a PrimeFlex class (all on margin, width, display or gap): no
+ * PrimeNG or component rule competes, so they apply as plain utilities, and
+ * e2e/ui-tokens.spec.ts asserts it. If a utility on an element PrimeNG styles
+ * (a styleClass) ever has to win against PrimeNG, use the important modifier
+ * (`mt-4!`): important declarations in a layer beat unlayered ones, normal or
+ * important. PrimeFlex made every utility !important for that reason.
+ */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+/*
+ * Classes are read from the app's sources only, not from specs, e2e or
+ * bindings. Tailwind scans text, not class attributes, so words in the inline
+ * component stylesheets also produce utilities (`hidden` from overflow: hidden,
+ * `block`, `fixed`, `border`, `transition`, ...). That is harmless as long as
+ * no element carries a class of that name for another reason; PrimeNG's own
+ * classes are all p-prefixed, and KeyLint's must not reuse a utility name.
+ */
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@source "./app";
+@source not "./**/*.spec.ts";
+/*
+ * Utilities whose names KeyLint already uses for its own rules. `.sr-only` is
+ * defined in styles.scss and is referenced from templates, so Tailwind would
+ * otherwise add its own version (with margin/padding/border/clip-path) on top.
+ */
+@source not inline("sr-only");
+
+/*
+ * Only KeyLint's colours exist as utilities (text-muted, bg-sheet, border-line,
+ * ...): Tailwind's default palette is switched off so nobody reaches for a
+ * colour outside the token set. Spacing, sizing and radius keep Tailwind's
+ * defaults (spacing step 0.25rem: mt-4 = 1rem).
+ *
+ * `inline` makes each utility use var(--kl-*) directly, so a token changed at
+ * runtime (or by a later theme) is picked up without regenerating anything.
+ */
+@theme {
+  --color-*: initial;
+}
+@theme inline {
+  --color-fg: var(--kl-text);
+  --color-muted: var(--kl-muted);
+  --color-primary: var(--kl-primary);
+  --color-primary-text: var(--kl-primary-text);
+  --color-line: var(--kl-line);
+  --color-ground: var(--kl-ground);
+  --color-rail: var(--kl-rail);
+  --color-sheet: var(--kl-sheet);
+  --color-hover: var(--kl-hover);
+  --color-highlight: var(--kl-highlight);
+  --color-error: var(--kl-error);
+  --color-warn: var(--kl-warn);
+  --color-surface-0: var(--kl-surface-0);
+  --color-surface-50: var(--kl-surface-50);
+  --color-surface-100: var(--kl-surface-100);
+  --color-surface-200: var(--kl-surface-200);
+  --color-surface-300: var(--kl-surface-300);
+  --color-surface-400: var(--kl-surface-400);
+  --color-surface-500: var(--kl-surface-500);
+  --color-surface-600: var(--kl-surface-600);
+  --color-surface-700: var(--kl-surface-700);
+  --color-surface-800: var(--kl-surface-800);
+  --color-surface-900: var(--kl-surface-900);
+  --color-surface-950: var(--kl-surface-950);
+  --radius-md: var(--kl-radius-md);
+}
+
+/*
+ * The values are exactly what the app renders today: Aura's dark scheme as
+ * app.config.ts configures it (orange primary, dark via .app-dark on <html>),
+ * read from @primeuix/themes 2.0.3 and checked against the running app. That
+ * keeps this step a visual no-op. Two things that are easy to get wrong:
+ *
+ * - Aura's dark primary.color is primary.400, so the orange KeyLint renders is
+ *   #fb923c, not orange-500 #f97316 (that is only the light-scheme primary).
+ * - Text is surface.0 (#ffffff), muted text surface.400.
+ *
+ * The approved target look (docs/ui/design.md) has different values for most
+ * of these (ground #1F1F23, sheet #27272A, text #F4F4F5, primary #F97316 with
+ * #FB923C for orange text, ...). Switching to it is a later E11 step and
+ * happens here, by value; the role names already follow design.md.
+ *
+ * Dark only, like the rest of the app (#24). A light theme (#25) redefines
+ * these under its own selector.
+ */
+:root {
+  /* Neutral scale: Aura's dark surface palette, which is Tailwind's zinc. */
+  --kl-surface-0: #ffffff;
+  --kl-surface-50: #fafafa;
+  --kl-surface-100: #f4f4f5;
+  --kl-surface-200: #e4e4e7;
+  --kl-surface-300: #d4d4d8;
+  --kl-surface-400: #a1a1aa;
+  --kl-surface-500: #71717a;
+  --kl-surface-600: #52525b;
+  --kl-surface-700: #3f3f46;
+  --kl-surface-800: #27272a;
+  --kl-surface-900: #18181b;
+  --kl-surface-950: #09090b;
+
+  /* Accent palette steps that app code uses directly. */
+  --kl-amber-100: #fef3c7;
+  --kl-amber-300: #fcd34d;
+  --kl-amber-400: #fbbf24;
+  --kl-amber-900: #78350f;
+  --kl-red-400: #f87171;
+
+  /* Roles. */
+  --kl-text: var(--kl-surface-0);          /* body text (Aura text.color) */
+  --kl-muted: var(--kl-surface-400);       /* hints, labels (text.mutedColor) */
+  --kl-primary: #fb923c;                   /* fills, borders, focus rings (dark primary.color = orange.400) */
+  --kl-primary-text: var(--kl-primary);    /* orange text and links on dark */
+  --kl-line: var(--kl-surface-700);        /* borders and dividers (content.borderColor) */
+  --kl-ground: var(--kl-surface-950);      /* page background */
+  --kl-rail: var(--kl-surface-900);        /* sidebar */
+  --kl-sheet: var(--kl-surface-800);       /* raised blocks: in-use block, code, recorder field */
+  --kl-hover: var(--kl-surface-800);       /* hover fill (content.hoverBackground) */
+  --kl-highlight: color-mix(in srgb, var(--kl-primary), transparent 84%); /* selected row (highlight.background) */
+  --kl-error: var(--kl-red-400);
+  --kl-warn: var(--kl-amber-400);
+  --kl-radius-md: 6px;
+}

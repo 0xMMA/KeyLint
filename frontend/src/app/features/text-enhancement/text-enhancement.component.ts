@@ -622,14 +622,14 @@ function addTrace(label: string, snapshot: string): void {
       flex-direction: column;
       gap: 0.75rem;
       padding: 1rem;
-      border-right: 1px solid var(--p-content-border-color);
+      border-right: 1px solid var(--kl-line);
       overflow-y: auto;
     }
 
     .api-key-banner {
-      background: var(--p-amber-100, #fef3c7);
-      color: var(--p-amber-900, #78350f);
-      border: 1px solid var(--p-amber-300, #fcd34d);
+      background: var(--kl-amber-100);
+      color: var(--kl-amber-900);
+      border: 1px solid var(--kl-amber-300);
       border-radius: 6px;
       padding: 0.5rem 0.75rem;
       font-size: 0.8rem;
@@ -644,7 +644,7 @@ function addTrace(label: string, snapshot: string): void {
       align-items: center;
       gap: 0.3rem;
       font-size: 0.75rem;
-      color: var(--p-primary-color);
+      color: var(--kl-primary-text);
       font-weight: 600;
       letter-spacing: 0.05em;
       margin-top: 0.25rem;
@@ -653,7 +653,7 @@ function addTrace(label: string, snapshot: string): void {
 
     .session-override {
       font-size: 0.8rem;
-      color: var(--p-text-muted-color);
+      color: var(--kl-muted);
     }
     .session-override-reset {
       background: none;
@@ -662,7 +662,7 @@ function addTrace(label: string, snapshot: string): void {
       margin-left: 0.25rem;
       font: inherit;
       cursor: pointer;
-      color: var(--p-primary-color);
+      color: var(--kl-primary-text);
     }
     .session-override-reset:hover { text-decoration: underline; }
     .form-group {
@@ -672,7 +672,7 @@ function addTrace(label: string, snapshot: string): void {
     }
     label {
       font-size: 0.8rem;
-      color: var(--p-text-muted-color);
+      color: var(--kl-muted);
     }
 
     .custom-instructions-textarea {
@@ -697,7 +697,7 @@ function addTrace(label: string, snapshot: string): void {
 
     /* Advanced section (UX-04) */
     .advanced-section {
-      border-top: 1px solid var(--p-content-border-color);
+      border-top: 1px solid var(--kl-line);
       padding-top: 0.5rem;
       margin-top: 0.25rem;
     }
@@ -709,11 +709,11 @@ function addTrace(label: string, snapshot: string): void {
       align-items: center;
       gap: 0.4rem;
       font-size: 0.8rem;
-      color: var(--p-text-muted-color);
+      color: var(--kl-muted);
       padding: 0.2rem 0;
       width: 100%;
     }
-    .advanced-toggle:hover { color: var(--p-text-color); }
+    .advanced-toggle:hover { color: var(--kl-text); }
     .advanced-body { padding-top: 0.5rem; }
     .threshold-row {
       display: flex;
@@ -724,8 +724,8 @@ function addTrace(label: string, snapshot: string): void {
       width: 80px !important;
       font-size: 0.85rem;
     }
-    .threshold-hint { font-size: 0.75rem; color: var(--p-text-muted-color); }
-    .hint-text { font-size: 0.78rem; color: var(--p-text-muted-color); margin: 0; }
+    .threshold-hint { font-size: 0.75rem; color: var(--kl-muted); }
+    .hint-text { font-size: 0.78rem; color: var(--kl-muted); margin: 0; }
 
     /* ── Canvas area ── */
     .canvas-area {
@@ -745,7 +745,7 @@ function addTrace(label: string, snapshot: string): void {
       align-items: center;
       gap: 1rem;
       padding: 1rem;
-      background: var(--p-content-hover-background);
+      background: var(--kl-sheet);
       border-radius: 8px;
     }
     .step-spinner { width: 24px; height: 24px; }
@@ -820,7 +820,9 @@ function addTrace(label: string, snapshot: string): void {
       min-height: 0;
       resize: none;
       width: 100%;
-      font-family: var(--p-font-family);
+      /* Was var(--p-font-family), which Aura never defined: the declaration was
+         invalid and the element inherited the page font; inherit says so. */
+      font-family: inherit;
       font-size: 0.9rem;
       line-height: 1.6;
     }
@@ -835,7 +837,7 @@ function addTrace(label: string, snapshot: string): void {
       flex: 1;
       min-height: 0;
       padding: 1rem;
-      border: 1px solid var(--p-content-border-color);
+      border: 1px solid var(--kl-line);
       border-radius: 6px;
       overflow-y: auto;
       line-height: 1.7;
@@ -846,7 +848,7 @@ function addTrace(label: string, snapshot: string): void {
     .canvas-preview ::ng-deep p  { margin: 0.4rem 0; }
     .canvas-preview ::ng-deep ul, .canvas-preview ::ng-deep ol { padding-left: 1.5rem; margin: 0.4rem 0; }
     .canvas-preview ::ng-deep code {
-      background: var(--p-content-hover-background);
+      background: var(--kl-sheet);
       padding: 1px 4px;
       border-radius: 3px;
       font-family: monospace;
@@ -864,8 +866,12 @@ function addTrace(label: string, snapshot: string): void {
     /* Selection bubble */
     .selection-bubble {
       position: fixed;
-      background: var(--p-surface-overlay, var(--p-surface-card));
-      border: 1px solid var(--p-content-border-color);
+      /* Was var(--p-surface-overlay, var(--p-surface-card)). Aura defines neither,
+         so the bubble has always rendered without a background. Kept as is in
+         the token move (E11 step 2 is a visual no-op); the bubble gets a real
+         surface when this screen moves to the new look. */
+      background: transparent;
+      border: 1px solid var(--kl-line);
       border-radius: 8px;
       padding: 0.5rem;
       display: flex;
@@ -881,10 +887,10 @@ function addTrace(label: string, snapshot: string): void {
       display: flex;
       align-items: center;
       gap: 0.5rem;
-      color: var(--p-red-400, #f87171);
+      color: var(--kl-error);
       font-size: 0.85rem;
       padding: 0.5rem 0.75rem;
-      background: var(--p-content-hover-background);
+      background: var(--kl-sheet);
       border-radius: 6px;
       flex-shrink: 0;
     }
@@ -900,7 +906,7 @@ function addTrace(label: string, snapshot: string): void {
 
     .refinement-warning {
       font-size: 0.8rem;
-      color: var(--p-amber-400, #fbbf24);
+      color: var(--kl-warn);
       padding: 0.4rem 0.5rem;
       flex-shrink: 0;
     }
@@ -910,7 +916,7 @@ function addTrace(label: string, snapshot: string): void {
       display: flex;
       gap: 0.5rem;
       align-items: center;
-      border-top: 1px solid var(--p-content-border-color);
+      border-top: 1px solid var(--kl-line);
       padding-top: 0.75rem;
       flex-shrink: 0;
     }
@@ -936,8 +942,8 @@ function addTrace(label: string, snapshot: string): void {
     }
     .trace-peek-panel {
       flex: 1;
-      background: var(--p-surface-card, var(--p-surface-900));
-      border: 1px solid var(--p-content-border-color);
+      background: var(--kl-surface-900);
+      border: 1px solid var(--kl-line);
       border-radius: 8px;
       display: flex;
       flex-direction: column;
@@ -948,12 +954,12 @@ function addTrace(label: string, snapshot: string): void {
       align-items: center;
       gap: 0.5rem;
       padding: 0.75rem 1rem;
-      border-bottom: 1px solid var(--p-content-border-color);
+      border-bottom: 1px solid var(--kl-line);
       flex-shrink: 0;
     }
     .trace-peek-title { flex: 1; font-weight: 600; font-size: 0.9rem; }
-    .trace-peek-time { font-size: 0.75rem; color: var(--p-text-muted-color); }
-    .trace-peek-hint { font-size: 0.7rem; color: var(--p-text-muted-color); font-style: italic; }
+    .trace-peek-time { font-size: 0.75rem; color: var(--kl-muted); }
+    .trace-peek-hint { font-size: 0.7rem; color: var(--kl-muted); font-style: italic; }
     .trace-peek-content {
       flex: 1;
       overflow-y: auto;
@@ -963,13 +969,15 @@ function addTrace(label: string, snapshot: string): void {
       margin: 0;
       font-size: 0.85rem;
       line-height: 1.6;
-      font-family: var(--p-font-family);
+      /* Was var(--p-font-family), which Aura never defined: the declaration was
+         invalid and the element inherited the page font; inherit says so. */
+      font-family: inherit;
     }
     .trace-peek-footer {
       display: flex;
       gap: 0.5rem;
       padding: 0.75rem 1rem;
-      border-top: 1px solid var(--p-content-border-color);
+      border-top: 1px solid var(--kl-line);
       flex-shrink: 0;
     }
 
@@ -977,7 +985,7 @@ function addTrace(label: string, snapshot: string): void {
     .trace-panel {
       width: 260px;
       min-width: 260px;
-      border-left: 1px solid var(--p-content-border-color);
+      border-left: 1px solid var(--kl-line);
       display: flex;
       flex-direction: column;
       overflow: hidden;
@@ -1000,7 +1008,7 @@ function addTrace(label: string, snapshot: string): void {
       align-items: center;
       gap: 0.25rem;
       padding: 0.5rem 0.75rem;
-      border-bottom: 1px solid var(--p-content-border-color);
+      border-bottom: 1px solid var(--kl-line);
     }
     .trace-title { flex: 1; font-size: 0.8rem; font-weight: 600; }
 
@@ -1015,13 +1023,13 @@ function addTrace(label: string, snapshot: string): void {
       flex-direction: column;
       padding: 0.4rem 0.75rem;
       cursor: pointer;
-      border-bottom: 1px solid var(--p-content-border-color);
+      border-bottom: 1px solid var(--kl-line);
       transition: background 0.1s;
     }
-    .trace-entry:hover { background: var(--p-content-hover-background); }
-    .trace-entry.active { background: var(--p-highlight-background); }
+    .trace-entry:hover { background: var(--kl-hover); }
+    .trace-entry.active { background: var(--kl-highlight); }
     .trace-label { font-size: 0.8rem; }
-    .trace-time { font-size: 0.7rem; color: var(--p-text-muted-color); }
+    .trace-time { font-size: 0.7rem; color: var(--kl-muted); }
   `],
 })
 export class TextEnhancementComponent implements OnInit, OnDestroy {

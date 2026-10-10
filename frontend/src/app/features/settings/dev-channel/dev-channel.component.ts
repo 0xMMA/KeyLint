@@ -164,10 +164,10 @@ import { versionLabel, isDevVersion } from '../../../core/version-label';
     .dev-channel {
       margin-top: 1.5rem;
       padding-top: 1rem;
-      border-top: 1px solid var(--p-content-border-color);
+      border-top: 1px solid var(--kl-line);
     }
     .dev-channel-heading { margin: 0 0 0.25rem; font-size: 1rem; }
-    .hint-text { display: block; font-size: 0.8rem; color: var(--p-text-muted-color); margin-bottom: 0.75rem; }
+    .hint-text { display: block; font-size: 0.8rem; color: var(--kl-muted); margin-bottom: 0.75rem; }
     .dev-identity { margin: 0 0 0.75rem; font-size: 0.9rem; }
     .return-offer { margin-bottom: 1rem; }
     .back-to-release { margin-bottom: 1rem; }
@@ -179,15 +179,15 @@ import { versionLabel, isDevVersion } from '../../../core/version-label';
       justify-content: space-between;
       gap: 1rem;
       padding: 0.6rem 0.75rem;
-      border: 1px solid var(--p-content-border-color);
-      border-radius: var(--p-border-radius-md, 6px);
+      border: 1px solid var(--kl-line);
+      border-radius: var(--kl-radius-md);
       margin-bottom: 0.5rem;
     }
-    .dev-build.installed { border-color: var(--p-primary-color); }
+    .dev-build.installed { border-color: var(--kl-primary); }
     .dev-build-text { min-width: 0; }
     .dev-build-name { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; }
     .dev-build-title { font-size: 0.875rem; overflow-wrap: anywhere; }
-    .dev-build-meta { color: var(--p-text-muted-color); font-size: 0.75rem; }
+    .dev-build-meta { color: var(--kl-muted); font-size: 0.75rem; }
     .dev-build p-button { flex-shrink: 0; }
   `],
 })
