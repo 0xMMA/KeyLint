@@ -237,11 +237,11 @@ export class OptionsPanelComponent {
   }
 
   /**
-   * Picking the provider already in use is no switch: kl-select reports every
-   * pick, and a switch resets the model to the default.
+   * A switch resets the model to the default. Picking the provider already in
+   * use is no switch, and kl-select does not report it (as p-select did not).
    */
   protected onProviderPicked(value: unknown): void {
-    if (typeof value === 'string' && value !== this.provider()) this.providerPicked.emit(value);
+    if (typeof value === 'string') this.providerPicked.emit(value);
   }
 
   /** Marks the field while typed; nothing is saved until the value is committed. */

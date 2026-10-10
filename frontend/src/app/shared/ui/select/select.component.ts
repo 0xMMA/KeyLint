@@ -44,7 +44,14 @@ type Option = unknown;
  *
  * Keyboard: ArrowDown/ArrowUp open and move, Enter takes the active option,
  * Escape closes, Tab closes; the fixed list also opens on Space/Enter and has
- * Home/End and type-ahead. `changed` fires only on user action.
+ * Home/End and type-ahead. `changed` (and the model) fire only on user action,
+ * and only when the value actually changes: picking the option that is
+ * already selected just closes the list, as p-select did.
+ *
+ * An outside `<label for>` names the trigger via `inputId`. Clicking it
+ * focuses the trigger without opening the list (a <button> would otherwise
+ * take the label's click as its own), and the list borrows the label's text
+ * as its name when no ariaLabel/ariaLabelledBy is given.
  */
 @Component({
   selector: 'kl-select',
@@ -52,7 +59,7 @@ type Option = unknown;
   imports: [IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [{ provide: NG_VALUE_ACCESSOR, useExisting: forwardRef(() => SelectComponent), multi: true }],
-  host: { class: 'kl-select', '[class.kl-select-open]': 'isOpen()' },
+  host: { class: 'kl-select', '[class.kl-select-open]': 'isOpen()', '(document:click)': 'onDocumentClick($event)' },
   template: `
     @if (editable()) {
       <div class="kl-select-field kl-select-editable" [class.disabled]="isDisabled()">
@@ -110,7 +117,7 @@ type Option = unknown;
     }
 
     <ng-template #panel>
-      <div role="listbox" class="kl-select-panel" [id]="listboxId" [attr.aria-label]="ariaLabel() || null"
+      <div role="listbox" class="kl-select-panel" [id]="listboxId" [attr.aria-label]="ariaLabel() || forLabel() || null"
         [attr.aria-labelledby]="ariaLabel() ? null : ariaLabelledBy() || null" data-testid="kl-select-panel">
         @for (option of options(); track $index; let i = $index) {
           <div
@@ -206,7 +213,7 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
   /** data-testid per option row, e.g. o => 'model-option-' + (o.id || 'default'). */
   readonly optionTestId = input<((option: Option) => string | null) | null>(null);
 
-  /** The user picked an option or typed (never on a value written from outside). */
+  /** The user picked a different option or typed (never on a value written from outside). */
   readonly changed = output<unknown>();
 
   private readonly injector = inject(Injector);
@@ -221,6 +228,8 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
   protected readonly value = signal<unknown>(null);
   protected readonly isOpen = signal(false);
   protected readonly activeIndex = signal(-1);
+  /** The text of the trigger's <label for>, read on open; names the listbox when nothing else does. */
+  protected readonly forLabel = signal('');
   private readonly formDisabled = signal(false);
   protected readonly isDisabled = computed(() => this.disabled() || this.formDisabled());
 
@@ -307,6 +316,7 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
     }
     const width = this.hostEl.nativeElement.getBoundingClientRect().width;
     this.overlayRef.updateSize({ width: width || undefined, minWidth: 192 });
+    this.forLabel.set(this.associatedLabelText());
     this.overlayRef.attach(new TemplatePortal(this.panelTpl(), this.vcr));
     this.isOpen.set(true);
     const selected = this.selectedIndex();
@@ -325,9 +335,11 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
     const option = this.options()[index];
     if (option === undefined || this.disabledOf(option)) return;
     const v = this.valueOf(option);
-    this.value.set(v);
-    this.onChange(v);
-    this.changed.emit(v);
+    if (v !== this.value()) {
+      this.value.set(v);
+      this.onChange(v);
+      this.changed.emit(v);
+    }
     this.close();
     this.focusTrigger();
   }
@@ -434,6 +446,30 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
 
   private focusTrigger(): void {
     this.triggerRef()?.nativeElement.focus();
+  }
+
+  /**
+   * A click on the <label for> of the fixed trigger: focus it, but do not let
+   * the label pass the click on to the button, which would open the list. (The
+   * editable trigger is an <input>, which a label only focuses anyway.)
+   * Cancelling the label's click in the bubble phase stops its activation.
+   */
+  protected onDocumentClick(event: MouseEvent): void {
+    if (this.editable() || !this.inputId()) return;
+    const target = event.target;
+    const label = target instanceof Element ? target.closest('label') : null;
+    if (!label || label.htmlFor !== this.inputId()) return;
+    event.preventDefault();
+    if (!this.isDisabled()) this.focusTrigger();
+  }
+
+  private associatedLabelText(): string {
+    if (this.ariaLabel() || this.ariaLabelledBy()) return '';
+    const trigger = this.triggerRef()?.nativeElement as HTMLButtonElement | HTMLInputElement | undefined;
+    return Array.from(trigger?.labels ?? [])
+      .map(label => label.textContent?.trim() ?? '')
+      .filter(Boolean)
+      .join(' ');
   }
 
   // ── ControlValueAccessor ────────────────────────────────────────────────

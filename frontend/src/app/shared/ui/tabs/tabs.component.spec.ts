@@ -113,4 +113,43 @@ describe('kl-tabs', () => {
     await render();
     expect(tab('General').getAttribute('aria-selected')).toBe('true');
   });
+
+  it('makes a panel a Tab stop only when nothing inside it can take the focus', async () => {
+    const panel = (v: string) => el.querySelector<HTMLElement>(`[role="tabpanel"][data-value="${v}"]`)!;
+    expect(panel('general').hasAttribute('tabindex')).toBe(false);
+    expect(panel('providers').getAttribute('tabindex')).toBe('0');
+  });
+});
+
+@Component({
+  standalone: true,
+  imports: [TabsComponent, TabComponent, TabPanelComponent],
+  template: `
+    <kl-tabs value="one">
+      <kl-tab value="one">One</kl-tab>
+      <kl-tab-panel value="one">
+        @if (withButton()) { <button data-testid="inner">Do</button> } @else { <p>Just text</p> }
+      </kl-tab-panel>
+    </kl-tabs>
+  `,
+})
+class ChangingHost {
+  readonly withButton = signal(false);
+}
+
+describe('kl-tab-panel Tab stop', () => {
+  it('follows its content as it changes', async () => {
+    await TestBed.configureTestingModule({ imports: [ChangingHost] }).compileComponents();
+    const fixture = TestBed.createComponent(ChangingHost);
+    const settle = async () => { fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges(); };
+    await settle();
+    const panel = fixture.nativeElement.querySelector('[role="tabpanel"]') as HTMLElement;
+    expect(panel.getAttribute('tabindex')).toBe('0');
+    fixture.componentInstance.withButton.set(true);
+    await settle();
+    expect(panel.hasAttribute('tabindex')).toBe(false);
+    fixture.componentInstance.withButton.set(false);
+    await settle();
+    expect(panel.getAttribute('tabindex')).toBe('0');
+  });
 });

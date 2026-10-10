@@ -1,8 +1,16 @@
 import {
-  ChangeDetectionStrategy, Component, ElementRef, booleanAttribute, computed, contentChildren, inject, input, model,
+  ChangeDetectionStrategy, Component, ElementRef, afterEveryRender, afterRenderEffect, booleanAttribute, computed,
+  contentChildren, inject, input, model, signal, viewChild,
 } from '@angular/core';
 
 let nextId = 0;
+
+/** What can take the focus by Tab, roughly: enough to tell an empty panel from a form. */
+const FOCUSABLE = [
+  'a[href]', 'area[href]', 'button:not([disabled])', 'input:not([disabled]):not([type="hidden"])',
+  'select:not([disabled])', 'textarea:not([disabled])', 'iframe', 'summary',
+  '[contenteditable]:not([contenteditable="false"])', '[tabindex]:not([tabindex="-1"])',
+].join(',');
 
 /**
  * Accessible tabs (WAI-ARIA tabs pattern, automatic activation):
@@ -19,15 +27,24 @@ let nextId = 0;
  * move between tabs and select, Home/End jump to the ends. Panels stay
  * rendered and are hidden when inactive, so a form in a hidden panel keeps
  * its state; `role="tabpanel"` with aria-labelledby ties each to its tab.
+ * A panel is a Tab stop of its own only when nothing inside it can take the
+ * focus (WAI-ARIA APG); otherwise Tab goes from the tab straight to its first
+ * control.
+ *
+ * On a narrow window the tab row scrolls sideways instead of wrapping onto a
+ * second line: the selected tab is kept in view, and the edge with more tabs
+ * behind it fades out so the row reads as scrollable.
  */
 @Component({
   selector: 'kl-tabs',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'kl-tabs' },
+  host: { class: 'kl-tabs', '(window:resize)': 'measureRow()' },
   template: `
     <div class="kl-tabs-bar">
-      <div role="tablist" class="kl-tablist" [attr.aria-label]="ariaLabel() || null" (keydown)="onKeydown($event)">
+      <div #row role="tablist" class="kl-tablist" [attr.aria-label]="ariaLabel() || null"
+        [class.more-start]="moreStart()" [class.more-end]="moreEnd()"
+        (keydown)="onKeydown($event)" (scroll)="measureRow()">
         <ng-content select="kl-tab" />
       </div>
       <ng-content select="[klTabsEnd]" />
@@ -36,11 +53,22 @@ let nextId = 0;
   `,
   styles: [`
     :host { display: block; }
+    /* The divider is an inset shadow, not a border, so the tabs' 2px marker can
+       sit inside the scrolling tab row and still cover it. */
     .kl-tabs-bar {
       display: flex; align-items: center; justify-content: space-between; gap: 12px;
-      border-bottom: 1px solid var(--kl-line);
+      box-shadow: inset 0 -1px 0 var(--kl-line);
     }
-    .kl-tablist { display: flex; flex-wrap: wrap; gap: 24px; }
+    .kl-tablist {
+      display: flex; flex-wrap: nowrap; gap: 24px; min-width: 0;
+      overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+    }
+    .kl-tablist::-webkit-scrollbar { display: none; }
+    .kl-tablist.more-end { mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }
+    .kl-tablist.more-start { mask-image: linear-gradient(to right, transparent, #000 32px); }
+    .kl-tablist.more-start.more-end {
+      mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+    }
     :host(.kl-tabs-compact) .kl-tablist { gap: 20px; }
   `],
 })
@@ -50,6 +78,32 @@ export class TabsComponent {
 
   readonly baseId = `kl-tabs-${nextId++}`;
   private readonly tabs = contentChildren(TabComponent);
+  private readonly row = viewChild.required<ElementRef<HTMLElement>>('row');
+  /** Tabs hidden behind the row's left / right edge. */
+  protected readonly moreStart = signal(false);
+  protected readonly moreEnd = signal(false);
+
+  constructor() {
+    afterEveryRender(() => this.measureRow());
+  }
+
+  /** Brings a tab fully into the row's view, scrolling only the row, never the page. */
+  reveal(tab: HTMLElement): void {
+    const row = this.row().nativeElement;
+    const r = row.getBoundingClientRect();
+    const t = tab.getBoundingClientRect();
+    if (t.left < r.left) row.scrollLeft -= r.left - t.left;
+    else if (t.right > r.right) row.scrollLeft += t.right - r.right;
+    this.measureRow();
+  }
+
+  protected measureRow(): void {
+    const row = this.row().nativeElement;
+    const start = row.scrollLeft > 1;
+    const end = row.scrollLeft + row.clientWidth < row.scrollWidth - 1;
+    if (start !== this.moreStart()) this.moreStart.set(start);
+    if (end !== this.moreEnd()) this.moreEnd.set(end);
+  }
 
   /** The value shown: the chosen one, or the first tab if none matches. */
   readonly active = computed(() => {
@@ -103,8 +157,8 @@ export class TabsComponent {
   template: `<ng-content />`,
   styles: [`
     :host {
-      display: inline-flex; align-items: center; gap: 6px;
-      height: 46px; padding: 0 2px; margin-bottom: -1px;
+      display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; white-space: nowrap;
+      height: 46px; padding: 0 2px;
       font-size: 14px; font-weight: 600; color: var(--kl-muted);
       border-bottom: 2px solid transparent; cursor: pointer; user-select: none;
       transition: color 0.12s, border-color 0.12s;
@@ -112,7 +166,8 @@ export class TabsComponent {
     :host(:hover) { color: var(--kl-text); }
     :host([aria-selected='true']) { color: var(--kl-text-strong); border-bottom-color: var(--kl-primary); }
     :host([aria-disabled='true']) { opacity: 0.5; cursor: not-allowed; }
-    :host(:focus-visible) { outline: 2px solid var(--kl-focus); outline-offset: 2px; border-radius: 2px; }
+    /* Inside the box: the tab row scrolls, so an outer ring would be clipped. */
+    :host(:focus-visible) { outline: 2px solid var(--kl-focus); outline-offset: -2px; border-radius: 4px; }
   `],
 })
 export class TabComponent {
@@ -122,6 +177,14 @@ export class TabComponent {
   protected readonly tabs = inject(TabsComponent);
   private readonly el = inject<ElementRef<HTMLElement>>(ElementRef);
   readonly selected = computed(() => this.tabs.active() === this.value());
+
+  constructor() {
+    // Also on the first render: a page opened on its last tab (?tab=about)
+    // must not start with that tab scrolled out of a narrow row.
+    afterRenderEffect(() => {
+      if (this.selected()) this.tabs.reveal(this.el.nativeElement);
+    });
+  }
 
   protected onClick(): void {
     if (!this.disabled()) this.tabs.select(this.value());
@@ -143,7 +206,7 @@ export class TabComponent {
     '[attr.data-value]': 'value()',
     '[attr.data-active]': 'active() ? "true" : null',
     '[hidden]': '!active()',
-    tabindex: '0',
+    '[attr.tabindex]': 'hasFocusable() ? null : 0',
   },
   template: `<ng-content />`,
   styles: [`
@@ -155,5 +218,18 @@ export class TabComponent {
 export class TabPanelComponent {
   readonly value = input.required<string>();
   protected readonly tabs = inject(TabsComponent);
+  private readonly el = inject<ElementRef<HTMLElement>>(ElementRef);
   readonly active = computed(() => this.tabs.active() === this.value());
+  /** Something inside can take the focus, so the panel itself needs no Tab stop. */
+  protected readonly hasFocusable = signal(false);
+
+  constructor() {
+    // Content is projected and changes with state (a message appears, a form
+    // is replaced), so look again after each render; the signal only moves
+    // when the answer does.
+    afterEveryRender(() => {
+      const found = this.el.nativeElement.querySelector(FOCUSABLE) !== null;
+      if (found !== this.hasFocusable()) this.hasFocusable.set(found);
+    });
+  }
 }

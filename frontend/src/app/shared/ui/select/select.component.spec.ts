@@ -86,6 +86,22 @@ class LevelHost {
   readonly changes: unknown[] = [];
 }
 
+/** Named only by an outside <label for>, as the Pyramidize pickers are. */
+@Component({
+  standalone: true,
+  imports: [SelectComponent, FormsModule],
+  template: `
+    <label data-testid="label" for="level-input"><span>Log level</span></label>
+    <kl-select data-testid="level" inputId="level-input" [options]="levels" optionLabel="label" optionValue="value"
+      [(ngModel)]="level" (changed)="changes.push($event)" />
+  `,
+})
+class LabelledHost {
+  readonly levels = LEVELS;
+  readonly level = signal<string | null>('debug');
+  readonly changes: unknown[] = [];
+}
+
 async function settle<T>(fixture: ComponentFixture<T>): Promise<void> {
   fixture.detectChanges();
   await fixture.whenStable();
@@ -345,6 +361,27 @@ describe('kl-select, fixed list', () => {
     expect(listbox()).toBeNull();
   });
 
+  it('picking the option that is already selected changes nothing and emits nothing', async () => {
+    const writes: unknown[] = [];
+    fixture.debugElement.children[0].injector.get(SelectComponent).registerOnChange(v => writes.push(v));
+    trigger.click();
+    await settle(fixture);
+    options()[1].click();
+    await settle(fixture);
+    expect(host.level()).toBe('debug');
+    expect(host.changes).toEqual([]);
+    expect(writes).toEqual([]);
+    expect(listbox()).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+
+    key(trigger, 'Enter');
+    await settle(fixture);
+    key(trigger, 'Enter');
+    await settle(fixture);
+    expect(host.changes).toEqual([]);
+    expect(listbox()).toBeNull();
+  });
+
   it('does not open while disabled', async () => {
     host.disabled.set(true);
     await settle(fixture);
@@ -353,5 +390,51 @@ describe('kl-select, fixed list', () => {
     key(trigger, 'ArrowDown');
     await settle(fixture);
     expect(listbox()).toBeNull();
+  });
+});
+
+describe('kl-select, named by a <label for>', () => {
+  let fixture: ComponentFixture<LabelledHost>;
+  let host: LabelledHost;
+  let trigger: HTMLButtonElement;
+  let label: HTMLLabelElement;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({ imports: [LabelledHost] }).compileComponents();
+    fixture = TestBed.createComponent(LabelledHost);
+    host = fixture.componentInstance;
+    document.body.appendChild(fixture.nativeElement);
+    await settle(fixture);
+    trigger = fixture.nativeElement.querySelector('[data-testid="level"] [role="combobox"]');
+    label = fixture.nativeElement.querySelector('[data-testid="label"]');
+  });
+
+  afterEach(() => fixture.nativeElement.remove());
+
+  it('is the label’s control', () => {
+    expect(trigger.id).toBe('level-input');
+    expect(Array.from(trigger.labels)).toEqual([label]);
+  });
+
+  it('clicking the label focuses the trigger without opening the list', async () => {
+    (label.querySelector('span') as HTMLElement).click();
+    await settle(fixture);
+    expect(document.activeElement).toBe(trigger);
+    expect(listbox()).toBeNull();
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(host.changes).toEqual([]);
+  });
+
+  it('still opens on a click on the trigger itself', async () => {
+    trigger.click();
+    await settle(fixture);
+    expect(listbox()).toBeTruthy();
+  });
+
+  it('names the listbox with the label’s text when no aria name is given', async () => {
+    trigger.click();
+    await settle(fixture);
+    expect(listbox()!.getAttribute('aria-label')).toBe('Log level');
+    expect(listbox()!.hasAttribute('aria-labelledby')).toBe(false);
   });
 });
