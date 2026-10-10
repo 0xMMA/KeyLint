@@ -178,7 +178,7 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 - Linux global hotkey (currently a stub) — low, Linux is dev-only
 - HTML clipboard (CF_HTML) paste-back for Outlook/Teams — medium, real user value on Windows
 #### E9 · Pyramidize quality track — parked (see E3). Revisit only with eval evidence.
-#### E10 · OpenRouter provider — not started, no issue yet
+#### E10 · OpenRouter provider — not started
 One key, many vendors' models — for users who don't want a separate account per vendor. Fits the E2 decision without new plumbing: OpenRouter is OpenAI-compatible, so it is `openai-go` + `option.WithBaseURL("https://openrouter.ai/api/v1")`, a new provider ID in the registry, and a key in the OS keyring like the others. HTTPS, so the openai-go 3.69 plain-HTTP refusal (#116) does not touch it.
 - **Model list:** OpenRouter publishes its catalogue at `/api/v1/models`; feed it through `ListModels` with the same `Source` states. IDs are `vendor/model` (e.g. `anthropic/claude-sonnet-…`), so the family aliases (`haiku`/`sonnet`) do not apply as-is — decide whether to map them or offer explicit IDs only, and pick per-feature defaults (fast model for Fix, stronger for Pyramidize).
 - **Effort / JSON schema:** OpenRouter normalises reasoning and structured output across vendors, but support varies per routed model. Verify against its docs before wiring; skip what a model refuses, as E2 step 5 does.
