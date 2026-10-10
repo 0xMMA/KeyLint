@@ -18,7 +18,7 @@
 | Latest release | `v4.4.3-beta` (2026-04-05) |
 | Last commit on `main` | 2026-09-18 — restart sprint (#39–#88) |
 | Build / tests | `go build` ✅ · `go test ./internal/...` ✅ · Vitest 198/198 ✅ (2026-09-24) |
-| Open PR | #108 model families + effort + AI Providers redesign · #105 evals via Claude Code · #95 Wails beta · Dependabot #100–#102 |
+| Open PR | #105 evals via Claude Code · #95 Wails beta · Dependabot #100–#102 |
 | Open issues | April triage #21–#30 · shortcut robustness #42 #44 · #34 E3 · #35 E4 · #36 Fix page · #38 shell · #56 shell specs · #61 model-list refresh · #80 #83 Fix prompt |
 | Stale remote branches | `feat/pyramidize`, `fix/updater-platform-aware-install` (both already merged, safe to delete) |
 
@@ -185,7 +185,8 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 | Release | Contents |
 |---|---|
 | `v4.5.0-beta` | ✅ released 2026-10-08: ~~E2 step 1~~ · ~~E1 Claude Code provider~~ · quick UI bugs #21 #24 #26 #28 · provider switch (#104) · dev channel (#107). E0 (#31) landed after the tag, ships next |
-| `v4.6.0-beta` | ~~E2 steps 3–4 (vendor SDKs, data-driven models)~~ ✅ · E3 one-shot overhaul with eval |
+| `v4.6.0-beta` | ✅ released 2026-10-10: E0 shortcut hook (#31) · E2 step 5 model families + effort + AI Providers redesign (#108) · silent fix in Go with toast feedback, closes #93 (#110) · setup wizard never blocks (#109). Follow-ups #112–#115 |
+| `v4.7.0-beta` (next) | E3 one-shot overhaul with eval |
 | `v4.7.0-beta` | E4 upgrade wave · Fix page redesign · border glitch |
 | `v5.0.0` | Bedrock UI · light theme · HTML clipboard · Codex/Gemini CLI providers |
 
