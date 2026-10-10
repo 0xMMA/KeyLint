@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, input, model, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, effect, input, model, output, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CdkScrollable } from '@angular/cdk/scrolling';
 import { ButtonComponent, IconComponent, InputDirective, MessageComponent, SelectComponent } from '../../../shared/ui';
@@ -146,7 +146,7 @@ export interface ModelOption { id: string; label: string }
               id="pz-threshold"
               data-testid="quality-threshold-input"
               type="number"
-              min="0"
+              [min]="minThreshold"
               max="1"
               step="0.05"
               class="w-24"
@@ -156,9 +156,9 @@ export interface ModelOption { id: string; label: string }
               (input)="checkThreshold($event)"
               (change)="saveThreshold($event)"
             />
-            <span class="pz-hint">0–1</span>
+            <span class="pz-hint">0.05–1</span>
           </div>
-          <small id="pz-threshold-hint" class="pz-hint">Scores below this trigger a refinement pass (default 0.65).</small>
+          <small id="pz-threshold-hint" class="pz-hint">Scores below this trigger a refinement pass (default 0.65). The lowest is 0.05, which all but turns it off.</small>
         </div>
       }
     </div>
@@ -228,11 +228,21 @@ export class OptionsPanelComponent {
   readonly pyramidize = output<void>();
   readonly dismissBanner = output<void>();
   readonly toggleAdvanced = output<void>();
-  /** A valid threshold (0–1) was committed (blur, Enter, spinner); it is in `qualityThreshold` already. */
+  /** A valid threshold (0.05–1) was committed (blur, Enter, spinner); it is in `qualityThreshold` already. */
   readonly thresholdChanged = output<number>();
 
-  /** The threshold field holds something that is not a number from 0 to 1. */
+  /** The threshold field holds something that is not a number from 0.05 to 1. */
   protected readonly thresholdInvalid = signal(false);
+  protected readonly minThreshold = MIN_THRESHOLD;
+
+  constructor() {
+    // Reopening Advanced renders the field afresh with the saved value, so a
+    // mark left from text typed before it was closed would be stale.
+    effect(() => {
+      this.advancedOpen();
+      untracked(() => this.thresholdInvalid.set(false));
+    });
+  }
 
   /** The button and Ctrl+Enter in the instruction field: only when the button could be pressed. */
   protected run(): void {
@@ -261,9 +271,16 @@ export class OptionsPanelComponent {
   }
 }
 
-/** A threshold from 0 to 1, or null for anything else (empty, half typed, out of range). */
+/**
+ * The lowest threshold that works as typed. The backend reads a stored 0 as
+ * "unset" and runs with the default 0.65 (pyramidize/service.go), so 0 would
+ * save and then behave as the opposite of what was asked.
+ */
+const MIN_THRESHOLD = 0.05;
+
+/** A threshold from 0.05 to 1, or null for anything else (empty, half typed, out of range). */
 function parseThreshold(raw: string): number | null {
   if (raw.trim() === '') return null;
   const value = Number(raw);
-  return Number.isFinite(value) && value >= 0 && value <= 1 ? value : null;
+  return Number.isFinite(value) && value >= MIN_THRESHOLD && value <= 1 ? value : null;
 }

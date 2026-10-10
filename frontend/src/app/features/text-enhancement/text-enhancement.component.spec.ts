@@ -1139,6 +1139,48 @@ describe('TextEnhancementComponent — page', () => {
     expect(component.qualityThresholdView).toBe(0.8);
   });
 
+  it('refuses a quality threshold below 0.05: Go reads 0 as unset and would use 0.65', async () => {
+    q<HTMLButtonElement>('advanced-toggle')!.click();
+    await refresh();
+    const input = q<HTMLInputElement>('quality-threshold-input')!;
+    expect(input.min).toBe('0.05');
+    expect(q('advanced-body')!.textContent).toContain('0.05–1');
+    for (const raw of ['0', '0.01', '-0.1']) {
+      input.value = raw;
+      input.dispatchEvent(new Event('input'));
+      input.dispatchEvent(new Event('change'));
+      await refresh();
+      expect(input.getAttribute('aria-invalid'), raw).toBe('true');
+    }
+    expect(wailsMock.setQualityThreshold).not.toHaveBeenCalled();
+
+    input.value = '0.05';
+    input.dispatchEvent(new Event('input'));
+    input.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+    expect(input.getAttribute('aria-invalid')).toBeNull();
+    expect(wailsMock.setQualityThreshold).toHaveBeenCalledWith(0.05);
+  });
+
+  it('drops the invalid mark when Advanced is closed and opened again', async () => {
+    const toggle = q<HTMLButtonElement>('advanced-toggle')!;
+    toggle.click();
+    await refresh();
+    let input = q<HTMLInputElement>('quality-threshold-input')!;
+    input.value = '1.5';
+    input.dispatchEvent(new Event('input'));
+    await refresh();
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+
+    toggle.click();
+    await refresh();
+    toggle.click();
+    await refresh();
+    input = q<HTMLInputElement>('quality-threshold-input')!;
+    expect(input.value).toBe('0.65');
+    expect(input.getAttribute('aria-invalid')).toBeNull();
+  });
+
   it('keeps the chosen model when the provider in use is picked again', async () => {
     component.modelView = 'claude-opus-4';
     await refresh();
