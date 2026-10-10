@@ -58,12 +58,17 @@
     border-radius: var(--kl-radius-sm);
     padding: 0 6px;
   }
-  /* A key hint inside a primary button: dark on orange, like the label. */
-  .kl-button.primary kbd {
+  /* A key hint inside a primary button: dark on orange, like the label. A
+     disabled primary is grey (kl-button), so its keys stay grey and muted. */
+  .kl-button.primary:not(:disabled) kbd,
+  .kl-button.primary[aria-busy='true'] kbd {
     font-size: 11px;
     color: var(--kl-on-primary);
     background: color-mix(in srgb, var(--kl-on-primary), transparent 88%);
     border: 1px solid color-mix(in srgb, var(--kl-on-primary), transparent 75%);
     padding: 0 5px;
+  }
+  .kl-button.primary:disabled:not([aria-busy='true']) kbd {
+    color: var(--kl-muted);
   }
 }
