@@ -930,7 +930,11 @@ describe('TextEnhancementComponent — page', () => {
     component.docTypeView = 'auto';
     if (component.traceLogOpenView) component.toggleTraceLog();
     if (component.advancedOpenView) component.toggleAdvanced();
+    component.onTabChange('original');
+    component.setPreviewMode(false);
     fixture.destroy();
+    // kl-select renders its options into the CDK container on <body>.
+    document.querySelector('.cdk-overlay-container')?.replaceChildren();
   });
 
   /** Zoneless: a field set from here does not mark the view dirty by itself. */
@@ -1074,7 +1078,7 @@ describe('TextEnhancementComponent — page', () => {
 
     last.click();
     await refresh();
-    expect(last.getAttribute('aria-pressed')).toBe('true');
+    expect(last.getAttribute('aria-current')).toBe('true');
     expect(q('trace-peek-close')).not.toBeNull();
 
     button('trace-revert-btn').click();
@@ -1119,16 +1123,87 @@ describe('TextEnhancementComponent — page', () => {
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
 
     const input = q<HTMLInputElement>('quality-threshold-input')!;
+    expect(input.value).toBe('0.65');
     input.value = '1.5';
     input.dispatchEvent(new Event('input'));
-    await fixture.whenStable();
+    input.dispatchEvent(new Event('change'));
+    await refresh();
+    expect(input.getAttribute('aria-invalid')).toBe('true');
     expect(wailsMock.setQualityThreshold).not.toHaveBeenCalled();
 
+    // Typing alone saves nothing: "0.75" would otherwise pass through 0 and 0.7.
     input.value = '0.8';
     input.dispatchEvent(new Event('input'));
+    await refresh();
+    expect(input.getAttribute('aria-invalid')).toBeNull();
+    expect(wailsMock.setQualityThreshold).not.toHaveBeenCalled();
+
+    input.dispatchEvent(new Event('change'));
     await fixture.whenStable();
+    expect(wailsMock.setQualityThreshold).toHaveBeenCalledTimes(1);
     expect(wailsMock.setQualityThreshold).toHaveBeenCalledWith(0.8);
     expect(component.qualityThresholdView).toBe(0.8);
+  });
+
+  it('keeps the chosen model when the provider in use is picked again', async () => {
+    component.modelView = 'claude-opus-4';
+    await refresh();
+    const before = wailsMock.listModels.mock.calls.length;
+
+    q('provider-select')!.querySelector<HTMLButtonElement>('button')!.click();
+    await refresh();
+    const current = component.providerOptions.find(o => o.value === component.providerView)!;
+    const option = Array.from(document.querySelectorAll<HTMLElement>('.cdk-overlay-container [role="option"]'))
+      .find(o => o.textContent!.trim() === current.label)!;
+    option.click();
+    await refresh();
+
+    expect(component.modelView).toBe('claude-opus-4');
+    expect(wailsMock.listModels.mock.calls.length).toBe(before);
+  });
+
+  it('shows the error again when a retried Pyramidize fails too', async () => {
+    component.originalTextView = 'Some text';
+    svcMock.pyramidize.mockRejectedValue(new Error('API failure'));
+    await component.pyramidize();
+    await component.retry();
+    await refresh();
+
+    expect(q('error-row')!.textContent).toContain('Pyramidize failed: API failure');
+  });
+
+  it('keeps the history out of reach while a step runs', async () => {
+    let finish!: (v: unknown) => void;
+    svcMock.pyramidize.mockReturnValue(new Promise(r => (finish = r)));
+    component.originalTextView = 'Some text';
+    component.canvasTextView = '';
+    button('trace-log-toggle').click();
+    await refresh();
+
+    const running = component.pyramidize();
+    await refresh();
+    expect(q('trace-log-panel')!.hasAttribute('inert')).toBe(true);
+
+    finish({ fullDocument: 'Done', detectedType: '', refinementWarning: '' });
+    await running;
+    await refresh();
+    expect(q('trace-log-panel')!.hasAttribute('inert')).toBe(false);
+  });
+
+  it('gives the focus back to the history entry when a pinned preview closes', async () => {
+    component.canvasTextView = 'A version';
+    component.addCheckpoint();
+    button('trace-log-toggle').click();
+    await refresh();
+    const entries = el.querySelectorAll<HTMLButtonElement>('[data-testid="trace-entry"]');
+    const last = entries[entries.length - 1];
+    last.click();
+    await refresh();
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await refresh();
+
+    expect(document.activeElement).toBe(last);
   });
 
   it('opens the selection bubble for text selected in the editor, and not for a plain click', async () => {

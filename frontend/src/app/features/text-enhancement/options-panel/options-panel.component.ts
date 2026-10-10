@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, input, model, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, model, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ButtonComponent, IconComponent, InputDirective, MessageComponent, SelectComponent } from '../../../shared/ui';
 
@@ -40,7 +40,7 @@ export interface ModelOption { id: string; label: string }
         optionValue="value"
         placeholder="Choose a provider"
         [ngModel]="provider()"
-        (changed)="providerPicked.emit($any($event))"
+        (changed)="onProviderPicked($event)"
       />
       @if (sessionOverrideOf(); as settingsLabel) {
         <small class="pz-hint" data-testid="provider-session-override">
@@ -130,7 +130,7 @@ export interface ModelOption { id: string; label: string }
 
     <div class="pz-advanced">
       <button type="button" class="pz-advanced-toggle" data-testid="advanced-toggle"
-        aria-controls="pz-advanced-body" [attr.aria-expanded]="advancedOpen()" (click)="toggleAdvanced.emit()">
+        [attr.aria-controls]="advancedOpen() ? 'pz-advanced-body' : null" [attr.aria-expanded]="advancedOpen()" (click)="toggleAdvanced.emit()">
         <kl-icon [name]="advancedOpen() ? 'chevron-down' : 'chevron-right'" />
         Advanced
       </button>
@@ -148,8 +148,10 @@ export interface ModelOption { id: string; label: string }
               step="0.05"
               class="w-24"
               aria-describedby="pz-threshold-hint"
-              [ngModel]="qualityThreshold()"
-              (ngModelChange)="onThreshold($event)"
+              [invalid]="thresholdInvalid()"
+              [value]="qualityThreshold()"
+              (input)="checkThreshold($event)"
+              (change)="saveThreshold($event)"
             />
             <span class="pz-hint">0–1</span>
           </div>
@@ -223,18 +225,42 @@ export class OptionsPanelComponent {
   readonly pyramidize = output<void>();
   readonly dismissBanner = output<void>();
   readonly toggleAdvanced = output<void>();
-  /** A valid threshold (0–1) was entered; it is in `qualityThreshold` already. */
+  /** A valid threshold (0–1) was committed (blur, Enter, spinner); it is in `qualityThreshold` already. */
   readonly thresholdChanged = output<number>();
+
+  /** The threshold field holds something that is not a number from 0 to 1. */
+  protected readonly thresholdInvalid = signal(false);
 
   /** The button and Ctrl+Enter in the instruction field: only when the button could be pressed. */
   protected run(): void {
     if (this.canPyramidize()) this.pyramidize.emit();
   }
 
-  protected onThreshold(value: unknown): void {
-    // A number field answers null while it is empty or half typed ("0.").
-    if (typeof value !== 'number' || Number.isNaN(value) || value < 0 || value > 1) return;
+  /**
+   * Picking the provider already in use is no switch: kl-select reports every
+   * pick, and a switch resets the model to the default.
+   */
+  protected onProviderPicked(value: unknown): void {
+    if (typeof value === 'string' && value !== this.provider()) this.providerPicked.emit(value);
+  }
+
+  /** Marks the field while typed; nothing is saved until the value is committed. */
+  protected checkThreshold(event: Event): void {
+    this.thresholdInvalid.set(parseThreshold((event.target as HTMLInputElement).value) === null);
+  }
+
+  protected saveThreshold(event: Event): void {
+    const value = parseThreshold((event.target as HTMLInputElement).value);
+    this.thresholdInvalid.set(value === null);
+    if (value === null || value === this.qualityThreshold()) return;
     this.qualityThreshold.set(value);
     this.thresholdChanged.emit(value);
   }
+}
+
+/** A threshold from 0 to 1, or null for anything else (empty, half typed, out of range). */
+function parseThreshold(raw: string): number | null {
+  if (raw.trim() === '') return null;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 && value <= 1 ? value : null;
 }

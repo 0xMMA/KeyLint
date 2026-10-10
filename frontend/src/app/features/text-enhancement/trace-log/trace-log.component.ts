@@ -29,7 +29,8 @@ import { formatTraceTime, type TraceEntry } from '../trace-entry';
               type="button"
               class="pz-trace-entry"
               data-testid="trace-entry"
-              [attr.aria-pressed]="pinnedId() === entry.id"
+              [attr.data-entry-id]="entry.id"
+              [attr.aria-current]="pinnedId() === entry.id ? 'true' : null"
               (click)="pin.emit(entry)"
               (mouseenter)="hover.emit(entry)"
               (mouseleave)="unhover.emit()"
@@ -63,7 +64,7 @@ import { formatTraceTime, type TraceEntry } from '../trace-entry';
       cursor: pointer; transition: background-color 0.12s;
     }
     .pz-trace-entry:hover { background: var(--kl-raised); }
-    .pz-trace-entry[aria-pressed='true'] { background: var(--kl-highlight); box-shadow: inset 2px 0 0 var(--kl-primary); }
+    .pz-trace-entry[aria-current='true'] { background: var(--kl-highlight); box-shadow: inset 2px 0 0 var(--kl-primary); }
     .pz-trace-entry:focus-visible { outline: 2px solid var(--kl-focus); outline-offset: -2px; }
     .pz-trace-label { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
     .pz-trace-time { font-size: 12px; color: var(--kl-muted); }

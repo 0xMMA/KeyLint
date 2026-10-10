@@ -21,7 +21,7 @@ import { ButtonComponent, InputDirective } from '../../../shared/ui';
     role: 'group',
     'aria-label': 'Change the selected text',
     'data-testid': 'selection-bubble',
-    '(keydown.escape)': 'closed.emit()',
+    '(keydown.escape)': '$event.stopPropagation(); closed.emit()',
   },
   template: `
     <input

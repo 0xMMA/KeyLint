@@ -85,6 +85,14 @@ let selectedModel = '';
 let qualityThreshold = 0.65;
 let advancedOpen = false;
 
+/** Room the selection bubble needs, to keep it inside the window. */
+const BUBBLE_WIDTH = 340;
+const BUBBLE_HEIGHT = 48;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(value, Math.max(min, max)));
+}
+
 function makeId(): string {
   return Math.random().toString(36).slice(2);
 }
@@ -164,8 +172,9 @@ function addTrace(label: string, snapshot: string): void {
                   <kl-segmented data-testid="canvas-mode" ariaLabel="Editor view" [options]="canvasModes"
                     [value]="isPreviewModeView ? 'preview' : 'edit'" (valueChange)="setPreviewMode($event === 'preview')" />
                 }
-                <kl-button data-testid="trace-log-toggle" variant="ghost" size="sm" icon="rotate-ccw-clock"
-                  [pressed]="traceLogOpenView" (click)="toggleTraceLog()">{{ historyLabel }}</kl-button>
+                <kl-button #historyToggle data-testid="trace-log-toggle" size="sm" icon="rotate-ccw-clock"
+                  [variant]="traceLogOpenView ? 'quiet' : 'ghost'" [pressed]="traceLogOpenView"
+                  (click)="toggleTraceLog()">{{ historyLabel }}</kl-button>
               </div>
 
               <kl-tab-panel value="canvas" class="pz-panel">
@@ -192,7 +201,7 @@ function addTrace(label: string, snapshot: string): void {
                     [(instruction)]="selectionInstruction"
                     [disabled]="!!unavailableProviderView"
                     (apply)="applySelectionInstruction()"
-                    (closed)="closeSelectionBubble()"
+                    (closed)="dismissSelectionBubble()"
                   />
                 }
               </kl-tab-panel>
@@ -223,7 +232,7 @@ function addTrace(label: string, snapshot: string): void {
                 <div class="pz-busy-card" role="status">
                   <kl-spinner [size]="20" class="text-primary" />
                   <span class="flex-1 text-sm" data-testid="step-label">{{ stepLabel }}</span>
-                  <kl-button data-testid="cancel-btn" size="sm" (click)="cancelOperation()">Cancel</kl-button>
+                  <kl-button #cancelBtn data-testid="cancel-btn" size="sm" (click)="cancelOperation()">Cancel</kl-button>
                 </div>
               </div>
             }
@@ -285,7 +294,7 @@ function addTrace(label: string, snapshot: string): void {
         </div>
 
         <!-- A history snapshot over the editor (UX-06) -->
-        @if (activeEntry; as entry) {
+        @if (!isLoading && activeEntry; as entry) {
           <app-trace-peek
             data-testid="trace-peek-overlay"
             [entry]="entry"
@@ -299,13 +308,14 @@ function addTrace(label: string, snapshot: string): void {
       @if (traceLogOpenView) {
         <app-trace-log
           data-testid="trace-log-panel"
+          [attr.inert]="isLoading ? '' : null"
           [entries]="traceLogView"
           [pinnedId]="peekEntry?.id ?? null"
           (pin)="peekTrace($event)"
           (hover)="hoverTrace($event)"
           (unhover)="clearHoverTrace()"
           (checkpoint)="addCheckpoint()"
-          (collapse)="toggleTraceLog()"
+          (collapse)="toggleTraceLog(); focusIn(historyToggleRef)"
         />
       }
     </div>
@@ -320,7 +330,6 @@ function addTrace(label: string, snapshot: string): void {
     .pz-tabs { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 16px; }
     /* Only the active panel: the inactive one keeps kl-tab-panel's display: none. */
     .pz-panel:not([hidden]) { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
-    .pz-panel:focus-visible { outline: none; }
     .canvas-edit-wrapper { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
     /* The user's text, on a sheet (design.md: Literata 15.5/1.7). */
@@ -476,6 +485,45 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   private sub?: Subscription;
 
   @ViewChild('canvasTextarea') canvasTextareaRef?: ElementRef<HTMLTextAreaElement>;
+  @ViewChild('originalTextarea') private originalTextareaRef?: ElementRef<HTMLTextAreaElement>;
+  @ViewChild('historyToggle', { read: ElementRef }) historyToggleRef?: ElementRef<HTMLElement>;
+
+  /**
+   * While a step runs the tabs are inert, which drops the focus of a textarea
+   * that started it (Ctrl+Enter); Cancel takes it. When the step ends, a focus
+   * left nowhere goes back to the text.
+   */
+  @ViewChild('cancelBtn', { read: ElementRef })
+  private set cancelBtn(ref: ElementRef<HTMLElement> | undefined) {
+    queueMicrotask(() => {
+      if (this.destroyed) return;
+      const active = document.activeElement;
+      const lost = !active || active === document.body;
+      if (ref) {
+        if (lost || this.host.nativeElement.querySelector('kl-tabs')?.contains(active)) this.focusIn(ref);
+      } else if (lost) {
+        const text = activeTab === 'canvas' ? this.canvasTextareaRef : this.originalTextareaRef;
+        text?.nativeElement.focus();
+      }
+    });
+  }
+
+  /** Focuses the first focusable element in `ref` (a kl-button host, say). */
+  focusIn(ref: ElementRef<HTMLElement> | undefined): void {
+    const el = ref?.nativeElement;
+    const target = el?.matches('button, input, textarea') ? el : el?.querySelector<HTMLElement>('button, input, textarea');
+    target?.focus();
+  }
+
+  /** After a pinned preview closes, the focus goes back to its history entry. */
+  private focusEntry(id: string | undefined): void {
+    if (!id) return;
+    // Its focus would open the preview again, as a keyboard focus does.
+    this.restoringFocus = true;
+    this.host.nativeElement.querySelector<HTMLElement>(`[data-entry-id="${id}"]`)?.focus();
+    this.restoringFocus = false;
+  }
+  private restoringFocus = false;
 
   readonly providerOptions = PROVIDER_OPTIONS;
 
@@ -533,6 +581,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     private readonly svc: TextEnhancementService,
     private readonly cdr: ChangeDetectorRef,
     private readonly router: Router,
+    private readonly host: ElementRef<HTMLElement>,
   ) {}
 
   async ngOnInit(): Promise<void> {
@@ -598,6 +647,8 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     pyramidizedText = '';
     canvasText = '';
     traceLog = [];
+    this.peekEntry = null;
+    this.hoverEntry = null;
     this.detectedTypeView = '';
     activeTab = 'original';
     this.errorMessage = '';
@@ -765,7 +816,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     if (!originalText.trim() || unavailableProviderName(selectedProvider)) return;
 
     if (canvasText.trim()) {
-      if (!confirm('Re-pyramidize? The current editor content will be saved to the trace log.')) {
+      if (!confirm('Re-pyramidize? The current editor content will be saved to the history.')) {
         return;
       }
       addTrace('Editor (saved)', canvasText);
@@ -816,6 +867,11 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
       this.cdr.detectChanges();
       try {
         await doCall();
+      } catch (e: unknown) {
+        // A failed retry used to clear the error row and show nothing.
+        if (!wasCancelled) {
+          this.errorMessage = `Pyramidize failed: ${describeError(e)}`;
+        }
       } finally {
         this.isLoading = false;
         this.cdr.detectChanges();
@@ -895,11 +951,17 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     this.selectionEnd = end;
 
     this.showSelectionBubble = true;
-    // Above and left of the pointer, but never off the window's top or left.
-    this.bubbleX = Math.max(8, event.clientX - 100);
-    this.bubbleY = Math.max(8, event.clientY - 80);
+    // Above and left of the pointer, but never off the window.
+    this.bubbleX = clamp(event.clientX - 100, 8, window.innerWidth - BUBBLE_WIDTH - 8);
+    this.bubbleY = clamp(event.clientY - 80, 8, window.innerHeight - BUBBLE_HEIGHT - 8);
     this.selectionInstruction = '';
     this.cdr.detectChanges();
+  }
+
+  /** Escape or the bubble's close button: back to the text the selection is in. */
+  dismissSelectionBubble(): void {
+    this.closeSelectionBubble();
+    this.canvasTextareaRef?.nativeElement.focus();
   }
 
   closeSelectionBubble(): void {
@@ -961,13 +1023,15 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   }
 
   peekTrace(entry: TraceEntry): void {
+    // One Escape closes one thing: an open bubble would close with the preview.
+    this.closeSelectionBubble();
     this.peekEntry = entry;
     this.hoverEntry = null;
     this.cdr.detectChanges();
   }
 
   hoverTrace(entry: TraceEntry): void {
-    if (!this.peekEntry) {
+    if (!this.peekEntry && !this.restoringFocus) {
       this.hoverEntry = entry;
       this.cdr.detectChanges();
     }
@@ -979,8 +1043,11 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   }
 
   closePeek(): void {
+    const id = this.peekEntry?.id;
     this.peekEntry = null;
     this.hoverEntry = null;
+    this.cdr.detectChanges();
+    this.focusEntry(id);
   }
 
   revertTo(entry: TraceEntry): void {
@@ -989,6 +1056,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     this.peekEntry = null;
     activeTab = 'canvas';
     this.cdr.detectChanges();
+    this.focusEntry(entry.id);
   }
 
   async copyAsMarkdown(): Promise<void> {
