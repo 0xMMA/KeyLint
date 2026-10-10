@@ -29,6 +29,12 @@ export const routes: Routes = [
           import('./features/settings/settings.component').then(m => m.SettingsComponent),
       },
       {
+        // Every shared UI primitive in its states (E11), for review and screenshots.
+        path: 'dev-tools/ui',
+        loadComponent: () =>
+          import('./features/dev-tools/ui-gallery/ui-gallery.component').then(m => m.UiGalleryComponent),
+      },
+      {
         path: 'dev-tools',
         loadComponent: () =>
           import('./features/dev-tools/dev-tools.component').then(m => m.DevToolsComponent),

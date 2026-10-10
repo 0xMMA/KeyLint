@@ -1,5 +1,6 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { CardModule } from 'primeng/card';
 import { WailsService, Settings as AppSettings } from '../../core/wails.service';
@@ -7,11 +8,11 @@ import { WailsService, Settings as AppSettings } from '../../core/wails.service'
 @Component({
   selector: 'app-dev-tools',
   standalone: true,
-  imports: [CommonModule, ButtonModule, CardModule],
+  imports: [CommonModule, RouterLink, ButtonModule, CardModule],
   template: `
     <div class="dev-tools-container">
       <h2>Dev Tools</h2>
-      <p class="note">This panel is only visible in development mode.</p>
+      <p class="note">This panel is only visible in development mode. <a routerLink="/dev-tools/ui" data-testid="ui-gallery-link">UI primitives</a></p>
 
       <p-card header="Shortcut Simulation">
         <p>Fires a synthetic shortcut event — same as pressing Ctrl+G on Windows.</p>
