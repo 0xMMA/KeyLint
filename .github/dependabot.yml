@@ -92,9 +92,12 @@ updates:
       # test — see docs/roadmap.md E4.
       - dependency-name: github.com/wailsapp/wails/v3
       # v3.69.0 refuses plain HTTP for any request with a key, which is how
-      # the Ollama provider talks to its daemon. Held until #116 is fixed.
+      # the Ollama provider talks to its daemon (#116). Held at 3.68.0 until
+      # that is fixed. No `versions:` on purpose: an explicit range would also
+      # swallow security updates (see the note above), a bare name does not.
+      # Cost: no routine openai-go bumps at all until #116 lands — lift this
+      # with the fix.
       - dependency-name: github.com/openai/openai-go/v3
-        versions: [">=3.69.0"]
 
   - package-ecosystem: npm
     directory: /frontend
