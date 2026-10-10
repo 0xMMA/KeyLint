@@ -17,7 +17,7 @@ Perform a complete git workflow to ship the current changes in this repo.
 
 2. **Run verification** (skip only if tests clearly unrelated to changes)
    - `cd frontend && npm test` — must show 0 failures
-   - `go test ./internal/...` — must pass
+   - `go test -tags gtk3 ./internal/...` — must pass
    - If any Go service files changed: confirm `wire gen` and
      `wails3 generate bindings` were already run (check bindings timestamps)
 
