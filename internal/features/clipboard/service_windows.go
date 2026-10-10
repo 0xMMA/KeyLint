@@ -59,8 +59,9 @@ func (s *Service) Read() (string, error) {
 
 	// Walk the UTF-16 buffer until the null terminator.
 	var u16 []uint16
+	base := globalPointer(ptr)
 	for i := uintptr(0); ; i++ {
-		ch := *(*uint16)(unsafe.Pointer(ptr + i*2))
+		ch := *(*uint16)(unsafe.Add(base, i*2))
 		if ch == 0 {
 			break
 		}
@@ -105,9 +106,7 @@ func (s *Service) Write(text string) error {
 		logger.Error("clipboard: GlobalLock failed", "err", err)
 		return fmt.Errorf("GlobalLock: %w", err)
 	}
-	for i, v := range u16 {
-		*(*uint16)(unsafe.Pointer(ptr + uintptr(i)*2)) = v
-	}
+	copy(unsafe.Slice((*uint16)(globalPointer(ptr)), len(u16)), u16)
 	clipGlobalUnlock.Call(handle)
 
 	ret, _, err = clipSetCBData.Call(cfUnicodeText, handle)
@@ -119,4 +118,12 @@ func (s *Service) Write(text string) error {
 	// On success Windows owns the handle; do not free.
 	logger.Debug("clipboard: Write ok")
 	return nil
+}
+
+// globalPointer turns the address GlobalLock returned into a pointer. The
+// block is global memory owned by Windows, not by the Go heap, so there is
+// nothing for the garbage collector to track; reading the uintptr's bits as a
+// pointer says so without the uintptr-to-pointer conversion vet rejects.
+func globalPointer(addr uintptr) unsafe.Pointer {
+	return *(*unsafe.Pointer)(unsafe.Pointer(&addr))
 }

@@ -94,8 +94,13 @@ export function RefineGlobal(req) {
 }
 
 /**
- * SendBack writes text to the system clipboard and pastes it back into the
- * captured source application window.
+ * SendBack writes text to the system clipboard and pastes it into the window
+ * the Pyramidize shortcut was pressed in.
+ * 
+ * The clipboard is written first, so whatever goes wrong afterwards the text
+ * is there to paste by hand, and every error says so. The paste goes to the
+ * source window only: if it is closed, or does not come to the foreground, or
+ * loses the foreground before the keystroke, nothing is pasted anywhere.
  * @param {string} text
  * @returns {$CancellablePromise<void>}
  */
