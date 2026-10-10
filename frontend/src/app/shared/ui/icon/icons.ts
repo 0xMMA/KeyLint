@@ -1,5 +1,6 @@
-// Generated from Lucide (https://lucide.dev, ISC licence, see LICENSE-lucide.txt
-// next to this file): the inner markup of each 24x24 icon, stroke drawn in
+// Generated from Lucide (https://lucide.dev, ISC licence, see
+// frontend/public/LICENSE-lucide.txt, which ships in the build next to the
+// fonts' licences): the inner markup of each 24x24 icon, stroke drawn in
 // currentColor by kl-icon. Vendored, not installed: KeyLint takes no icon
 // package (docs/ui/primeng-replacement.md). To add one, copy its <svg> body
 // from lucide-icons/lucide/icons/<name>.svg, keep the name.
