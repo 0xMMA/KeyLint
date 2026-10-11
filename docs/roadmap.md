@@ -209,7 +209,7 @@ The Fix page redesign (#36, E5) is the natural first screen for the new look.
 | `v4.5.0-beta` | ✅ released 2026-10-08: ~~E2 step 1~~ · ~~E1 Claude Code provider~~ · quick UI bugs #21 #24 #26 #28 · provider switch (#104) · dev channel (#107). E0 (#31) landed after the tag, ships next |
 | `v4.6.0-beta` | ✅ released 2026-10-10: E0 shortcut hook (#31) · E2 step 5 model families + effort + AI Providers redesign (#108) · silent fix in Go with toast feedback, closes #93 (#110) · setup wizard never blocks (#109). Follow-ups #112–#115 |
 | `v4.6.1-beta` | ✅ released 2026-10-10: Wails v3 beta.25 (#95) · October dependency bumps, openai-go held at 3.68 (#117, #116) · Send Back fixed, closes #114 (#119) |
-| `v4.7.0-beta` (next) | E3 one-shot overhaul with eval · E4 upgrade wave · Fix page redesign |
+| `v4.7.0-beta` (next) | On main: E11 own UI on CDK + Tailwind, new look incl. Fix page redesign, PrimeNG out (#121, #123) · Pyramidize effort picker, quality threshold removed (#123). Planned: E3 one-shot overhaul with eval · E4 upgrade wave (Angular 22 now unblocked) |
 | `v5.0.0` | Bedrock UI · light theme · HTML clipboard · Codex/Gemini CLI providers · OpenRouter (E10) |
 
 ---
@@ -235,4 +235,6 @@ The Fix page redesign (#36, E5) is the natural first screen for the new look.
 - [ ] Settings › App defaults: renaming a preset adds a second one instead of renaming it. Carried over unchanged through E11
 - [ ] Pyramidize history: the hover preview's "Revert to here" cannot be reached; the pinned (clicked) preview's can. Carried over unchanged through E11
 - [ ] Settings › AI providers: cancelling a key edit drops the focus to `<body>` instead of returning it to the Edit button. Carried over unchanged through E11
-- [x] Pyramidize quality threshold: the control is gone from the Pyramidize page (owner decision 2026-10-11, per [ADR-002](pyramidize/adr-002-one-shot-vs-pipeline.md) §5 — it can never act on email v2, the type users most likely restructure). Go's pipeline keeps its default 0.65 (`settings.DefaultQualityThreshold`) and the `GetQualityThreshold`/`SetQualityThreshold` bindings stay; nothing in the UI sets it any more. Its place under the Model picker went to an Effort picker
+- [x] Pyramidize quality threshold: the control is gone from the Pyramidize page (owner decision 2026-10-11, per [ADR-002](pyramidize/adr-002-one-shot-vs-pipeline.md) §5 — it can never act on email v2, the type users most likely restructure). Go's pipeline always uses the default 0.65 (`settings.DefaultQualityThreshold`) and ignores a value still in `settings.json`, and the `GetQualityThreshold`/`SetQualityThreshold` bindings stay; nothing in the UI sets it any more. Its place under the Model picker went to an Effort picker
+- [ ] Pyramidize at ~700 px window width: the options column does not collapse, so the editor gets cramped. Seen in the E11 check, not fixed there
+- [ ] CLI `-pyramidize` has no `--effort` flag, so the CLI always uses the Settings effort while the GUI can override it per session
