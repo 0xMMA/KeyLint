@@ -153,6 +153,12 @@ func claudeCodeLoggedIn(ctx context.Context, path string) bool {
 
 // runClaudeCode runs a short, side-effect-free probe and returns its stdout.
 func runClaudeCode(ctx context.Context, path string, args ...string) ([]byte, error) {
+	// The same neutral working directory as a completion: a probe is a CLI
+	// run too, and the CLI reads its working directory on start-up.
+	workDir, err := cliWorkDir()
+	if err != nil {
+		return nil, err
+	}
 	probeCtx, cancel := context.WithTimeout(ctx, claudeCodeProbeTimeout)
 	defer cancel()
 
@@ -163,6 +169,7 @@ func runClaudeCode(ctx context.Context, path string, args ...string) ([]byte, er
 	// which never sees that key — then fails as "not signed in".
 	env, _ := cliEnv()
 	cmd.Env = env
+	cmd.Dir = workDir
 	cmd.WaitDelay = cliWaitDelay
 	configureCLIProcess(cmd)
 	return cmd.Output()
