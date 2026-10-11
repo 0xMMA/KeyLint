@@ -1,6 +1,6 @@
 # Pyramidize Output Quality — Status & Open Issues
 
-> Last updated: 2026-10-04
+> Last updated: 2026-10-11
 
 > The Fix prompt has its own suite and baseline: [`docs/fix/quality-status.md`](../fix/quality-status.md).
 
@@ -12,8 +12,30 @@
 - **Eval framework:** Deterministic checks + LLM-as-judge, build-tagged (`//go:build eval`)
 - **Test data:** 13 anonymized German business email samples in `test-data/pyramidal-emails/` (one mixes German and English heavily — code-switching the prompts preserve on purpose)
 - **Results:** Logged to `test-data/eval-runs/<timestamp>/` with `summary.json`, `results.jsonl`, `samples/`
-- **Run:** `./scripts/eval.sh --runs 3` — pipeline and judge through the installed Claude Code CLI (since 2026-10-04)
+- **Run:** `./scripts/eval.sh --runs 3` — pipeline and judges through the installed Claude Code CLI (since 2026-10-04; two judges since 2026-10-11)
 - **Requires:** a signed-in Claude Code CLI (`claude auth status`), no API key. Against the API instead: `EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --provider claude --runs 3` with `ANTHROPIC_API_KEY` in `.env` — the only route that can compare against the API-era baselines below. This is untested since the key moved to resolved IDs: it holds only if the API reports the same model ID the API-era runs requested, and one paid API run would settle it.
+
+---
+
+## Instrument change — 2026-10-11: two judges
+
+**Two judges since 2026-10-11 (E3 phase 1).** Every sample is scored by
+`claude-haiku-5-5` and `claude-sonnet-5-5`, both through the Claude Code CLI,
+and each judge is reported on its own — `summary.json` has `judges`,
+`avgJudges` and `judgeCounts`, a baseline has one interval per judge under
+`judges`, and nothing averages across them. Neither model has a dated snapshot:
+the full ID is the pin, and each judge records the ID that answered
+(`resolvedModel`; both smoke calls on 2026-10-11, CLI 2.1.296, answered with the
+requested ID). The judge set is part of the `configKey`, so **the single-judge
+baselines below, CLI and API era alike, read "not comparable" against a
+two-judge run** — there are no two-judge numbers yet. `--compare` applies the
+interval rule to each metric (deterministic, then each judge): any metric
+clearly worse is a regression; an improvement needs at least one metric clearly
+better and none worse. `EVAL_JUDGES=a,b,c` chooses the set (a bridge run adds
+`claude-sonnet-4-5-20250929` as a third); `EVAL_JUDGE_MODEL` still names a
+single judge. The API route for the judges (`EVAL_JUDGE_PROVIDER=claude`) is
+unverified with these models: it sends temperature 0, which Anthropic documents
+as rejected by the 5.5 generation.
 
 ---
 

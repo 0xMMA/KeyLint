@@ -227,12 +227,36 @@ the rule is written down where it is enforced, in the samples' own notes:
 
 ### The judge
 
-Same pinned instrument as the Pyramidize suite — `claude-sonnet-4-5-20250929`,
-since 2026-10-04 run through the installed Claude Code CLI, which cannot pin a
-temperature (until then: the API at temperature 0) — scoring four dimensions: correctness, meaning preserved, tone
+Same pinned instruments as the Pyramidize suite — since 2026-10-11 two judges,
+`claude-haiku-5-5` and `claude-sonnet-5-5`, reported separately (before that the
+single `claude-sonnet-4-5-20250929`); since 2026-10-04 run through the installed
+Claude Code CLI, which cannot pin a temperature (until then: the API at
+temperature 0) — each scoring four dimensions: correctness, meaning preserved, tone
 preserved, and **no over-editing**. The last one is there because the expensive
 failure in a correction tool is not a missed comma; it is rewriting text the
 user did not ask to have rewritten.
+
+---
+
+## Instrument change — 2026-10-11: two judges
+
+**Two judges since 2026-10-11 (E3 phase 1).** Every sample is scored by
+`claude-haiku-5-5` and `claude-sonnet-5-5`, both through the Claude Code CLI,
+and each judge is reported on its own — `summary.json` has `judges`,
+`avgJudges` and `judgeCounts`, a baseline has one interval per judge under
+`judges`, and nothing averages across them. Neither model has a dated snapshot:
+the full ID is the pin, and each judge records the ID that answered
+(`resolvedModel`; both smoke calls on 2026-10-11, CLI 2.1.296, answered with the
+requested ID). The judge set is part of the `configKey`, so **the single-judge
+baselines below, CLI and API era alike, read "not comparable" against a
+two-judge run** — there are no two-judge numbers yet. `--compare` applies the
+interval rule to each metric (deterministic, then each judge): any metric
+clearly worse is a regression; an improvement needs at least one metric clearly
+better and none worse. `EVAL_JUDGES=a,b,c` chooses the set (a bridge run adds
+`claude-sonnet-4-5-20250929` as a third); `EVAL_JUDGE_MODEL` still names a
+single judge. The API route for the judges (`EVAL_JUDGE_PROVIDER=claude`) is
+unverified with these models: it sends temperature 0, which Anthropic documents
+as rejected by the 5.5 generation.
 
 ---
 
@@ -564,9 +588,10 @@ intervals overlap rather than whether a mean moved, and it refuses two sides
 that did not measure the same configuration.
 
 What counts as the same configuration is the point of the `configKey`: suite,
-provider, **resolved** model, judge provider, **resolved** judge model, variant,
-schema enforcement, threshold, sample count, **checksVersion**, split and the
-judge's temperature (`0` for the API, `null` for the CLI). The prompt hash is recorded and reported next to the verdict
+provider, **resolved** model, the judges' providers, **resolved** models and
+temperatures (`0` for the API, `null` for the CLI; one entry per judge, joined
+with `+`), variant, schema enforcement, threshold, sample count,
+**checksVersion**, split, thinking and the CLI version. The prompt hash is recorded and reported next to the verdict
 but is deliberately **not** in the key — it was, for one revision, and that made
 the suite refuse the one comparison it exists to make. A prompt change is the
 question; a change to the checks is a change of instrument, and those are

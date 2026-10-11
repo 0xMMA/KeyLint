@@ -34,19 +34,22 @@ cat input.txt | ./bin/KeyLint -fix                     # fix from stdin
 
 **Evaluation tests (real model calls — NOT run by default):**
 ```
-# Default: pipeline AND judge run through the installed Claude Code CLI
+# Default: pipeline AND judges run through the installed Claude Code CLI
 # (provider claude-code) on the signed-in subscription. No API key is needed or
 # read; `claude auth status` must say loggedIn. Pipeline models are the CLI
-# aliases (sonnet for Pyramidize, haiku for Fix); the judge stays pinned to
-# claude-sonnet-4-5-20250929 but loses temperature 0 (the CLI has no flag), so
-# it records "temperature": null. summary.json records the RESOLVED model IDs.
+# aliases (sonnet for Pyramidize, haiku for Fix). TWO judges score every sample,
+# claude-haiku-5-5 and claude-sonnet-5-5 (full IDs, no dated form exists), each
+# reported separately — never averaged. Through the CLI they lose temperature 0
+# (no flag), so each records "temperature": null. summary.json records the
+# RESOLVED model IDs (model / modelRequested, judges[].resolvedModel).
 # Against the API instead: --provider claude (pipeline) and
-# EVAL_JUDGE_PROVIDER=claude (judge), with ANTHROPIC_API_KEY in .env — .env keys
+# EVAL_JUDGE_PROVIDER=claude (judges), with ANTHROPIC_API_KEY in .env — .env keys
 # are loaded only when one of the two is an API provider.
 # Uses //go:build eval tag — never included in normal `go test` runs.
 # Results are logged to test-data/eval-runs/<timestamp>/ with summary.json.
-go test -tags eval ./internal/features/pyramidize/ -v -timeout 3600s
-EVAL_PROVIDER=claude go test -tags eval ./internal/features/pyramidize/ -v -timeout 3600s   # API pipeline, CLI judge
+go test -tags eval ./internal/features/pyramidize/ -v -timeout 10800s
+EVAL_PROVIDER=claude go test -tags eval ./internal/features/pyramidize/ -v -timeout 10800s  # API pipeline, CLI judges
+go test -tags eval ./internal/features/enhance/ -run 'TestEvalFix/^en-run-on$' -v   # smoke: one sample = 3 CLI calls
 EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 go test -tags eval ...
 ./scripts/eval.sh                                      # one run of the pyramidize suite
 ./scripts/eval.sh --suite fix --runs 3                 # the silent grammar fix instead (15 samples)
@@ -55,7 +58,7 @@ EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 go test -tags eval ...
                                                        # default is all 15. Tune on tune, measure holdout ONCE at the end.
                                                        # split is in the configKey, so --compare refuses to mix halves.
 ./scripts/eval.sh --provider claude --model claude-sonnet-4-6   # API pipeline (needs the key)
-EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --provider claude  # fully API, judge at temperature 0
+EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --provider claude  # fully API, judges at temperature 0 (unverified on 5.5)
 ./scripts/eval.sh --variant 1                          # compare v1 vs v2 prompts
 ./scripts/eval.sh --schema                             # enforce the JSON schemas (default off, see pyramidize/schemas.go)
 ./scripts/eval.sh --runs 3                             # n runs → test-data/eval-baselines/<ts>/baseline.json (needs n≥2)
@@ -65,7 +68,9 @@ EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --provider claude  # fully API, jud
 EVAL_VARIANT=2 go test -tags eval ...                  # variant via env var
 EVAL_SPLIT=holdout go test -tags eval ./internal/features/enhance/  # split via env var
                                                        # eval.sh ignores EVAL_SPLIT from .env unless --split is given
-EVAL_JUDGE_MODEL=... ./scripts/eval.sh                 # override the pinned judge (recorded in summary.json)
+EVAL_JUDGES=claude-haiku-5-5,claude-sonnet-5-5,claude-sonnet-4-5-20250929 ./scripts/eval.sh --runs 3
+                                                       # choose the judge set (here: bridge run, old judge as a third)
+EVAL_JUDGE_MODEL=... ./scripts/eval.sh                 # a single judge instead of the set (recorded in summary.json)
 ./scripts/eval-human.sh                                # interactive human review mode
 
 # One run is a sample, not a measurement: the same commit and model move by a few
@@ -73,22 +78,24 @@ EVAL_JUDGE_MODEL=... ./scripts/eval.sh                 # override the pinned jud
 # sides of a comparison — a single run has no range, and --compare answers
 # "indicative only" rather than pretending otherwise.
 # --compare asks whether the two observed intervals overlap, not whether a mean
-# moved. Exit codes: 0 nothing to report, 1 regression (new range entirely below
-# the old), 2 not comparable (different configuration, or the judge skipped
+# moved — per metric: deterministic, then each judge. Any metric clearly worse is
+# a regression; an improvement needs one clearly better and none worse. Exit
+# codes: 0 nothing to report, 1 regression (some metric's new range entirely
+# below the old), 2 not comparable (different configuration, or a judge skipped
 # samples), 3 usage or unusable input.
 # Runs are isolated: settings come from an explicit config and keys from the
 # environment only, so ~/.config/KeyLint/settings.json and the OS keyring cannot
-# move a number; the CLI is spawned without credential env vars and with
-# --setting-sources "", so ~/.claude settings cannot either. Not stripped, and
-# so still able to move a CLI run: tuning variables such as MAX_THINKING_TOKENS,
-# CLAUDE_CODE_MAX_OUTPUT_TOKENS or ANTHROPIC_DEFAULT_*_MODEL in your shell (the
-# last would at least show in resolvedModel). The CLI version is recorded
-# (claudeCodeVersion) and reported next to a verdict, not keyed. The judge is
-# pinned to a dated snapshot; the pipeline is not, because users get the alias.
+# move a number; the CLI is spawned without credential, model-remapping,
+# thinking-budget or output-cap env vars, with --setting-sources "", in an empty
+# KeyLint-owned working directory and with auto-memory off, so ~/.claude cannot
+# either. The judges are pinned to full model IDs; the pipeline is not, because
+# users get the alias.
 # The configKey names the instrument, not the thing measured: suite, provider,
-# RESOLVED model, judge provider, RESOLVED judge model, variant, schema,
-# threshold, sample count, checksVersion, split and judge temperature. An alias
-# that moves to a new generation therefore reads "not comparable", and so does
+# RESOLVED model, the judge SET (providers, RESOLVED models, temperatures — one
+# "+"-joined entry per judge, ordered by ID), variant, schema, threshold, sample
+# count, checksVersion, split, thinking and claudeCodeVersion. An alias that
+# moves to a new generation therefore reads "not comparable", and so does a
+# different judge set (every single-judge baseline against a two-judge run) and
 # every API-era baseline (judge at temperature 0) against a CLI-era run. A
 # prompt change is recorded (promptHash) and reported next to the verdict, but
 # is NOT in the key — a suite that refuses to compare across a prompt change
