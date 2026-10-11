@@ -56,6 +56,39 @@ and each judge is reported on its own — `summary.json` has `judges`,
 
 ---
 
+## Eval Scores — prompt v3 against v2 (2026-10-11)
+
+Three runs of prompt v3 (email form, `promptHash` `p1-31eace752eb07743`),
+same instrument as the v2 reference below: `sonnet` → `claude-sonnet-5-5`
+through the CLI, both judges, 13 samples, full coverage in every run.
+`test-data/eval-baselines/2026-10-11T22-39-34/baseline.json`.
+
+`--compare` refuses the pair (the prompt variant is in the `configKey`), so the
+intervals are read by hand with its rule: a metric is better or worse only when
+the ranges do not overlap.
+
+| Metric | v2 (reference) | v3 | Reading |
+|---|:---:|:---:|---|
+| Deterministic | 0.8756 (0.8716–0.8830) | **0.9281** (0.9186–0.9355) | **better**, ranges disjoint |
+| Judge Haiku 5.5 | 0.8408 (0.8346–0.8523) | 0.8515 (0.8392–0.8585) | inconclusive, overlap |
+| Judge Sonnet 5.5 | 0.8092 (0.7992–0.8254) | 0.7872 (0.7638–0.8023) | inconclusive, overlap of 0.003 |
+| Samples passing | 9 (9–9) | 11.7 (11–12) | +2.7, above the "more than 2" bar |
+
+**By the rule, v3 is an improvement: deterministic, with no judge clearly
+worse.** Two things to read alongside it:
+
+- **Part of the deterministic gain is the shape.** v3 always gives an email its
+  full shape (decision of 2026-10-11) and keeps thread history; the structure
+  and coverage checks reward both. The two judges do not see a gain.
+- **One sample turned against v3: `email-dataquality-reply-to-feedback`.**
+  Deterministic 0.78 → 0.93, Haiku 0.87 → 0.64, Sonnet 0.77 → 0.61. Both judges
+  say the same thing: the reply appends a long recap of the two quoted mails it
+  answers, which buries the answer. That is v3's "earlier messages in a thread
+  are context: they move to the end, they do not drop out" doing what it says.
+  `email-diagnose-update`, where v2 dropped needed thread history, goes the
+  other way (deterministic 0.70 → 0.93, judges level). How a reply should treat
+  the mails it quotes is a product question, open for the next iteration.
+
 ## Eval Scores — baseline of 2026-10-11 (two judges, the reference for v3)
 
 **The current reference.** Three runs of the shipped email prompt v2 through the
