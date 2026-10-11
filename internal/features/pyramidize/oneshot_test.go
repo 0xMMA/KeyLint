@@ -259,3 +259,71 @@ func TestEachVariantSendsItsOwnSchema(t *testing.T) {
 		}
 	}
 }
+
+// TestPresetMatchesTheAppNotTheDocument: a preset name matches whole words of
+// at least three characters, and the app segment of a window title (Windows
+// ends titles in " - App" / " – App") is tried before the document part. Each
+// row is a false hit the first matcher produced, or what must still work.
+func TestPresetMatchesTheAppNotTheDocument(t *testing.T) {
+	tests := []struct {
+		name    string
+		presets []settings.AppPreset
+		title   string
+		want    string
+	}{
+		{"Mail is not part of Gmail", []settings.AppPreset{{SourceApp: "Mail", DocumentType: "chat"}},
+			"Gmail – Google Chrome", "email"},
+		{"Mail is not part of Email", []settings.AppPreset{{SourceApp: "Mail", DocumentType: "chat"}},
+			"Email draft.docx – Word", "email"},
+		{"the app segment beats a name in the document", []settings.AppPreset{
+			{SourceApp: "Microsoft Teams", DocumentType: "chat"}, {SourceApp: "Outlook", DocumentType: "memo"}},
+			"Microsoft Teams rollout - Message - Outlook", "memo"},
+		{"a whole word in the app segment", []settings.AppPreset{{SourceApp: "Mail", DocumentType: "chat"}},
+			"Inbox – Mail", "chat"},
+		{"a browser tab still matches in the document part", []settings.AppPreset{{SourceApp: "Gmail", DocumentType: "chat"}},
+			"Inbox (3) - someone@example.com - Gmail - Google Chrome", "chat"},
+		{"names shorter than three characters are ignored", []settings.AppPreset{{SourceApp: "ab", DocumentType: "chat"}},
+			"ab - Notepad", "email"},
+		{"an em dash separates too", []settings.AppPreset{{SourceApp: "Word", DocumentType: "memo"}, {SourceApp: "Notes", DocumentType: "chat"}},
+			"Notes for Monday — Word", "memo"},
+		{"a title without a separator is all app", []settings.AppPreset{{SourceApp: "Slack", DocumentType: "chat"}},
+			"Slack", "chat"},
+		{"punctuation is a word boundary", []settings.AppPreset{{SourceApp: "Slack", DocumentType: "chat"}},
+			"general | Acme - Slack", "chat"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := presetDocType(tc.presets, tc.title); got != tc.want {
+				t.Errorf("presetDocType(%q) = %q, want %q", tc.title, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestErrorsDoNotCarryTheReply: a reply that cannot be used goes to the log
+// (redacted), not into the message the UI shows. It may hold the user's text.
+func TestErrorsDoNotCarryTheReply(t *testing.T) {
+	const secret = "PRIVATE-DRAFT-TEXT"
+	for name, reply := range map[string]string{
+		"unparseable": "here is your text: " + secret,
+		"no document": `{"language":"de","note":"` + secret + `"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			svc, _ := newCountingService(settings.Default(), reply)
+			_, err := svc.Pyramidize(PyramidizeRequest{Text: secret, DocumentType: "email", Provider: "claude"})
+			if err == nil {
+				t.Fatal("want an error")
+			}
+			if strings.Contains(err.Error(), secret) {
+				t.Errorf("the error shows the reply: %v", err)
+			}
+		})
+	}
+	svc, _ := newCountingService(settings.Default(), "not json "+secret)
+	if _, err := svc.RefineGlobal(RefineGlobalRequest{FullCanvas: "c", OriginalText: secret, Instruction: "i", Provider: "claude"}); err == nil || strings.Contains(err.Error(), secret) {
+		t.Errorf("RefineGlobal error = %v, want one without the reply", err)
+	}
+	if _, err := svc.Splice(SpliceRequest{FullCanvas: "c", OriginalText: secret, SelectedText: "c", Instruction: "i", Provider: "claude"}); err == nil || strings.Contains(err.Error(), secret) {
+		t.Errorf("Splice error = %v, want one without the reply", err)
+	}
+}

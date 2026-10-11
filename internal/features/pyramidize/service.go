@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"keylint/internal/features/clipboard"
 	"keylint/internal/features/settings"
@@ -176,11 +178,12 @@ func (svc *Service) Pyramidize(req PyramidizeRequest) (PyramidizeResult, error) 
 	}
 	var r documentResult
 	if err := unmarshalRobust(raw, &r); err != nil {
-		return PyramidizeResult{}, fmt.Errorf("parse error: %w (raw: %s)", err, raw)
+		return PyramidizeResult{}, unreadableReply("pyramidize", raw, err)
 	}
 	// Pasted over the user's text by Send back, an empty result would erase it.
 	if strings.TrimSpace(r.FullDocument) == "" {
-		return PyramidizeResult{}, fmt.Errorf("the model returned no document (raw: %s)", raw)
+		logger.Warn("pyramidize: the reply has no document", "raw", logger.Redact(raw))
+		return PyramidizeResult{}, fmt.Errorf("the model returned no document")
 	}
 
 	logger.Info("pyramidize: done", "docType", docType)
@@ -189,6 +192,14 @@ func (svc *Service) Pyramidize(req PyramidizeRequest) (PyramidizeResult, error) 
 		Language:     r.Language,
 		FullDocument: r.FullDocument,
 	}, nil
+}
+
+// unreadableReply logs a reply that is not the JSON asked for — redacted, since
+// it may hold the user's text — and returns an error the UI can show. The
+// error used to carry the whole reply, and with it the user's draft.
+func unreadableReply(step, raw string, err error) error {
+	logger.Warn("pyramidize: unreadable reply", "step", step, "err", err, "raw", logger.Redact(raw))
+	return fmt.Errorf("%s: the model's reply could not be read", step)
 }
 
 // GetDefaultDocType is the form Pyramidize preselects for the captured source
@@ -223,7 +234,7 @@ func (svc *Service) RefineGlobal(req RefineGlobalRequest) (RefineGlobalResult, e
 
 	var r canvasResult
 	if err := unmarshalRobust(raw, &r); err != nil {
-		return RefineGlobalResult{}, fmt.Errorf("RefineGlobal parse error: %w (raw: %s)", err, raw)
+		return RefineGlobalResult{}, unreadableReply("RefineGlobal", raw, err)
 	}
 	return RefineGlobalResult{NewCanvas: r.NewCanvas}, nil
 }
@@ -252,7 +263,7 @@ func (svc *Service) Splice(req SpliceRequest) (SpliceResult, error) {
 
 	var r spliceResult
 	if err := unmarshalRobust(raw, &r); err != nil {
-		return SpliceResult{}, fmt.Errorf("Splice parse error: %w (raw: %s)", err, raw)
+		return SpliceResult{}, unreadableReply("Splice", raw, err)
 	}
 	return SpliceResult{RewrittenSection: r.RewrittenSection}, nil
 }
@@ -481,27 +492,81 @@ func resolveDocType(requested string, presets []settings.AppPreset, sourceApp st
 
 // presetDocType is the form an app preset names for sourceApp, else email.
 //
-// The captured source app is a window title ("Inbox - Outlook"), so a preset
-// matches when its name appears in the title, ignoring case; of several, the
-// longest name wins, so "Outlook Web" beats "Outlook". A preset naming no form
-// (a hand-edited settings file) is skipped rather than trusted.
+// The captured source app is a window title, and on Windows a title ends in
+// the app: "Inbox - Outlook", "Report.docx – Word". So the app segment (after
+// the last " - ", " – " or " — ") is searched first and the document part
+// only when the app segment matches no preset — a browser tab ("Inbox - Gmail
+// - Google Chrome") names its web app there. A preset name matches as whole
+// words, ignoring case, and needs at least three characters: "Mail" must not
+// match "Gmail" or "Email draft.docx". Within a part the longest name wins, so
+// "Outlook Web" beats "Outlook". A preset naming no form (a hand-edited
+// settings file) is skipped rather than trusted.
 func presetDocType(presets []settings.AppPreset, sourceApp string) string {
-	title := strings.ToLower(sourceApp)
-	best, bestLen := "email", 0
-	if title == "" {
-		return best
+	app, document := splitTitle(sourceApp)
+	for _, part := range []string{app, document} {
+		if docType, ok := bestPreset(presets, part); ok {
+			return docType
+		}
 	}
+	return "email"
+}
+
+// titleSeparators end the document part of a window title.
+var titleSeparators = []string{" - ", " – ", " — "}
+
+// splitTitle splits a window title at its last separator into the app segment
+// and the document part. A title without one is all app.
+func splitTitle(title string) (app, document string) {
+	cut, width := -1, 0
+	for _, sep := range titleSeparators {
+		if i := strings.LastIndex(title, sep); i > cut {
+			cut, width = i, len(sep)
+		}
+	}
+	if cut < 0 {
+		return title, ""
+	}
+	return title[cut+width:], title[:cut]
+}
+
+// bestPreset is the form of the longest preset name found in text, if any.
+func bestPreset(presets []settings.AppPreset, text string) (string, bool) {
+	text = strings.ToLower(text)
+	best, bestLen := "", 0
 	for _, p := range presets {
 		name := strings.ToLower(strings.TrimSpace(p.SourceApp))
 		docType := normalizeDocType(p.DocumentType)
-		if name == "" || !isValidDocType(docType) || !strings.Contains(title, name) {
+		if utf8.RuneCountInString(name) < 3 || !isValidDocType(docType) || !containsWord(text, name) {
 			continue
 		}
 		if len(name) > bestLen {
 			best, bestLen = docType, len(name)
 		}
 	}
-	return best
+	return best, bestLen > 0
+}
+
+// containsWord reports whether word occurs in text with no letter or digit
+// directly before or after it. Both are already lower case.
+func containsWord(text, word string) bool {
+	for from := 0; from <= len(text); {
+		i := strings.Index(text[from:], word)
+		if i < 0 {
+			return false
+		}
+		start, end := from+i, from+i+len(word)
+		before, _ := utf8.DecodeLastRuneInString(text[:start])
+		after, _ := utf8.DecodeRuneInString(text[end:])
+		if !isWordRune(before) && !isWordRune(after) {
+			return true
+		}
+		from = start + 1
+	}
+	return false
+}
+
+func isWordRune(r rune) bool {
+	return r != utf8.RuneError && (unicode.IsLetter(r) || unicode.IsDigit(r))
 }
 
 // pyramidizeEffort is the effort a call sends: the panel's choice for this

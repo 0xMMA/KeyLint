@@ -192,6 +192,10 @@ func TestEvalPyramidize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	promptHash, err := evalPromptHash(variant)
+	if err != nil {
+		t.Fatal(err)
+	}
 	samples := loadTestSamples(t)
 	t.Logf("prompt variant: %d (0=latest=%d)", variant, LatestPromptVariant)
 
@@ -323,6 +327,8 @@ func TestEvalPyramidize(t *testing.T) {
 		"claudeCodeVersion": cliVersionSpan(cliVersionAtStart, evalCLIVersion(provider, judgeProvider)),
 		"thinking":          pyramidizeThinking(provider),
 		"promptVariant":     effectiveVariant,
+		// Which prompt, not only which variant: reported, not keyed.
+		"promptHash": promptHash,
 		// Every judge, with the ID that answered for it. Their scores stay
 		// apart: avgJudges and judgeCounts are keyed by judge model.
 		"judges":      judges,
@@ -347,7 +353,7 @@ func TestEvalPyramidize(t *testing.T) {
 	os.WriteFile(filepath.Join(runDir, "summary.json"), summaryData, 0644)
 
 	t.Logf("\n=== EVAL SUMMARY ===")
-	t.Logf("Provider: %s | Model: %s (resolved: %s) | Prompt Variant: v%d", provider, requestedModel, answered.Recorded(model), effectiveVariant)
+	t.Logf("Provider: %s | Model: %s (resolved: %s) | Prompt Variant: v%d | Prompt: %s", provider, requestedModel, answered.Recorded(model), effectiveVariant, promptHash)
 	for _, j := range judges {
 		t.Logf("Judge: %s / %s (resolved: %s) @ temp %s", j.Provider, j.Model, j.ResolvedModel, j.TemperatureLabel())
 	}

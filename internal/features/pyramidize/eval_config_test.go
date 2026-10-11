@@ -1,6 +1,7 @@
 package pyramidize
 
 import (
+	"strings"
 	"testing"
 
 	"keylint/internal/llm"
@@ -129,5 +130,28 @@ func TestOnlyEvalSettingsLeaveDotEnvForPyramidize(t *testing.T) {
 func TestPyramidizeThinkingLabel(t *testing.T) {
 	if pyramidizeThinking(llm.ProviderClaudeCode) != "on" || pyramidizeThinking(llm.ProviderClaude) != "n/a" {
 		t.Error("thinking labels drifted")
+	}
+}
+
+// TestPromptHashTellsVariantsAndIterationsApart: summary.json records which
+// prompt a run measured, so two v3 iterations do not read as one. Reported
+// next to a verdict, never keyed (scripts/eval-aggregate.sh).
+func TestPromptHashTellsVariantsAndIterationsApart(t *testing.T) {
+	v3, err := evalPromptHash(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2, err := evalPromptHash(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v3 == v2 || !strings.HasPrefix(v3, "p1-") {
+		t.Errorf("hashes v3=%q v2=%q, want distinct p1- hashes", v3, v2)
+	}
+	if again, _ := evalPromptHash(3); again != v3 {
+		t.Errorf("variant 3 hashes %q, variant 0 (latest) %q — the same prompt", again, v3)
+	}
+	if _, err := evalPromptHash(1); err == nil {
+		t.Error("a removed variant has no prompt to hash")
 	}
 }

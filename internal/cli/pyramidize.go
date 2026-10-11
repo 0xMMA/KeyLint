@@ -32,7 +32,7 @@ func runPyramidizeWith(args []string, stdout io.Writer, stderr io.Writer, svc py
 	filePath := fs.String("f", "", "Input file path")
 	// email, not auto: auto means "the app preset for the captured source
 	// app", and a command line has no source app — it would be email anyway.
-	docType := fs.String("type", "email", "Document type: email|chat|memo|wiki|powerpoint (presentation = powerpoint; auto = app preset, else email)")
+	docType := fs.String("type", "email", "Document type: email|chat|memo|wiki|powerpoint (presentation = powerpoint; auto = email, as the CLI has no source app)")
 	jsonOut := fs.Bool("json", false, "Output full result as JSON")
 	provider := fs.String("provider", "", "AI provider override: claude|claude-code|openai|ollama")
 	model := fs.String("model", "", "Model override (e.g. claude-sonnet-4-6)")

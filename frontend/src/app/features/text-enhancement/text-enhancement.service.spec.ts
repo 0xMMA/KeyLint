@@ -12,7 +12,6 @@ describe('TextEnhancementService', () => {
     documentType: 'EMAIL',
     language: 'en',
     fullDocument: 'Body text',
-    headers: [],
   };
 
   beforeEach(() => {

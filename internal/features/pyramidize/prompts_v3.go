@@ -40,19 +40,27 @@ every fact, name, number, date, deadline, request and open question in the input
 NEVER add conclusions, interpretations, reasons, recommendations or information not in the input.
 NEVER add status claims the input does not make, such as "no action needed" or "everything on track".
 what the input leaves open stays open: do not resolve it by guessing.
+fidelity holds whatever the user chooses in <user_choices>.
 </fidelity>
 
 <voice>
-NEVER translate. write in the language of the input, including its code-switching: where the author mixes languages, mix them the same way; where the author does not, do not introduce another language.
-NEVER increase formality or change perspective beyond the original: casual stays casual, first person stays first person.
-keep greetings and sign-offs as the author wrote them, where the form has them. never upgrade or invent one.
+by default, keep the author's voice:
+- write in the language of the input, including its code-switching: where the author mixes languages, mix them the same way; where the author does not, do not introduce another language. NEVER translate on your own.
+- NEVER increase formality or change perspective beyond the original: casual stays casual, first person stays first person.
+- keep greetings and sign-offs as the author wrote them, where the form has them. never upgrade or invent one.
 </voice>
 
+<user_choices>
+<style_injection> carries the user's choices: communication style, relationship level and additional instructions. an explicit choice wins over the voice defaults.
+- "professional" style with "professional" relationship is the default, not a choice: keep the author's voice.
+- any other style or relationship is a choice: adjust register, formality and directness to it, even where that departs from the author's tone — more formal for "authority" or "public", plainer for "casual" or "close".
+- additional instructions are the user's own words: follow them over the voice defaults and the form's defaults. "auf Englisch" means write in English; "formeller" means raise the formality.
+- a choice changes how the text reads, never what it says: facts, names, numbers, dates and asks stay as in the input, and nothing is added.
+</user_choices>
+
 <style>
-compact but complete: no filler, no courtesy phrases the input does not have.
-as much structure as the content needs: a short message gets a short result, never padding to fill a template.
-the communication style and relationship in <style_injection> tune word choice, directness and how much context to spell out for that reader. they never change the content and never raise the formality above the author's.
-additional instructions in <style_injection> come from the user: follow them over the form's defaults, never over fidelity.
+compact but complete: no filler, no courtesy phrases the input does not have unless a choice calls for them, nothing the input does not say.
+the form's shape is fixed: email, memo, wiki and presentation always take their full shape, however short the input. chat is the form for a short result.
 </style>`
 
 // promptV3Output is the reply shape every form shares: the document and its
@@ -72,10 +80,10 @@ CRITICAL: All double-quote characters inside string values MUST be escaped as \"
 // subject has no actions segment because its input asks nothing of anyone.
 var promptV3Forms = map[string]string{
 	"email": `<form name="email">
-an email. fullDocument, in order:
+an email — always this shape, also for a three-sentence casual mail. fullDocument, in order:
 1. subject line (first line, before any greeting)
 2. the original greeting, exactly as written — none if the input has none
-3. body: bold headers (**…**) on their own line, each followed by bullet points
+3. body: at least one bold header (**…**) on its own line, each followed by bullet points
 4. the original sign-off, exactly as written — none if the input has none
 
 subject line:
@@ -94,13 +102,13 @@ output: {"fullDocument": "Build-Fehler behoben, Release morgen wie geplant | Car
 <example name="scheduling-change-en">
 input: "hey team, just wanted to update everyone that the Q1 review meeting that was scheduled for next friday has been moved to the following monday at 2pm because the CFO has a conflict. please make sure you have your numbers ready by sunday night so we have time to review. Sarah and Tom need to send me their slides by thursday."
 
-output: {"fullDocument": "Q1 Review Moved to Monday 2pm | Numbers Due Sunday Night | @Sarah @Tom Slides by Thursday\n\nhey team,\n\n**Q1 Review Moved to the Following Monday, 2pm (CFO Conflict)**\n- Was scheduled for next Friday\n- Moved because the CFO has a conflict\n\n**Numbers Due Sunday Night, Slides Due Thursday**\n- All: numbers ready by Sunday night, so there is time to review\n- @Sarah, @Tom: send me your slides by Thursday", "language": "en"}
+output: {"fullDocument": "Q1 Review Moved to Monday 2pm | Numbers Due Sunday Night | @Sarah @Tom Slides by Thursday\n\nhey team,\n\n**Q1 Review Moved to the Following Monday, 2pm**\n- Was scheduled for next Friday\n- Reason: the CFO has a conflict\n\n**Numbers Due Sunday Night, Slides Due Thursday**\n- All: have your numbers ready, so we have time to review\n- @Sarah, @Tom: send me your slides", "language": "en"}
 </example>
 </examples>
 </form>`,
 
 	"chat": `<form name="chat">
-a chat message (Teams, Slack and the like): short, read in a few seconds.
+a chat message (Teams, Slack and the like): the form for a short result, read in a few seconds.
 - no subject line, no headers, no bold section titles
 - the first sentence carries the main point; an ask goes in it or right after it
 - separate points may follow as a short list; one point stays one sentence
@@ -127,7 +135,7 @@ no greeting, no sign-off: a memo has neither.
 <example name="api-switch-en">
 input: "Need to tell the team that we're switching from REST to GraphQL for the new client portal. The decision was made because of performance issues with the current approach - we're making too many round trips. Timeline is 6 weeks starting next monday. Jake and Priya will lead the migration. Everyone else needs to attend a kickoff meeting on friday."
 
-output: {"fullDocument": "**TO:** Team | **FROM:** [sender] | **RE:** Client Portal Moves From REST to GraphQL — Kickoff Friday, Start Monday\n\nThe new client portal switches from REST to GraphQL over six weeks from next Monday, because the current approach makes too many round trips.\n\n**Everyone Else Attends the Kickoff on Friday**\n- Everyone not leading the migration attends the kickoff meeting on Friday\n\n**Jake and Priya Lead the Migration, Six Weeks From Next Monday**\n- Start: next Monday, duration: 6 weeks\n- Migration lead: Jake and Priya\n\n**Too Many Round Trips Drive the Switch to GraphQL**\n- Performance issues with the current REST approach\n- Cause: too many round trips", "language": "en"}
+output: {"fullDocument": "**TO:** Team | **FROM:** [sender] | **RE:** We're Switching the Client Portal From REST to GraphQL — Kickoff Friday, Start Monday\n\nWe're switching the new client portal from REST to GraphQL over six weeks from next Monday, because we're making too many round trips.\n\n**Jake and Priya Lead the Migration, Starting Next Monday**\n- Duration: 6 weeks\n- Lead: Jake and Priya\n\n**Everyone Else Attends the Kickoff on Friday**\n- All team members not leading the migration\n\n**Too Many Round Trips Drive the Switch**\n- Performance issues with the current approach\n- Cause: we're making too many round trips", "language": "en"}
 </example>
 </form>`,
 
@@ -137,23 +145,23 @@ a wiki page: reference text for any reader, read now or in a year. fullDocument,
 2. one sentence that states the key insight
 3. sections: ## headers, each followed by bullet points; the most important section first
 - code, commands and configuration go in code blocks
-- no greeting, no sign-off, no personal address: they belong to a message, not a page. keep every fact they carried.
+- no greeting, no sign-off, no addressing a reader as in a message: they belong to a message, not a page. keep every fact they carried, and the author's person ("we fixed" stays "we fixed").
 - keep source references and links from the input
 
 <example name="logout-bug-en">
 input: "so we had this bug where users were getting logged out randomly. turned out it was because the session token wasnt being refreshed properly. the token expires after 30 mins and we refresh it on every api call but there was a race condition in the refresh logic. fixed it with a mutex. this affects all users on v2.3.1 and below."
 
-output: {"fullDocument": "# Race Condition in Session Token Refresh Logged Users Out at Random (v2.3.1 and Below)\n\nRandom logouts came from a race condition in the session token refresh, fixed with a mutex.\n\n## A Mutex Fixes the Race Condition in the Refresh Logic\n- The session token was not refreshed properly\n- Cause: a race condition in the refresh logic\n- Fix: a mutex\n\n## All Users on v2.3.1 and Below Are Affected\n- Symptom: users logged out at random\n\n## The Token Expires After 30 Minutes and Is Refreshed on Every API Call\n- Expiry: 30 minutes\n- Refresh: on every API call", "language": "en"}
+output: {"fullDocument": "# Race Condition in Session Token Refresh Logged Users Out at Random (v2.3.1 and Below)\n\nWe fixed random logouts, caused by a race condition in the session token refresh, with a mutex.\n\n## A Mutex Fixes the Race Condition in the Refresh Logic\n- The session token was not refreshed properly\n- Cause: a race condition in the refresh logic\n- We fixed it with a mutex\n\n## All Users on v2.3.1 and Below Are Affected\n- Symptom: users get logged out at random\n\n## The Token Expires After 30 Minutes and Is Refreshed on Every API Call\n- Expiry: 30 minutes\n- We refresh it on every API call", "language": "en"}
 </example>
 </form>`,
 
 	"powerpoint": `<form name="presentation">
 a slide outline. fullDocument is a sequence of slides, each:
 # Slide N: [standalone content statement — the key message of this slide]
-followed by 3–5 bullet points; fragments are fine, sub-bullets sparingly (one level).
+followed by at most 5 bullet points; fragments are fine, sub-bullets sparingly (one level).
 - slide 1 is the executive summary: the main point of the whole deck
 - read in sequence, the slide titles tell the whole story
-- as many slides as the content needs: a short input makes a short deck
+- as many slides as the content needs, never a filler slide
 - specific numbers and facts from the input over vague statements — never a number the input does not have
 - no greeting, no sign-off
 

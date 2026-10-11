@@ -2,6 +2,8 @@ package pyramidize
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 
 	"keylint/internal/llm"
@@ -126,4 +128,19 @@ func pyramidizeThinking(provider string) string {
 		return "on"
 	}
 	return "n/a"
+}
+
+// evalPromptHash identifies the prompt an email run measured: the system
+// prompt for the eval's fixed style, with no input. summary.json records it so
+// two v3 iterations do not read as the same prompt; like the Fix suite's, it
+// is reported next to a verdict and is NOT in the configKey — a suite that
+// refuses to compare across a prompt change cannot answer the question it
+// exists for (scripts/eval-aggregate.sh). The "p1-" prefix names this recipe.
+func evalPromptHash(variant int) (string, error) {
+	system, _, _, err := buildDocTypePrompt("email", variant, "professional", "professional", "", "")
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256([]byte(system))
+	return "p1-" + hex.EncodeToString(sum[:8]), nil
 }

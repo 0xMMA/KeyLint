@@ -48,7 +48,7 @@ const CLI_NOT_SIGNED_IN_MESSAGE =
   'Claude Code is installed but not signed in. Open a terminal, run `claude`, and sign in.';
 
 let originalText = '';
-let pyramidizedText = '';   // snapshot of most recent foundation call
+let pyramidizedText = '';   // snapshot of the most recent Pyramidize result
 let canvasText = '';         // live working surface
 let sourceApp = '';          // captured source app name (from hotkey)
 // The user's pick; a shortcut capture preselects the app preset (or email).
@@ -260,7 +260,6 @@ function addTrace(label: string, snapshot: string): void {
               </div>
             </kl-message>
           }
-
 
           <div class="flex flex-wrap items-center gap-2.5">
             <label for="pz-global-instruction" class="sr-only">Change the whole text</label>

@@ -255,15 +255,18 @@ describe('TextEnhancementComponent (Pyramidize)', () => {
 
   it('shortcutPyramidize$ with existing originalText shows confirm dialog', async () => {
     component.originalTextView = 'existing content';
+    component.docTypeView = 'wiki';
     wailsMock.readClipboard.mockResolvedValue('new clipboard content');
+    wailsMock.getDefaultDocType.mockResolvedValue('chat');
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
 
     wailsMock._shortcutPyramidize$.next('hotkey');
     await new Promise(r => setTimeout(r, 0));
 
     expect(confirmSpy).toHaveBeenCalled();
-    // Since user cancelled, originalText should remain unchanged
+    // Declined: the session stays as it was — its text and its form.
     expect(component.originalTextView).toBe('existing content');
+    expect(component.docTypeView).toBe('wiki');
   });
 
   it('shortcutPyramidize$ with existing originalText and confirm=true replaces content', async () => {
@@ -969,13 +972,25 @@ describe('TextEnhancementComponent — page', () => {
     expect(component.docTypeView).toBe('chat');
   });
 
-  it('keeps the user\'s pick when only navigating back to the page', async () => {
+  // Navigating away destroys the page; coming back builds a new one. Only a
+  // new capture preselects — a visit must not undo the user's pick, even with
+  // a source app on record whose preset says otherwise.
+  it('keeps the user\'s pick when the page is opened again', async () => {
     component.docTypeView = 'wiki';
+    fixture.destroy();
+    wailsMock.getSourceApp.mockResolvedValue('general | Acme - Slack');
     wailsMock.getDefaultDocType.mockResolvedValue('chat');
-    await component.ngOnInit();
+
+    fixture = TestBed.createComponent(TextEnhancementComponent);
+    component = fixture.componentInstance;
+    el = fixture.nativeElement;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await new Promise(r => setTimeout(r));
     await refresh();
 
     expect(component.docTypeView).toBe('wiki');
+    expect(q('doc-type-select')!.textContent).toContain('Wiki');
   });
 
   it('labels every option with a visible label', () => {

@@ -1,4 +1,3 @@
-/** Base document types supported by the Pyramidize feature. */
 /**
  * The forms Pyramidize writes (ADR-003). The user always picks one; nothing
  * detects it. 'powerpoint' keeps its old value because saved app presets use it.
