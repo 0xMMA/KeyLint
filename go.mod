@@ -4,7 +4,7 @@ go 1.27
 
 require (
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3
-	github.com/anthropics/anthropic-sdk-go v1.78.0
+	github.com/anthropics/anthropic-sdk-go v1.79.1
 	github.com/google/wire v0.7.0
 	github.com/joho/godotenv v1.5.1
 	github.com/minio/selfupdate v0.6.0
