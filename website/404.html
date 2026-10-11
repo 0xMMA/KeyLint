@@ -8,10 +8,9 @@
   <meta name="theme-color" content="#f97316" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⌨️</text></svg>" />
   <link rel="stylesheet" href="style.css" />
-  <!-- Download links: every one points at the same release tag page, so one
-       sed bumps them all (frontend/e2e/website.spec.ts checks they match).
-       Bump the tag on each release. /releases/latest does not work: GitHub
-       skips pre-releases there, and every 4.x is one, so it lands on v3.5.0. -->
+  <!-- Download links use /releases/latest on purpose. It only works once a
+       non-prerelease 4.x exists (GitHub skips pre-releases there), which is
+       why this page ships with the first stable 4.x. -->
 </head>
 <body>
 
@@ -21,7 +20,7 @@
       <ul class="nav-links">
         <li><a href="/#features">Features</a></li>
         <li><a href="/#providers">AI providers</a></li>
-        <li><a href="https://github.com/0xMMA/KeyLint/releases/tag/v4.7.1-beta">Download</a></li>
+        <li><a href="https://github.com/0xMMA/KeyLint/releases/latest">Download</a></li>
         <li><a href="https://github.com/0xMMA/KeyLint">GitHub</a></li>
       </ul>
     </div>
@@ -43,7 +42,7 @@
       <span>
         <a href="https://github.com/0xMMA/KeyLint">GitHub</a>
         &nbsp;&middot;&nbsp;
-        <a href="https://github.com/0xMMA/KeyLint/releases/tag/v4.7.1-beta">Releases</a>
+        <a href="https://github.com/0xMMA/KeyLint/releases/latest">Releases</a>
         &nbsp;&middot;&nbsp;
         <a href="https://github.com/0xMMA/KeyLint/issues">Issues</a>
       </span>

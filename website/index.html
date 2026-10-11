@@ -17,10 +17,9 @@
   <link rel="canonical" href="https://keylint.io/" />
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="stylesheet" href="style.css" />
-  <!-- Download links: every one points at the same release tag page, so one
-       sed bumps them all (frontend/e2e/website.spec.ts checks they match).
-       Bump the tag on each release. /releases/latest does not work: GitHub
-       skips pre-releases there, and every 4.x is one, so it lands on v3.5.0. -->
+  <!-- Download links use /releases/latest on purpose. It only works once a
+       non-prerelease 4.x exists (GitHub skips pre-releases there), which is
+       why this page ships with the first stable 4.x. -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -34,7 +33,7 @@
       "priceCurrency": "USD"
     },
     "url": "https://keylint.io",
-    "downloadUrl": "https://github.com/0xMMA/KeyLint/releases/tag/v4.7.1-beta",
+    "downloadUrl": "https://github.com/0xMMA/KeyLint/releases/latest",
     "author": {
       "@type": "Organization",
       "name": "0xMMA",
@@ -53,7 +52,7 @@
       <ul class="nav-links">
         <li><a href="#features">Features</a></li>
         <li><a href="#providers">AI providers</a></li>
-        <li><a href="https://github.com/0xMMA/KeyLint/releases/tag/v4.7.1-beta">Download</a></li>
+        <li><a href="https://github.com/0xMMA/KeyLint/releases/latest">Download</a></li>
         <li><a href="https://github.com/0xMMA/KeyLint">GitHub</a></li>
       </ul>
     </div>
@@ -66,7 +65,7 @@
         <h1>Select text<br /><kbd>CTRL+G</kbd><br /><span>Fixed<i class="dot"></i></span></h1>
         <p>Perfect for emails, chat messages, documents, and social media posts. No more copy-pasting between tools — KeyLint fixes your text instantly, wherever you're typing.</p>
         <div class="hero-actions">
-          <a class="btn btn-primary" href="https://github.com/0xMMA/KeyLint/releases/tag/v4.7.1-beta">
+          <a class="btn btn-primary" href="https://github.com/0xMMA/KeyLint/releases/latest">
             Download for Windows
           </a>
           <a class="btn btn-secondary" href="https://github.com/0xMMA/KeyLint">
@@ -216,7 +215,7 @@
       <div class="container">
         <h2>Fix your writing in 60 seconds</h2>
         <p>Download, pick your AI, press <kbd>Ctrl+G</kbd>.</p>
-        <a class="btn btn-primary" href="https://github.com/0xMMA/KeyLint/releases/tag/v4.7.1-beta">
+        <a class="btn btn-primary" href="https://github.com/0xMMA/KeyLint/releases/latest">
           Download for Windows
         </a>
       </div>
@@ -229,7 +228,7 @@
       <span>
         <a href="https://github.com/0xMMA/KeyLint">GitHub</a>
         &nbsp;&middot;&nbsp;
-        <a href="https://github.com/0xMMA/KeyLint/releases/tag/v4.7.1-beta">Releases</a>
+        <a href="https://github.com/0xMMA/KeyLint/releases/latest">Releases</a>
         &nbsp;&middot;&nbsp;
         <a href="https://github.com/0xMMA/KeyLint/issues">Issues</a>
       </span>

@@ -3,9 +3,9 @@
  *
  * Guards what went wrong or nearly did when the site got screenshots and the
  * provider section (PR #126):
- * - /releases/latest skips pre-releases, and every 4.x is one, so it sent
- *   visitors to the v1 app. Download links point at one release tag instead,
- *   and all of them must match, so bumping the tag cannot miss one.
+ * - Download links use /releases/latest, which resolves to the newest
+ *   non-prerelease (the site ships with the first stable 4.x). Every one must
+ *   be exactly that, so no stale tag link creeps in and none is missed.
  * - Every image loads and carries width, height (no layout shift) and alt.
  * - Nothing scrolls sideways at phone width.
  */
@@ -15,6 +15,7 @@ import { pathToFileURL } from 'url';
 
 const SITE = path.join(__dirname, '../../website');
 const PAGES = ['index.html', '404.html'];
+const LATEST = 'https://github.com/0xMMA/KeyLint/releases/latest';
 
 function url(page: string): string {
   return pathToFileURL(path.join(SITE, page)).href;
@@ -75,17 +76,14 @@ test.describe('website', () => {
     });
   }
 
-  test('download links avoid /releases/latest and all point at the same release', async ({ page }) => {
-    const all: string[] = [];
+  test('every download link is exactly /releases/latest', async ({ page }) => {
     for (const name of PAGES) {
       await page.goto(url(name));
       const links = await releaseLinks(page);
       expect(links.length, `${name} links to a release`).toBeGreaterThan(0);
-      all.push(...links);
+      for (const link of links) {
+        expect(link, `${name}: no tag or list link`).toBe(LATEST);
+      }
     }
-    for (const link of all) {
-      expect(link, 'GitHub skips pre-releases on /latest').not.toContain('/releases/latest');
-    }
-    expect(new Set(all).size, `one release URL everywhere, found: ${[...new Set(all)].join(', ')}`).toBe(1);
   });
 });
