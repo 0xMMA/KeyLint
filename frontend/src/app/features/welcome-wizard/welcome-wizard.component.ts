@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, signal } from '@angular/core';
+import { Component, OnInit, computed, signal, ChangeDetectionStrategy } from '@angular/core';
 import { Router } from '@angular/router';
 import { ButtonComponent, InputDirective, MessageComponent, SpinnerComponent, TagComponent } from '../../shared/ui';
 import { WailsService, ClaudeCodeStatus, KeyStatus, Settings } from '../../core/wails.service';
@@ -28,6 +28,7 @@ type Screen = 'welcome' | 'provider';
   selector: 'app-welcome-wizard',
   standalone: true,
   imports: [ButtonComponent, InputDirective, MessageComponent, SpinnerComponent, TagComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <main class="wizard">
       <div class="w-full max-w-[34rem]">

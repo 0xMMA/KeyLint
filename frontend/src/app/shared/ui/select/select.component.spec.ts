@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { Component, signal } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { FormsModule } from '@angular/forms';
 import { SelectComponent } from './select.component';
@@ -29,6 +29,7 @@ const MODEL_OPTIONS: ModelOption[] = [defaultOption('claude', 'fix', LISTED), ..
 @Component({
   standalone: true,
   imports: [SelectComponent, FormsModule],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <kl-select
       data-testid="picker"
@@ -64,6 +65,7 @@ const LEVELS = [
 @Component({
   standalone: true,
   imports: [SelectComponent, FormsModule],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <kl-select
       data-testid="level"
@@ -90,6 +92,7 @@ class LevelHost {
 @Component({
   standalone: true,
   imports: [SelectComponent, FormsModule],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <label data-testid="label" for="level-input"><span>Log level</span></label>
     <kl-select data-testid="level" inputId="level-input" [options]="levels" optionLabel="label" optionValue="value"

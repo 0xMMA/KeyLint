@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { Component, signal } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { TooltipDirective } from './tooltip.directive';
 import { ButtonComponent } from '../button/button.component';
@@ -7,6 +7,7 @@ import { ButtonComponent } from '../button/button.component';
 @Component({
   standalone: true,
   imports: [TooltipDirective],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <button data-testid="target" [klTooltip]="text()" klTooltipPosition="right">Fix</button>
   `,
@@ -19,6 +20,7 @@ class Host {
 @Component({
   standalone: true,
   imports: [TooltipDirective, ButtonComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <kl-button data-testid="host" icon="copy" iconOnly ariaLabel="Copy error" klTooltip="Copy error" klTooltipPosition="top" />
     <input data-testid="elsewhere" />
@@ -145,6 +147,7 @@ describe('klTooltip', () => {
 @Component({
   standalone: true,
   imports: [TooltipDirective],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `<button data-testid="target" klTooltip="What it does" klTooltipOnClick>?</button>`,
 })
 class HelpHost {}

@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Component, signal } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { InputDirective } from './input.directive';
 
 @Component({
   standalone: true,
   imports: [InputDirective],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `<input data-testid="field" klInput [invalid]="bad()" /><textarea data-testid="area" klInput></textarea>`,
 })
 class Host {

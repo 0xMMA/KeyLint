@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Component } from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { CardComponent } from './card.component';
 
 @Component({
   standalone: true,
   imports: [CardComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <kl-card data-testid="titled" heading="Claude Code" subheading="KeyLint sends your text here.">
       <p data-testid="body">Body</p>

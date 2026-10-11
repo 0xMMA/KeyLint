@@ -1,4 +1,4 @@
-import { Component, input, output } from '@angular/core';
+import { Component, input, output, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ButtonComponent, MessageComponent, SelectComponent, SwitchComponent } from '../../../shared/ui';
 import type { Settings as AppSettings } from '../../../core/wails.service';
@@ -22,6 +22,7 @@ import { ShortcutRecorderComponent } from '../shortcut-recorder/shortcut-recorde
     FormsModule, ButtonComponent, MessageComponent, SelectComponent, SwitchComponent,
     SettingsSectionComponent, SettingRowComponent, ShortcutRecorderComponent,
   ],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     @let s = settings();
     <div class="flex flex-col gap-7">

@@ -1,4 +1,4 @@
-import { Component, signal } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
   ButtonComponent, CardComponent, CheckboxComponent, ICONS, IconComponent, InputDirective, MessageComponent,
@@ -26,6 +26,7 @@ const LISTED: ModelOption[] = [
     SegmentedComponent, SelectComponent, SpinnerComponent, SwitchComponent, TabComponent, TabPanelComponent,
     TabsComponent, TagComponent, TooltipDirective,
   ],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <div class="gallery" data-testid="ui-gallery">
       <h1>UI primitives</h1>

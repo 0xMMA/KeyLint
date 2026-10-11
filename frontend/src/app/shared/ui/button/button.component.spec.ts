@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Component, signal } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { ButtonComponent, type ButtonVariant } from './button.component';
 
 @Component({
   standalone: true,
   imports: [ButtonComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <kl-button data-testid="btn" [variant]="variant()" icon="sparkles" [loading]="loading()"
       [disabled]="disabled()" loadingLabel="Fixing…" (click)="clicks = clicks + 1">

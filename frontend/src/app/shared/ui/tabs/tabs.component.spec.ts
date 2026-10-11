@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Component, signal } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { TabsComponent, TabComponent, TabPanelComponent } from './tabs.component';
 
 @Component({
   standalone: true,
   imports: [TabsComponent, TabComponent, TabPanelComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <kl-tabs [(value)]="tab" ariaLabel="Settings sections">
       <kl-tab value="general">General</kl-tab>
@@ -124,6 +125,7 @@ describe('kl-tabs', () => {
 @Component({
   standalone: true,
   imports: [TabsComponent, TabComponent, TabPanelComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <kl-tabs value="one">
       <kl-tab value="one">One</kl-tab>
