@@ -177,7 +177,7 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 #### E7 · Light theme (#25) — unblocked by E11: redefine the `--kl-*` roles in `frontend/src/theme.css` under a light selector on `<html>` (see `index.html`), plus `color-scheme: light`.
 #### E8 · Feature parity leftovers (moved from the old `TODO.md`)
 - Linux global hotkey (currently a stub) — low, Linux is dev-only
-- HTML clipboard (CF_HTML) paste-back for Outlook/Teams — medium, real user value on Windows
+- HTML clipboard (CF_HTML) paste-back for Outlook/Teams — medium, real user value on Windows. **Decided 2026-10-11 (Michael): Pyramidize's Send back pastes formatted text** (bold, lists, as in the Preview), not the plain Markdown it writes today (`internal/features/pyramidize/sendback.go`), which Outlook shows with raw `**` and `- `. Until then the website and the Outlook demo use Copy as rich text
 #### E9 · Pyramidize quality track — parked (see E3). Revisit only with eval evidence.
 #### E10 · OpenRouter provider — not started
 One key, many vendors' models — for users who don't want a separate account per vendor. Fits the E2 decision without new plumbing: OpenRouter is OpenAI-compatible, so it is `openai-go` + `option.WithBaseURL("https://openrouter.ai/api/v1")`, a new provider ID in the registry, and a key in the OS keyring like the others. HTTPS, so the openai-go 3.69 plain-HTTP refusal (#116) does not touch it.
@@ -212,7 +212,7 @@ The Fix page redesign (#36, E5) is the natural first screen for the new look.
 | `v4.7.0-beta` | ✅ released 2026-10-11: E11 own UI on CDK + Tailwind, new look incl. Fix page redesign, PrimeNG out (#121, #123) · Pyramidize effort picker, quality threshold removed (#123) |
 | `v4.7.1-beta` | ✅ released 2026-10-11: Pyramidize options fit the default window again (#124) |
 | `v4.8.0-beta` (next) | E3 one-shot overhaul with eval · E4 upgrade wave (Angular 22 now unblocked) |
-| `v5.0.0` | Bedrock UI · light theme · HTML clipboard · Codex/Gemini CLI providers · OpenRouter (E10) |
+| `v5.0.0` | Bedrock UI · light theme · HTML clipboard · Codex/Gemini CLI providers · OpenRouter (E10) · website update (#126, draft) ships with the first stable 4.x/5.x |
 
 ---
 
@@ -238,5 +238,6 @@ The Fix page redesign (#36, E5) is the natural first screen for the new look.
 - [ ] Pyramidize history: the hover preview's "Revert to here" cannot be reached; the pinned (clicked) preview's can. Carried over unchanged through E11
 - [ ] Settings › AI providers: cancelling a key edit drops the focus to `<body>` instead of returning it to the Edit button. Carried over unchanged through E11
 - [x] Pyramidize quality threshold: the control is gone from the Pyramidize page (owner decision 2026-10-11, per [ADR-002](pyramidize/adr-002-one-shot-vs-pipeline.md) §5 — it can never act on email v2, the type users most likely restructure). Go's pipeline always uses the default 0.65 (`settings.DefaultQualityThreshold`) and ignores a value still in `settings.json`, and the `GetQualityThreshold`/`SetQualityThreshold` bindings stay; nothing in the UI sets it any more. Its place under the Model picker went to an Effort picker
+- [ ] keylint.io's Download links (`/releases/latest`) land on v3.5.0 (FixMyTex): GitHub skips pre-releases there, and every 4.x is one. **Decided 2026-10-11 (Michael):** stays until the first stable release; the website PR #126 (Claude Code CLI provider, new screenshots, Pyramidize demo) waits for it as a draft. After publishing that release, check `curl -sI https://github.com/0xMMA/KeyLint/releases/latest` lands on it, then merge #126
 - [ ] Pyramidize at ~700 px window width: the options column does not collapse, so the editor gets cramped. Seen in the E11 check, not fixed there
 - [ ] CLI `-pyramidize` has no `--effort` flag, so the CLI always uses the Settings effort while the GUI can override it per session
