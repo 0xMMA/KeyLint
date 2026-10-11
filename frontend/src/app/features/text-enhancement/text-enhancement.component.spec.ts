@@ -1289,8 +1289,17 @@ describe('TextEnhancementComponent — effort', () => {
     await open({ active_provider: 'claude' });
     expect(q('effort-select')).not.toBeNull();
     expect(await effortLabels()).toEqual(['Model default', 'Low', 'Medium', 'High', 'Extra high', 'Max']);
-    expect(q('effort-note')!.textContent).toContain('more reasoning');
     expect(q('effort-select')!.textContent).toContain('Model default');
+  });
+
+  it('explains effort in a tooltip on the info button next to the label, not as a line under the picker', async () => {
+    await open({ active_provider: 'claude' });
+    const info = q('effort-note')!;
+    expect(info.tagName).toBe('BUTTON');
+    expect(info.getAttribute('aria-label')).toBe('What effort does');
+    info.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    await refresh();
+    expect(document.querySelector('[data-testid="kl-tooltip"]')!.textContent).toContain('more reasoning');
   });
 
   it('names Settings’ level first when Settings has one, and offers "Model default" to send none', async () => {

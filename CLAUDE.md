@@ -110,6 +110,7 @@ KeyLint is a desktop app that fixes/enhances clipboard text via AI (OpenAI, Anth
 
 1. Never mark work complete without running the relevant test suite and seeing it pass.
 2. If the changed behavior has no test, write the test first, then make the change.
+   - **Every bug report and every piece of feedback ships with a guard.** Alongside the fix, ask what test would have caught it, write that test, see it fail on the unfixed code, then fix. That includes things that look like taste ("that scrollbar is ugly"): find the property behind it and assert that (e.g. `e2e/pyramidize-options-fit.spec.ts` — no scrollbar at the default window size). If no reasonable test exists, say so in the PR and why.
 3. Before handing back, run:
    - `cd frontend && npm test` — must show 0 failures
    - `go test -tags gtk3 ./internal/...` — must pass

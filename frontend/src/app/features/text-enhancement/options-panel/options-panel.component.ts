@@ -1,7 +1,9 @@
 import { ChangeDetectionStrategy, Component, input, model, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CdkScrollable } from '@angular/cdk/scrolling';
-import { ButtonComponent, InputDirective, MessageComponent, SelectComponent } from '../../../shared/ui';
+import {
+  ButtonComponent, IconComponent, InputDirective, MessageComponent, SelectComponent, TooltipDirective,
+} from '../../../shared/ui';
 import type { EffortOption } from '../../settings/model-options';
 
 export interface LabelledOption { label: string; value: string }
@@ -20,7 +22,7 @@ export interface ModelOption { id: string; label: string }
 @Component({
   selector: 'app-pyramidize-options',
   standalone: true,
-  imports: [FormsModule, ButtonComponent, InputDirective, MessageComponent, SelectComponent],
+  imports: [FormsModule, ButtonComponent, IconComponent, InputDirective, MessageComponent, SelectComponent, TooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   // The column scrolls on its own; cdkScrollable lets an open select follow it.
   hostDirectives: [CdkScrollable],
@@ -82,7 +84,13 @@ export interface ModelOption { id: string; label: string }
     <!-- Only where the provider does something with effort (not Ollama). -->
     @if (effortNote(); as note) {
       <div class="pz-field">
-        <label class="pz-label" for="pz-effort">Effort</label>
+        <!-- What effort does sits in a tooltip: as a line of text under the
+             picker it pushed the column past the default window height. -->
+        <div class="pz-label-row">
+          <label class="pz-label" for="pz-effort">Effort</label>
+          <button type="button" class="pz-info" data-testid="effort-note" aria-label="What effort does"
+            [klTooltip]="note" klTooltipPosition="right"><kl-icon name="info" [size]="14" /></button>
+        </div>
         <kl-select
           data-testid="effort-select"
           inputId="pz-effort"
@@ -91,7 +99,6 @@ export interface ModelOption { id: string; label: string }
           optionValue="value"
           [(ngModel)]="effort"
         />
-        <small class="pz-hint" data-testid="effort-note">{{ note }}</small>
       </div>
     }
 
@@ -122,14 +129,14 @@ export interface ModelOption { id: string; label: string }
         optionLabel="label" optionValue="value" [(ngModel)]="relLevel" />
     </div>
 
-    <div class="pz-field">
+    <div class="pz-field pz-field-grow">
       <label class="pz-label" for="pz-instructions">Instructions for this text</label>
       <textarea
         klInput
         id="pz-instructions"
         data-testid="custom-instructions"
-        rows="3"
-        class="resize-none"
+        rows="2"
+        class="pz-instructions resize-none"
         placeholder="Optional, e.g. keep it under 100 words"
         [(ngModel)]="customInstructions"
         (keydown.control.enter)="$event.preventDefault(); run()"
@@ -150,12 +157,24 @@ export interface ModelOption { id: string; label: string }
   `,
   styles: [`
     :host {
-      display: flex; flex-direction: column; gap: 18px;
-      width: 300px; flex: none; padding: 32px 24px; overflow-y: auto;
+      /* Fits the default window (1280×800) without scrolling with every
+         provider: e2e/pyramidize-options-fit.spec.ts. The instruction field
+         takes what height is left, from two rows up. */
+      display: flex; flex-direction: column; gap: 14px;
+      width: 300px; flex: none; padding: 24px; overflow-y: auto;
       border-right: 1px solid var(--kl-line);
     }
-    .pz-title { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.015em; color: var(--kl-text-strong); }
+    .pz-title { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.015em; color: var(--kl-text-strong); }
     .pz-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .pz-field-grow { flex: 1 0 auto; }
+    .pz-instructions { flex: 1; }
+    .pz-label-row { display: flex; align-items: center; gap: 6px; }
+    .pz-info {
+      display: inline-flex; padding: 2px; border: 0; border-radius: 4px; background: none;
+      color: var(--kl-muted); cursor: help;
+    }
+    .pz-info:hover { color: var(--kl-text); }
+    .pz-info:focus-visible { outline: 2px solid var(--kl-focus); outline-offset: 1px; }
     .pz-label { font-size: 13px; font-weight: 500; color: var(--kl-muted); }
     .pz-hint { font-size: 12px; line-height: 1.45; color: var(--kl-muted); }
     .pz-detected { color: var(--kl-primary-text); font-weight: 600; }
