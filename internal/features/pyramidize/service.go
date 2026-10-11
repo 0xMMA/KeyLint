@@ -201,10 +201,10 @@ func (svc *Service) Pyramidize(req PyramidizeRequest) (PyramidizeResult, error) 
 	}
 
 	// Step 3: Optional refinement pass
-	threshold := cfg.PyramidizeQualityThreshold
-	if threshold == 0 {
-		threshold = settings.DefaultQualityThreshold
-	}
+	// Always the default: the threshold control was removed from the UI (owner
+	// decision 2026-10-11, ADR-002 §5), so a value still in settings.json is one
+	// the user can neither see nor change, and must not steer refinement.
+	threshold := settings.DefaultQualityThreshold
 	if foundation.QualityScore < threshold && len(foundation.QualityFlags) > 0 {
 		logger.Info("pyramidize: quality below threshold, refining",
 			"score", foundation.QualityScore, "flags", foundation.QualityFlags, "threshold", threshold)
@@ -348,13 +348,11 @@ func (svc *Service) DeleteAppPreset(sourceApp string) error {
 	})
 }
 
-// GetQualityThreshold returns the configured quality threshold, defaulting to 0.65.
+// GetQualityThreshold returns the threshold the pipeline uses, which is always
+// the default since the control was removed (see Pyramidize). Kept for the
+// binding; nothing in the frontend calls it any more.
 func (svc *Service) GetQualityThreshold() float64 {
-	cfg := svc.settings.Get()
-	if cfg.PyramidizeQualityThreshold == 0 {
-		return settings.DefaultQualityThreshold
-	}
-	return cfg.PyramidizeQualityThreshold
+	return settings.DefaultQualityThreshold
 }
 
 // SetQualityThreshold saves the quality threshold. Value must be in [0, 1].

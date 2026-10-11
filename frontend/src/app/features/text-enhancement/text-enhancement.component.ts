@@ -649,6 +649,12 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
       selectedModel = '';
       selectedEffort = '';
     }
+    // "none" ("Model default" while Settings names a level) is only offered
+    // while Settings has one; once Settings is back on the model's default it
+    // means the same as following Settings, and would otherwise match no option.
+    if (selectedEffort === 'none' && !this.settingsEffortFor(selectedProvider)) {
+      selectedEffort = '';
+    }
 
     // Not awaited: for the claude-code provider this probes the CLI, which
     // spawns processes — and the page has a banner slot for the answer, so it

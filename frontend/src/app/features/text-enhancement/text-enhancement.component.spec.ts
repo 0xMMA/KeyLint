@@ -1302,6 +1302,21 @@ describe('TextEnhancementComponent — effort', () => {
     expect(q('effort-select')!.textContent).toContain('Settings: High');
   });
 
+  it('falls back to following Settings when "Model default" was picked and Settings has no level any more', async () => {
+    const high = { claude: { fix: '', pyramidize: '', fix_effort: '', pyramidize_effort: 'high' } };
+    await open({ active_provider: 'claude', models: high });
+    await pickEffort('Model default');
+    expect(component.effortView).toBe('none');
+    fixture.destroy();
+    TestBed.resetTestingModule();
+
+    // Settings' level went back to "Model default" meanwhile; same provider.
+    await open({ active_provider: 'claude' });
+    await refresh(); // ngModel writes the corrected value on the next turn
+    expect(component.effortView).toBe('');
+    expect(q('effort-select')!.textContent).toContain('Model default');
+  });
+
   it('is not there on a provider that does nothing with effort (Ollama)', async () => {
     await open({ active_provider: 'ollama' });
     expect(q('model-select')).not.toBeNull();
