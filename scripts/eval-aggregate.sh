@@ -92,20 +92,59 @@ done
 # hash answers a different question — "did the prompt move, or did the model?" —
 # so it is reported next to the verdict instead, where it informs the reader
 # without silencing the number.
+#
+# The models in the key are the RESOLVED ones where a run recorded them. The
+# pipeline asks for an alias ("sonnet"), and the day the provider moves that
+# alias to a new generation, the same request is a different measurement. A key
+# on the alias would call it the same configuration and report the model's move
+# as the prompt's. Runs that predate resolvedModel key on the requested model,
+# which for those runs was always a full ID.
+#
+# The judge's temperature is the last field: 0 for the API judge, null for the
+# Claude Code CLI, which cannot pin one. Provider alone already keeps the two
+# judges apart; the temperature keeps a CLI judge from ever comparing equal to
+# a pinned one, whatever a later run names its provider. Runs that predate the
+# field were all judged at a pinned 0.
+#
+# Two more fields close the key, for the same reason: the Claude Code CLI sits
+# between the model and the score whenever a run goes through it.
+#   thinking — whether the pipeline thought first. The CLI thinks by default and
+#     the Fix suite can switch that off; it moved the numbers, so it is part of
+#     the measurement. "n/a" for an API pipeline, where KeyLint does not ask.
+#   claudeCodeVersion — a CLI default moved the numbers once, so its version is
+#     part of the instrument. "none" when no side of the run used the CLI.
+# Runs that predate a field key as "unrecorded" if they went through the CLI
+# (the 2026-10-04 first CLI baselines, superseded) and as "n/a" / "none" if
+# they did not (every API-era run), which keeps those comparable with new API
+# runs.
 JQ_ROUND='def r4: (. * 10000 | round) / 10000;
-def keyFrom(c): [(c.suite // "pyramidize"), c.provider, c.model,
-                 (c.judge.provider // "none"), (c.judge.model // "none"),
+def usesCLI(c): (c.provider == "claude-code") or ((c.judge.provider // "") == "claude-code");
+def thinkingOf(c): if (c.thinking // "") != "" then c.thinking
+                   elif c.provider == "claude-code" then "unrecorded" else "n/a" end;
+def cliVersionOf(c): if (c.claudeCodeVersion // "") != "" then c.claudeCodeVersion
+                     elif usesCLI(c) then "unrecorded" else "none" end;
+def resolvedOr(r; m): if (r // "") == "" then m else r end;
+def judgeTemp(j): if j == null then "none"
+                  elif (j | has("temperature")) then (j.temperature | if . == null then "null" else (. + 0 | tostring) end)
+                  else "0" end;
+def keyFrom(c): [(c.suite // "pyramidize"), c.provider, resolvedOr(c.resolvedModel; c.model),
+                 (c.judge.provider // "none"), resolvedOr(c.judge.resolvedModel; (c.judge.model // "none")),
                  (c.promptVariant|tostring), (c.schemaEnforcement|tostring),
                  (c.qualityThreshold|tostring), (c.sampleCount|tostring),
-                 ((c.checksVersion // 1)|tostring), (c.split // "all")] | join("|");
+                 ((c.checksVersion // 1)|tostring), (c.split // "all"), judgeTemp(c.judge),
+                 thinkingOf(c), cliVersionOf(c)] | join("|");
 # A baseline written before the suite name joined the key stored eight fields.
 # Upgrading it on READ is what keeps the baselines recorded so far usable;
 # refusing them would have made a key format change quietly discard every
-# measurement the project has.
+# measurement the project has. Every stored-string key predates the judge
+# temperature, thinking and CLI version fields, and every one of them was an
+# API run judged at a pinned 0.
 def upgradeKey(k): (k | split("|")) as $p
-                 | if ($p|length) == 8 then ((["pyramidize"] + $p + ["1", "all"]) | join("|"))
-                   elif ($p|length) == 9 then (($p + ["1", "all"]) | join("|"))
-                   elif ($p|length) == 10 then (($p + ["all"]) | join("|"))
+                 | if ($p|length) == 8 then ((["pyramidize"] + $p + ["1", "all", "0", "n/a", "none"]) | join("|"))
+                   elif ($p|length) == 9 then (($p + ["1", "all", "0", "n/a", "none"]) | join("|"))
+                   elif ($p|length) == 10 then (($p + ["all", "0", "n/a", "none"]) | join("|"))
+                   elif ($p|length) == 11 then (($p + ["0", "n/a", "none"]) | join("|"))
+                   elif ($p|length) == 12 then (($p + ["n/a", "none"]) | join("|"))
                    else k end;
 def baselineKey(b): if (b.config|type) == "object" then keyFrom(b.config) else upgradeKey(b.configKey // "unknown") end;'
 
@@ -155,6 +194,13 @@ AGGREGATE=$(jq -s --argjson perSample "$PER_SAMPLE" --argjson runs "$RUNS_JSON" 
             gitSHA: .[0].gitSHA,
             provider: .[0].provider,
             model: .[0].model,
+            # What the requested model resolved to; the key uses it. null for
+            # runs that predate the field.
+            resolvedModel: (if (.[0].resolvedModel // "") == "" then null else .[0].resolvedModel end),
+            # Recorded, not keyed: the CLI is part of the instrument when a run
+            # goes through it, and a comparison reports a version change below.
+            claudeCodeVersion: (if (.[0].claudeCodeVersion // "") == "" then null else .[0].claudeCodeVersion end),
+            thinking: (if (.[0].thinking // "") == "" then null else .[0].thinking end),
             promptVariant: .[0].promptVariant,
             judge: .[0].judge,
             schemaEnforcement: .[0].schemaEnforcement,
@@ -189,7 +235,7 @@ AGGREGATE=$(jq -s --argjson perSample "$PER_SAMPLE" --argjson runs "$RUNS_JSON" 
 if [[ "$(printf '%s' "$AGGREGATE" | jq -r .configConsistent)" != "true" ]]; then
     echo "These runs do not share a configuration, so their mean would describe nothing:" >&2
     for f in "${SUMMARIES[@]}"; do
-        jq -r '"  \(input_filename): \(.provider)/\(.model) judge=\(.judge.model // "none") v\(.promptVariant) schema=\(.schemaEnforcement) samples=\(.sampleCount)"' "$f" >&2
+        jq -r '"  \(input_filename): \(.provider)/\(.model) resolved=\(.resolvedModel // "-") judge=\(.judge.model // "none") resolved=\(.judge.resolvedModel // "-") temp=\(.judge.temperature) thinking=\(.thinking // "-") cli=\(.claudeCodeVersion // "-") v\(.promptVariant) schema=\(.schemaEnforcement) samples=\(.sampleCount)"' "$f" >&2
     done
     exit "$EXIT_NOT_COMPARABLE"
 fi
@@ -231,6 +277,8 @@ VERDICT=$(printf '%s\n' "$AGGREGATE" | jq --slurpfile base "$COMPARE" "$JQ_ROUND
                           changed: (($was.config.splitHash // null) != ($now.config.splitHash // null))},
         promptHash: {baseline: ($was.config.promptHash // null), now: ($now.config.promptHash // null),
                      changed: (($was.config.promptHash // null) != ($now.config.promptHash // null))},
+        claudeCodeVersion: {baseline: ($was.config.claudeCodeVersion // null), now: ($now.config.claudeCodeVersion // null),
+                            changed: (($was.config.claudeCodeVersion // null) != ($now.config.claudeCodeVersion // null))},
         baseline: {config: $wasKey, runs: $was.runCount, gitSHA: $was.config.gitSHA,
                    deterministic: $was.deterministic, judge: $was.judge, samplesPassing: $was.samplesPassing},
         now:      {config: $now.configKey, runs: $now.runCount, gitSHA: $now.config.gitSHA,
@@ -242,10 +290,13 @@ VERDICT=$(printf '%s\n' "$AGGREGATE" | jq --slurpfile base "$COMPARE" "$JQ_ROUND
         verdict: (
             if $wasKey != $now.configKey then
                 "not comparable: different configuration"
-            elif ($now.judgeCoverage.min < $now.judgeCoverage.of) or (($was.judgeCoverage.min // $was.config.sampleCount) < ($was.config.sampleCount)) then
-                "not comparable: the judge did not score every sample"
+            # Pipeline failures first: a sample the pipeline never produced
+            # also has no judge score, and blaming the judge for it sends the
+            # reader to the wrong place.
             elif ($now.scoredCoverage.min < $now.scoredCoverage.of) or (($was.scoredCoverage.min // $was.config.sampleCount) < ($was.config.sampleCount)) then
                 "not comparable: a run failed to score every sample"
+            elif ($now.judgeCoverage.min < $now.judgeCoverage.of) or (($was.judgeCoverage.min // $was.config.sampleCount) < ($was.config.sampleCount)) then
+                "not comparable: the judge did not score every sample"
             elif ($was.runCount < 2) or ($now.runCount < 2) then
                 "indicative only: one run has no range to compare"
             else
@@ -279,6 +330,14 @@ if [[ "$(printf '%s' "$VERDICT" | jq -r '.promptHash.changed')" == "true" ]]; th
     printf 'The prompt changed between these two sides (%s -> %s). Whatever moved, the prompt is a candidate.\n' \
         "$(printf '%s' "$VERDICT" | jq -r '.promptHash.baseline // "unrecorded"')" \
         "$(printf '%s' "$VERDICT" | jq -r '.promptHash.now // "unrecorded"')" >&2
+fi
+
+# Same reasoning for the CLI: its defaults sit between the model and the score,
+# and an upgrade can move a number with nothing in this repository moving.
+if [[ "$(printf '%s' "$VERDICT" | jq -r '.claudeCodeVersion.changed')" == "true" ]]; then
+    printf 'The Claude Code CLI changed between these two sides (%s -> %s). Whatever moved, the CLI is a candidate.\n' \
+        "$(printf '%s' "$VERDICT" | jq -r '.claudeCodeVersion.baseline // "unrecorded"')" \
+        "$(printf '%s' "$VERDICT" | jq -r '.claudeCodeVersion.now // "unrecorded"')" >&2
 fi
 
 case "$(printf '%s' "$VERDICT" | jq -r .verdict)" in

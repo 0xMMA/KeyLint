@@ -3,14 +3,14 @@
 package pyramidize
 
 // Evaluation tests — make real AI calls against test-data samples.
-// Run with: go test -tags eval ./internal/features/pyramidize/ -v -timeout 300s
+// Run with: go test -tags eval ./internal/features/pyramidize/ -v -timeout 3600s
 //
-// Requires:
-//   - A configured AI provider (env vars: ANTHROPIC_API_KEY or OPENAI_API_KEY)
-//   - Network access to the AI provider's API
+// Requires, by default, nothing but a signed-in Claude Code CLI: pipeline and
+// judge both run through it (provider claude-code), so no API key is read.
 //
-// Override provider/model:
+// Against the API instead (needs ANTHROPIC_API_KEY in .env or the environment):
 //   EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 go test -tags eval ...
+//   EVAL_JUDGE_PROVIDER=claude moves the judge back to the API as well.
 
 import (
 	"context"
@@ -29,15 +29,8 @@ import (
 	"keylint/internal/llm"
 )
 
-// loadEvalEnv brings .env into the environment, letting it win for credentials
-// and lose for everything else.
-//
-// A blanket Overload looked right — a stale ANTHROPIC_API_KEY in the shell
-// should not beat the project's own — but it also overwrote the EVAL_* and
-// KEYLINT_* variables that scripts/eval.sh exports from its command line, so
-// `--model X` silently lost to a line in a file. A run is configured by what the
-// caller asked for; .env is a place to keep secrets, not a second opinion on
-// what to measure.
+// loadEvalEnv brings .env into the environment. What it takes, and why a
+// CLI-only run takes no key, is evalEnvFromFile's business.
 func loadEvalEnv(t *testing.T) {
 	t.Helper()
 	values, err := godotenv.Read(filepath.Join("..", "..", "..", ".env"))
@@ -45,21 +38,10 @@ func loadEvalEnv(t *testing.T) {
 		t.Logf("no .env loaded: %v", err)
 		return
 	}
-	for key, value := range values {
-		if strings.HasSuffix(key, "_API_KEY") {
-			t.Setenv(key, value)
-			continue
-		}
-		if os.Getenv(key) == "" {
-			t.Setenv(key, value)
-		}
+	for key, value := range evalEnvFromFile(values, os.Getenv) {
+		t.Setenv(key, value)
 	}
 }
-
-// defaultEvalProvider is what a run measures when nothing says otherwise. A
-// constant rather than the machine's active provider: a baseline that changes
-// with whoever runs it is not a baseline.
-const defaultEvalProvider = llm.ProviderClaude
 
 // gitSHA records which commit produced a run, so a number in quality-status.md
 // can be traced back to code. Empty when this is not a checkout.
@@ -162,17 +144,7 @@ func TestEvalPyramidize(t *testing.T) {
 	// key lookup, so neither ~/.config/KeyLint/settings.json nor the OS keyring
 	// can change what this run produces — a developer whose GUI has Ollama as
 	// the active provider gets the same numbers as anyone else.
-	provider := os.Getenv("EVAL_PROVIDER")
-	if provider == "" {
-		provider = defaultEvalProvider
-	}
-	// Resolved here and passed as an explicit override, so a run does not depend
-	// on whichever model the developer happens to have picked in the GUI — and
-	// so the value recorded in summary.json is the one that actually ran.
-	model := os.Getenv("EVAL_MODEL")
-	if model == "" {
-		model = llm.DefaultModel(provider, llm.FeaturePyramidize)
-	}
+	provider, model := evalTarget(os.Getenv)
 	variant := 0 // latest
 	if v := os.Getenv("EVAL_VARIANT"); v != "" {
 		fmt.Sscanf(v, "%d", &variant)
@@ -189,17 +161,23 @@ func TestEvalPyramidize(t *testing.T) {
 	model = llm.ResolveModel(context.Background(), provider, model,
 		llm.Config{APIKey: settingsSvc.GetKey(provider), Feature: "eval"})
 
-	if settingsSvc.GetKey(provider) == "" && provider != llm.ProviderOllama && provider != llm.ProviderClaudeCode {
-		t.Fatalf("no API key for %q in the environment or .env — the eval reads no keyring", provider)
+	for _, p := range []string{provider, judge.Provider} {
+		if llm.UsesAPIKey(p) && settingsSvc.GetKey(p) == "" {
+			t.Fatalf("no API key for %q in the environment or .env — the eval reads no keyring", p)
+		}
 	}
 
+	// Read at the start and again at the end: the CLI is part of the
+	// instrument, and an auto-update mid-run would otherwise go unrecorded.
+	cliVersionAtStart := evalCLIVersion(provider, judge.Provider)
 	svc := NewService(settingsSvc, nil)
 	// What ran is read off the responses, for the Claude Code CLI's aliases.
-	// The judge runs on a service of its own so its pinned model is not
-	// counted as the pipeline's.
-	var answered llm.ModelRecorder
+	// The judge runs on a service of its own, with a recorder of its own, so
+	// its pinned model is never counted as the pipeline's.
+	var answered, judgeAnswered llm.ModelRecorder
 	svc.newClient = answered.Wrap(svc.newClient)
 	judgeSvc := NewService(settingsSvc, nil)
+	judgeSvc.newClient = judgeAnswered.Wrap(judgeSvc.newClient)
 	samples := loadTestSamples(t)
 	t.Logf("prompt variant: %d (0=latest=%d)", variant, LatestEmailVariant)
 
@@ -216,6 +194,10 @@ func TestEvalPyramidize(t *testing.T) {
 		Deterministic EvalScorecard `json:"deterministic"`
 		Judge         *JudgeScore   `json:"judge,omitempty"`
 		Error         string        `json:"error,omitempty"`
+		// JudgeError is recorded, not just logged: a judge that dropped an
+		// answer leaves judgeCount below scoredCount, and the run folder has to
+		// say why once the log is gone.
+		JudgeError string `json:"judgeError,omitempty"`
 		// AppliedRefinement says whether this sample cost a second model call.
 		// Without it a run cannot show whether the pipeline arm of a comparison
 		// ever behaved like a pipeline — the gap ADR-002 had to record as
@@ -232,6 +214,7 @@ func TestEvalPyramidize(t *testing.T) {
 	totalDet := 0.0
 	totalJudge := 0.0
 	judgeCount := 0
+	scored := 0
 
 	for _, sample := range samples {
 		t.Run(sample.Name, func(t *testing.T) {
@@ -258,6 +241,7 @@ func TestEvalPyramidize(t *testing.T) {
 				// Deterministic checks.
 				sr.Deterministic = RunDeterministicChecks(sample.RawInput, result.FullDocument)
 				totalDet += sr.Deterministic.OverallScore
+				scored++
 
 				t.Logf("deterministic: %.2f (pass=%v)", sr.Deterministic.OverallScore, sr.Deterministic.AllPassed)
 				for _, c := range sr.Deterministic.Checks {
@@ -269,6 +253,7 @@ func TestEvalPyramidize(t *testing.T) {
 					score, err := judgeSvc.runJudge(settingsSvc, judge,
 						sample.RawInput, sample.Baseline, result.FullDocument)
 					if err != nil {
+						sr.JudgeError = err.Error()
 						t.Logf("judge failed: %v", err)
 					} else {
 						sr.Judge = &score
@@ -295,20 +280,31 @@ func TestEvalPyramidize(t *testing.T) {
 	if effectiveVariant == 0 {
 		effectiveVariant = LatestEmailVariant
 	}
+	judge.ResolvedModel = judgeAnswered.Recorded(judge.Model)
 	summary := map[string]any{
 		"timestamp": timestamp,
 		"gitSHA":    gitSHA(),
 		"provider":  provider,
 		// What answered, never the alias; see llm.ModelRecorder.
-		"model":            answered.Recorded(model),
-		"modelRequested":   requestedModel,
-		"promptVariant":    effectiveVariant,
-		"judge":            judge,
-		"qualityThreshold": settings.DefaultQualityThreshold,
+		"model":          answered.Recorded(model),
+		"modelRequested": requestedModel,
+		// The CLI is part of the instrument when either side runs through it:
+		// its defaults sit between the model and the score. In the configKey.
+		"claudeCodeVersion": cliVersionSpan(cliVersionAtStart, evalCLIVersion(provider, judge.Provider)),
+		"thinking":          pyramidizeThinking(provider),
+		"promptVariant":     effectiveVariant,
+		"judge":             judge,
+		"qualityThreshold":  settings.DefaultQualityThreshold,
 		// Which configuration produced these numbers; see schemas.go.
 		"schemaEnforcement": schemaEnforcement,
 		"sampleCount":       len(samples),
-		"avgDeterministic":  totalDet / float64(len(samples)),
+		// Divided by what was scored, not by what was attempted: a sample whose
+		// call failed is a measurement of the network, not of the prompt. The
+		// counts say how many that was; the aggregate refuses to compare a run
+		// that did not score every sample.
+		"avgDeterministic": totalDet / float64(max(scored, 1)),
+		"scoredCount":      scored,
+		"errorCount":       len(samples) - scored,
 	}
 	if judgeCount > 0 {
 		summary["avgJudge"] = totalJudge / float64(judgeCount)
@@ -318,11 +314,11 @@ func TestEvalPyramidize(t *testing.T) {
 	os.WriteFile(filepath.Join(runDir, "summary.json"), summaryData, 0644)
 
 	t.Logf("\n=== EVAL SUMMARY ===")
-	t.Logf("Provider: %s | Model: %s | Prompt Variant: v%d", provider, model, effectiveVariant)
-	t.Logf("Judge: %s / %s @ temp %.1f", judge.Provider, judge.Model, judge.Temperature)
+	t.Logf("Provider: %s | Model: %s (resolved: %s) | Prompt Variant: v%d", provider, requestedModel, answered.Recorded(model), effectiveVariant)
+	t.Logf("Judge: %s / %s (resolved: %s) @ temp %s", judge.Provider, judge.Model, judge.ResolvedModel, judge.TemperatureLabel())
 	t.Logf("Schema enforcement: %v | Quality threshold: %.2f", schemaEnforcement, settings.DefaultQualityThreshold)
 	t.Logf("Samples: %d", len(samples))
-	t.Logf("Avg deterministic: %.2f", totalDet/float64(len(samples)))
+	t.Logf("Avg deterministic: %.2f (%d of %d samples scored)", totalDet/float64(max(scored, 1)), scored, len(samples))
 	if judgeCount > 0 {
 		t.Logf("Avg judge overall: %.2f (%d samples)", totalJudge/float64(judgeCount), judgeCount)
 	}
