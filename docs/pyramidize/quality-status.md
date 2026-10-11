@@ -54,6 +54,30 @@ and each judge is reported on its own — `summary.json` has `judges`,
 
 ---
 
+## Eval Scores — baseline of 2026-10-11 (two judges, the reference for v3)
+
+**The current reference.** Three runs of the shipped email prompt v2 through the
+Claude Code CLI, scored by both judges. Everything E3 phase 2 measures (v3
+against v2) compares against this file:
+`test-data/eval-baselines/2026-10-11T21-59-15/baseline.json`.
+
+| Metric | Mean | Min | Max | Spread |
+|--------|:---:|:---:|:---:|:---:|
+| Deterministic | **0.8756** | 0.8716 | 0.8830 | 0.0113 |
+| Judge Haiku 5.5 | **0.8408** | 0.8346 | 0.8523 | 0.0177 |
+| Judge Sonnet 5.5 | **0.8092** | 0.7992 | 0.8254 | 0.0262 |
+| Samples passing | 9 | 9 | 9 | 0 |
+
+- Pipeline `sonnet` → `claude-sonnet-5-5`, prompt v2, schema off, 13 samples,
+  CLI 2.1.296, gitSHA `c10706a`. Both judges scored 13 of 13 in every run; no
+  refine call fired (v2 cannot trigger one).
+- The two judges disagree in level (Sonnet 5.5 sits about 0.03 below Haiku 5.5)
+  and per sample; that is why they are reported separately and never averaged.
+- Not comparable with anything below (different judges, and the 2026-10-04
+  runs predate the CLI isolation fix). No bridge run was made: the API-era
+  baselines are not comparable with this instrument on any route, so a third
+  judge would have bought nothing.
+
 ## Eval Scores — baseline of 2026-10-04 (Claude Code CLI — a new instrument)
 
 > **Possibly affected, superseded.** These runs predate the CLI isolation fix
