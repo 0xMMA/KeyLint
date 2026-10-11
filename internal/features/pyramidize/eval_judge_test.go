@@ -98,21 +98,32 @@ func mustJudges(t *testing.T) []JudgeConfig {
 	return judges
 }
 
-// TestAnAPIJudgeIsStillPinnedAtZero: EVAL_JUDGE_PROVIDER=claude is the way back
-// to the API judges, and there the pin still applies.
-func TestAnAPIJudgeIsStillPinnedAtZero(t *testing.T) {
+// TestAnAPIJudgeIsPinnedOnlyWhereTheModelTakesIt: EVAL_JUDGE_PROVIDER=claude
+// is the way back to the API judges. The 5.5 judges reject a non-default
+// temperature there, so they record null with a note, like the CLI; the old
+// Sonnet 4.5 bridge judge still takes the pin.
+func TestAnAPIJudgeIsPinnedOnlyWhereTheModelTakesIt(t *testing.T) {
 	clearJudgeEnv(t)
 	t.Setenv("EVAL_JUDGE_PROVIDER", llm.ProviderClaude)
 	for _, cfg := range mustJudges(t) {
 		if cfg.Provider != llm.ProviderClaude {
 			t.Errorf("%s: provider = %q, want the API", cfg.Model, cfg.Provider)
 		}
-		if cfg.Temperature == nil || *cfg.Temperature != 0 {
-			t.Fatalf("%s: temperature = %v, want a pinned 0", cfg.Model, cfg.Temperature)
+		if cfg.Temperature != nil {
+			t.Errorf("%s: temperature = %v, want null — the model rejects a pin", cfg.Model, *cfg.Temperature)
 		}
-		if cfg.TemperatureNote != "" {
-			t.Errorf("%s: a pinned temperature carries a note: %q", cfg.Model, cfg.TemperatureNote)
+		if cfg.TemperatureNote == "" || strings.Contains(cfg.TemperatureNote, "CLI") {
+			t.Errorf("%s: note = %q, want one about the model", cfg.Model, cfg.TemperatureNote)
 		}
+	}
+
+	t.Setenv("EVAL_JUDGES", "claude-sonnet-4-5-20250929")
+	cfg := mustJudges(t)[0]
+	if cfg.Temperature == nil || *cfg.Temperature != 0 {
+		t.Fatalf("bridge judge: temperature = %v, want a pinned 0", cfg.Temperature)
+	}
+	if cfg.TemperatureNote != "" {
+		t.Errorf("bridge judge: a pinned temperature carries a note: %q", cfg.TemperatureNote)
 	}
 }
 
@@ -188,6 +199,8 @@ func TestTheJudgeSendsItsTemperatureAndSchema(t *testing.T) {
 	// The API judge: the one provider path where a temperature can be pinned.
 	clearJudgeEnv(t)
 	t.Setenv("EVAL_JUDGE_PROVIDER", llm.ProviderClaude)
+	// The bridge judge: the 5.5 judges take no temperature on the API.
+	t.Setenv("EVAL_JUDGES", "claude-sonnet-4-5-20250929")
 	svc, rec := newTestService()
 	judge := testJudge(t)
 	rec.client.reply = `{"pyramidStructure":0.8,"clarity":0.8,"completeness":0.8,"tonePreservation":0.8,"overall":0.8,"rationale":"ok"}`

@@ -40,8 +40,11 @@ cat input.txt | ./bin/KeyLint -fix                     # fix from stdin
 # aliases (sonnet for Pyramidize, haiku for Fix). TWO judges score every sample,
 # claude-haiku-5-5 and claude-sonnet-5-5 (full IDs, no dated form exists), each
 # reported separately — never averaged. Through the CLI they lose temperature 0
-# (no flag), so each records "temperature": null. summary.json records the
-# RESOLVED model IDs (model / modelRequested, judges[].resolvedModel).
+# (no flag), and on the API the 5.5 judges take none either (Anthropic rejects a
+# non-default temperature from 4.7 on), so each records "temperature": null
+# with a note; only a judge up to 4.6 (the Sonnet 4.5 bridge judge) is pinned
+# at 0. summary.json records the RESOLVED model IDs (model / modelRequested,
+# judges[].resolvedModel).
 # Against the API instead: --provider claude (pipeline) and
 # EVAL_JUDGE_PROVIDER=claude (judges), with ANTHROPIC_API_KEY in .env — .env keys
 # are loaded only when one of the two is an API provider.
@@ -49,7 +52,7 @@ cat input.txt | ./bin/KeyLint -fix                     # fix from stdin
 # Results are logged to test-data/eval-runs/<timestamp>/ with summary.json.
 go test -tags eval ./internal/features/pyramidize/ -v -timeout 10800s
 EVAL_PROVIDER=claude go test -tags eval ./internal/features/pyramidize/ -v -timeout 10800s  # API pipeline, CLI judges
-go test -tags eval ./internal/features/enhance/ -run 'TestEvalFix/^en-run-on$' -v   # smoke: one sample = 3 CLI calls
+EVAL_SPLIT=tune go test -tags eval ./internal/features/enhance/ -run 'TestEvalFix/^interpunktion$' -v   # smoke: one tune sample = 3 CLI calls
 EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 go test -tags eval ...
 ./scripts/eval.sh                                      # one run of the pyramidize suite
 ./scripts/eval.sh --suite fix --runs 3                 # the silent grammar fix instead (15 samples)
@@ -58,7 +61,7 @@ EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 go test -tags eval ...
                                                        # default is all 15. Tune on tune, measure holdout ONCE at the end.
                                                        # split is in the configKey, so --compare refuses to mix halves.
 ./scripts/eval.sh --provider claude --model claude-sonnet-4-6   # API pipeline (needs the key)
-EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --provider claude  # fully API, judges at temperature 0 (unverified on 5.5)
+EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --provider claude  # fully API (still not comparable with API-era baselines)
 ./scripts/eval.sh --variant 1                          # compare v1 vs v2 prompts
 ./scripts/eval.sh --schema                             # enforce the JSON schemas (default off, see pyramidize/schemas.go)
 ./scripts/eval.sh --runs 3                             # n runs → test-data/eval-baselines/<ts>/baseline.json (needs n≥2)
@@ -79,7 +82,10 @@ EVAL_JUDGE_MODEL=... ./scripts/eval.sh                 # a single judge instead 
 # "indicative only" rather than pretending otherwise.
 # --compare asks whether the two observed intervals overlap, not whether a mean
 # moved — per metric: deterministic, then each judge. Any metric clearly worse is
-# a regression; an improvement needs one clearly better and none worse. Exit
+# a regression, named in regressedMetrics; an improvement needs one clearly
+# better and none worse; a judge with no interval on one side is "not
+# comparable". The CLI version (claudeCodeVersion) and promptHash are reported
+# next to the verdict, not keyed. Exit
 # codes: 0 nothing to report, 1 regression (some metric's new range entirely
 # below the old), 2 not comparable (different configuration, or a judge skipped
 # samples), 3 usage or unusable input.
@@ -87,16 +93,17 @@ EVAL_JUDGE_MODEL=... ./scripts/eval.sh                 # a single judge instead 
 # environment only, so ~/.config/KeyLint/settings.json and the OS keyring cannot
 # move a number; the CLI is spawned without credential, model-remapping,
 # thinking-budget or output-cap env vars, with --setting-sources "", in an empty
-# KeyLint-owned working directory and with auto-memory off, so ~/.claude cannot
-# either. The judges are pinned to full model IDs; the pipeline is not, because
-# users get the alias.
+# KeyLint-owned working directory and with auto-memory off (#127). Whether
+# user-level instructions (~/.claude/CLAUDE.md) still reach it is not verified.
+# The judges are pinned to full model IDs; the pipeline is not, because users
+# get the alias.
 # The configKey names the instrument, not the thing measured: suite, provider,
 # RESOLVED model, the judge SET (providers, RESOLVED models, temperatures — one
 # "+"-joined entry per judge, ordered by ID), variant, schema, threshold, sample
-# count, checksVersion, split, thinking and claudeCodeVersion. An alias that
-# moves to a new generation therefore reads "not comparable", and so does a
-# different judge set (every single-judge baseline against a two-judge run) and
-# every API-era baseline (judge at temperature 0) against a CLI-era run. A
+# count, checksVersion, split and thinking. An alias that moves to a new
+# generation therefore reads "not comparable", and so does a different judge set
+# (every recorded baseline is single-judge) — the API-era baselines are not
+# comparable with this instrument on either route. A
 # prompt change is recorded (promptHash) and reported next to the verdict, but
 # is NOT in the key — a suite that refuses to compare across a prompt change
 # cannot answer the question it exists for. Changing the deterministic checks

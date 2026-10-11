@@ -151,7 +151,7 @@ func TestTheJudgeSetIsInTheKey(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d — the same two judges in another order are the same instrument", code)
 	}
-	const want = "pyramidize|claude-code|claude-sonnet-5-5|claude-code+claude-code|claude-haiku-5-5+claude-sonnet-5-5|2|false|0.65|2|1|all|null+null|on|2.1.296"
+	const want = "pyramidize|claude-code|claude-sonnet-5-5|claude-code+claude-code|claude-haiku-5-5+claude-sonnet-5-5|2|false|0.65|2|1|all|null+null|on"
 	if got["configKey"] != want {
 		t.Errorf("configKey = %v\nwant       %v", got["configKey"], want)
 	}
@@ -184,6 +184,10 @@ func TestADifferentJudgeSetIsNotComparable(t *testing.T) {
 		fakeRunJudged(t, filepath.Join(root, "m2"), 0.78, twoJudges(0.86, 0.74), nil))
 	if code != 2 || got["verdict"] != "not comparable: different configuration" {
 		t.Errorf("single-judge baseline vs two judges: exit %d, verdict %v — want not comparable", code, got["verdict"])
+	}
+	// No metric is named as flagging a comparison that was not made.
+	if flagged, _ := got["regressedMetrics"].([]any); len(flagged) != 0 {
+		t.Errorf("regressedMetrics = %v on a non-comparison", flagged)
 	}
 }
 
@@ -226,6 +230,10 @@ func TestOneJudgeClearlyWorseIsARegression(t *testing.T) {
 	}
 	if got["verdict"] != "regression: judge "+judgeSonnet+" regression" {
 		t.Errorf("verdict = %v", got["verdict"])
+	}
+	// Named on its own, so a one-judge regression reads as one.
+	if flagged, _ := got["regressedMetrics"].([]any); len(flagged) != 1 || flagged[0] != "judge "+judgeSonnet {
+		t.Errorf("regressedMetrics = %v, want only the Sonnet judge", got["regressedMetrics"])
 	}
 	verdicts, _ := got["judgeVerdicts"].(map[string]any)
 	if verdicts[judgeHaiku] != "overlap" || verdicts[judgeSonnet] != "regression" {
@@ -272,5 +280,104 @@ func TestAJudgeThatSkippedASampleIsNamed(t *testing.T) {
 		fakeRunJudged(t, filepath.Join(root, "n2"), 0.80, twoJudges(0.87, 0.73), nil))
 	if code != 2 || got["verdict"] != "not comparable: judge "+judgeHaiku+" did not score every sample" {
 		t.Errorf("exit %d, verdict %v", code, got["verdict"])
+	}
+}
+
+// fakeRunSpelled is a one-judge run whose judge was requested under one name
+// and answered under another — EVAL_JUDGES=haiku against claude-haiku-5-5.
+// Everything the Go side writes is keyed by the requested name.
+func fakeRunSpelled(t *testing.T, dir, requested, resolved string, det, score float64) string {
+	t.Helper()
+	dir = fakeRunJudged(t, dir, det, map[string]float64{requested: score}, func(s map[string]any) {
+		s["judges"].([]any)[0].(map[string]any)["resolvedModel"] = resolved
+	})
+	return dir
+}
+
+// TestAJudgeIsTrackedByTheIDThatAnswered: the key names the resolved judge,
+// so the columns must too. Keyed by the requested name, a baseline judged as
+// "haiku" and a run judged as "claude-haiku-5-5" share a key but no column,
+// and a collapse from 0.95 to 0.40 came back "inconclusive", exit 0.
+func TestAJudgeIsTrackedByTheIDThatAnswered(t *testing.T) {
+	root := t.TempDir()
+	base := filepath.Join(root, "baseline.json")
+	writeJudgedBaseline(t, base,
+		fakeRunSpelled(t, filepath.Join(root, "b1"), "haiku", judgeHaiku, 0.80, 0.95),
+		fakeRunSpelled(t, filepath.Join(root, "b2"), "haiku", judgeHaiku, 0.79, 0.96))
+
+	got, code := aggregate(t, "--compare", base,
+		fakeRunSpelled(t, filepath.Join(root, "n1"), judgeHaiku, judgeHaiku, 0.80, 0.40),
+		fakeRunSpelled(t, filepath.Join(root, "n2"), judgeHaiku, judgeHaiku, 0.79, 0.41))
+	if code != 1 || got["verdict"] != "regression: judge "+judgeHaiku+" regression" {
+		t.Errorf("exit %d, verdict %v — want the judge's regression", code, got["verdict"])
+	}
+}
+
+// TestMixedSpellingsAggregateIntoOneJudge: two runs of the same judge under two
+// names are one judge with a two-run interval, not two judges with one run each.
+func TestMixedSpellingsAggregateIntoOneJudge(t *testing.T) {
+	root := t.TempDir()
+	got, code := aggregate(t,
+		fakeRunSpelled(t, filepath.Join(root, "r1"), "haiku", judgeHaiku, 0.80, 0.90),
+		fakeRunSpelled(t, filepath.Join(root, "r2"), judgeHaiku, judgeHaiku, 0.78, 0.86))
+	if code != 0 {
+		t.Fatalf("exit = %d", code)
+	}
+	judges := got["judges"].(map[string]any)
+	if len(judges) != 1 {
+		t.Fatalf("judges = %v, want one column", judges)
+	}
+	s, _ := judges[judgeHaiku].(map[string]any)
+	if s == nil || s["min"] != 0.86 || s["max"] != 0.90 {
+		t.Errorf("judges[%s] = %v, want the interval over both runs", judgeHaiku, s)
+	}
+	sample := got["perSample"].([]any)[0].(map[string]any)
+	if ps, _ := sample["judges"].(map[string]any)[judgeHaiku].(map[string]any); ps == nil || ps["spread"] != 0.04 {
+		t.Errorf("perSample judges = %v, want both runs in one column", sample["judges"])
+	}
+}
+
+// TestAMissingIntervalIsNotComparable: equal keys and full coverage, yet one
+// side has no interval for a judge. That is a broken record, and reading it as
+// "overlap" would hide a regression; it must say "not comparable".
+func TestAMissingIntervalIsNotComparable(t *testing.T) {
+	root := t.TempDir()
+	base := filepath.Join(root, "baseline.json")
+	writeJudgedBaseline(t, base,
+		fakeRunJudged(t, filepath.Join(root, "b1"), 0.80, twoJudges(0.90, 0.70), nil),
+		fakeRunJudged(t, filepath.Join(root, "b2"), 0.78, twoJudges(0.86, 0.74), nil))
+	data, _ := os.ReadFile(base)
+	var doc map[string]any
+	_ = json.Unmarshal(data, &doc)
+	delete(doc["judges"].(map[string]any), judgeSonnet)
+	data, _ = json.Marshal(doc)
+	_ = os.WriteFile(base, data, 0o644)
+
+	got, code := aggregate(t, "--compare", base,
+		fakeRunJudged(t, filepath.Join(root, "n1"), 0.79, twoJudges(0.88, 0.40), nil),
+		fakeRunJudged(t, filepath.Join(root, "n2"), 0.80, twoJudges(0.87, 0.41), nil))
+	if code != 2 || got["verdict"] != "not comparable: no interval for judge "+judgeSonnet+" on one side" {
+		t.Errorf("exit %d, verdict %v", code, got["verdict"])
+	}
+}
+
+// TestARefusedComparisonFlagsNoMetric: different configurations, and the new
+// deterministic range sits wholly below the old. The verdict is "not
+// comparable", so no metric may be reported as having flagged a regression.
+func TestARefusedComparisonFlagsNoMetric(t *testing.T) {
+	root := t.TempDir()
+	base := filepath.Join(root, "baseline.json")
+	writeJudgedBaseline(t, base,
+		fakeRunJudged(t, filepath.Join(root, "b1"), 0.80, twoJudges(0.90, 0.70), nil),
+		fakeRunJudged(t, filepath.Join(root, "b2"), 0.78, twoJudges(0.86, 0.74), nil))
+	other := func(s map[string]any) { s["checksVersion"] = 9 }
+	got, code := aggregate(t, "--compare", base,
+		fakeRunJudged(t, filepath.Join(root, "n1"), 0.50, twoJudges(0.90, 0.70), other),
+		fakeRunJudged(t, filepath.Join(root, "n2"), 0.51, twoJudges(0.86, 0.74), other))
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2", code)
+	}
+	if flagged, _ := got["regressedMetrics"].([]any); len(flagged) != 0 {
+		t.Errorf("regressedMetrics = %v on a refused comparison", flagged)
 	}
 }

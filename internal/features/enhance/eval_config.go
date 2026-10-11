@@ -77,9 +77,10 @@ type JudgeConfig struct {
 const (
 	// The CLI since 2026-10, for the same reason as the pipeline; what the
 	// judges lose there is the temperature pin.
-	defaultJudgeProvider = llm.ProviderClaudeCode
-	judgeTemperature     = 0.0
-	judgeTemperatureNote = "not pinned: the Claude Code CLI has no temperature flag, so the judge samples at the CLI default (and thinks first, as the CLI does by default)"
+	defaultJudgeProvider      = llm.ProviderClaudeCode
+	judgeTemperature          = 0.0
+	judgeTemperatureNote      = "not pinned: the Claude Code CLI has no temperature flag, so the judge samples at the CLI default (and thinks first, as the CLI does by default)"
+	judgeModelTemperatureNote = "not pinned: this model takes no temperature on the API (the 4.7 generation and later reject a non-default one), so the judge samples at the model default"
 )
 
 // defaultJudgeModels: two judges since 2026-10-11, the same pair as the
@@ -118,10 +119,14 @@ func JudgesFromEnv(getenv func(string) string) ([]JudgeConfig, error) {
 	judges := make([]JudgeConfig, len(models))
 	for i, m := range models {
 		judges[i] = JudgeConfig{Provider: provider, Model: m}
-		if llm.SupportsTemperature(provider) {
+		switch {
+		case llm.SupportsTemperature(provider, m):
 			judges[i].Temperature = llm.Temp(judgeTemperature)
-		} else {
+		case provider == llm.ProviderClaudeCode:
 			judges[i].TemperatureNote = judgeTemperatureNote
+		default:
+			// An API judge whose model takes no temperature: the 5.5 judges.
+			judges[i].TemperatureNote = judgeModelTemperatureNote
 		}
 	}
 	return judges, nil
@@ -138,7 +143,7 @@ func judgeProviderFrom(getenv func(string) string) string {
 // TemperatureLabel is the judge's temperature for a log line.
 func (c JudgeConfig) TemperatureLabel() string {
 	if c.Temperature == nil {
-		return "unpinned (CLI default)"
+		return "unpinned (model default)"
 	}
 	return fmt.Sprintf("%.1f", *c.Temperature)
 }
@@ -208,7 +213,7 @@ func isEvalSetting(key string) bool {
 
 // cliVersionSpan is what a run records as the CLI version: the version read at
 // its start, or "start->end" when the CLI changed while the run was going. The
-// configKey includes it, so a run that straddled an upgrade matches nothing.
+// version is reported next to a verdict, not keyed: the CLI updates itself.
 func cliVersionSpan(start, end string) string {
 	if start == end {
 		return start

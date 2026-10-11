@@ -25,7 +25,7 @@ import (
 // Claude Code CLI and no API key is read; EVAL_PROVIDER=claude (and
 // EVAL_JUDGE_PROVIDER=claude) measure against the API with ANTHROPIC_API_KEY.
 //
-//	go test -tags eval ./internal/features/enhance/ -v -timeout 3600s
+//	go test -tags eval ./internal/features/enhance/ -v -timeout 10800s
 //	./scripts/eval.sh --suite fix --runs 3
 //
 // The harness mirrors the Pyramidize one deliberately: same isolated settings,
@@ -280,7 +280,8 @@ func TestEvalFix(t *testing.T) {
 		"model":          answered.Recorded(model),
 		"modelRequested": requestedModel,
 		// The CLI is part of the instrument when either side runs through it:
-		// its defaults sit between the model and the score. In the configKey.
+		// its defaults sit between the model and the score. Reported next to a
+		// verdict, not keyed (the CLI updates itself).
 		"claudeCodeVersion": cliVersionSpan(cliVersionAtStart, evalCLIVersion(provider, judgeProvider)),
 		// What Fix does about reasoning on this route; see fixThinkingLabel.
 		"thinking": thinkingLabel,

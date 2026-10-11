@@ -72,6 +72,10 @@ var defaultJudgeModels = []string{"claude-haiku-5-5", "claude-sonnet-5-5"}
 // judgeTemperatureNote is recorded wherever the judge's temperature is null.
 const judgeTemperatureNote = "not pinned: the Claude Code CLI has no temperature flag, so the judge samples at the CLI default (and thinks first, as the CLI does by default)"
 
+// judgeModelTemperatureNote is recorded for an API judge whose model takes no
+// temperature (see llm.SupportsTemperature) — the 5.5 judges among them.
+const judgeModelTemperatureNote = "not pinned: this model takes no temperature on the API (the 4.7 generation and later reject a non-default one), so the judge samples at the model default"
+
 // JudgesFromEnv resolves the judge set, pinned unless a run deliberately
 // overrides it. An override is recorded in summary.json like everything else,
 // so a run judged by something else says so.
@@ -123,10 +127,13 @@ func judgeProviderFrom(getenv func(string) string) string {
 
 func newJudgeConfig(provider, model string) JudgeConfig {
 	cfg := JudgeConfig{Provider: provider, Model: model}
-	if llm.SupportsTemperature(provider) {
+	switch {
+	case llm.SupportsTemperature(provider, model):
 		cfg.Temperature = llm.Temp(judgeTemperature)
-	} else {
+	case provider == llm.ProviderClaudeCode:
 		cfg.TemperatureNote = judgeTemperatureNote
+	default:
+		cfg.TemperatureNote = judgeModelTemperatureNote
 	}
 	return cfg
 }
@@ -135,7 +142,7 @@ func newJudgeConfig(provider, model string) JudgeConfig {
 // pinned, "unpinned" when the provider cannot set one.
 func (c JudgeConfig) TemperatureLabel() string {
 	if c.Temperature == nil {
-		return "unpinned (CLI default)"
+		return "unpinned (model default)"
 	}
 	return fmt.Sprintf("%.1f", *c.Temperature)
 }

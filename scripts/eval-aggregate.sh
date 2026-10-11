@@ -114,28 +114,32 @@ done
 # a pinned one, whatever a later run names its provider. Runs that predate the
 # field were all judged at a pinned 0.
 #
-# Two more fields close the key, for the same reason: the Claude Code CLI sits
-# between the model and the score whenever a run goes through it.
-#   thinking — whether the pipeline thought first. The CLI thinks by default
-#     ("on"); on the API Fix asks a fast-tier model not to ("off"), and other
-#     models are left to the provider ("n/a"). It moved the numbers once, so it
-#     is part of the measurement.
-#   claudeCodeVersion — a CLI default moved the numbers once, so its version is
-#     part of the instrument. "none" when no side of the run used the CLI.
-# Runs that predate a field key as "unrecorded" if they went through the CLI
-# (the 2026-10-04 first CLI baselines, superseded) and as "n/a" / "none" if
-# they did not (every API-era run), which keeps those comparable with new API
-# runs.
+# thinking closes the key: whether the pipeline thought first. The CLI thinks
+# by default ("on"); on the API Fix asks a fast-tier model not to ("off"), and
+# other models are left to the provider ("n/a"). It moved the numbers once, so
+# it is part of the measurement. Runs that predate it key as "unrecorded" if
+# they went through the CLI (the 2026-10-04 first CLI baselines) and as "n/a"
+# if they did not (every API-era run).
+#
+# claudeCodeVersion is deliberately NOT in the key, for the promptHash reason
+# (decision 2026-10-11): the CLI updates itself, and a key that changed with
+# every update would make each baseline incomparable within days. It is
+# recorded, listed in the baseline, and reported next to a verdict.
 JQ_ROUND='def r4: (. * 10000 | round) / 10000;
+def resolvedOr(r; m): if (r // "") == "" then m else r end;
 def judgesOf(c): if (c.judges|type) == "array" then c.judges elif (c.judge|type) == "object" then [c.judge] else [] end;
-def judgeId(j): j.model;
+# A judge is named by the ID that answered, as in the key — never by how a run
+# spelled it. EVAL_JUDGES=haiku and claude-haiku-5-5 key alike, so they must
+# land in the same column; keyed by the requested name, a regression on one
+# side had no column on the other and passed as "overlap".
+def judgeId(j): resolvedOr(j.resolvedModel; j.model);
+# The Go side writes avgJudges, judgeCounts and the judges of each sample under the
+# requested name; this maps that name to judgeId for one run.
+def judgeRename(c): judgesOf(c) | map({key: .model, value: judgeId(.)}) | from_entries;
+def renamed(c; obj): judgeRename(c) as $m | obj | with_entries(.key = ($m[.key] // .key));
 def judgeIds(c): judgesOf(c) | map(judgeId(.));
-def usesCLI(c): (c.provider == "claude-code") or any(judgesOf(c)[]; (.provider // "") == "claude-code");
 def thinkingOf(c): if (c.thinking // "") != "" then c.thinking
                    elif c.provider == "claude-code" then "unrecorded" else "n/a" end;
-def cliVersionOf(c): if (c.claudeCodeVersion // "") != "" then c.claudeCodeVersion
-                     elif usesCLI(c) then "unrecorded" else "none" end;
-def resolvedOr(r; m): if (r // "") == "" then m else r end;
 def judgeTemp(j): if j == null then "none"
                   elif (j | has("temperature")) then (j.temperature | if . == null then "null" else (. + 0 | tostring) end)
                   else "0" end;
@@ -146,34 +150,38 @@ def keyFrom(c): [(c.suite // "pyramidize"), c.provider, resolvedOr(c.resolvedMod
                  (c.promptVariant|tostring), (c.schemaEnforcement|tostring),
                  (c.qualityThreshold|tostring), (c.sampleCount|tostring),
                  ((c.checksVersion // 1)|tostring), (c.split // "all"), judgeField(c; judgeTemp(.)),
-                 thinkingOf(c), cliVersionOf(c)] | join("|");
+                 thinkingOf(c)] | join("|");
 # One interval per judge, never one across judges: two judges that disagree are
 # information, and their mean would hide which one moved.
 def stats: {mean: ((add / length) | r4), min: (min | r4), max: (max | r4), spread: ((max - min) | r4)};
 def statsOrNull: if length == 0 then null else stats end;
 # A run before the judge set wrote avgJudge/judgeCount for its one judge.
-def judgeAvgs(s): if (s.avgJudges|type) == "object" then s.avgJudges
+def judgeAvgs(s): if (s.avgJudges|type) == "object" then renamed(s; s.avgJudges)
                   elif (judgesOf(s)|length) == 1 and s.avgJudge != null then {(judgeId(judgesOf(s)[0])): s.avgJudge}
                   else {} end;
-def judgeCounts(s): if (s.judgeCounts|type) == "object" then s.judgeCounts
+def judgeCounts(s): if (s.judgeCounts|type) == "object" then renamed(s; s.judgeCounts)
                     elif (judgesOf(s)|length) == 1 then {(judgeId(judgesOf(s)[0])): (s.judgeCount // 0)}
                     else {} end;
-# One sample line: {judge: overall}. Before the judge set a line carried .judge.
-def sampleScores(r; ids): if (r.judges|type) == "object" then (r.judges | map_values(.overall))
-                          elif (r.judge|type) == "object" and (ids|length) == 1 then {(ids[0]): r.judge.overall}
-                          else {} end;
+# One sample line of run s: {judgeId: overall}. Before the judge set a line
+# carried .judge, which belongs to the one judge of that run.
+def sampleScores(r; s): if (r.judges|type) == "object" then renamed(s; r.judges | map_values(.overall))
+                        elif (r.judge|type) == "object" and (judgesOf(s)|length) == 1 then {(judgeId(judgesOf(s)[0])): r.judge.overall}
+                        else {} end;
 # A baseline written before the suite name joined the key stored eight fields.
 # Upgrading it on READ is what keeps the baselines recorded so far usable;
 # refusing them would have made a key format change quietly discard every
-# measurement the project has. Every stored-string key predates the judge
-# temperature, thinking and CLI version fields, and every one of them was an
-# API run judged at a pinned 0.
+# measurement the project has. Stored keys of 8 to 11 fields predate the judge
+# temperature and thinking fields, and every one of them was an API run judged
+# at a pinned 0. A 12-field key has the temperature but not thinking, so it
+# gains "n/a". A 14-field key (one PR revision, never on main) ended in the CLI
+# version, which is no longer keyed and is dropped.
 def upgradeKey(k): (k | split("|")) as $p
-                 | if ($p|length) == 8 then ((["pyramidize"] + $p + ["1", "all", "0", "n/a", "none"]) | join("|"))
-                   elif ($p|length) == 9 then (($p + ["1", "all", "0", "n/a", "none"]) | join("|"))
-                   elif ($p|length) == 10 then (($p + ["all", "0", "n/a", "none"]) | join("|"))
-                   elif ($p|length) == 11 then (($p + ["0", "n/a", "none"]) | join("|"))
-                   elif ($p|length) == 12 then (($p + ["n/a", "none"]) | join("|"))
+                 | if ($p|length) == 8 then ((["pyramidize"] + $p + ["1", "all", "0", "n/a"]) | join("|"))
+                   elif ($p|length) == 9 then (($p + ["1", "all", "0", "n/a"]) | join("|"))
+                   elif ($p|length) == 10 then (($p + ["all", "0", "n/a"]) | join("|"))
+                   elif ($p|length) == 11 then (($p + ["0", "n/a"]) | join("|"))
+                   elif ($p|length) == 12 then (($p + ["n/a"]) | join("|"))
+                   elif ($p|length) == 14 then ($p[:13] | join("|"))
                    else k end;
 def baselineKey(b): if (b.config|type) == "object" then keyFrom(b.config) else upgradeKey(b.configKey // "unknown") end;'
 
@@ -181,13 +189,19 @@ def baselineKey(b): if (b.config|type) == "object" then keyFrom(b.config) else u
 # refuses runs whose judge sets differ.
 JUDGE_IDS=$(jq -c "$JQ_ROUND"'judgeIds(.)' "${SUMMARIES[0]}")
 
-PER_SAMPLE=$(cat "${RESULTS[@]}" | jq -s --argjson ids "$JUDGE_IDS" "$JQ_ROUND"'
+# Each results line gets its run's judge scores under judgeId, which needs that
+# run's summary; the lines are then pooled across runs.
+SCORED_RESULTS=$(for i in "${!RESULTS[@]}"; do
+    jq -c --slurpfile s "${SUMMARIES[$i]}" "$JQ_ROUND"'. + {judgeScores: sampleScores(.; $s[0])}' "${RESULTS[$i]}"
+done)
+
+PER_SAMPLE=$(printf '%s\n' "$SCORED_RESULTS" | jq -s --argjson ids "$JUDGE_IDS" "$JQ_ROUND"'
     group_by(.name) | map(. as $rows | {
         name: .[0].name,
         runs: length,
         errors: (map(select(.error != null and .error != "")) | length),
         deterministic: (map(.deterministic.overallScore) | stats),
-        judges: ($ids | map(. as $id | {key: $id, value: ([$rows[] | sampleScores(.; $ids)[$id] | select(. != null)] | statsOrNull)}) | from_entries),
+        judges: ($ids | map(. as $id | {key: $id, value: ([$rows[] | .judgeScores[$id] | select(. != null)] | statsOrNull)}) | from_entries),
         passed: (map(select(.deterministic.allPassed == true)) | length),
         refined: (map(select(.appliedRefinement == true)) | length)
     })')
@@ -232,9 +246,10 @@ AGGREGATE=$(jq -s --argjson perSample "$PER_SAMPLE" --argjson runs "$RUNS_JSON" 
             # Only first-generation CLI runs (2026-10-04) wrote model = alias and
             # the ID here; null for everything else.
             resolvedModel: (if (.[0].resolvedModel // "") == "" then null else .[0].resolvedModel end),
-            # Keyed (cliVersionOf), and reported next to a verdict: the CLI is
-            # part of the instrument when a run goes through it.
-            claudeCodeVersion: (if (.[0].claudeCodeVersion // "") == "" then null else .[0].claudeCodeVersion end),
+            # Every CLI version the runs saw, comma-joined; null when none
+            # recorded one. Not keyed — reported next to a verdict instead.
+            claudeCodeVersion: (map(.claudeCodeVersion // "" | select(. != "")) | unique
+                                | if length == 0 then null else join(",") end),
             thinking: (if (.[0].thinking // "") == "" then null else .[0].thinking end),
             promptVariant: .[0].promptVariant,
             # Every judge of the run, each with the ID that answered for it.
@@ -325,6 +340,10 @@ VERDICT=$(printf '%s\n' "$AGGREGATE" | jq --slurpfile base "$COMPARE" "$JQ_ROUND
     | ($ids | map({key: ., value: rangeVerdict($now.judges[.]; $wasJudges[.])}) | from_entries) as $judgeVerdicts
     | ([{label: "deterministic", verdict: $detVerdict}]
        + ($ids | map({label: ("judge " + .), verdict: $judgeVerdicts[.]}))) as $metrics
+    # Every judge either side names. Equal keys mean equal judge sets, so a
+    # judge with no interval on one side is a broken record, not an overlap.
+    | (($ids + ($wasJudges | keys)) | unique) as $allIds
+    | ($allIds | map(select($now.judges[.] == null or $wasJudges[.] == null))) as $missing
     | ((coverageMins($now) | map(select(.[1] < $now.config.sampleCount)))
        + (coverageMins($was) | map(select(.[1] < ($was.config.sampleCount // 0))))) as $shortJudges
     | {
@@ -340,6 +359,10 @@ VERDICT=$(printf '%s\n' "$AGGREGATE" | jq --slurpfile base "$COMPARE" "$JQ_ROUND
                    deterministic: $now.deterministic, judges: $now.judges, samplesPassing: $now.samplesPassing},
         deterministicVerdict: $detVerdict,
         judgeVerdicts: $judgeVerdicts,
+        # Which metrics flagged the verdict, by name: a regression carried by
+        # one judge alone reads as exactly that.
+        regressedMetrics: ($metrics | map(select(.verdict == "regression") | .label)),
+        improvedMetrics: ($metrics | map(select(.verdict == "improvement") | .label)),
         deterministicDelta: (($now.deterministic.mean - $was.deterministic.mean) | r4),
         judgeDeltas: ($ids | map(. as $id | {key: $id, value:
             (if ($now.judges[$id].mean == null) or ($wasJudges[$id].mean == null) then null
@@ -354,6 +377,8 @@ VERDICT=$(printf '%s\n' "$AGGREGATE" | jq --slurpfile base "$COMPARE" "$JQ_ROUND
                 "not comparable: a run failed to score every sample"
             elif ($shortJudges | length) > 0 then
                 "not comparable: " + ($shortJudges | map(.[0] | if . == "the judge" then . else "judge " + . end) | unique | join(", ")) + " did not score every sample"
+            elif ($missing | length) > 0 then
+                "not comparable: no interval for " + ($missing | map("judge " + .) | join(", ")) + " on one side"
             elif ($was.runCount < 2) or ($now.runCount < 2) then
                 "indicative only: one run has no range to compare"
             else
@@ -374,7 +399,11 @@ VERDICT=$(printf '%s\n' "$AGGREGATE" | jq --slurpfile base "$COMPARE" "$JQ_ROUND
                   end
             end
         )
-      }')
+      }
+    # Named only when the verdict is that comparison: a metric cannot flag a
+    # comparison that was refused.
+    | .regressedMetrics = (if (.verdict | startswith("regression")) then .regressedMetrics else [] end)
+    | .improvedMetrics = (if (.verdict | startswith("improvement")) then .improvedMetrics else [] end)')
 
 printf '%s\n' "$VERDICT"
 
@@ -401,7 +430,9 @@ fi
 
 case "$(printf '%s' "$VERDICT" | jq -r .verdict)" in
     regression*)
-        echo "On at least one metric, every run of the new code scored below every run of the baseline. Advisory — re-run before believing it." >&2
+        printf 'Flagged by: %s (of %s). On that metric every run of the new code scored below every run of the baseline. Advisory — re-run before believing it.\n' \
+            "$(printf '%s' "$VERDICT" | jq -r '.regressedMetrics | join(", ")')" \
+            "$(printf '%s' "$VERDICT" | jq -r '(["deterministic"] + (.judgeVerdicts | keys | map("judge " + .))) | join(", ")')" >&2
         exit "$EXIT_REGRESSION"
         ;;
     "not comparable"*)

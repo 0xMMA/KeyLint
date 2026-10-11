@@ -109,7 +109,7 @@ func isEvalSetting(key string) bool {
 
 // cliVersionSpan is what a run records as the CLI version: the version read at
 // its start, or "start->end" when the CLI changed while the run was going. The
-// configKey includes it, so a run that straddled an upgrade matches nothing.
+// version is reported next to a verdict, not keyed: the CLI updates itself.
 func cliVersionSpan(start, end string) string {
 	if start == end {
 		return start

@@ -50,13 +50,39 @@ func TestOpenAIReportsTheModelThatAnswered(t *testing.T) {
 	}
 }
 
+// TestSupportsTemperature: the CLI has no temperature flag at all, and on the
+// Anthropic API the 4.7 generation and everything after it rejects a
+// non-default temperature (Sonnet 5.5 and Haiku 5.5 with a 400, Opus 4.7/4.8,
+// Sonnet 5, Opus 5.x and Fable have no sampling parameters at all). Claiming
+// a pin there records one that never reached the model — or fails the call.
 func TestSupportsTemperature(t *testing.T) {
-	if SupportsTemperature(ProviderClaudeCode) {
-		t.Error("the Claude Code CLI has no temperature flag; claiming otherwise records a pin that never happened")
+	cases := []struct {
+		provider, model string
+		want            bool
+	}{
+		{ProviderClaudeCode, "claude-sonnet-4-5-20250929", false},
+		{ProviderClaudeCode, "haiku", false},
+		{ProviderClaude, "claude-sonnet-4-5-20250929", true},
+		{ProviderClaude, "claude-haiku-4-5-20251001", true},
+		{ProviderClaude, "claude-sonnet-4-6", true},
+		{ProviderClaude, "claude-opus-4-6", true},
+		{ProviderClaude, "claude-3-5-sonnet-20241022", true},
+		{ProviderClaude, "claude-opus-4-7", false},
+		{ProviderClaude, "claude-opus-4-8", false},
+		{ProviderClaude, "claude-sonnet-5", false},
+		{ProviderClaude, "claude-sonnet-5-5", false},
+		{ProviderClaude, "claude-haiku-5-5", false},
+		{ProviderClaude, "claude-opus-5-5", false},
+		{ProviderClaude, "claude-fable-5-1", false},
+		// A family alias resolves to the newest generation.
+		{ProviderClaude, "sonnet", false},
+		{ProviderClaude, "something-else", false},
+		{ProviderOpenAI, "gpt-4.1", true},
+		{ProviderOllama, "llama3", true},
 	}
-	for _, p := range []string{ProviderClaude, ProviderOpenAI, ProviderOllama} {
-		if !SupportsTemperature(p) {
-			t.Errorf("SupportsTemperature(%q) = false, want true", p)
+	for _, tc := range cases {
+		if got := SupportsTemperature(tc.provider, tc.model); got != tc.want {
+			t.Errorf("SupportsTemperature(%s, %s) = %v, want %v", tc.provider, tc.model, got, tc.want)
 		}
 	}
 }

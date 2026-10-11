@@ -58,18 +58,26 @@ func TestTheFixJudgesArePinnedThroughTheCLI(t *testing.T) {
 	}
 }
 
-func TestAnAPIFixJudgeIsPinnedAtZero(t *testing.T) {
+// TestAnAPIFixJudgeIsPinnedOnlyWhereTheModelTakesIt: on the API the 5.5
+// judges reject a non-default temperature and record null with a note; the
+// Sonnet 4.5 bridge judge keeps the pin.
+func TestAnAPIFixJudgeIsPinnedOnlyWhereTheModelTakesIt(t *testing.T) {
 	judges, err := JudgesFromEnv(envFrom(map[string]string{"EVAL_JUDGE_PROVIDER": llm.ProviderClaude}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, cfg := range judges {
-		if cfg.Temperature == nil || *cfg.Temperature != 0 {
-			t.Fatalf("%s: temperature = %v, want a pinned 0", cfg.Model, cfg.Temperature)
+		if cfg.Temperature != nil || cfg.TemperatureNote == "" {
+			t.Errorf("%s: temperature %v, note %q — want null with a note", cfg.Model, cfg.Temperature, cfg.TemperatureNote)
 		}
-		if cfg.TemperatureNote != "" {
-			t.Errorf("%s: a pinned temperature carries a note: %q", cfg.Model, cfg.TemperatureNote)
-		}
+	}
+	judges, err = JudgesFromEnv(envFrom(map[string]string{
+		"EVAL_JUDGE_PROVIDER": llm.ProviderClaude, "EVAL_JUDGES": "claude-sonnet-4-5-20250929"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg := judges[0]; cfg.Temperature == nil || *cfg.Temperature != 0 || cfg.TemperatureNote != "" {
+		t.Errorf("bridge judge: temperature %v, note %q — want a pinned 0", cfg.Temperature, cfg.TemperatureNote)
 	}
 }
 

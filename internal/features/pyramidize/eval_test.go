@@ -3,7 +3,7 @@
 package pyramidize
 
 // Evaluation tests — make real AI calls against test-data samples.
-// Run with: go test -tags eval ./internal/features/pyramidize/ -v -timeout 3600s
+// Run with: go test -tags eval ./internal/features/pyramidize/ -v -timeout 10800s
 //
 // Requires, by default, nothing but a signed-in Claude Code CLI: pipeline and
 // judge both run through it (provider claude-code), so no API key is read.
@@ -316,7 +316,8 @@ func TestEvalPyramidize(t *testing.T) {
 		"model":          answered.Recorded(model),
 		"modelRequested": requestedModel,
 		// The CLI is part of the instrument when either side runs through it:
-		// its defaults sit between the model and the score. In the configKey.
+		// its defaults sit between the model and the score. Reported next to a
+		// verdict, not keyed (the CLI updates itself).
 		"claudeCodeVersion": cliVersionSpan(cliVersionAtStart, evalCLIVersion(provider, judgeProvider)),
 		"thinking":          pyramidizeThinking(provider),
 		"promptVariant":     effectiveVariant,

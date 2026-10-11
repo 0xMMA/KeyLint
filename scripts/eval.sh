@@ -24,7 +24,8 @@ set -euo pipefail
 #   ./scripts/eval.sh --schema                 # enforce the JSON schemas (off by default, see schemas.go)
 #   ./scripts/eval.sh --runs 3                 # run n times and write an aggregate baseline.json
 #   ./scripts/eval.sh --runs 3 --compare path/to/baseline.json
-#   ./scripts/eval.sh --dry-run                # print the resolved configuration, run nothing
+#   ./scripts/eval.sh --dry-run                # print the resolved configuration, run nothing, ask the CLI nothing
+#   ./scripts/eval.sh --preflight              # the same plus the CLI sign-in check
 #
 # --compare wants --runs on both sides. A single run has no range, so it gets an
 # "indicative only" answer rather than a verdict: believing a one-run delta is
@@ -51,6 +52,7 @@ VARIANT_SET=0
 SCHEMA_SET=0
 SPLIT_SET=0
 DRY_RUN=0
+PREFLIGHT=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -63,6 +65,7 @@ while [[ $# -gt 0 ]]; do
         --split)    export EVAL_SPLIT="$2"; SPLIT_SET=1; shift 2 ;;
         --compare)  COMPARE="$2"; shift 2 ;;
         --dry-run)  DRY_RUN=1; shift ;;
+        --preflight) DRY_RUN=1; PREFLIGHT=1; shift ;;
         *)          echo "Unknown flag: $1" >&2; exit 1 ;;
     esac
 done
@@ -133,15 +136,18 @@ fi
 # A signed-out CLI fails every sample one by one; say so once, up front. Only
 # when the binary is on PATH — KeyLint also finds it in other places, and the
 # Go side reports a missing one per sample with the right wording.
-if [[ "$PIPELINE_PROVIDER" == "claude-code" || "$JUDGE_PROVIDER" == "claude-code" ]] && command -v claude >/dev/null; then
+# --dry-run only prints the configuration, so it asks nothing of the CLI;
+# --preflight runs this check as well (and still runs nothing).
+if (( ! DRY_RUN || PREFLIGHT )) && [[ "$PIPELINE_PROVIDER" == "claude-code" || "$JUDGE_PROVIDER" == "claude-code" ]] && command -v claude >/dev/null; then
     # The same variables internal/llm strips before every CLI call
     # (blockedCLIEnv): detection must see the account the eval will run as.
+    # internal/llm/claudecode_evalsh_test.go fails when the two lists drift.
     if ! env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL \
             -u CLAUDE_CODE_OAUTH_TOKEN -u ANTHROPIC_MODEL \
             -u ANTHROPIC_DEFAULT_OPUS_MODEL -u ANTHROPIC_DEFAULT_SONNET_MODEL \
             -u ANTHROPIC_DEFAULT_HAIKU_MODEL -u ANTHROPIC_SMALL_FAST_MODEL \
             -u CLAUDE_CODE_USE_BEDROCK -u CLAUDE_CODE_USE_VERTEX -u AWS_BEARER_TOKEN_BEDROCK \
-            -u MAX_THINKING_TOKENS -u CLAUDE_CODE_MAX_OUTPUT_TOKENS \
+            -u MAX_THINKING_TOKENS -u CLAUDE_CODE_MAX_OUTPUT_TOKENS -u CLAUDE_CODE_DISABLE_AUTO_MEMORY \
             claude auth status 2>/dev/null | jq -e '.loggedIn == true' >/dev/null 2>&1; then
         echo "The Claude Code CLI is not signed in. Run \`claude\` in a terminal and sign in, then retry." >&2
         exit 3
@@ -214,7 +220,11 @@ fi
 if [[ "$SUITE" == "fix" ]]; then
     echo "Split:    ${EVAL_SPLIT:-all}"
 fi
-if uses_api_key "$JUDGE_PROVIDER" || [[ "$JUDGE_PROVIDER" == "ollama" ]]; then
+if [[ "$JUDGE_PROVIDER" == "claude" ]]; then
+    # llm.SupportsTemperature: Claude models up to 4.6 take the pin, the 5.5
+    # judges do not; summary.json records which per judge.
+    JUDGE_TEMP="temp 0 where the model takes one (not the 5.5 judges)"
+elif uses_api_key "$JUDGE_PROVIDER" || [[ "$JUDGE_PROVIDER" == "ollama" ]]; then
     JUDGE_TEMP="temp 0"
 else
     JUDGE_TEMP="temp unpinned (the CLI has no temperature flag)"
@@ -269,8 +279,10 @@ for (( i = 1; i <= RUNS; i++ )); do
         exit 3
     fi
     if (( run_status != 0 )); then
-        # Some samples failed but the run still produced scores. A failed sample
-        # scores zero, which is the honest number; the run directory says which.
+        # Some samples failed but the run still produced scores. The averages
+        # cover the scored samples only (scoredCount/errorCount say how many),
+        # and the aggregate refuses to compare a run that did not score every
+        # sample; the run directory says which failed.
         echo "  ! run $i reported failures (go test exited $run_status); its scores are included" >&2
     fi
     RUN_DIRS+=("$LATEST")

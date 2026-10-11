@@ -59,7 +59,12 @@ func evalShRun(t *testing.T, dotenv *string, authJSON string, env []string, args
 		t.Fatal(err)
 	}
 
-	cmd := exec.Command(filepath.Join(repo, "scripts", "eval.sh"), append([]string{"--dry-run"}, args...)...)
+	// --dry-run unless the case asks for --preflight, which adds the sign-in
+	// check; neither runs a model.
+	if len(args) == 0 || args[0] != "--preflight" {
+		args = append([]string{"--dry-run"}, args...)
+	}
+	cmd := exec.Command(filepath.Join(repo, "scripts", "eval.sh"), args...)
 	cmd.Dir = repo
 	// A clean environment: nothing from the developer's shell decides the case.
 	cmd.Env = append([]string{
@@ -124,8 +129,8 @@ func TestEvalShReadsDotEnvTheWayGoDoes(t *testing.T) {
 	if got, want := dryRunLine(t, out), "dry-run pipeline=claude judge=claude keys=ANTHROPIC_API_KEY"; got != want {
 		t.Errorf("got  %q\nwant %q", got, want)
 	}
-	if !strings.Contains(out, "Judges:   claude / claude-haiku-5-5, claude-sonnet-5-5 (pinned) @ temp 0") {
-		t.Errorf("header does not show the API judge at temperature 0:\n%s", out)
+	if !strings.Contains(out, "Judges:   claude / claude-haiku-5-5, claude-sonnet-5-5 (pinned) @ temp 0 where the model takes one") {
+		t.Errorf("header does not show the API judges' temperature rule:\n%s", out)
 	}
 }
 
@@ -154,7 +159,7 @@ func TestEvalShChecksSignInAsTheEvalWillRun(t *testing.T) {
 	for _, name := range blocked {
 		env = append(env, name+"=from-the-shell")
 	}
-	out, code, stubEnv := evalShRun(t, nil, signedIn, env)
+	out, code, stubEnv := evalShRun(t, nil, signedIn, env, "--preflight")
 	if code != 0 {
 		t.Fatalf("exit = %d\n%s", code, out)
 	}
@@ -167,9 +172,21 @@ func TestEvalShChecksSignInAsTheEvalWillRun(t *testing.T) {
 		}
 	}
 
-	out, code, _ = evalShRun(t, nil, `{"loggedIn":false}`, nil)
+	out, code, _ = evalShRun(t, nil, `{"loggedIn":false}`, nil, "--preflight")
 	if code != 3 {
 		t.Errorf("signed out: exit = %d, want 3\n%s", code, out)
+	}
+}
+
+// TestEvalShDryRunAsksTheCLINothing: --dry-run prints the configuration, and a
+// signed-out CLI — or none — must not stop it.
+func TestEvalShDryRunAsksTheCLINothing(t *testing.T) {
+	out, code, stubEnv := evalShRun(t, nil, `{"loggedIn":false}`, nil)
+	if code != 0 {
+		t.Errorf("exit = %d, want 0\n%s", code, out)
+	}
+	if stubEnv != "" {
+		t.Error("--dry-run ran `claude auth status`")
 	}
 }
 
