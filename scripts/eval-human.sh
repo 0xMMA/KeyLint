@@ -42,6 +42,15 @@ CLI_FLAGS=""
 [[ -n "$PROVIDER" ]] && CLI_FLAGS="$CLI_FLAGS --provider $PROVIDER"
 [[ -n "$MODEL" ]]    && CLI_FLAGS="$CLI_FLAGS --model $MODEL"
 
+# The raw input of one sample, as the user would select it: the header, the
+# fence and the mail-history marker lines removed. The markers only tell the
+# eval where the history is (internal/features/pyramidize/eval_samples.go);
+# they must never reach the model.
+raw_input() {
+    sed -n '/^# Raw Input$/,/^# User accepted output$/{ /^# /d; p; }' "$1" | sed '/^```/d' \
+        | sed -E '/^[[:space:]]*<!-- \/?history -->[[:space:]]*$/d'
+}
+
 TOTAL=0
 SCORED=0
 SCORE_SUM=0
@@ -51,7 +60,7 @@ for file in "$TESTDATA_DIR"/*.md; do
     NAME=$(basename "$file" .md)
 
     # Parse raw input and baseline from the test-data file.
-    RAW=$(sed -n '/^# Raw Input$/,/^# User accepted output$/{ /^# /d; p; }' "$file" | sed '/^```/d')
+    RAW=$(raw_input "$file")
     BASELINE=$(sed -n '/^# User accepted output$/,$ { /^# /d; p; }' "$file" | sed '/^```/d')
 
     # Run pyramidize CLI.

@@ -70,7 +70,9 @@ func TestV3PromptsAreTheCorePlusTheirForm(t *testing.T) {
 func TestTheCoreCarriesV2sProvenRules(t *testing.T) {
 	for _, rule := range []string{
 		"Pyramid Principle",
-		"quoted replies",        // the whole input is source material
+		// v2's "quoted replies … are source material" is NOT carried: mail
+		// history is context only since 2026-10-11, see
+		// TestMailHistoryIsContextNeverOutput.
 		"NEVER a process label", // content-statement headers
 		"mutually exclusive, collectively exhaustive",
 		"decisions → actions → context",
@@ -83,6 +85,48 @@ func TestTheCoreCarriesV2sProvenRules(t *testing.T) {
 	} {
 		if !strings.Contains(promptV3Core, rule) {
 			t.Errorf("the v3 core lacks %q", rule)
+		}
+	}
+}
+
+// TestMailHistoryIsContextNeverOutput pins Michael's decision of 2026-10-11
+// (ADR-003, addendum): mail history in the selection — quoted replies,
+// forwarded mails, the thread — is context. The output never reproduces it;
+// facts from it may be referred to and must not be contradicted. Fidelity
+// covers the author's own message. The prompt states the rule, not the
+// reasons for it.
+func TestMailHistoryIsContextNeverOutput(t *testing.T) {
+	for _, rule := range []string{
+		"quoted replies, forwarded messages, earlier messages in the thread",
+		"mail history is context only",
+		"never reproduce it: no recap, no history section, no quoted originals",
+		"never contradict it",
+		"in the author's own message appears in the output",
+	} {
+		if !strings.Contains(promptV3Core, rule) {
+			t.Errorf("the v3 core lacks %q", rule)
+		}
+	}
+	// v3's first rule did the opposite: it kept the history, at the end.
+	for _, gone := range []string{"they move to the end, they do not drop out", "is source material", "cover the whole input"} {
+		if strings.Contains(promptV3Core, gone) {
+			t.Errorf("the v3 core still says %q", gone)
+		}
+	}
+	// Language, asks, greeting and sign-off are the author's, not those of a
+	// quoted mail.
+	if !strings.Contains(promptV3Core, "write in the language of the author's message") {
+		t.Error("the v3 core takes the reply's language from the whole input, quoted mails included")
+	}
+	if !strings.Contains(promptV3Forms["email"], "when the author asks something of someone") {
+		t.Error("the email subject takes its @person asks from the whole input, quoted mails included")
+	}
+	for form, phrase := range map[string]string{
+		"email": "the author's greeting, exactly as written",
+		"chat":  "only if the author's message has them",
+	} {
+		if !strings.Contains(promptV3Forms[form], phrase) {
+			t.Errorf("the %s section lacks %q", form, phrase)
 		}
 	}
 }

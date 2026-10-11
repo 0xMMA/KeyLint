@@ -16,10 +16,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -60,80 +60,22 @@ func gitSHA() string {
 	return sha
 }
 
-// testSample holds one parsed test-data file.
-type testSample struct {
-	Name     string
-	RawInput string
-	Baseline string
-}
-
-func loadTestSamples(t *testing.T) []testSample {
+// loadTestSamples parses test-data/pyramidal-emails (format and history
+// markers: eval_samples.go). A malformed sample stops the run before any call
+// is paid for.
+func loadTestSamples(t *testing.T) []evalSample {
 	t.Helper()
-	dir := filepath.Join("..", "..", "..", "test-data", "pyramidal-emails")
-	entries, err := os.ReadDir(dir)
+	samples, skipped, err := loadEvalSamples(filepath.Join("..", "..", "..", "test-data", "pyramidal-emails"))
 	if err != nil {
-		t.Fatalf("cannot read test-data dir: %v", err)
+		t.Fatal(err)
 	}
-
-	var samples []testSample
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
-		if err != nil {
-			t.Fatalf("reading %s: %v", e.Name(), err)
-		}
-		raw, baseline := parseTestData(string(data))
-		if raw == "" {
-			t.Logf("skipping %s: no raw input found", e.Name())
-			continue
-		}
-		samples = append(samples, testSample{
-			Name:     strings.TrimSuffix(e.Name(), ".md"),
-			RawInput: raw,
-			Baseline: baseline,
-		})
+	for _, name := range skipped {
+		t.Logf("skipping %s: no raw input found", name)
 	}
 	if len(samples) == 0 {
 		t.Fatal("no test samples found")
 	}
 	return samples
-}
-
-var fenceBlockRegex = regexp.MustCompile("(?s)```\\w*\\n?(.*?)```")
-
-// rawInputHeader matches "# Raw Input" / "# Raw input" / "# raw input" (case-insensitive).
-var rawInputHeader = regexp.MustCompile(`(?im)^#\s+raw\s+input\s*$`)
-
-// baselineHeader matches "# User accepted output(s)" including the typo "accpted" (case-insensitive).
-var baselineHeader = regexp.MustCompile(`(?im)^#\s+user\s+acce?pted\s+outputs?\s*$`)
-
-func parseTestData(content string) (rawInput, baseline string) {
-	// Find the baseline header position first — it delimits the two sections.
-	blLoc := baselineHeader.FindStringIndex(content)
-	if blLoc == nil {
-		return "", ""
-	}
-
-	rawSection := content[:blLoc[0]]
-	baselineSection := content[blLoc[1]:]
-
-	// Strip the raw-input header from the first section.
-	rawSection = rawInputHeader.ReplaceAllString(rawSection, "")
-
-	// Try fenced block first; fall back to plain text after stripping the header.
-	if m := fenceBlockRegex.FindStringSubmatch(rawSection); len(m) > 1 {
-		rawInput = strings.TrimSpace(m[1])
-	} else {
-		rawInput = strings.TrimSpace(rawSection)
-	}
-	if m := fenceBlockRegex.FindStringSubmatch(baselineSection); len(m) > 1 {
-		baseline = strings.TrimSpace(m[1])
-	} else {
-		baseline = strings.TrimSpace(baselineSection)
-	}
-	return
 }
 
 func TestEvalPyramidize(t *testing.T) {
@@ -261,7 +203,7 @@ func TestEvalPyramidize(t *testing.T) {
 				os.WriteFile(outPath, []byte(result.FullDocument), 0644)
 
 				// Deterministic checks.
-				sr.Deterministic = RunDeterministicChecks(sample.RawInput, result.FullDocument)
+				sr.Deterministic = RunDeterministicChecks(sample.RawInput, sample.AuthorText, result.FullDocument)
 				totalDet += sr.Deterministic.OverallScore
 				scored++
 
@@ -349,6 +291,9 @@ func TestEvalPyramidize(t *testing.T) {
 		"scoredCount":      scored,
 		"errorCount":       len(samples) - scored,
 	}
+	// The scoring instrument: checksVersion and judgePromptHash, both keyed.
+	// A run scored by other checks or a reworded judge is another measurement.
+	maps.Copy(summary, instrumentSummary())
 	summaryData, _ := json.MarshalIndent(summary, "", "  ")
 	os.WriteFile(filepath.Join(runDir, "summary.json"), summaryData, 0644)
 
@@ -357,7 +302,7 @@ func TestEvalPyramidize(t *testing.T) {
 	for _, j := range judges {
 		t.Logf("Judge: %s / %s (resolved: %s) @ temp %s", j.Provider, j.Model, j.ResolvedModel, j.TemperatureLabel())
 	}
-	t.Logf("Schema enforcement: %v | Quality threshold: %.2f", schemaEnforcement, settings.DefaultQualityThreshold)
+	t.Logf("Schema enforcement: %v | Quality threshold: %.2f | Checks: v%d | Judge prompt: %s", schemaEnforcement, settings.DefaultQualityThreshold, ChecksVersion, judgePromptHash())
 	t.Logf("Samples: %d", len(samples))
 	t.Logf("Avg deterministic: %.2f (%d of %d samples scored)", totalDet/float64(max(scored, 1)), scored, len(samples))
 	for _, j := range judges {

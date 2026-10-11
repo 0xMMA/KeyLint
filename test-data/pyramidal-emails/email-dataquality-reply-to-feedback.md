@@ -1,5 +1,6 @@
 # Raw Input
 ```
+<!-- history -->
 Im nachfolgenden die erste mail auf die ich antworte:
 Hi Michael,
  
@@ -68,6 +69,7 @@ Erst dann kann ich eine Entscheidung treffen. Danke vorab!
 Vielen Dank und viele Grüße
 Alex
  ----
+<!-- /history -->
 
 hier mein grob vorgeschriebenen informationen zu den punkten
 Hallo Alex

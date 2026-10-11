@@ -1,6 +1,6 @@
 # ADR-003 — Prompt v3: the user picks the form, one call writes it
 
-> Status: accepted, not yet measured · Date: 2026-10-11 · Supersedes [ADR-001](adr-001-pipeline-architecture.md) and decisions 2, 3, 5 and 6 of [ADR-002](adr-002-one-shot-vs-pipeline.md) · Issue: #34 · Roadmap: E3 phase 2 (and the phase 4 cleanup it makes possible)
+> Status: accepted, not yet measured · Date: 2026-10-11 (addendum on mail history the same day) · Supersedes [ADR-001](adr-001-pipeline-architecture.md) and decisions 2, 3, 5 and 6 of [ADR-002](adr-002-one-shot-vs-pipeline.md) · Issue: #34 · Roadmap: E3 phase 2 (and the phase 4 cleanup it makes possible)
 
 ## Decision
 
@@ -16,10 +16,10 @@ The prompt for every form is **v3**: one shared core plus one section per form
 
 | Part | What it says |
 |---|---|
-| Core: `<pyramid>` | Main point first, then grouped support; decisions → actions → context; thread history moves to the end, it does not drop out |
+| Core: `<pyramid>` | Main point first, then grouped support; decisions → actions → context. (The first version also said "thread history moves to the end, it does not drop out" — replaced, see the addendum.) |
 | Core: `<headers>` | Content statements, never process labels; same-level headers MECE |
-| Core: `<fidelity>` | Every fact, name, number, date, request and open question appears; nothing is added — no conclusions, reasons, or status claims like "no action needed"; what the input leaves open stays open; holds whatever the user chooses |
-| Core: `<voice>` | The default: the input's language and code-switching (none introduced), tone and person; never raise formality on its own; greetings and sign-offs as written |
+| Core: `<fidelity>` | Every fact, name, number, date, request and open question **of the author's own message** appears (addendum); mail history is context only; nothing is added — no conclusions, reasons, or status claims like "no action needed"; what the input leaves open stays open; holds whatever the user chooses |
+| Core: `<voice>` | The default: the language (the author's message's, addendum) and code-switching (none introduced), tone and person; never raise formality on its own; greetings and sign-offs as written |
 | Core: `<user_choices>` | An explicit choice wins over the voice defaults: professional/professional (what the UI always sends) is the default, not a choice; any other style or relationship sets register and formality; additional instructions ("auf Englisch", "formeller") are followed — a choice changes how the text reads, never what it says |
 | Core: `<style>` | Compact but complete, no filler, nothing the input does not say; the form's shape is fixed — email, memo, wiki and presentation always take their full shape, however short the input; chat is the form for a short result |
 | Form sections | email (subject line `Decision \| Details \| Actions`, greeting, bold headers + bullets, sign-off), **chat (new)**: no subject, no headers, first sentence carries the point, greeting only if the input has one, may shorten but keeps every fact and ask; memo (`TO \| FROM \| RE` line, one-sentence summary, bold headers); wiki (`# title`, one-sentence summary, `##` sections); presentation (`# Slide N:` titles that tell the story, slide 1 is the summary) |
@@ -38,7 +38,8 @@ their shape rules from the old memo/wiki/powerpoint prompts.
 
 What v3 adds is general, taken from `quality-status.md`'s *Persistent Model
 Behaviors* rather than from any sample: no editorial status claims ("Kein
-Handlungsbedarf") and thread history stays as context (dropped mail history).
+Handlungsbedarf") and thread history stays as context (dropped mail history) —
+the second replaced by the addendum below: history is context, never output.
 Nothing was tuned to an eval sample; no sample was read.
 
 ### Two owner decisions (Michael, 2026-10-11, after review)
@@ -56,6 +57,54 @@ Nothing was tuned to an eval sample; no sample was read.
   "auf Englisch" or "formeller", is followed — never over fidelity. Because the
   UI and CLI always send professional/professional, that pair is defined as the
   default, not as a choice; phase 3 replaces the relationship levels anyway.
+
+### Addendum — mail history is context, never output (Michael, 2026-10-11)
+
+Mail history in the selected text — quoted replies, forwarded mails, the thread
+above or below the author's own text — is **context only**. The user selected
+it (often with Ctrl+A, sometimes without meaning to) so the model can
+understand the message and refer to it. **The output never reproduces earlier
+messages:** no recap, no history section, no quoted originals. Facts from the
+history may be referred to where the author's message needs them, and must not
+be contradicted. The accepted output of `email-dataquality-reply-to-feedback`
+shows the intended behaviour: a reply that answers, without restating the mails
+it answers.
+
+This replaces the first version's "earlier messages in a thread are context:
+they move to the end, they do not drop out", which produced exactly that recap
+(quality-status, "prompt v3 against v2"). In the prompt:
+
+- The core's opening says the text is the author's own message, sometimes with
+  mail history; `<fidelity>` covers the author's own message and carries the
+  rule in one line: *"mail history is context only: refer to its facts where
+  the author's message needs them, never contradict it, never reproduce it: no
+  recap, no history section, no quoted originals."* The pyramid's groups cover
+  "the author's whole message", not "the whole input".
+- What follows from it, stated as general principles: the reply's language is
+  the author's message's; the email's greeting, sign-off and `@person` asks,
+  and the chat's greeting and sign-off, are the author's, not a quoted mail's.
+- The prompt states the rule, not the reasons for it.
+  `TestMailHistoryIsContextNeverOutput` pins it; v2 is untouched.
+
+The eval follows, so it does not punish the intended behaviour:
+
+- **Samples mark the history** with `<!-- history -->` … `<!-- /history -->`
+  lines inside the raw input (format: `eval_samples.go`). Two of the 13 carry
+  history and are marked: `email-diagnose-update` (thread below) and
+  `email-dataquality-reply-to-feedback` (two quoted mails above, with the
+  author's labels for them). The marker lines are stripped before anything
+  reads the input, so Pyramidize and the judges get byte for byte what the user
+  would select (`TestTheMarkedSamplesSendWhatTheUserSelected` pins the hashes).
+- **Info coverage counts only the author's message**; the hallucination check
+  still reads the whole input, so a fact referred to from the history is not
+  "invented". `checksVersion` goes from 1 (never recorded) to **2**.
+- **The judges are told** that history is context, that the candidate must not
+  reproduce it, and that leaving it out is no completeness flaw; completeness
+  asks for the author's own message. The judge prompt is now recorded as
+  `judgePromptHash` and is part of the `configKey`.
+- So **every earlier baseline reads "not comparable"** with a run on this
+  instrument, the v3 and v2 references of 2026-10-11 included. Both need new
+  runs (pending).
 
 v2 is byte-identical through both: `TestV2IsKeptVerbatim` pins sha256 hashes
 of its system prompt, computed from main's file built on its own.

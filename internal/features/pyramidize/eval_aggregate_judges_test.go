@@ -151,7 +151,7 @@ func TestTheJudgeSetIsInTheKey(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d — the same two judges in another order are the same instrument", code)
 	}
-	const want = "pyramidize|claude-code|claude-sonnet-5-5|claude-code+claude-code|claude-haiku-5-5+claude-sonnet-5-5|2|false|0.65|2|1|all|null+null|on"
+	const want = "pyramidize|claude-code|claude-sonnet-5-5|claude-code+claude-code|claude-haiku-5-5+claude-sonnet-5-5|2|false|0.65|2|1|all|null+null|on|unrecorded"
 	if got["configKey"] != want {
 		t.Errorf("configKey = %v\nwant       %v", got["configKey"], want)
 	}
@@ -379,5 +379,86 @@ func TestARefusedComparisonFlagsNoMetric(t *testing.T) {
 	}
 	if flagged, _ := got["regressedMetrics"].([]any); len(flagged) != 0 {
 		t.Errorf("regressedMetrics = %v on a refused comparison", flagged)
+	}
+}
+
+// v3Run is a run with the configuration of the recorded v3 baseline
+// (2026-10-11T22-39-34): v3 email, 13 samples, both judges on all of them.
+func v3Run(t *testing.T, dir string, det float64, edit func(map[string]any)) string {
+	t.Helper()
+	return fakeRunJudged(t, dir, det, twoJudges(0.85, 0.79), func(s map[string]any) {
+		s["promptVariant"] = 3
+		s["sampleCount"] = 13
+		s["judgeCounts"] = map[string]any{judgeHaiku: 13, judgeSonnet: 13}
+		if edit != nil {
+			edit(s)
+		}
+	})
+}
+
+// TestTheMailHistoryInstrumentIsNotComparableWithV3sBaseline: since
+// 2026-10-11 info coverage reads only the author's message (checksVersion 2)
+// and the judges are told that mail history is context. Both change what a
+// score means, so the recorded v3 baseline — scored the old way — must read
+// "not comparable", whichever of the two a run differs in. The control run
+// shows the refusal comes from the instrument and nothing else.
+func TestTheMailHistoryInstrumentIsNotComparableWithV3sBaseline(t *testing.T) {
+	base := filepath.Join("..", "..", "..", "test-data", "eval-baselines", "2026-10-11T22-39-34", "baseline.json")
+	if _, err := os.Stat(base); err != nil {
+		t.Skipf("the v3 baseline is not in this checkout: %v", err)
+	}
+	root := t.TempDir()
+	compare := func(name string, edit func(map[string]any)) (string, int) {
+		got, code := aggregate(t, "--compare", base,
+			v3Run(t, filepath.Join(root, name+"1"), 0.92, edit),
+			v3Run(t, filepath.Join(root, name+"2"), 0.93, edit))
+		v, _ := got["verdict"].(string)
+		return v, code
+	}
+
+	if v, code := compare("old", nil); code == 2 || strings.HasPrefix(v, "not comparable") {
+		t.Fatalf("control: a run on the old instrument should compare with the v3 baseline, got exit %d %q", code, v)
+	}
+	for name, edit := range map[string]func(map[string]any){
+		"instrument": func(s map[string]any) {
+			for k, v := range instrumentSummary() {
+				s[k] = v
+			}
+		},
+		"checks": func(s map[string]any) { s["checksVersion"] = ChecksVersion },
+		"judge":  func(s map[string]any) { s["judgePromptHash"] = judgePromptHash() },
+	} {
+		if v, code := compare(name, edit); code != 2 || v != "not comparable: different configuration" {
+			t.Errorf("%s: exit %d, verdict %q — want not comparable", name, code, v)
+		}
+	}
+}
+
+// TestTheJudgePromptIsInTheKey: two runs whose judges read different prompts
+// were scored by different instruments, and their mean describes neither. The
+// baseline records the hash, so a reader can see which prompt scored it.
+func TestTheJudgePromptIsInTheKey(t *testing.T) {
+	root := t.TempDir()
+	with := func(hash string) func(map[string]any) {
+		return func(s map[string]any) { s["judgePromptHash"] = hash }
+	}
+	got, code := aggregate(t,
+		fakeRunJudged(t, filepath.Join(root, "a1"), 0.80, twoJudges(0.90, 0.70), with("j1-aaaa")),
+		fakeRunJudged(t, filepath.Join(root, "a2"), 0.78, twoJudges(0.86, 0.74), with("j1-aaaa")),
+	)
+	if code != 0 {
+		t.Fatalf("exit = %d", code)
+	}
+	if key, _ := got["configKey"].(string); !strings.HasSuffix(key, "|j1-aaaa") {
+		t.Errorf("configKey = %q, want the judge prompt hash as its last field", key)
+	}
+	if cfg := got["config"].(map[string]any); cfg["judgePromptHash"] != "j1-aaaa" {
+		t.Errorf("config.judgePromptHash = %v", cfg["judgePromptHash"])
+	}
+	if _, code := aggregate(t,
+		fakeRunJudged(t, filepath.Join(root, "b1"), 0.80, twoJudges(0.90, 0.70), with("j1-aaaa")),
+		fakeRunJudged(t, filepath.Join(root, "b2"), 0.78, twoJudges(0.86, 0.74), with("j1-bbbb")),
+	); code != 2 {
+		t.Errorf("runs judged by two different prompts averaged together: exit %d, want 2", code)
 	}
 }

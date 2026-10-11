@@ -1,6 +1,8 @@
 package pyramidize
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"reflect"
 	"strings"
@@ -315,5 +317,47 @@ func TestTheCLIJudgeSendsNoTemperature(t *testing.T) {
 	}
 	if rec.client.gotRequest.Model != judge.Model {
 		t.Errorf("model = %q, want the pinned snapshot", rec.client.gotRequest.Model)
+	}
+}
+
+// TestTheJudgeTreatsMailHistoryAsContext: since 2026-10-11 the output never
+// reproduces the mail history in the input (ADR-003, addendum). A judge that
+// still counted the history toward completeness would score the intended reply
+// down — the v3 run of reply-to-feedback was scored down for the opposite.
+func TestTheJudgeTreatsMailHistoryAsContext(t *testing.T) {
+	for _, rule := range []string{
+		"Mail history in the RAW INPUT",
+		"is context",
+		"must not reproduce it",
+		"Leaving the history out is not a completeness flaw",
+		"the author's own message",
+	} {
+		if !strings.Contains(judgeSystemPrompt, rule) {
+			t.Errorf("the judge prompt lacks %q", rule)
+		}
+	}
+	if strings.Contains(judgeSystemPrompt, "Does it preserve ALL information from the raw input?") {
+		t.Error("completeness still asks for everything in the raw input, history included")
+	}
+}
+
+// TestTheRecordedJudgePromptHashIsWhatWasSent: summary.json keys the judge
+// prompt by hash (scripts/eval-aggregate.sh), so a change to it reads "not
+// comparable". The hash has to describe the system prompt the judge actually
+// received, not a copy of it.
+func TestTheRecordedJudgePromptHashIsWhatWasSent(t *testing.T) {
+	svc, rec := newTestService()
+	rec.client.reply = `{"pyramidStructure":0.8,"clarity":0.8,"completeness":0.8,"tonePreservation":0.8,"overall":0.8,"rationale":"ok"}`
+	settingsSvc := settings.NewServiceFrom(settings.Default(), func(string) string { return "key" })
+	if _, err := svc.runJudge(settingsSvc, testJudge(t), "raw", "baseline", "candidate"); err != nil {
+		t.Fatalf("runJudge: %v", err)
+	}
+	sum := sha256.Sum256([]byte(rec.client.gotRequest.System))
+	want := "j1-" + hex.EncodeToString(sum[:8])
+	if got := judgePromptHash(); got != want {
+		t.Errorf("judgePromptHash() = %q, the judge received a prompt hashing to %q", got, want)
+	}
+	if instrumentSummary()["judgePromptHash"] != want {
+		t.Errorf("summary.json records judgePromptHash %v, want %q", instrumentSummary()["judgePromptHash"], want)
 	}
 }

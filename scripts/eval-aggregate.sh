@@ -114,12 +114,19 @@ done
 # a pinned one, whatever a later run names its provider. Runs that predate the
 # field were all judged at a pinned 0.
 #
-# thinking closes the key: whether the pipeline thought first. The CLI thinks
+# thinking is the thirteenth field: whether the pipeline thought first. The CLI thinks
 # by default ("on"); on the API Fix asks a fast-tier model not to ("off"), and
 # other models are left to the provider ("n/a"). It moved the numbers once, so
 # it is part of the measurement. Runs that predate it key as "unrecorded" if
 # they went through the CLI (the 2026-10-04 first CLI baselines) and as "n/a"
 # if they did not (every API-era run).
+#
+# judgePromptHash closes the key since 2026-10-11: the judges' system prompt is
+# part of the instrument, like their models, and it changed when the judges
+# were told that mail history is context (ADR-003, addendum). A hash rather
+# than a version, so no edit to the prompt can slip through unbumped. Runs that
+# predate it key as "unrecorded" — every Fix run among them, whose judge has a
+# prompt of its own and records none.
 #
 # claudeCodeVersion is deliberately NOT in the key, for the promptHash reason
 # (decision 2026-10-11): the CLI updates itself, and a key that changed with
@@ -150,7 +157,7 @@ def keyFrom(c): [(c.suite // "pyramidize"), c.provider, resolvedOr(c.resolvedMod
                  (c.promptVariant|tostring), (c.schemaEnforcement|tostring),
                  (c.qualityThreshold|tostring), (c.sampleCount|tostring),
                  ((c.checksVersion // 1)|tostring), (c.split // "all"), judgeField(c; judgeTemp(.)),
-                 thinkingOf(c)] | join("|");
+                 thinkingOf(c), (c.judgePromptHash // "unrecorded")] | join("|");
 # One interval per judge, never one across judges: two judges that disagree are
 # information, and their mean would hide which one moved.
 def stats: {mean: ((add / length) | r4), min: (min | r4), max: (max | r4), spread: ((max - min) | r4)};
@@ -173,15 +180,19 @@ def sampleScores(r; s): if (r.judges|type) == "object" then renamed(s; r.judges 
 # measurement the project has. Stored keys of 8 to 11 fields predate the judge
 # temperature and thinking fields, and every one of them was an API run judged
 # at a pinned 0. A 12-field key has the temperature but not thinking, so it
-# gains "n/a". A 14-field key (one PR revision, never on main) ended in the CLI
-# version, which is no longer keyed and is dropped.
+# gains "n/a". Every key shorter than 14 fields predates the judge prompt hash
+# and gains "unrecorded". A 14-field key stored WITHOUT a config object can only
+# be the one PR revision (never on main) that ended in the CLI version, which
+# is no longer keyed and is dropped; every baseline since carries its config,
+# and baselineKey reads that instead of the string.
 def upgradeKey(k): (k | split("|")) as $p
-                 | if ($p|length) == 8 then ((["pyramidize"] + $p + ["1", "all", "0", "n/a"]) | join("|"))
-                   elif ($p|length) == 9 then (($p + ["1", "all", "0", "n/a"]) | join("|"))
-                   elif ($p|length) == 10 then (($p + ["all", "0", "n/a"]) | join("|"))
-                   elif ($p|length) == 11 then (($p + ["0", "n/a"]) | join("|"))
-                   elif ($p|length) == 12 then (($p + ["n/a"]) | join("|"))
-                   elif ($p|length) == 14 then ($p[:13] | join("|"))
+                 | if ($p|length) == 8 then ((["pyramidize"] + $p + ["1", "all", "0", "n/a", "unrecorded"]) | join("|"))
+                   elif ($p|length) == 9 then (($p + ["1", "all", "0", "n/a", "unrecorded"]) | join("|"))
+                   elif ($p|length) == 10 then (($p + ["all", "0", "n/a", "unrecorded"]) | join("|"))
+                   elif ($p|length) == 11 then (($p + ["0", "n/a", "unrecorded"]) | join("|"))
+                   elif ($p|length) == 12 then (($p + ["n/a", "unrecorded"]) | join("|"))
+                   elif ($p|length) == 13 then (($p + ["unrecorded"]) | join("|"))
+                   elif ($p|length) == 14 then (($p[:13] + ["unrecorded"]) | join("|"))
                    else k end;
 def baselineKey(b): if (b.config|type) == "object" then keyFrom(b.config) else upgradeKey(b.configKey // "unknown") end;'
 
@@ -235,6 +246,8 @@ AGGREGATE=$(jq -s --argjson perSample "$PER_SAMPLE" --argjson runs "$RUNS_JSON" 
             suite: (.[0].suite // "pyramidize"),
             promptHash: (.[0].promptHash // null),
             checksVersion: (.[0].checksVersion // 1),
+            # Keyed, see the prelude; null for runs that predate it.
+            judgePromptHash: (.[0].judgePromptHash // null),
             split: (.[0].split // "all"),
             splitHash: (.[0].splitHash // null),
             gitSHA: .[0].gitSHA,
@@ -289,7 +302,7 @@ AGGREGATE=$(jq -s --argjson perSample "$PER_SAMPLE" --argjson runs "$RUNS_JSON" 
 if [[ "$(printf '%s' "$AGGREGATE" | jq -r .configConsistent)" != "true" ]]; then
     echo "These runs do not share a configuration, so their mean would describe nothing:" >&2
     for f in "${SUMMARIES[@]}"; do
-        jq -r "$JQ_ROUND"'"  \(input_filename): \(.provider)/\(.model) resolved=\(.resolvedModel // "-") judges=\(judgesOf(.) | map("\(.model)->\(.resolvedModel // "-")@\(.temperature)") | join(",")) thinking=\(.thinking // "-") cli=\(.claudeCodeVersion // "-") v\(.promptVariant) schema=\(.schemaEnforcement) samples=\(.sampleCount)"' "$f" >&2
+        jq -r "$JQ_ROUND"'"  \(input_filename): \(.provider)/\(.model) resolved=\(.resolvedModel // "-") judges=\(judgesOf(.) | map("\(.model)->\(.resolvedModel // "-")@\(.temperature)") | join(",")) thinking=\(.thinking // "-") cli=\(.claudeCodeVersion // "-") checks=\(.checksVersion // 1) judgePrompt=\(.judgePromptHash // "-") v\(.promptVariant) schema=\(.schemaEnforcement) samples=\(.sampleCount)"' "$f" >&2
     done
     exit "$EXIT_NOT_COMPARABLE"
 fi

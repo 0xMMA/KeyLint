@@ -4,7 +4,7 @@
 
 > The Fix prompt has its own suite and baseline: [`docs/fix/quality-status.md`](../fix/quality-status.md).
 
-> **Prompt v3 is the default since 2026-10-11 ([ADR-003](adr-003-prompt-v3.md)) and is not measured yet.** Every baseline below is v2 email (or older); a run with no `--variant` now measures v3, and `promptVariant` in `summary.json` says which. v2 stays selectable with `--variant 2`; variant 1 and the refine pass are gone, so `appliedRefinement` is always false from here on.
+> **Prompt v3 is the default since 2026-10-11 ([ADR-003](adr-003-prompt-v3.md)) and is not measured yet.** Every baseline below is v2 email (or older); a run with no `--variant` now measures v3, and `promptVariant` in `summary.json` says which. v2 stays selectable with `--variant 2`; variant 1 and the refine pass are gone, so `appliedRefinement` is always false from here on. Since the mail-history change of the same day (below) every baseline here was scored by the previous instrument and reads "not comparable" against a new run.
 
 ---
 
@@ -12,10 +12,36 @@
 
 - **CLI mode:** `-fix` and `-pyramidize` commands dispatch headlessly from `main.go`
 - **Eval framework:** Deterministic checks + LLM-as-judge, build-tagged (`//go:build eval`)
-- **Test data:** 13 anonymized German business email samples in `test-data/pyramidal-emails/` (one mixes German and English heavily — code-switching the prompts preserve on purpose)
+- **Test data:** 13 anonymized German business email samples in `test-data/pyramidal-emails/` (one mixes German and English heavily — code-switching the prompts preserve on purpose); mail history in a sample is marked `<!-- history -->` … `<!-- /history -->` (format: `eval_samples.go`)
 - **Results:** Logged to `test-data/eval-runs/<timestamp>/` with `summary.json`, `results.jsonl`, `samples/`
 - **Run:** `./scripts/eval.sh --runs 3` — pipeline and judges through the installed Claude Code CLI (since 2026-10-04; two judges since 2026-10-11)
 - **Requires:** a signed-in Claude Code CLI (`claude auth status`), no API key. Against the API instead: `EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --provider claude --runs 3` with `ANTHROPIC_API_KEY` in `.env`. That is a different instrument from the API era's too (two judges, resolved IDs, judges unpinned on 5.5): **the API-era baselines below are not comparable with any run of this instrument**, whichever route it takes.
+
+---
+
+## Instrument change — 2026-10-11: mail history is context
+
+**Mail history in the input is context, never part of the output** (owner
+decision, [ADR-003 addendum](adr-003-prompt-v3.md)). The prompt changed with it,
+and so did the instrument, so that a reply which answers without restating the
+mails it answers is not scored down:
+
+- **Samples mark their history** with `<!-- history -->` … `<!-- /history -->`
+  lines in the raw input (format in `internal/features/pyramidize/eval_samples.go`):
+  `email-diagnose-update` and `email-dataquality-reply-to-feedback`, the only two
+  of the 13 that carry quoted or forwarded mails. The markers are removed
+  before the input reaches Pyramidize or a judge.
+- **`info_coverage` counts key terms of the author's own message only**;
+  `no_hallucination` still reads the whole input, so a fact the reply takes
+  from the history is not counted as invented. **`checksVersion` 2** (1 was
+  never recorded; the aggregate reads a missing field as 1).
+- **The judges are told** that history is context, that the candidate must not
+  reproduce it, and that leaving it out is no completeness flaw. Their prompt is
+  recorded as **`judgePromptHash`** in `summary.json` and the baseline, and it
+  is the last field of the `configKey` (runs before it key as `unrecorded`).
+- **Every baseline below reads "not comparable"** against a run on this
+  instrument, both 2026-10-11 references included. New v2 and v3 runs are
+  pending.
 
 ---
 
@@ -87,7 +113,9 @@ worse.** Two things to read alongside it:
   are context: they move to the end, they do not drop out" doing what it says.
   `email-diagnose-update`, where v2 dropped needed thread history, goes the
   other way (deterministic 0.70 → 0.93, judges level). How a reply should treat
-  the mails it quotes is a product question, open for the next iteration.
+  the mails it quotes was a product question — **answered the same day:
+  history is context, never output** (see "Instrument change — mail history"
+  above). This comparison was scored by the old instrument.
 
 ## Eval Scores — baseline of 2026-10-11 (two judges, the reference for v3)
 

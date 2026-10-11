@@ -23,11 +23,37 @@ type EvalScorecard struct {
 	AllPassed    bool          `json:"allPassed"`
 }
 
+// ChecksVersion names the deterministic instrument. summary.json records it and
+// scripts/eval-aggregate.sh keys on it, so a run scored by other checks reads
+// "not comparable" instead of reporting the instrument's move as the prompt's.
+// Bump it whenever a change here can move a score for the same output.
+//
+//	1  up to 2026-10-11, never recorded (the aggregate reads a missing field as 1)
+//	2  2026-10-11: info coverage counts only the author's own message — mail
+//	   history is context the output must not reproduce (ADR-003, addendum)
+const ChecksVersion = 2
+
+// instrumentSummary is what summary.json records about the scoring instrument:
+// the deterministic checks and the judges' prompt. Both are in the configKey.
+func instrumentSummary() map[string]any {
+	return map[string]any{
+		"checksVersion":   ChecksVersion,
+		"judgePromptHash": judgePromptHash(),
+	}
+}
+
 // RunDeterministicChecks runs all deterministic checks and returns a scorecard.
-func RunDeterministicChecks(input, output string) EvalScorecard {
+//
+// input is the whole text the user selected, mail history included; authorText
+// is the author's own message within it (eval_samples.go). Info coverage is
+// computed on authorText: the output must not reproduce the history, so a term
+// that only the history holds is not one the output should carry. The
+// hallucination check reads input: a fact the reply takes from the history is
+// referenced, not invented.
+func RunDeterministicChecks(input, authorText, output string) EvalScorecard {
 	checks := []CheckResult{
 		checkStructure(output),
-		checkInfoCoverage(input, output),
+		checkInfoCoverage(authorText, output),
 		checkNoHallucination(input, output),
 	}
 
@@ -88,7 +114,8 @@ func checkStructure(output string) CheckResult {
 	return CheckResult{Name: name, Pass: pass, Score: score, Detail: detail}
 }
 
-// checkInfoCoverage extracts key terms from the input and checks what fraction
+// checkInfoCoverage extracts key terms from the input — the author's own
+// message, when called from RunDeterministicChecks — and checks what fraction
 // appear in the output. Pass if >= 70% coverage.
 func checkInfoCoverage(input, output string) CheckResult {
 	name := "info_coverage"

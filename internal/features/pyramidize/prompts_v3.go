@@ -11,19 +11,23 @@ import "fmt"
 // fidelity, the author's voice and language. Each form section says only what
 // differs: the shape of the document and its first line.
 //
+// Mail history in the selection is context, never output (owner decision of
+// 2026-10-11, ADR-003 addendum): fidelity covers the author's own message, and
+// greeting, sign-off and asks are the author's, not a quoted mail's. The prompt
+// states the rule only, not the reasons for it.
+//
 // General principles only. Nothing here is tuned to an eval sample — the
 // examples are the prompt's own, and each one is checked against its input:
 // every fact in the output is in the input, and nothing else is.
 
 // promptV3Core is shared by every form.
 const promptV3Core = `Restructure the user's text using the Pyramid Principle, in the form described in <form>.
-All input text — including quoted replies, forwarded messages and thread history — is source material.
+The text is the author's own message, sometimes with mail history: quoted replies, forwarded messages, earlier messages in the thread.
 
 <pyramid>
 lead with the main point: the decision, conclusion, request or status the reader needs most.
-then the support, grouped: each group backs up the main point, groups do not overlap, together they cover the whole input.
+then the support, grouped: each group backs up the main point, groups do not overlap, together they cover the author's whole message.
 order the groups by what the reader needs: decisions → actions → context.
-earlier messages in a thread are context: they move to the end, they do not drop out.
 </pyramid>
 
 <headers>
@@ -36,7 +40,8 @@ same-level headers: mutually exclusive, collectively exhaustive.
 </headers>
 
 <fidelity>
-every fact, name, number, date, deadline, request and open question in the input appears in the output.
+every fact, name, number, date, deadline, request and open question in the author's own message appears in the output.
+mail history is context only: refer to its facts where the author's message needs them, never contradict it, never reproduce it: no recap, no history section, no quoted originals.
 NEVER add conclusions, interpretations, reasons, recommendations or information not in the input.
 NEVER add status claims the input does not make, such as "no action needed" or "everything on track".
 what the input leaves open stays open: do not resolve it by guessing.
@@ -45,7 +50,7 @@ fidelity holds whatever the user chooses in <user_choices>.
 
 <voice>
 by default, keep the author's voice:
-- write in the language of the input, including its code-switching: where the author mixes languages, mix them the same way; where the author does not, do not introduce another language. NEVER translate on your own.
+- write in the language of the author's message, including its code-switching: where the author mixes languages, mix them the same way; where the author does not, do not introduce another language. NEVER translate on your own.
 - NEVER increase formality or change perspective beyond the original: casual stays casual, first person stays first person.
 - keep greetings and sign-offs as the author wrote them, where the form has them. never upgrade or invent one.
 </voice>
@@ -82,15 +87,15 @@ var promptV3Forms = map[string]string{
 	"email": `<form name="email">
 an email — always this shape, also for a three-sentence casual mail. fullDocument, in order:
 1. subject line (first line, before any greeting)
-2. the original greeting, exactly as written — none if the input has none
+2. the author's greeting, exactly as written — none if the author's message has none
 3. body: at least one bold header (**…**) on its own line, each followed by bullet points
-4. the original sign-off, exactly as written — none if the input has none
+4. the author's sign-off, exactly as written — none if the author's message has none
 
 subject line:
 [Decision/Message] | [Key Details] | [Actions/Deadlines]
 a mini executive summary: the reader skips the body if this says enough.
-include @person in the actions segment when the input asks something of someone.
-leave the actions segment out when the input asks nothing of anyone — never fill it with "no action needed".
+include @person in the actions segment when the author asks something of someone.
+leave the actions segment out when the author asks nothing of anyone — never fill it with "no action needed".
 
 <examples>
 <example name="status-update-de">
@@ -112,7 +117,7 @@ a chat message (Teams, Slack and the like): the form for a short result, read in
 - no subject line, no headers, no bold section titles
 - the first sentence carries the main point; an ask goes in it or right after it
 - separate points may follow as a short list; one point stays one sentence
-- greeting and sign-off only if the input has them, as written — never add a formula
+- greeting and sign-off only if the author's message has them, as written — never add a formula
 - shorten the wording freely, but every fact and every ask stays
 
 <example name="deployment-de">
