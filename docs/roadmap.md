@@ -216,7 +216,7 @@ The Fix page redesign (#36, E5) is the natural first screen for the new look.
 | `v4.7.1-beta` | ✅ released 2026-10-11: Pyramidize options fit the default window again (#124) |
 | `v4.8.0-beta` (next) | E3 Pyramidize v3: user picks the form, one call, new choice page, two judges · E4 upgrade wave (Angular 22 in with #125, Windows run pending) |
 | `v4.9.0-beta` | E3 reviewer (findings on single passages) · Send back pastes rich text (E8) |
-| `v5.0.0` | Bedrock UI · light theme · HTML clipboard · Codex/Gemini CLI providers · OpenRouter (E10) · website update (#126, draft) ships with the first stable 4.x/5.x |
+| `v5.0.0` | first stable release · Bedrock UI · light theme · Codex/Gemini CLI providers · OpenRouter (E10) · website update (#126, draft) ships with the first stable 4.x/5.x |
 
 ---
 
