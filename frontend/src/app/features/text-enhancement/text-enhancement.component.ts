@@ -48,10 +48,11 @@ const CLI_NOT_SIGNED_IN_MESSAGE =
   'Claude Code is installed but not signed in. Open a terminal, run `claude`, and sign in.';
 
 let originalText = '';
-let pyramidizedText = '';   // snapshot of most recent foundation call
+let pyramidizedText = '';   // snapshot of the most recent Pyramidize result
 let canvasText = '';         // live working surface
 let sourceApp = '';          // captured source app name (from hotkey)
-let docType = 'auto';
+// The user's pick; a shortcut capture preselects the app preset (or email).
+let docType = 'email';
 let commStyle = 'professional';
 let relLevel = 'professional';
 let traceLog: TraceEntry[] = [];
@@ -90,6 +91,9 @@ let selectedModel = '';
 // The same for effort: a session override, never written to settings. Empty
 // follows Settings' Pyramidize effort for the provider; EFFORT_NONE sends none.
 let selectedEffort = '';
+
+/** The step label while Pyramidize runs: one call, so one step (ADR-003). */
+const STRUCTURING = 'Structuring…';
 
 /** Room the selection bubble needs, to keep it inside the window. */
 const BUBBLE_WIDTH = 340;
@@ -149,8 +153,6 @@ function addTrace(label: string, snapshot: string): void {
         [effortNote]="effortNoteView"
         [docTypeOptions]="docTypeOptions"
         [(docType)]="docTypeView"
-        (docTypePicked)="onDocTypeChange()"
-        [detectedType]="detectedTypeView"
         [commStyleOptions]="commStyleOptions"
         [(commStyle)]="commStyleView"
         [relLevelOptions]="relLevelOptions"
@@ -257,10 +259,6 @@ function addTrace(label: string, snapshot: string): void {
                 <kl-button data-testid="retry-btn" size="sm" icon="refresh-cw" (click)="retry()">Retry</kl-button>
               </div>
             </kl-message>
-          }
-
-          @if (refinementWarning) {
-            <kl-message data-testid="refinement-warning" severity="warn" [text]="refinementWarning" />
           }
 
           <div class="flex flex-wrap items-center gap-2.5">
@@ -493,7 +491,6 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   sendingBack = false;
   /** The error the last Send Back reported, '' if none. */
   sendBackError = '';
-  refinementWarning = '';
   apiKeySet = true;
   /** Set on destroy so a late model list does not refresh a dead view. */
   private destroyed = false;
@@ -501,7 +498,6 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   credentialsMessage = MISSING_KEY_MESSAGE;
   customInstructions = '';
   globalInstruction = '';
-  detectedTypeView = '';
 
   // Selection bubble
   showSelectionBubble = false;
@@ -591,10 +587,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   }
 
 
-  readonly docTypeOptions = [
-    { label: 'Detect automatically', value: 'auto' },
-    ...DOCUMENT_TYPE_OPTIONS,
-  ];
+  readonly docTypeOptions = DOCUMENT_TYPE_OPTIONS;
 
   readonly commStyleOptions = [
     { label: 'Professional', value: 'professional' },
@@ -682,6 +675,8 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   private async loadShortcutClipboard(): Promise<void> {
     const clipboardContent = await this.wails.readClipboard();
     sourceApp = await this.wails.getSourceApp();
+    // Asked before the confirm, so a declined replace changes nothing below.
+    const presetDocType = await this.wails.getDefaultDocType();
 
     if (originalText && !confirm('Replace current session with new clipboard content?')) {
       return;
@@ -689,15 +684,15 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
 
     wasCancelled = false;
     originalText = clipboardContent;
+    // A new session from an app: preselect its preset, else email.
+    docType = presetDocType;
     pyramidizedText = '';
     canvasText = '';
     traceLog = [];
     this.peekEntry = null;
     this.hoverEntry = null;
-    this.detectedTypeView = '';
     activeTab = 'original';
     this.errorMessage = '';
-    this.refinementWarning = '';
 
     if (originalText.trim()) {
       addTrace('Original', originalText);
@@ -711,12 +706,6 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
 
   onCanvasChange(value: string): void {
     canvasText = value;
-  }
-
-  onDocTypeChange(): void {
-    if (docType !== 'auto') {
-      this.detectedTypeView = '';
-    }
   }
 
   async onProviderChange(): Promise<void> {
@@ -858,9 +847,8 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
 
     wasCancelled = false;
     this.errorMessage = '';
-    this.refinementWarning = '';
     this.isLoading = true;
-    this.stepLabel = 'Step 1/2: Detecting…';
+    this.stepLabel = STRUCTURING;
     this.cdr.detectChanges();
 
     const req = {
@@ -876,20 +864,13 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     };
 
     const doCall = async (): Promise<void> => {
-      this.stepLabel = docType === 'auto' ? 'Step 1/2: Detecting…' : 'Step 1/2: Structuring…';
+      this.stepLabel = STRUCTURING;
       this.cdr.detectChanges();
 
       const result = await this.svc.pyramidize(req);
 
-      if (docType === 'auto' && result.detectedType) {
-        this.detectedTypeView = this.docTypeLabel(result.detectedType);
-        this.stepLabel = 'Step 2/2: Structuring…';
-        this.cdr.detectChanges();
-      }
-
       pyramidizedText = result.fullDocument;
       canvasText = result.fullDocument;
-      this.refinementWarning = result.refinementWarning ?? '';
 
       addTrace('Pyramidized', canvasText);
       activeTab = 'canvas';
@@ -898,7 +879,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     this.lastRequest = async () => {
       this.isLoading = true;
       this.errorMessage = '';
-      this.stepLabel = 'Step 1/2: Detecting…';
+      this.stepLabel = STRUCTURING;
       this.cdr.detectChanges();
       try {
         await doCall();
@@ -1146,12 +1127,6 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     if (this.lastRequest) {
       await this.lastRequest();
     }
-  }
-
-  /** "Email" for a detected "EMAIL"; an unknown type as the backend named it. */
-  private docTypeLabel(type: string): string {
-    const known = DOCUMENT_TYPE_OPTIONS.find(o => o.value === type.toLowerCase());
-    return known?.label ?? type.charAt(0).toUpperCase() + type.slice(1).toLowerCase();
   }
 
   ngOnDestroy(): void {

@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
 
 	"keylint/internal/features/pyramidize"
@@ -23,8 +25,6 @@ func TestRunPyramidizeTextOutput(t *testing.T) {
 		result: pyramidize.PyramidizeResult{
 			FullDocument: "Subject Line\n\nStructured body.",
 			DocumentType: "EMAIL",
-			QualityScore: 0.85,
-			QualityFlags: []string{},
 		},
 	}
 	err := runPyramidizeWith([]string{"-type", "email", "raw input text"}, &stdout, &stderr, mock)
@@ -36,14 +36,16 @@ func TestRunPyramidizeTextOutput(t *testing.T) {
 	}
 }
 
+// TestRunPyramidizeJSONOutput pins the --json shape: what was written and in
+// which form, nothing else. qualityScore went (ADR-002 decision 6): it was
+// the Go zero value for every v2 email, a documented output that lied.
 func TestRunPyramidizeJSONOutput(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	mock := &mockPyramidizer{
 		result: pyramidize.PyramidizeResult{
 			FullDocument: "Subject Line\n\nBody.",
 			DocumentType: "EMAIL",
-			QualityScore: 0.85,
-			QualityFlags: []string{},
+			Language:     "en",
 		},
 	}
 	err := runPyramidizeWith([]string{"--json", "-type", "email", "raw input"}, &stdout, &stderr, mock)
@@ -51,12 +53,13 @@ func TestRunPyramidizeJSONOutput(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var result pyramidize.PyramidizeResult
-	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+	var got map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("output is not valid JSON: %v\nraw: %s", err, stdout.String())
 	}
-	if result.QualityScore != 0.85 {
-		t.Fatalf("qualityScore = %v, want 0.85", result.QualityScore)
+	want := map[string]any{"documentType": "EMAIL", "language": "en", "fullDocument": "Subject Line\n\nBody."}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("--json = %v, want exactly %v", got, want)
 	}
 }
 
@@ -66,7 +69,6 @@ func TestRunPyramidizeDefaultType(t *testing.T) {
 	mock := &mockPyramidizer{
 		result: pyramidize.PyramidizeResult{
 			FullDocument: "output",
-			QualityFlags: []string{},
 		},
 	}
 	capturing := &capturingPyramidizer{mock: mock, captured: &capturedReq}
@@ -74,8 +76,10 @@ func TestRunPyramidizeDefaultType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if capturedReq.DocumentType != "auto" {
-		t.Fatalf("documentType = %q, want %q", capturedReq.DocumentType, "auto")
+	// The CLI has no source app to look a preset up for, so its default is
+	// what "auto" would resolve to anyway — said plainly.
+	if capturedReq.DocumentType != "email" {
+		t.Fatalf("documentType = %q, want %q", capturedReq.DocumentType, "email")
 	}
 }
 
@@ -95,7 +99,6 @@ func TestRunPyramidizeProviderOverride(t *testing.T) {
 	mock := &mockPyramidizer{
 		result: pyramidize.PyramidizeResult{
 			FullDocument: "output",
-			QualityFlags: []string{},
 		},
 	}
 	capturing := &capturingPyramidizer{mock: mock, captured: &capturedReq}
@@ -108,5 +111,31 @@ func TestRunPyramidizeProviderOverride(t *testing.T) {
 	}
 	if capturedReq.Model != "gpt-4o" {
 		t.Fatalf("model = %q, want %q", capturedReq.Model, "gpt-4o")
+	}
+}
+
+// TestRunPyramidizeOffersEveryForm: the help names the five forms, chat
+// included, and the variants that still exist.
+func TestRunPyramidizeOffersEveryForm(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	_ = runPyramidizeWith([]string{"-h"}, &stdout, &stderr, &mockPyramidizer{})
+	help := stderr.String()
+	for _, want := range []string{"email|chat|memo|wiki|powerpoint", "2=v2 email"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("help lacks %q:\n%s", want, help)
+		}
+	}
+}
+
+// TestRunPyramidizePassesChatThrough: -type chat reaches the service as is.
+func TestRunPyramidizePassesChatThrough(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	var capturedReq pyramidize.PyramidizeRequest
+	capturing := &capturingPyramidizer{mock: &mockPyramidizer{result: pyramidize.PyramidizeResult{FullDocument: "x"}}, captured: &capturedReq}
+	if err := runPyramidizeWith([]string{"-type", "chat", "text"}, &stdout, &stderr, capturing); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedReq.DocumentType != "chat" {
+		t.Fatalf("documentType = %q, want chat", capturedReq.DocumentType)
 	}
 }

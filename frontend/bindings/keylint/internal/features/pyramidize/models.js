@@ -63,7 +63,7 @@ export class PyramidizeRequest {
         }
         if (!("documentType" in $$source)) {
             /**
-             * "auto"|"email"|"wiki"|"powerpoint"|"memo"
+             * "email"|"chat"|"memo"|"wiki"|"powerpoint" ("presentation" too); "auto"/"" = the app preset, else email
              * @member
              * @type {string}
              */
@@ -119,7 +119,7 @@ export class PyramidizeRequest {
         }
         if (!("promptVariant" in $$source)) {
             /**
-             * 0 = latest (default), 1 = v1, 2 = v2, etc.
+             * 0 = latest (v3, every form); 2 = the v2 email prompt, email only
              * @member
              * @type {number}
              */
@@ -141,7 +141,10 @@ export class PyramidizeRequest {
 }
 
 /**
- * PyramidizeResult is the RPC response from the main Pyramidize call.
+ * PyramidizeResult is the RPC response from the main Pyramidize call — one
+ * model call, so there is nothing to report beyond what it wrote. The quality
+ * score, flags, refinement and detection fields went with the steps that
+ * produced them (ADR-003).
  */
 export class PyramidizeResult {
     /**
@@ -151,6 +154,8 @@ export class PyramidizeResult {
     constructor($$source = {}) {
         if (!("documentType" in $$source)) {
             /**
+             * DocumentType is the form that was written, upper case ("EMAIL"): the
+             * requested one, or what "auto" resolved to.
              * @member
              * @type {string}
              */
@@ -165,72 +170,11 @@ export class PyramidizeResult {
         }
         if (!("fullDocument" in $$source)) {
             /**
-             * first line = subject/title
+             * first line = subject/title where the form has one
              * @member
              * @type {string}
              */
             this["fullDocument"] = "";
-        }
-        if (!("headers" in $$source)) {
-            /**
-             * @member
-             * @type {string[]}
-             */
-            this["headers"] = [];
-        }
-        if (!("qualityScore" in $$source)) {
-            /**
-             * @member
-             * @type {number}
-             */
-            this["qualityScore"] = 0;
-        }
-        if (!("qualityFlags" in $$source)) {
-            /**
-             * @member
-             * @type {string[]}
-             */
-            this["qualityFlags"] = [];
-        }
-        if (!("appliedRefinement" in $$source)) {
-            /**
-             * AppliedRefinement reports that a second model call was made, not that it
-             * succeeded — a refine that failed still cost a call, and an eval counting
-             * calls has to see it. On failure the document below is the foundation's.
-             * @member
-             * @type {boolean}
-             */
-            this["appliedRefinement"] = false;
-        }
-        if (!("refinementWarning" in $$source)) {
-            /**
-             * non-empty if still below threshold after retry
-             * @member
-             * @type {string}
-             */
-            this["refinementWarning"] = "";
-        }
-        if (!("detectedType" in $$source)) {
-            /**
-             * only set when AUTO was used
-             * @member
-             * @type {string}
-             */
-            this["detectedType"] = "";
-        }
-        if (!("detectedLang" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["detectedLang"] = "";
-        }
-        if (!("detectedConfidence" in $$source)) {
-            /**
-             * @member
-             * @type {number}
-             */
-            this["detectedConfidence"] = 0;
         }
 
         Object.assign(this, $$source);
@@ -242,15 +186,7 @@ export class PyramidizeResult {
      * @returns {PyramidizeResult}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType0;
-        const $$createField5_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("headers" in $$parsedSource) {
-            $$parsedSource["headers"] = $$createField3_0($$parsedSource["headers"]);
-        }
-        if ("qualityFlags" in $$parsedSource) {
-            $$parsedSource["qualityFlags"] = $$createField5_0($$parsedSource["qualityFlags"]);
-        }
         return new PyramidizeResult(/** @type {Partial<PyramidizeResult>} */($$parsedSource));
     }
 }
@@ -478,6 +414,3 @@ export class SpliceResult {
         return new SpliceResult(/** @type {Partial<SpliceResult>} */($$parsedSource));
     }
 }
-
-// Private type creation functions
-const $$createType0 = $Create.Array($Create.Any);

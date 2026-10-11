@@ -1,6 +1,8 @@
 # ADR-002 — One-shot versus pipeline for email
 
 > Status: accepted · Date: 2026-09-18 · Supersedes part of [ADR-001](adr-001-pipeline-architecture.md) · Issue: #34
+>
+> **Partly superseded by [ADR-003](adr-003-prompt-v3.md) (2026-10-11):** v3 is built and is the default; the pipeline (detect, self-QA, refine, threshold) is gone for every form; "auto" maps to the app preset or email without a call; `--json` no longer reports a quality score. Decisions 2, 3, 5 and 6 below no longer describe the code, and variant 1 no longer exists. The results stand as history.
 
 ## The question
 

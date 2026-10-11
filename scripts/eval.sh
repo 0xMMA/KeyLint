@@ -20,7 +20,7 @@ set -euo pipefail
 #   EVAL_JUDGES=claude-haiku-5-5,claude-sonnet-5-5,claude-sonnet-4-5-20250929 ./scripts/eval.sh --runs 3
 #                                              # bridge run: the old judge as a third
 #   ./scripts/eval.sh --provider openai --model gpt-4o
-#   ./scripts/eval.sh --variant 1              # run with prompt variant v1
+#   ./scripts/eval.sh --variant 2              # the v2 email prompt instead of v3 (latest)
 #   ./scripts/eval.sh --schema                 # enforce the JSON schemas (off by default, see schemas.go)
 #   ./scripts/eval.sh --runs 3                 # run n times and write an aggregate baseline.json
 #   ./scripts/eval.sh --runs 3 --compare path/to/baseline.json

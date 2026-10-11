@@ -1,8 +1,12 @@
-/** Base document types supported by the Pyramidize feature. */
+/**
+ * The forms Pyramidize writes (ADR-003). The user always picks one; nothing
+ * detects it. 'powerpoint' keeps its old value because saved app presets use it.
+ */
 export const DOCUMENT_TYPE_OPTIONS: Array<{ label: string; value: string }> = [
   { label: 'Email', value: 'email' },
-  { label: 'Wiki', value: 'wiki' },
+  { label: 'Chat', value: 'chat' },
   { label: 'Memo', value: 'memo' },
+  { label: 'Wiki', value: 'wiki' },
   { label: 'PowerPoint', value: 'powerpoint' },
 ];
 

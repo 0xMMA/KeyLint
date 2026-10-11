@@ -53,13 +53,13 @@ export function GetAppPresets() {
 }
 
 /**
- * GetQualityThreshold returns the threshold the pipeline uses, which is always
- * the default since the control was removed (see Pyramidize). Kept for the
- * binding; nothing in the frontend calls it any more.
- * @returns {$CancellablePromise<number>}
+ * GetDefaultDocType is the form Pyramidize preselects for the captured source
+ * app: its app preset, else email. It is what "auto" would write, so the UI
+ * shows the choice instead of making it out of sight.
+ * @returns {$CancellablePromise<string>}
  */
-export function GetQualityThreshold() {
-    return $Call.ByID(337443021);
+export function GetDefaultDocType() {
+    return $Call.ByID(2219838788);
 }
 
 /**
@@ -72,9 +72,9 @@ export function GetSourceApp() {
 }
 
 /**
- * Pyramidize is the main RPC: detects the document type (if AUTO), generates the
- * foundation document, and applies a refinement pass if the quality score is below
- * the configured threshold.
+ * Pyramidize is the main RPC: it writes the text in the form the user picked,
+ * in exactly one model call (ADR-003). "auto" picks no form by model: it is
+ * the app preset for the captured source app, else email.
  * @param {$models.PyramidizeRequest} req
  * @returns {$CancellablePromise<$models.PyramidizeResult>}
  */
@@ -117,15 +117,6 @@ export function SendBack(text) {
  */
 export function SetAppPreset(preset) {
     return $Call.ByID(2260797659, preset);
-}
-
-/**
- * SetQualityThreshold saves the quality threshold. Value must be in [0, 1].
- * @param {number} v
- * @returns {$CancellablePromise<void>}
- */
-export function SetQualityThreshold(v) {
-    return $Call.ByID(218741417, v);
 }
 
 /**

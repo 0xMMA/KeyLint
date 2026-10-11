@@ -3,14 +3,14 @@ package pyramidize
 // PyramidizeRequest is the RPC request for the main Pyramidize call.
 type PyramidizeRequest struct {
 	Text               string `json:"text"`
-	DocumentType       string `json:"documentType"`       // "auto"|"email"|"wiki"|"powerpoint"|"memo"
+	DocumentType       string `json:"documentType"`       // "email"|"chat"|"memo"|"wiki"|"powerpoint" ("presentation" too); "auto"/"" = the app preset, else email
 	CommunicationStyle string `json:"communicationStyle"` // "professional"|"casual"|"concise"|"detailed"|"persuasive"|"neutral"|"diplomatic"|"direct"
 	RelationshipLevel  string `json:"relationshipLevel"`  // "close"|"professional"|"authority"|"public"
 	CustomInstructions string `json:"customInstructions"` // optional, not persisted
 	Provider           string `json:"provider"`           // optional override: "claude"|"openai"|"ollama" — falls back to settings.ActiveProvider
 	Model              string `json:"model"`              // optional override, e.g. "claude-sonnet-4-6" — falls back to provider default
 	Effort             string `json:"effort"`             // optional override: "" follows settings, EffortNone sends none, else a level (llm.Effort*)
-	PromptVariant      int    `json:"promptVariant"`      // 0 = latest (default), 1 = v1, 2 = v2, etc.
+	PromptVariant      int    `json:"promptVariant"`      // 0 = latest (v3, every form); 2 = the v2 email prompt, email only
 }
 
 // EffortNone, as a request's Effort, sends no effort for that run even when
@@ -18,22 +18,16 @@ type PyramidizeRequest struct {
 // Effort follows settings instead, as an empty Model does.
 const EffortNone = "none"
 
-// PyramidizeResult is the RPC response from the main Pyramidize call.
+// PyramidizeResult is the RPC response from the main Pyramidize call — one
+// model call, so there is nothing to report beyond what it wrote. The quality
+// score, flags, refinement and detection fields went with the steps that
+// produced them (ADR-003).
 type PyramidizeResult struct {
-	DocumentType string   `json:"documentType"`
-	Language     string   `json:"language"`
-	FullDocument string   `json:"fullDocument"` // first line = subject/title
-	Headers      []string `json:"headers"`
-	QualityScore float64  `json:"qualityScore"`
-	QualityFlags []string `json:"qualityFlags"`
-	// AppliedRefinement reports that a second model call was made, not that it
-	// succeeded — a refine that failed still cost a call, and an eval counting
-	// calls has to see it. On failure the document below is the foundation's.
-	AppliedRefinement  bool    `json:"appliedRefinement"`
-	RefinementWarning  string  `json:"refinementWarning"` // non-empty if still below threshold after retry
-	DetectedType       string  `json:"detectedType"`      // only set when AUTO was used
-	DetectedLang       string  `json:"detectedLang"`
-	DetectedConfidence float64 `json:"detectedConfidence"`
+	// DocumentType is the form that was written, upper case ("EMAIL"): the
+	// requested one, or what "auto" resolved to.
+	DocumentType string `json:"documentType"`
+	Language     string `json:"language"`
+	FullDocument string `json:"fullDocument"` // first line = subject/title where the form has one
 }
 
 // RefineGlobalRequest is the RPC request for a full-canvas AI revision.
@@ -77,29 +71,11 @@ type AppPreset struct {
 	DocumentType string `json:"documentType"`
 }
 
-// detectResult is the internal struct for parsing the detection response.
-type detectResult struct {
-	Type       string  `json:"type"`
-	Language   string  `json:"language"`
-	Confidence float64 `json:"confidence"`
-}
-
-// foundationResult is the internal struct for parsing the foundation call response.
-type foundationResult struct {
-	FullDocument string   `json:"fullDocument"`
-	Headers      []string `json:"headers"`
-	Language     string   `json:"language"`
-	QualityScore float64  `json:"qualityScore"`
-	QualityFlags []string `json:"qualityFlags"`
-}
-
-// refineResult is for parsing the refinement call response.
-type refineResult struct {
-	FullDocument string   `json:"fullDocument"`
-	Headers      []string `json:"headers"`
-	Language     string   `json:"language"`
-	QualityScore float64  `json:"qualityScore"`
-	QualityFlags []string `json:"qualityFlags"`
+// documentResult is what a Pyramidize reply is parsed into. v3 asks for
+// exactly these fields; v2 also returns headers, which nothing reads.
+type documentResult struct {
+	FullDocument string `json:"fullDocument"`
+	Language     string `json:"language"`
 }
 
 // canvasResult is for the global canvas instruction response.

@@ -30,13 +30,15 @@ func runPyramidizeWith(args []string, stdout io.Writer, stderr io.Writer, svc py
 	fs.SetOutput(stderr)
 
 	filePath := fs.String("f", "", "Input file path")
-	docType := fs.String("type", "auto", "Document type: auto|email|wiki|memo|powerpoint")
+	// email, not auto: auto means "the app preset for the captured source
+	// app", and a command line has no source app — it would be email anyway.
+	docType := fs.String("type", "email", "Document type: email|chat|memo|wiki|powerpoint (presentation = powerpoint; auto = email, as the CLI has no source app)")
 	jsonOut := fs.Bool("json", false, "Output full result as JSON")
 	provider := fs.String("provider", "", "AI provider override: claude|claude-code|openai|ollama")
 	model := fs.String("model", "", "Model override (e.g. claude-sonnet-4-6)")
 	style := fs.String("style", "professional", "Communication style")
 	relationship := fs.String("relationship", "professional", "Relationship level")
-	variant := fs.Int("variant", 0, "Prompt variant (0=latest, 1=v1, 2=v2)")
+	variant := fs.Int("variant", 0, "Prompt variant (0=latest=v3, 2=v2 email prompt, email only)")
 	logLevel := addLogFlag(fs)
 
 	if err := fs.Parse(args); err != nil {
@@ -67,6 +69,7 @@ func runPyramidizeWith(args []string, stdout io.Writer, stderr io.Writer, svc py
 		return fmt.Errorf("pyramidize failed: %w", err)
 	}
 
+	// --json is PyramidizeResult: documentType, language, fullDocument.
 	if *jsonOut {
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"keylint/internal/features/clipboard"
 	"keylint/internal/features/settings"
@@ -141,9 +143,9 @@ func (svc *Service) CancelOperation() {
 	}
 }
 
-// Pyramidize is the main RPC: detects the document type (if AUTO), generates the
-// foundation document, and applies a refinement pass if the quality score is below
-// the configured threshold.
+// Pyramidize is the main RPC: it writes the text in the form the user picked,
+// in exactly one model call (ADR-003). "auto" picks no form by model: it is
+// the app preset for the captured source app, else email.
 func (svc *Service) Pyramidize(req PyramidizeRequest) (PyramidizeResult, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	svc.mu.Lock()
@@ -152,94 +154,59 @@ func (svc *Service) Pyramidize(req PyramidizeRequest) (PyramidizeResult, error) 
 	defer cancel()
 
 	cfg := svc.settings.Get()
-	opts := aiOpts{provider: req.Provider, model: req.Model, effort: req.Effort}
-	logger.Info("pyramidize: start", "docType", req.DocumentType, "provider", cfg.ActiveProvider,
-		"overrideProvider", req.Provider, "overrideModel", req.Model, "overrideEffort", req.Effort)
-
-	var result PyramidizeResult
-	docType := strings.ToLower(req.DocumentType)
-
-	// Step 1: Auto-detect if needed
-	if docType == "auto" {
-		detected, err := svc.detect(ctx, cfg, opts, req.Text)
-		if err != nil {
-			if ctx.Err() != nil {
-				return PyramidizeResult{}, fmt.Errorf("cancelled")
-			}
-			logger.Warn("pyramidize: detection failed, defaulting to email", "err", err)
-			docType = "email"
-		} else {
-			docType = strings.ToLower(detected.Type)
-			if docType == "" || !isValidDocType(docType) {
-				docType = "email"
-			}
-			result.DetectedType = strings.ToUpper(docType)
-			result.DetectedLang = detected.Language
-			result.DetectedConfidence = detected.Confidence
-		}
+	docType, err := resolveDocType(req.DocumentType, cfg.AppPresets, svc.GetSourceApp())
+	if err != nil {
+		return PyramidizeResult{}, err
+	}
+	systemPrompt, userMessage, schema, err := buildDocTypePrompt(docType, req.PromptVariant,
+		req.CommunicationStyle, req.RelationshipLevel, req.CustomInstructions, req.Text)
+	if err != nil {
+		return PyramidizeResult{}, err
 	}
 
-	// Step 2: Foundation generation
-	foundation, err := svc.foundation(ctx, cfg, opts, req, docType)
+	opts := aiOpts{provider: req.Provider, model: req.Model, effort: req.Effort}
+	logger.Info("pyramidize: start", "docType", docType, "requestedDocType", req.DocumentType,
+		"variant", req.PromptVariant, "provider", cfg.ActiveProvider,
+		"overrideProvider", req.Provider, "overrideModel", req.Model, "overrideEffort", req.Effort)
+
+	raw, err := svc.callAIWithContext(ctx, cfg, opts, systemPrompt, userMessage, schema)
 	if err != nil {
 		if ctx.Err() != nil {
 			return PyramidizeResult{}, fmt.Errorf("cancelled")
 		}
-		return PyramidizeResult{}, fmt.Errorf("foundation step failed: %w", err)
+		return PyramidizeResult{}, fmt.Errorf("AI call failed: %w", err)
+	}
+	var r documentResult
+	if err := unmarshalRobust(raw, &r); err != nil {
+		return PyramidizeResult{}, unreadableReply("pyramidize", raw, err)
+	}
+	// Pasted over the user's text by Send back, an empty result would erase it.
+	if strings.TrimSpace(r.FullDocument) == "" {
+		logger.Warn("pyramidize: the reply has no document", "raw", logger.Redact(raw))
+		return PyramidizeResult{}, fmt.Errorf("the model returned no document")
 	}
 
-	result.DocumentType = strings.ToUpper(docType)
-	result.Language = foundation.Language
-	result.FullDocument = foundation.FullDocument
-	result.Headers = foundation.Headers
-	result.QualityScore = foundation.QualityScore
-	result.QualityFlags = foundation.QualityFlags
+	logger.Info("pyramidize: done", "docType", docType)
+	return PyramidizeResult{
+		DocumentType: strings.ToUpper(docType),
+		Language:     r.Language,
+		FullDocument: r.FullDocument,
+	}, nil
+}
 
-	// Ensure QualityFlags is never nil in JSON response
-	if result.QualityFlags == nil {
-		result.QualityFlags = []string{}
-	}
+// unreadableReply logs a reply that is not the JSON asked for — redacted, since
+// it may hold the user's text — and returns an error the UI can show. The
+// error used to carry the whole reply, and with it the user's draft.
+func unreadableReply(step, raw string, err error) error {
+	logger.Warn("pyramidize: unreadable reply", "step", step, "err", err, "raw", logger.Redact(raw))
+	return fmt.Errorf("%s: the model's reply could not be read", step)
+}
 
-	// Step 3: Optional refinement pass
-	// Always the default: the threshold control was removed from the UI (owner
-	// decision 2026-10-11, ADR-002 §5), so a value still in settings.json is one
-	// the user can neither see nor change, and must not steer refinement.
-	threshold := settings.DefaultQualityThreshold
-	if foundation.QualityScore < threshold && len(foundation.QualityFlags) > 0 {
-		logger.Info("pyramidize: quality below threshold, refining",
-			"score", foundation.QualityScore, "flags", foundation.QualityFlags, "threshold", threshold)
-
-		// Recorded before the call is judged: this flag says a second model call
-		// was made, which is what it costs and what an eval needs to count. A
-		// refine that fails still spent the money.
-		result.AppliedRefinement = true
-
-		refined, err := svc.refine(ctx, cfg, opts, req.Text, foundation.FullDocument, foundation.QualityFlags)
-		if err != nil {
-			if ctx.Err() != nil {
-				return PyramidizeResult{}, fmt.Errorf("cancelled")
-			}
-			// Refinement failure is non-fatal — return the foundation result with a warning
-			logger.Warn("pyramidize: refinement failed, using foundation result", "err", err)
-		} else {
-			result.FullDocument = refined.FullDocument
-			result.Headers = refined.Headers
-			result.QualityScore = refined.QualityScore
-			result.QualityFlags = refined.QualityFlags
-			if result.QualityFlags == nil {
-				result.QualityFlags = []string{}
-			}
-			if refined.QualityScore < threshold {
-				result.RefinementWarning = fmt.Sprintf(
-					"Quality score %.2f is still below threshold after refinement.", refined.QualityScore)
-			}
-		}
-	}
-
-	logger.Info("pyramidize: done",
-		"docType", result.DocumentType, "score", result.QualityScore,
-		"refineCalled", result.AppliedRefinement)
-	return result, nil
+// GetDefaultDocType is the form Pyramidize preselects for the captured source
+// app: its app preset, else email. It is what "auto" would write, so the UI
+// shows the choice instead of making it out of sight.
+func (svc *Service) GetDefaultDocType() string {
+	return presetDocType(svc.settings.Get().AppPresets, svc.GetSourceApp())
 }
 
 // RefineGlobal applies a user instruction to the full canvas document.
@@ -267,7 +234,7 @@ func (svc *Service) RefineGlobal(req RefineGlobalRequest) (RefineGlobalResult, e
 
 	var r canvasResult
 	if err := unmarshalRobust(raw, &r); err != nil {
-		return RefineGlobalResult{}, fmt.Errorf("RefineGlobal parse error: %w (raw: %s)", err, raw)
+		return RefineGlobalResult{}, unreadableReply("RefineGlobal", raw, err)
 	}
 	return RefineGlobalResult{NewCanvas: r.NewCanvas}, nil
 }
@@ -296,7 +263,7 @@ func (svc *Service) Splice(req SpliceRequest) (SpliceResult, error) {
 
 	var r spliceResult
 	if err := unmarshalRobust(raw, &r); err != nil {
-		return SpliceResult{}, fmt.Errorf("Splice parse error: %w (raw: %s)", err, raw)
+		return SpliceResult{}, unreadableReply("Splice", raw, err)
 	}
 	return SpliceResult{RewrittenSection: r.RewrittenSection}, nil
 }
@@ -348,24 +315,7 @@ func (svc *Service) DeleteAppPreset(sourceApp string) error {
 	})
 }
 
-// GetQualityThreshold returns the threshold the pipeline uses, which is always
-// the default since the control was removed (see Pyramidize). Kept for the
-// binding; nothing in the frontend calls it any more.
-func (svc *Service) GetQualityThreshold() float64 {
-	return settings.DefaultQualityThreshold
-}
-
-// SetQualityThreshold saves the quality threshold. Value must be in [0, 1].
-func (svc *Service) SetQualityThreshold(v float64) error {
-	if v < 0 || v > 1 {
-		return fmt.Errorf("threshold must be between 0 and 1, got %.2f", v)
-	}
-	return settings.Update(svc.settings, func(cfg *settings.Settings) {
-		cfg.PyramidizeQualityThreshold = v
-	})
-}
-
-// aiOpts carries optional provider/model overrides for a single pipeline run.
+// aiOpts carries optional provider/model overrides for a single call.
 // Empty strings fall back to the configured defaults.
 type aiOpts struct {
 	provider string // if empty, uses cfg.ActiveProvider
@@ -376,85 +326,14 @@ type aiOpts struct {
 	// temperature pins sampling. nil leaves it to the provider, which is what
 	// the product does; the eval judge sets it so its scores are repeatable.
 	temperature *float64
-	// maxTokens overrides the pipeline's output limit for one call. 0 means
-	// the pipeline's own. Only the eval judge sets it: an instrument must not
+	// maxTokens overrides Pyramidize's output limit for one call. 0 means
+	// its own. Only the eval judge sets it: an instrument must not
 	// move when the product's limit does.
 	maxTokens int
 	// noEffort sends no effort whatever settings say. The eval judge sets it
 	// for the same reason as maxTokens: a pinned instrument must not pick up
 	// the effort a user (or a later eval configuration) chose for Pyramidize.
 	noEffort bool
-}
-
-// --- internal pipeline helpers ---
-
-func (svc *Service) detect(ctx context.Context, cfg settings.Settings, opts aiOpts, text string) (detectResult, error) {
-	raw, err := svc.callAIWithContext(ctx, cfg, opts, detectPromptTemplate, text, detectSchema)
-	if err != nil {
-		return detectResult{}, err
-	}
-	var r detectResult
-	if err := unmarshalRobust(raw, &r); err != nil {
-		return detectResult{}, fmt.Errorf("detect parse error: %w (raw: %s)", err, raw)
-	}
-	return r, nil
-}
-
-func (svc *Service) foundation(ctx context.Context, cfg settings.Settings, opts aiOpts, req PyramidizeRequest, docType string) (foundationResult, error) {
-	systemPrompt, userMessage, schema := buildDocTypePrompt(docType, req.PromptVariant, req.CommunicationStyle, req.RelationshipLevel, req.CustomInstructions, req.Text)
-	raw, err := svc.callAIWithContext(ctx, cfg, opts, systemPrompt, userMessage, schema)
-	if err != nil {
-		return foundationResult{}, err
-	}
-	var r foundationResult
-	if err := unmarshalRobust(raw, &r); err != nil {
-		return foundationResult{}, fmt.Errorf("foundation parse error: %w (raw: %s)", err, raw)
-	}
-	return r, nil
-}
-
-func (svc *Service) refine(ctx context.Context, cfg settings.Settings, opts aiOpts, originalText, failedOutput string, flags []string) (refineResult, error) {
-	systemPrompt, userMessage := buildRefinePrompt(originalText, failedOutput, flags)
-	raw, err := svc.callAIWithContext(ctx, cfg, opts, systemPrompt, userMessage, documentSchema)
-	if err != nil {
-		return refineResult{}, err
-	}
-	var r refineResult
-	if err := unmarshalRobust(raw, &r); err != nil {
-		return refineResult{}, fmt.Errorf("refine parse error: %w (raw: %s)", err, raw)
-	}
-	return r, nil
-}
-
-// buildDocTypePrompt dispatches to the correct prompt builder based on document type.
-// variant is only used for doc types that have multiple prompt versions (currently email).
-func buildDocTypePrompt(docType string, variant int, style, relationship, customInstructions, text string) (systemPrompt, userMessage string, schema json.RawMessage) {
-	switch docType {
-	case "wiki":
-		system, user := buildWikiPrompt(style, relationship, customInstructions, text)
-		return system, user, documentSchema
-	case "memo":
-		system, user := buildMemoPrompt(style, relationship, customInstructions, text)
-		return system, user, documentSchema
-	case "powerpoint":
-		system, user := buildPPTPrompt(style, relationship, customInstructions, text)
-		return system, user, documentSchema
-	default: // "email" and any unrecognised type
-		system, user := buildEmailPrompt(variant, style, relationship, customInstructions, text)
-		return system, user, emailSchema(variant)
-	}
-}
-
-// emailSchema picks the shape the chosen email prompt actually produces: v2
-// returns three fields, v1 five. See documentSchemaV2.
-func emailSchema(variant int) json.RawMessage {
-	if variant <= 0 {
-		variant = LatestEmailVariant
-	}
-	if variant == 2 {
-		return documentSchemaV2
-	}
-	return documentSchema
 }
 
 // callAIWithContext resolves the API key and runs an AI call. The context is
@@ -576,13 +455,118 @@ func (svc *Service) providerConfig(provider string, cfg settings.Settings, apiKe
 	}
 }
 
-// isValidDocType reports whether s is a recognised Pyramidize document type.
+// isValidDocType reports whether s is a form Pyramidize writes. "powerpoint"
+// keeps its old name because app presets and the CLI already store it.
 func isValidDocType(s string) bool {
 	switch s {
-	case "email", "wiki", "memo", "powerpoint":
+	case "email", "chat", "memo", "wiki", "powerpoint":
 		return true
 	}
 	return false
+}
+
+// normalizeDocType lower-cases a document type and maps "presentation", the
+// form's name in ADR-003, onto "powerpoint".
+func normalizeDocType(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "presentation" {
+		return "powerpoint"
+	}
+	return s
+}
+
+// resolveDocType turns a request's document type into the form to write.
+// "auto" and "" are a lookup, never a model call: the app preset for
+// sourceApp, else email. Anything else must name a form — an unknown type used
+// to run the email prompt without a word.
+func resolveDocType(requested string, presets []settings.AppPreset, sourceApp string) (string, error) {
+	docType := normalizeDocType(requested)
+	if docType == "" || docType == "auto" {
+		return presetDocType(presets, sourceApp), nil
+	}
+	if !isValidDocType(docType) {
+		return "", fmt.Errorf("unknown document type %q (want email, chat, memo, wiki or powerpoint)", requested)
+	}
+	return docType, nil
+}
+
+// presetDocType is the form an app preset names for sourceApp, else email.
+//
+// The captured source app is a window title, and on Windows a title ends in
+// the app: "Inbox - Outlook", "Report.docx – Word". So the app segment (after
+// the last " - ", " – " or " — ") is searched first and the document part
+// only when the app segment matches no preset — a browser tab ("Inbox - Gmail
+// - Google Chrome") names its web app there. A preset name matches as whole
+// words, ignoring case, and needs at least three characters: "Mail" must not
+// match "Gmail" or "Email draft.docx". Within a part the longest name wins, so
+// "Outlook Web" beats "Outlook". A preset naming no form (a hand-edited
+// settings file) is skipped rather than trusted.
+func presetDocType(presets []settings.AppPreset, sourceApp string) string {
+	app, document := splitTitle(sourceApp)
+	for _, part := range []string{app, document} {
+		if docType, ok := bestPreset(presets, part); ok {
+			return docType
+		}
+	}
+	return "email"
+}
+
+// titleSeparators end the document part of a window title.
+var titleSeparators = []string{" - ", " – ", " — "}
+
+// splitTitle splits a window title at its last separator into the app segment
+// and the document part. A title without one is all app.
+func splitTitle(title string) (app, document string) {
+	cut, width := -1, 0
+	for _, sep := range titleSeparators {
+		if i := strings.LastIndex(title, sep); i > cut {
+			cut, width = i, len(sep)
+		}
+	}
+	if cut < 0 {
+		return title, ""
+	}
+	return title[cut+width:], title[:cut]
+}
+
+// bestPreset is the form of the longest preset name found in text, if any.
+func bestPreset(presets []settings.AppPreset, text string) (string, bool) {
+	text = strings.ToLower(text)
+	best, bestLen := "", 0
+	for _, p := range presets {
+		name := strings.ToLower(strings.TrimSpace(p.SourceApp))
+		docType := normalizeDocType(p.DocumentType)
+		if utf8.RuneCountInString(name) < 3 || !isValidDocType(docType) || !containsWord(text, name) {
+			continue
+		}
+		if len(name) > bestLen {
+			best, bestLen = docType, len(name)
+		}
+	}
+	return best, bestLen > 0
+}
+
+// containsWord reports whether word occurs in text with no letter or digit
+// directly before or after it. Both are already lower case.
+func containsWord(text, word string) bool {
+	for from := 0; from <= len(text); {
+		i := strings.Index(text[from:], word)
+		if i < 0 {
+			return false
+		}
+		start, end := from+i, from+i+len(word)
+		before, _ := utf8.DecodeLastRuneInString(text[:start])
+		after, _ := utf8.DecodeRuneInString(text[end:])
+		if !isWordRune(before) && !isWordRune(after) {
+			return true
+		}
+		from = start + 1
+	}
+	return false
+}
+
+func isWordRune(r rune) bool {
+	return r != utf8.RuneError && (unicode.IsLetter(r) || unicode.IsDigit(r))
 }
 
 // pyramidizeEffort is the effort a call sends: the panel's choice for this

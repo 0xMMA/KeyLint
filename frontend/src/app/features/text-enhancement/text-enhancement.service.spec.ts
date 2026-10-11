@@ -12,14 +12,6 @@ describe('TextEnhancementService', () => {
     documentType: 'EMAIL',
     language: 'en',
     fullDocument: 'Body text',
-    headers: [],
-    qualityScore: 0.9,
-    qualityFlags: [],
-    appliedRefinement: false,
-    refinementWarning: '',
-    detectedType: 'EMAIL',
-    detectedLang: 'en',
-    detectedConfidence: 0.95,
   };
 
   beforeEach(() => {
@@ -51,7 +43,7 @@ describe('TextEnhancementService', () => {
 
   it('pyramidize() delegates to wails.pyramidize()', async () => {
     wailsMock.pyramidize.mockResolvedValue(mockPyramidizeResult);
-    const req = { text: 'hello', documentType: 'auto', communicationStyle: 'professional', relationshipLevel: 'professional', customInstructions: '', provider: 'claude', model: 'claude-sonnet-4-6', effort: 'high', promptVariant: 0 };
+    const req = { text: 'hello', documentType: 'email', communicationStyle: 'professional', relationshipLevel: 'professional', customInstructions: '', provider: 'claude', model: 'claude-sonnet-4-6', effort: 'high', promptVariant: 0 };
     const result = await svc.pyramidize(req);
     expect(wailsMock.pyramidize).toHaveBeenCalledWith(req);
     expect(result).toEqual(mockPyramidizeResult);
