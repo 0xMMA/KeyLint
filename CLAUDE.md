@@ -27,7 +27,8 @@ cat input.txt | ./bin/KeyLint -fix                     # fix from stdin
 # rather than hanging on a pipe that never speaks.
 ./bin/KeyLint -pyramidize -type email -f input.md      # pyramidize from file, one model call
                                                        # -type: email (default) | chat | memo | wiki | powerpoint
-                                                       # ("presentation" = powerpoint; "auto" = app preset, else email)
+                                                       # ("presentation" = powerpoint; "auto" = email here — the
+                                                       # CLI has no source app, so no app preset can apply)
 ./bin/KeyLint -pyramidize --json -f input.md           # JSON: {documentType, language, fullDocument}
                                                        # (no qualityScore since v3 — nothing produces one, ADR-003)
 ./bin/KeyLint -pyramidize --provider claude --model claude-sonnet-4-6 -f input.md

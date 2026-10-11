@@ -18,9 +18,10 @@ The prompt for every form is **v3**: one shared core plus one section per form
 |---|---|
 | Core: `<pyramid>` | Main point first, then grouped support; decisions → actions → context; thread history moves to the end, it does not drop out |
 | Core: `<headers>` | Content statements, never process labels; same-level headers MECE |
-| Core: `<fidelity>` | Every fact, name, number, date, request and open question appears; nothing is added — no conclusions, reasons, or status claims like "no action needed"; what the input leaves open stays open |
-| Core: `<voice>` | Never translate; keep the input's code-switching and introduce none; never raise formality or change person; greetings and sign-offs as written |
-| Core: `<style>` | Compact but complete; a short message gets a short result; how style, relationship and additional instructions apply |
+| Core: `<fidelity>` | Every fact, name, number, date, request and open question appears; nothing is added — no conclusions, reasons, or status claims like "no action needed"; what the input leaves open stays open; holds whatever the user chooses |
+| Core: `<voice>` | The default: the input's language and code-switching (none introduced), tone and person; never raise formality on its own; greetings and sign-offs as written |
+| Core: `<user_choices>` | An explicit choice wins over the voice defaults: professional/professional (what the UI always sends) is the default, not a choice; any other style or relationship sets register and formality; additional instructions ("auf Englisch", "formeller") are followed — a choice changes how the text reads, never what it says |
+| Core: `<style>` | Compact but complete, no filler, nothing the input does not say; the form's shape is fixed — email, memo, wiki and presentation always take their full shape, however short the input; chat is the form for a short result |
 | Form sections | email (subject line `Decision \| Details \| Actions`, greeting, bold headers + bullets, sign-off), **chat (new)**: no subject, no headers, first sentence carries the point, greeting only if the input has one, may shorten but keeps every fact and ask; memo (`TO \| FROM \| RE` line, one-sentence summary, bold headers); wiki (`# title`, one-sentence summary, `##` sections); presentation (`# Slide N:` titles that tell the story, slide 1 is the summary) |
 | Output | `{"fullDocument", "language"}` — subject, title and headers live inside the document, where the user sees them |
 
@@ -37,9 +38,27 @@ their shape rules from the old memo/wiki/powerpoint prompts.
 
 What v3 adds is general, taken from `quality-status.md`'s *Persistent Model
 Behaviors* rather than from any sample: no editorial status claims ("Kein
-Handlungsbedarf"), a short message stays short (tone drift into headers and
-bullets), thread history stays as context (dropped mail history). Nothing was
-tuned to an eval sample; no sample was read.
+Handlungsbedarf") and thread history stays as context (dropped mail history).
+Nothing was tuned to an eval sample; no sample was read.
+
+### Two owner decisions (Michael, 2026-10-11, after review)
+
+- **Fixed shapes.** An email always has subject line, greeting as written, bold
+  content headers with bullets and sign-off as written — also for a
+  three-sentence casual mail; memo, wiki and presentation keep their shapes too.
+  The first draft's "a short message gets a short result" contradicted that (and
+  the eval's structure check, which wants headers) and went. "No padding" stays,
+  meaning no invented content and no filler. **Chat is the form for a short
+  result.** The structure check is unchanged, so no `checksVersion` bump.
+- **An explicit choice wins over the author-voice defaults; content never
+  changes.** Without a choice the author's language, code-switching and tone
+  stay. A style or relationship implying more formality, or an instruction like
+  "auf Englisch" or "formeller", is followed — never over fidelity. Because the
+  UI and CLI always send professional/professional, that pair is defined as the
+  default, not as a choice; phase 3 replaces the relationship levels anyway.
+
+v2 is byte-identical through both: `TestV2IsKeptVerbatim` pins sha256 hashes
+of its system prompt, computed from main's file built on its own.
 
 **The examples were fixed, because they taught the faults the rules forbid.**
 v2's first email example put *"Keine Aktion erforderlich"* into a subject whose
@@ -61,8 +80,14 @@ fact in the output is in the input, and nothing else is.
 - **"auto" is a lookup, not a call.** `docType: "auto"` (or empty) resolves to
   the app preset for the captured source app — the presets in Settings › App
   defaults were stored but never applied until now — else **email**. The captured
-  "app" is a window title, so a preset matches when its name appears in the title
-  (case-insensitive); of several, the longest name wins. `GetDefaultDocType`
+  "app" is a window title, and Windows titles end in the app ("Inbox - Outlook",
+  "Report.docx – Word"). A preset name matches whole words only, ignoring case,
+  and needs three characters ("Mail" must not hit "Gmail" or "Email
+  draft.docx"); the app segment after the last " - "/" – "/" — " is searched
+  first, the document part only when it matches nothing (a browser tab names
+  its web app there); the longest name wins. The document-part fallback still
+  lets a Teams-only preset match an Outlook mail titled "Microsoft Teams
+  rollout"; a preset for Outlook takes precedence over it. `GetDefaultDocType`
   gives the UI the same answer, so it can show the preselection instead of
   making it out of sight.
 - **Volunteered quality fields buy nothing.** Schema enforcement is still off by
@@ -71,8 +96,11 @@ fact in the output is in the input, and nothing else is.
   Now nothing reads them: `TestVolunteeredQualityFieldsBuyNoSecondCall`.
 - **Refusals are explicit.** An unknown document type, or a variant that does not
   exist for the form, is an error before any call; both used to run the email
-  prompt (and variant 1) silently. An empty document is an error too, so Send
-  back cannot paste nothing over the user's text.
+  prompt (and variant 1) silently. A model reply without a document is an error
+  too, so Send back cannot paste nothing over the user's text. An unreadable or
+  empty reply is logged redacted (it may hold the user's text) and the UI gets
+  a plain message — the error used to carry the whole reply; the same now holds
+  for `RefineGlobal` and `Splice`.
 - `RefineGlobal` and `Splice` (user-driven editing) are unchanged, apart from
   one line in the whole-text prompt that no longer assumes a subject line (a chat
   has none).
@@ -134,7 +162,9 @@ ran those forms anyway.
    pair by design; the verdict is the same interval rule applied by hand, as
    ADR-002 did, and reported as such.
    The comparison is v3 as a package: the core, the fixed examples and the
-   smaller output (no `headers` array) change together.
+   smaller output (no `headers` array) change together. Each Pyramidize run now
+   records `promptHash` in `summary.json` (reported next to a verdict, not in
+   the `configKey`, as for the Fix suite), so v3 iterations can be told apart.
 2. **Chat, memo, wiki, presentation wait for real samples.** The suite is 13
    German business emails; the other forms have no eval coverage and v3's
    sections for them are unmeasured. Anonymised real texts from Michael are the
