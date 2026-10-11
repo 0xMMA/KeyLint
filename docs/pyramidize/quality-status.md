@@ -1,10 +1,10 @@
 # Pyramidize Output Quality — Status & Open Issues
 
-> Last updated: 2026-10-11
+> Last updated: 2026-10-12
 
 > The Fix prompt has its own suite and baseline: [`docs/fix/quality-status.md`](../fix/quality-status.md).
 
-> **Prompt v3 is the default since 2026-10-11 ([ADR-003](adr-003-prompt-v3.md)) and is not measured yet.** Every baseline below is v2 email (or older); a run with no `--variant` now measures v3, and `promptVariant` in `summary.json` says which. v2 stays selectable with `--variant 2`; variant 1 and the refine pass are gone, so `appliedRefinement` is always false from here on. Since the mail-history change of the same day (below) every baseline here was scored by the previous instrument and reads "not comparable" against a new run.
+> **Prompt v3 is the default since 2026-10-11 ([ADR-003](adr-003-prompt-v3.md)).** Its reference is the baseline of 2026-10-12 (below), the first run on the current instrument (mail history is context, `checksVersion` 2, `judgePromptHash`). Every older baseline was scored by a previous instrument and reads "not comparable" against a new run. v2 stays selectable with `--variant 2`; variant 1 and the refine pass are gone, so `appliedRefinement` is always false from here on.
 
 ---
 
@@ -16,6 +16,40 @@
 - **Results:** Logged to `test-data/eval-runs/<timestamp>/` with `summary.json`, `results.jsonl`, `samples/`
 - **Run:** `./scripts/eval.sh --runs 3` — pipeline and judges through the installed Claude Code CLI (since 2026-10-04; two judges since 2026-10-11)
 - **Requires:** a signed-in Claude Code CLI (`claude auth status`), no API key. Against the API instead: `EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --provider claude --runs 3` with `ANTHROPIC_API_KEY` in `.env`. That is a different instrument from the API era's too (two judges, resolved IDs, judges unpinned on 5.5): **the API-era baselines below are not comparable with any run of this instrument**, whichever route it takes.
+
+---
+
+## Eval Scores — baseline of 2026-10-12 (prompt v3, the current reference)
+
+Three runs of prompt v3 (email form, `promptHash` `p1-21668d0c1f756770`) on the
+instrument of the mail-history change: `sonnet` → `claude-sonnet-5-5` through
+the CLI (2.1.296), both judges, 13 samples, full coverage in every run,
+`checksVersion` 2, `judgePromptHash` `j1-fda30fd7bd94a7fa`, gitSHA `4d7751d`.
+`test-data/eval-baselines/2026-10-12T01-03-13/baseline.json`.
+
+| Metric | Mean | Range |
+|---|:---:|:---:|
+| Deterministic | 0.9039 | 0.9000–0.9081 |
+| Judge Haiku 5.5 | 0.8536 | 0.8523–0.8546 |
+| Judge Sonnet 5.5 | 0.8087 | 0.8054–0.8115 |
+| Samples passing | 10.3 | 10–11 |
+
+Nothing older compares with it: the checks, the judge prompt and the prompt
+all changed. Read the numbers as the starting point, not as a move.
+
+- **The rule holds.** `no_history_reproduction` scored 1.0 in all six runs of
+  the two samples with history: no 8-word window of a quoted mail reached the
+  output. `email-dataquality-reply-to-feedback`, which appended a recap of the
+  quoted mails under the old rule (judges 0.64 and 0.61), now answers without
+  one: deterministic 0.98, Haiku 0.82, Sonnet 0.75 (means of three runs).
+  `email-diagnose-update`: 0.90, 0.86, 0.89.
+- **Weakest samples, deterministically:** `email-passwort erhalten` (0.76,
+  `no_hallucination` 0.31–0.50, while both judges give it 0.86–0.90) and
+  `email-meeting-request` (0.83, `info_coverage` 0.60–0.63) — the same term
+  checks the "Deterministic Check Limitations" section below describes.
+- **No v2 run on this instrument.** v3 replaced v2 by the old instrument's
+  comparison; a v2 rerun (another 117 calls) is needed only if that comparison
+  is to be repeated on the new instrument.
 
 ---
 
