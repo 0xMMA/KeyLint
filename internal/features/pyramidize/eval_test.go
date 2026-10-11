@@ -186,8 +186,14 @@ func TestEvalPyramidize(t *testing.T) {
 		judgeSvcs[i] = NewService(settingsSvc, nil)
 		judgeSvcs[i].newClient = judgeAnswered[i].Wrap(judgeSvcs[i].newClient)
 	}
+	// Refused up front: a variant that does not exist for email would
+	// otherwise fail every sample one call at a time.
+	effectiveVariant, err := resolvePromptVariant("email", variant)
+	if err != nil {
+		t.Fatal(err)
+	}
 	samples := loadTestSamples(t)
-	t.Logf("prompt variant: %d (0=latest=%d)", variant, LatestEmailVariant)
+	t.Logf("prompt variant: %d (0=latest=%d)", variant, LatestPromptVariant)
 
 	// Create eval run directory.
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
@@ -207,10 +213,10 @@ func TestEvalPyramidize(t *testing.T) {
 		// answer leaves its judgeCount below scoredCount, and the run folder
 		// has to say why once the log is gone.
 		JudgeErrors map[string]string `json:"judgeErrors,omitempty"`
-		// AppliedRefinement says whether this sample cost a second model call.
-		// Without it a run cannot show whether the pipeline arm of a comparison
-		// ever behaved like a pipeline — the gap ADR-002 had to record as
-		// unfalsifiable from its own data.
+		// AppliedRefinement said whether this sample cost a second model call.
+		// Since ADR-003 every run is one call (pinned by oneshot_test.go), so it
+		// is always false — and still written, so the aggregate reports 0
+		// refined rather than "unrecorded" (null).
 		AppliedRefinement bool `json:"appliedRefinement"`
 	}
 
@@ -240,7 +246,7 @@ func TestEvalPyramidize(t *testing.T) {
 				PromptVariant:      variant,
 			})
 
-			sr := sampleResult{Name: sample.Name, AppliedRefinement: result.AppliedRefinement}
+			sr := sampleResult{Name: sample.Name}
 
 			if err != nil {
 				sr.Error = err.Error()
@@ -297,10 +303,6 @@ func TestEvalPyramidize(t *testing.T) {
 	// here: a number without its configuration is not a measurement, and the
 	// March table in quality-status.md became unreadable for exactly that
 	// reason — nobody could tell which model had produced it.
-	effectiveVariant := variant
-	if effectiveVariant == 0 {
-		effectiveVariant = LatestEmailVariant
-	}
 	avgJudges := map[string]float64{}
 	for i := range judges {
 		judges[i].ResolvedModel = judgeAnswered[i].Recorded(judges[i].Model)
@@ -323,9 +325,12 @@ func TestEvalPyramidize(t *testing.T) {
 		"promptVariant":     effectiveVariant,
 		// Every judge, with the ID that answered for it. Their scores stay
 		// apart: avgJudges and judgeCounts are keyed by judge model.
-		"judges":           judges,
-		"avgJudges":        avgJudges,
-		"judgeCounts":      judgeCount,
+		"judges":      judges,
+		"avgJudges":   avgJudges,
+		"judgeCounts": judgeCount,
+		// Inert since ADR-003 (no refine pass reads it), still recorded:
+		// it is part of the configKey, and dropping it would make every
+		// earlier baseline "not comparable" for a field that changed nothing.
 		"qualityThreshold": settings.DefaultQualityThreshold,
 		// Which configuration produced these numbers; see schemas.go.
 		"schemaEnforcement": schemaEnforcement,

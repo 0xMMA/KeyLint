@@ -17,7 +17,8 @@ export interface FakePyramidizeState {
   clipboard: string;
   /** The document Pyramidize returns. */
   fullDocument: string;
-  detectedType: string;
+  /** What GetDefaultDocType answers: the form preselected for a capture. */
+  defaultDocType: string;
   /** When set, Pyramidize fails with this message, as a Go error would. */
   failPyramidize?: string;
   /** When set, Pyramidize answers only once this resolves (to show the step). */
@@ -33,7 +34,7 @@ export function fakePyramidize(overrides: Partial<FakePyramidizeState> = {}): Fa
     sourceApp: '',
     clipboard: '',
     fullDocument: '',
-    detectedType: 'email',
+    defaultDocType: 'email',
     requests: [],
     sentBack: [],
     ...overrides,
@@ -61,6 +62,8 @@ export async function installFakePyramidize(page: Page, state: FakePyramidizeSta
     switch (ids.get(id)) {
       case 'GetSourceApp':
         return json(state.sourceApp);
+      case 'GetDefaultDocType':
+        return json(state.defaultDocType);
       case 'CancelOperation':
         return empty();
       case 'Pyramidize': {
@@ -69,18 +72,12 @@ export async function installFakePyramidize(page: Page, state: FakePyramidizeSta
         if (state.failPyramidize) {
           return route.fulfill({ status: 500, contentType: 'text/plain', body: state.failPyramidize });
         }
+        // PyramidizeResult since ADR-003: the form written, and the text.
+        const requested = String((args[0] as { documentType?: string })?.documentType ?? 'email');
         return json({
-          documentType: state.detectedType,
+          documentType: requested.toUpperCase(),
           language: 'en',
           fullDocument: state.fullDocument,
-          headers: [],
-          qualityScore: 0.9,
-          qualityFlags: [],
-          appliedRefinement: false,
-          refinementWarning: '',
-          detectedType: state.detectedType,
-          detectedLang: 'en',
-          detectedConfidence: 0.95,
         });
       }
       case 'SendBack':

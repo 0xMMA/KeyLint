@@ -388,6 +388,15 @@ export class WailsService implements OnDestroy {
     }
   }
 
+  /** The form to preselect for the captured source app: its app preset, else email. */
+  getDefaultDocType(): Promise<string> {
+    try {
+      return PyramidizeService.GetDefaultDocType().catch(() => 'email');
+    } catch {
+      return Promise.resolve('email');
+    }
+  }
+
   setAppPreset(preset: AppPreset): Promise<void> {
     return PyramidizeService.SetAppPreset(preset);
   }

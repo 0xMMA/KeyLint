@@ -24,7 +24,7 @@ The user wants to revise the canvas document using the instruction provided. App
 <constraints>
 - Output the complete revised canvas — not just the changed sections
 - Do not add explanations or commentary — output only the document
-- Maintain the structural format of the document (subject line / headers / body)
+- Keep the structural format the canvas has (subject line, headers, body — only the parts it already has: a chat message has no subject line or headers)
 </constraints>
 
 Respond ONLY with valid JSON (no markdown fences, no explanation):

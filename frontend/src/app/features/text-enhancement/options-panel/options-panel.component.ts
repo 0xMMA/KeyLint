@@ -17,7 +17,7 @@ export interface ModelOption { id: string; label: string }
  * Presentational: the page owns the state (module-level, so it survives
  * navigation) and every decision; this only shows it and reports what the
  * user did. Values bound with [(…)] are written back as the user changes
- * them; `providerPicked` and `docTypePicked` fire after, on user action only.
+ * them; `providerPicked` fires after, on user action only.
  */
 @Component({
   selector: 'app-pyramidize-options',
@@ -106,14 +106,7 @@ export interface ModelOption { id: string; label: string }
     }
 
     <div class="pz-field">
-      <!-- What detection found sits on the label's line: a line of its own
-           pushed the column past the default window height after a run. -->
-      <div class="pz-label-row">
-        <label class="pz-label" for="pz-doc-type">Document type</label>
-        @if (detectedType()) {
-          <small class="pz-hint pz-detected-hint" data-testid="detected-type">Detected: <span class="pz-detected">{{ detectedType() }}</span></small>
-        }
-      </div>
+      <label class="pz-label" for="pz-doc-type">Document type</label>
       <kl-select
         data-testid="doc-type-select"
         inputId="pz-doc-type"
@@ -121,7 +114,6 @@ export interface ModelOption { id: string; label: string }
         optionLabel="label"
         optionValue="value"
         [(ngModel)]="docType"
-        (changed)="docTypePicked.emit()"
       />
     </div>
 
@@ -177,7 +169,6 @@ export interface ModelOption { id: string; label: string }
     .pz-field-grow { flex: 1 0 auto; }
     /* Fills the height left, up to about ten lines; the button stays at the bottom. */
     .pz-instructions { flex: 1; max-height: 14rem; }
-    .pz-detected-hint { margin-left: auto; }
     .pz-label-row { display: flex; align-items: center; gap: 6px; }
     .pz-info {
       display: inline-flex; padding: 2px; border: 0; border-radius: 4px; background: none;
@@ -187,7 +178,6 @@ export interface ModelOption { id: string; label: string }
     .pz-info:focus-visible { outline: 2px solid var(--kl-focus); outline-offset: 1px; }
     .pz-label { font-size: 13px; font-weight: 500; color: var(--kl-muted); }
     .pz-hint { font-size: 12px; line-height: 1.45; color: var(--kl-muted); }
-    .pz-detected { color: var(--kl-primary-text); font-weight: 600; }
     .pz-link {
       font: inherit; padding: 0; margin-left: 4px; border: 0; background: none;
       color: var(--kl-link); cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
@@ -213,9 +203,7 @@ export class OptionsPanelComponent {
   readonly effortNote = input<string | null>(null);
 
   readonly docTypeOptions = input<readonly LabelledOption[]>([]);
-  readonly docType = model('auto');
-  /** The type an automatic detection found, as a label; '' for none. */
-  readonly detectedType = input('');
+  readonly docType = model('email');
   readonly commStyleOptions = input<readonly LabelledOption[]>([]);
   readonly commStyle = model('professional');
   readonly relLevelOptions = input<readonly LabelledOption[]>([]);
@@ -232,7 +220,6 @@ export class OptionsPanelComponent {
 
   readonly providerPicked = output<string>();
   readonly followSettings = output<void>();
-  readonly docTypePicked = output<void>();
   readonly pyramidize = output<void>();
   readonly dismissBanner = output<void>();
 

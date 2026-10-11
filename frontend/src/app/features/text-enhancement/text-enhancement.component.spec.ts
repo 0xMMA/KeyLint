@@ -14,14 +14,6 @@ function makeEnhancementServiceMock() {
       documentType: 'EMAIL',
       language: 'en',
       fullDocument: 'Subject | Details | Actions\n\nBody text',
-      headers: ['Header 1'],
-      qualityScore: 0.9,
-      qualityFlags: [],
-      appliedRefinement: false,
-      refinementWarning: '',
-      detectedType: 'EMAIL',
-      detectedLang: 'en',
-      detectedConfidence: 0.95,
     }),
     refineGlobal: vi.fn().mockResolvedValue({ newCanvas: 'Refined canvas text' }),
     splice: vi.fn().mockResolvedValue({ rewrittenSection: 'Rewritten section' }),
@@ -67,7 +59,7 @@ describe('TextEnhancementComponent (Pyramidize)', () => {
     // Reset module-level state
     component.originalTextView = '';
     component.canvasTextView = '';
-    component.docTypeView = 'auto';
+    component.docTypeView = 'email';
     component.isLoading = false;
     component.errorMessage = '';
 
@@ -908,7 +900,7 @@ describe('TextEnhancementComponent — page', () => {
     el = fixture.nativeElement;
     component.originalTextView = '';
     component.canvasTextView = '';
-    component.docTypeView = 'auto';
+    component.docTypeView = 'email';
     fixture.detectChanges();
     await fixture.whenStable();
     await new Promise(r => setTimeout(r));
@@ -919,7 +911,7 @@ describe('TextEnhancementComponent — page', () => {
     vi.restoreAllMocks();
     component.originalTextView = '';
     component.canvasTextView = '';
-    component.docTypeView = 'auto';
+    component.docTypeView = 'email';
     if (component.traceLogOpenView) component.toggleTraceLog();
     component.onTabChange('original');
     component.setPreviewMode(false);
@@ -947,16 +939,43 @@ describe('TextEnhancementComponent — page', () => {
     target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
   }
 
-  it('says "Detect automatically" for the automatic document type', () => {
-    expect(q('doc-type-select')!.textContent).toContain('Detect automatically');
+  // ADR-003: the user picks the form; nothing detects it out of sight.
+  it('offers the five forms, Chat among them, and no automatic detection', async () => {
+    expect(q('doc-type-select')!.textContent).toContain('Email');
+
+    q('doc-type-select')!.querySelector<HTMLButtonElement>('button')!.click();
+    await refresh();
+    const labels = Array.from(document.querySelectorAll<HTMLElement>('.cdk-overlay-container [role="option"]'))
+      .map(o => o.textContent!.trim());
+    expect(labels).toEqual(['Email', 'Chat', 'Memo', 'Wiki', 'PowerPoint']);
   });
 
-  it('names the detected type in words after an automatic run', async () => {
+  it('sends the picked form, never "auto"', async () => {
     component.originalTextView = 'Hi Sarah, two things';
     await component.pyramidize();
+
+    expect(svcMock.pyramidize).toHaveBeenCalledWith(expect.objectContaining({ documentType: 'email' }));
+  });
+
+  it('preselects the app preset for text the shortcut brought in', async () => {
+    wailsMock.readClipboard.mockResolvedValue('quick note for the channel');
+    wailsMock.getDefaultDocType.mockResolvedValue('chat');
+
+    wailsMock._shortcutPyramidize$.next('hotkey');
+    await new Promise(r => setTimeout(r, 0));
     await refresh();
 
-    expect(q('detected-type')!.textContent!.replace(/\s+/g, ' ').trim()).toBe('Detected: Email');
+    expect(q('doc-type-select')!.textContent).toContain('Chat');
+    expect(component.docTypeView).toBe('chat');
+  });
+
+  it('keeps the user\'s pick when only navigating back to the page', async () => {
+    component.docTypeView = 'wiki';
+    wailsMock.getDefaultDocType.mockResolvedValue('chat');
+    await component.ngOnInit();
+    await refresh();
+
+    expect(component.docTypeView).toBe('wiki');
   });
 
   it('labels every option with a visible label', () => {
@@ -1013,12 +1032,13 @@ describe('TextEnhancementComponent — page', () => {
     const running = component.pyramidize();
     await refresh();
 
-    expect(q('step-label')!.textContent).toContain('Step 1/2');
+    // One call, so one step: no "Step 1/2" and no "Detecting" any more.
+    expect(q('step-label')!.textContent!.trim()).toBe('Structuring…');
     expect(q('cancel-btn')).not.toBeNull();
     expect(el.querySelector('kl-tabs')!.hasAttribute('inert')).toBe(true);
     expect(button('pyramidize-btn').getAttribute('aria-busy')).toBe('true');
 
-    finish({ fullDocument: 'Done', detectedType: 'email', refinementWarning: '' });
+    finish({ fullDocument: 'Done', documentType: 'EMAIL', language: 'en' });
     await running;
     await refresh();
     expect(q('step-indicator')).toBeNull();
@@ -1145,7 +1165,7 @@ describe('TextEnhancementComponent — page', () => {
     await refresh();
     expect(q('trace-log-panel')!.hasAttribute('inert')).toBe(true);
 
-    finish({ fullDocument: 'Done', detectedType: '', refinementWarning: '' });
+    finish({ fullDocument: 'Done', documentType: 'EMAIL', language: 'en' });
     await running;
     await refresh();
     expect(q('trace-log-panel')!.hasAttribute('inert')).toBe(false);

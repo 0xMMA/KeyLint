@@ -14,9 +14,7 @@ import { createWailsMock, defaultSettings } from '../../../testing/wails-mock';
 function makeEnhancementServiceMock() {
   return {
     pyramidize: vi.fn().mockResolvedValue({
-      documentType: 'EMAIL', language: 'en', fullDocument: 'doc', headers: [],
-      qualityScore: 0.9, qualityFlags: [], appliedRefinement: false,
-      refinementWarning: '', detectedType: 'EMAIL', detectedLang: 'en', detectedConfidence: 1,
+      documentType: 'EMAIL', language: 'en', fullDocument: 'doc',
     }),
     refineGlobal: vi.fn(), splice: vi.fn(), sendBack: vi.fn(),
   };

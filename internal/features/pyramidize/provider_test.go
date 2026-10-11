@@ -74,7 +74,7 @@ func TestCallAISyncModelDefaults(t *testing.T) {
 			cfg := settings.Default()
 			cfg.ActiveProvider = tc.provider
 
-			raw, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "key", "system", "user", documentSchema)
+			raw, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "key", "system", "user", documentSchemaV3)
 			if err != nil {
 				t.Fatalf("callAISync: %v", err)
 			}
@@ -96,7 +96,7 @@ func TestCallAISyncRequestShape(t *testing.T) {
 	cfg := settings.Default()
 	cfg.ActiveProvider = "claude"
 
-	if _, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "sk-ant-test", "system", "user", documentSchema); err != nil {
+	if _, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "sk-ant-test", "system", "user", documentSchemaV3); err != nil {
 		t.Fatalf("callAISync: %v", err)
 	}
 
@@ -127,7 +127,7 @@ func TestCallAISyncOverrides(t *testing.T) {
 	cfg.ActiveProvider = "openai"
 
 	opts := aiOpts{provider: "claude", model: "claude-opus-4-1"}
-	if _, err := svc.callAISync(context.Background(), cfg, opts, "key", "system", "user", documentSchema); err != nil {
+	if _, err := svc.callAISync(context.Background(), cfg, opts, "key", "system", "user", documentSchemaV3); err != nil {
 		t.Fatalf("callAISync: %v", err)
 	}
 	if rec.provider != "claude" {
@@ -144,7 +144,7 @@ func TestCallAISyncOllamaConfig(t *testing.T) {
 	cfg.ActiveProvider = "ollama"
 	cfg.Providers.OllamaURL = "http://ollama.test:11434"
 
-	if _, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "", "system", "user", documentSchema); err != nil {
+	if _, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "", "system", "user", documentSchemaV3); err != nil {
 		t.Fatalf("callAISync: %v", err)
 	}
 	if rec.cfg.BaseURL != "http://ollama.test:11434" {
@@ -157,7 +157,7 @@ func TestCallAISyncUnsupportedProvider(t *testing.T) {
 	cfg := settings.Default()
 	cfg.ActiveProvider = "bedrock"
 
-	_, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "", "system", "user", documentSchema)
+	_, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "", "system", "user", documentSchemaV3)
 	if err == nil || !strings.Contains(err.Error(), `unsupported provider: "bedrock"`) {
 		t.Fatalf("error = %v, want an unsupported-provider error", err)
 	}
@@ -169,7 +169,7 @@ func TestCallAISyncPropagatesProviderError(t *testing.T) {
 	cfg := settings.Default()
 	cfg.ActiveProvider = "claude"
 
-	_, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "key", "system", "user", documentSchema)
+	_, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "key", "system", "user", documentSchemaV3)
 	if err == nil || !strings.Contains(err.Error(), "Claude error 429") {
 		t.Fatalf("error = %v, want the provider error", err)
 	}
@@ -291,7 +291,7 @@ func TestCallAISyncOllamaSendsASystemMessage(t *testing.T) {
 	cfg.ActiveProvider = "ollama"
 	cfg.Providers.OllamaURL = srv.URL
 
-	if _, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "", "system", "user", documentSchema); err != nil {
+	if _, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "", "system", "user", documentSchemaV3); err != nil {
 		t.Fatalf("callAISync: %v", err)
 	}
 	if gotPath != "/v1/chat/completions" {
@@ -349,7 +349,7 @@ func TestCallAISyncClaudeCodeNeedsNoKey(t *testing.T) {
 	cfg := settings.Default()
 	cfg.ActiveProvider = "claude-code"
 
-	if _, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "", "system", "user", documentSchema); err != nil {
+	if _, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "", "system", "user", documentSchemaV3); err != nil {
 		t.Fatalf("callAISync: %v", err)
 	}
 	if rec.provider != llm.ProviderClaudeCode {
@@ -402,7 +402,7 @@ func TestCallAISyncAsksForJSONEvenWithoutASchema(t *testing.T) {
 // callAIWithContextForTest drives the same gate the pipeline uses.
 func (svc *Service) callAIWithContextForTest(t *testing.T, cfg settings.Settings, system, user string) (string, error) {
 	t.Helper()
-	return svc.callAISync(context.Background(), cfg, aiOpts{}, "key", system, user, enforcedSchema(documentSchema))
+	return svc.callAISync(context.Background(), cfg, aiOpts{}, "key", system, user, enforcedSchema(documentSchemaV3))
 }
 
 // TestCallAISyncSendsTheProvidersPyramidizeEffort: the effort chosen for this
@@ -459,12 +459,12 @@ func TestCallAISyncEffortOverride(t *testing.T) {
 }
 
 // effortClient records the effort of every request and answers with a
-// v2-shaped document.
+// v3-shaped document.
 type effortClient struct{ efforts []string }
 
 func (c *effortClient) Complete(_ context.Context, req llm.Request) (llm.Response, error) {
 	c.efforts = append(c.efforts, req.Effort)
-	return llm.Response{Text: replyWithoutSelfQA}, nil
+	return llm.Response{Text: replyV3}, nil
 }
 
 // TestTheRequestEffortReachesEveryPanelCall: Pyramidize, a whole-text change
@@ -479,7 +479,7 @@ func TestTheRequestEffortReachesEveryPanelCall(t *testing.T) {
 	svc.newClient = func(string, llm.Config) (llm.Client, error) { return client, nil }
 
 	if _, err := svc.Pyramidize(PyramidizeRequest{
-		Text: "draft", DocumentType: "email", PromptVariant: LatestEmailVariant, Effort: "max",
+		Text: "draft", DocumentType: "email", Effort: "max",
 	}); err != nil {
 		t.Fatalf("Pyramidize: %v", err)
 	}

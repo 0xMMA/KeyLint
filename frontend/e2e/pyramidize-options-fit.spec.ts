@@ -13,8 +13,8 @@
  * at 150 %) scrolls, and is not what this guards.
  *
  * Covered, one at a time: every provider set up, a model list that could not
- * be fetched, the state after a run ("Detected: …"), and a provider picked for
- * this session only. Two of those hints at once may scroll. Not covered, on
+ * be fetched, the state after a run ("Pyramidize again"), and a provider
+ * picked for this session only. Two of those hints at once may scroll. Not covered, on
  * purpose: the missing-key banner. It names a problem
  * that stops Pyramidize running at all, it can be closed, and fitting it
  * would mean squeezing the column for a state nobody works in.
@@ -45,7 +45,7 @@ function configured(activeProvider: string, reachable = true): FakeBackendState 
 async function open(page: Page, state: FakeBackendState): Promise<void> {
   await page.setViewportSize(DEFAULT_WINDOW_PAGE);
   await installFakeBackend(page, state);
-  await installFakePyramidize(page, fakePyramidize());
+  await installFakePyramidize(page, fakePyramidize({ fullDocument: 'Two things stand out | Numbers are in\n\nHi,\n\n**Two things stand out**\n- The numbers are in' }));
   await page.goto('/enhance');
   // Settled: settings, key status and the model list have all answered.
   await expect(page.getByTestId('model-select')).toContainText('KeyLint default');
@@ -76,11 +76,11 @@ test.describe('Pyramidize — options fit the default window', () => {
     await expectNoScrollbar(page);
   });
 
-  test('after a run, with the detected type shown', async ({ page }) => {
+  test('after a run', async ({ page }) => {
     await open(page, configured('openai'));
     await page.getByTestId('original-textarea').fill('Hi, the numbers are in. Two things stand out.');
     await page.getByTestId('pyramidize-btn').getByRole('button').click();
-    await expect(page.getByTestId('detected-type')).toBeVisible();
+    await expect(page.getByTestId('pyramidize-btn')).toContainText('Pyramidize again');
     await expectNoScrollbar(page);
   });
 

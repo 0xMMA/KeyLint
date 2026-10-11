@@ -61,7 +61,11 @@ test.describe('Pyramidize — flow', () => {
 
     await expect(page.getByTestId('paste-from-clipboard-btn')).toBeVisible();
     await expect(page.getByTestId('pyramidize-btn').getByRole('button')).toBeDisabled();
-    await expect(page.getByTestId('doc-type-select')).toContainText('Detect automatically');
+    // The user picks the form; email is preselected (ADR-003).
+    await expect(page.getByTestId('doc-type-select')).toContainText('Email');
+    await page.getByTestId('doc-type-select').click();
+    await expect(page.getByRole('option')).toHaveText(['Email', 'Chat', 'Memo', 'Wiki', 'PowerPoint']);
+    await page.keyboard.press('Escape');
     await expect(page.getByTestId('provider-select')).toContainText('Anthropic API');
     await screenshot(page, '01-empty');
   });
@@ -81,7 +85,7 @@ test.describe('Pyramidize — flow', () => {
 
     await page.getByTestId('original-textarea').fill(ORIGINAL);
     await page.getByTestId('pyramidize-btn').getByRole('button').click();
-    await expect(page.getByTestId('step-label')).toContainText('Step 1/2');
+    await expect(page.getByTestId('step-label')).toHaveText('Structuring…');
     await expect(page.getByTestId('cancel-btn')).toBeVisible();
     await screenshot(page, '02-loading');
 
@@ -89,9 +93,8 @@ test.describe('Pyramidize — flow', () => {
     await expect(page.getByTestId('step-indicator')).toHaveCount(0);
     await expect(page.getByRole('tab', { name: 'Editor' })).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByTestId('canvas-textarea')).toHaveValue(DOCUMENT);
-    await expect(page.getByTestId('detected-type')).toHaveText(/Detected:\s*Email/);
     await expect(page.getByTestId('pyramidize-btn')).toContainText('Pyramidize again');
-    expect(state.requests[0]).toMatchObject({ text: ORIGINAL, documentType: 'auto', provider: 'claude' });
+    expect(state.requests[0]).toMatchObject({ text: ORIGINAL, documentType: 'email', provider: 'claude' });
 
     // The user's text is set in Literata (docs/ui/design.md, "Type").
     const font = await page.getByTestId('canvas-textarea').evaluate(el => getComputedStyle(el).fontFamily);

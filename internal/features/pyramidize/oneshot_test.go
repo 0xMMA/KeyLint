@@ -3,7 +3,7 @@ package pyramidize
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -11,66 +11,47 @@ import (
 	"keylint/internal/llm"
 )
 
-// ADR-002 rests on one property of the shipped default: the email path makes a
-// single call. That is not a comment, it follows from v2's schema — no quality
-// fields means the refine trigger can never see a flag — and nothing pinned it.
-// If someone puts qualityScore back into documentSchemaV2, or points email at
-// documentSchema, email silently becomes a two-call pipeline again and the
-// baseline in quality-status.md stops describing what ships.
+// ADR-003: the user picks the form, one call writes it. These tests pin the
+// run path through the real Pyramidize entry point with a counting client —
+// restating a condition in a test passes happily while the real one is edited.
 
-// TestTheShippedEmailPromptCannotTriggerRefine: refine fires on
-// `QualityScore < threshold && len(QualityFlags) > 0`. v2 asks the model for
-// neither field, so the flags are always empty and the condition is unreachable.
-func TestTheShippedEmailPromptCannotTriggerRefine(t *testing.T) {
-	_, _, schema := buildDocTypePrompt("email", LatestEmailVariant, "professional", "professional", "", "some text")
-
-	var parsed struct {
-		Properties map[string]json.RawMessage `json:"properties"`
-		Required   []string                   `json:"required"`
-	}
-	if err := json.Unmarshal(schema, &parsed); err != nil {
-		t.Fatalf("email schema is not valid JSON: %v", err)
-	}
-	for _, field := range []string{"qualityScore", "qualityFlags"} {
-		if _, present := parsed.Properties[field]; present {
-			t.Errorf("the shipped email schema asks for %q — email is a two-call pipeline again, "+
-				"and ADR-002's premise no longer holds", field)
-		}
-	}
-
-}
-
-// countingClient answers every call with a valid v2-shaped document and counts
-// how many it was asked for.
+// countingClient answers every call with the same reply and records what it
+// was asked.
 type countingClient struct {
 	calls int
-	// reply is what every call answers with. The shape decides how many calls
-	// the pipeline makes, which is the whole point of these tests.
-	reply string
+	// reply is what every call answers with.
+	reply    string
+	requests []llm.Request
 }
 
-func (c *countingClient) Complete(_ context.Context, _ llm.Request) (llm.Response, error) {
+func (c *countingClient) Complete(_ context.Context, req llm.Request) (llm.Response, error) {
 	c.calls++
+	c.requests = append(c.requests, req)
 	return llm.Response{Text: c.reply}, nil
 }
 
-// A v2-shaped reply: the three fields the shipped email prompt asks for.
-const replyWithoutSelfQA = `{"fullDocument":"doc","headers":["h"],"language":"de","type":"email","confidence":0.9}`
+// A v3-shaped reply: the document and its language.
+const replyV3 = `{"fullDocument":"doc","language":"de"}`
 
-// The same document with the self-QA fields volunteered — a low score and a
-// flag, which is what refine exists to act on.
-const replyWithSelfQA = `{"fullDocument":"doc","headers":["h"],"language":"de","type":"email","confidence":0.9,` +
-	`"qualityScore":0.1,"qualityFlags":["thin"]}`
+// The same document with the old self-QA fields volunteered — a low score and
+// a flag, which is what the refine pass used to act on.
+const replyWithSelfQA = `{"fullDocument":"doc","headers":["h"],"language":"de",` +
+	`"qualityScore":0.1,"qualityFlags":["MECE_VIOLATION"]}`
 
-// pyramidizeWithCounter runs the real Pyramidize entry point against a counting
-// client, which is the only way to pin how many model calls a document costs.
-func pyramidizeWithCounter(t *testing.T, reply string, req PyramidizeRequest) (*countingClient, PyramidizeResult) {
-	t.Helper()
+// newCountingService builds a Service over cfg whose every provider call goes
+// to the returned counter.
+func newCountingService(cfg settings.Settings, reply string) (*Service, *countingClient) {
 	counter := &countingClient{reply: reply}
-	settingsSvc := settings.NewServiceFrom(settings.Default(), func(string) string { return "key" })
+	settingsSvc := settings.NewServiceFrom(cfg, func(string) string { return "key" })
 	svc := NewService(settingsSvc, nil)
 	svc.newClient = func(string, llm.Config) (llm.Client, error) { return counter, nil }
+	return svc, counter
+}
 
+// pyramidizeWithCounter runs Pyramidize once on default settings.
+func pyramidizeWithCounter(t *testing.T, reply string, req PyramidizeRequest) (*countingClient, PyramidizeResult) {
+	t.Helper()
+	svc, counter := newCountingService(settings.Default(), reply)
 	if req.Provider == "" {
 		req.Provider = "claude"
 	}
@@ -81,196 +62,200 @@ func pyramidizeWithCounter(t *testing.T, reply string, req PyramidizeRequest) (*
 	return counter, result
 }
 
-// TestAnExplicitlyTypedEmailCostsOneCall is the measurement ADR-002 rests on.
-//
-// Asserted through Pyramidize itself rather than by restating the refine
-// condition in the test: a copy of that condition passes happily while the real
-// one is edited. The counting client makes the claim falsifiable — drop the
-// `len(QualityFlags) > 0` term from service.go, or add "email" to the detect
-// branch, and this fails.
-//
-// It holds only while the model answers in the shape v2 asks for; see
-// TestTheOneShotPropertyDependsOnPromptCompliance for the other half.
-func TestAnExplicitlyTypedEmailCostsOneCall(t *testing.T) {
-	counter, _ := pyramidizeWithCounter(t, replyWithoutSelfQA, PyramidizeRequest{
-		Text: "some draft", DocumentType: "email", PromptVariant: LatestEmailVariant,
-	})
-
-	if counter.calls != 1 {
-		t.Errorf("calls = %d, want 1 — an explicitly typed email is one model call; "+
-			"see ADR-002, whose whole comparison assumes this", counter.calls)
+// TestEveryFormCostsOneCall: one call per run, whatever the form, the prompt
+// variant or "auto". There is no detect step and no refine pass left to add one.
+func TestEveryFormCostsOneCall(t *testing.T) {
+	cases := []PyramidizeRequest{
+		{DocumentType: "email"},
+		{DocumentType: "chat"},
+		{DocumentType: "memo"},
+		{DocumentType: "wiki"},
+		{DocumentType: "powerpoint"},
+		{DocumentType: "presentation"},
+		{DocumentType: "auto"},
+		{DocumentType: ""},
+		{DocumentType: "email", PromptVariant: 2},
+		{DocumentType: "chat", PromptVariant: 3},
+	}
+	for _, req := range cases {
+		t.Run(fmt.Sprintf("%s/v%d", req.DocumentType, req.PromptVariant), func(t *testing.T) {
+			req.Text = "some draft"
+			counter, result := pyramidizeWithCounter(t, replyV3, req)
+			if counter.calls != 1 {
+				t.Errorf("calls = %d, want 1 — Pyramidize is one call per run (ADR-003)", counter.calls)
+			}
+			if result.FullDocument != "doc" {
+				t.Errorf("fullDocument = %q, want the model's document", result.FullDocument)
+			}
+		})
 	}
 }
 
-// TestTheOneShotPropertyDependsOnPromptCompliance is the limit of the claim.
-//
-// v2 is one-shot because its prompt does not ask for qualityScore or
-// qualityFlags — not because anything stops them arriving. Schema enforcement is
-// off by default (schemas.go), so the model sees no schema at all, and
-// foundationResult has json tags for both fields: a model that volunteers them
-// fills the refine gate and buys a second call.
-//
-// This is not hypothetical plumbing — it is the one way the shipped default
-// silently becomes two calls, and the fix is either to enforce the schema or to
-// ignore those fields when the prompt did not ask for them.
-func TestTheOneShotPropertyDependsOnPromptCompliance(t *testing.T) {
-	counter, result := pyramidizeWithCounter(t, replyWithSelfQA, PyramidizeRequest{
-		Text: "some draft", DocumentType: "email", PromptVariant: LatestEmailVariant,
-	})
-
-	if counter.calls != 2 || !result.AppliedRefinement {
-		t.Errorf("calls = %d refined = %v — expected the volunteered self-QA fields to reach "+
-			"the refine gate. If this now passes at one call, the gate was hardened and "+
-			"ADR-002's caveat can be retired.", counter.calls, result.AppliedRefinement)
-	}
-}
-
-// TestTheAutoDocTypeCostsTwoCalls pins the shipped default, which is NOT
-// one-shot: both the GUI dropdown and the CLI -type flag default to "auto", and
-// the UI says "Step 1/2: Detecting…" while it happens.
-//
-// ADR-002 originally claimed the email path was one-shot outright. It is not —
-// only the explicitly typed path is. This test exists so the distinction cannot
-// quietly stop being true in either direction.
-func TestTheAutoDocTypeCostsTwoCalls(t *testing.T) {
-	counter, result := pyramidizeWithCounter(t, replyWithoutSelfQA, PyramidizeRequest{
-		Text: "some draft", DocumentType: "auto", PromptVariant: LatestEmailVariant,
-	})
-
-	if counter.calls != 2 {
-		t.Errorf("calls = %d, want 2 (detect + foundation) for the shipped AUTO default", counter.calls)
-	}
-	if result.DetectedType == "" {
-		t.Error("AUTO did not report a detected type, so detect did not run")
-	}
-}
-
-// TestV1CanStillReachRefine: the pipeline arm ADR-002 measured has to be able to
-// make a second call, or the comparison was one-shot against one-shot.
-func TestV1CanStillReachRefine(t *testing.T) {
-	counter, result := pyramidizeWithCounter(t, replyWithSelfQA, PyramidizeRequest{
-		Text: "some draft", DocumentType: "email", PromptVariant: 1,
-	})
-
-	if counter.calls != 2 {
-		t.Errorf("calls = %d, want 2 — v1 asks for qualityScore/qualityFlags, and a low "+
-			"score with a flag is what refine is for", counter.calls)
-	}
-	if !result.AppliedRefinement {
-		t.Error("refine did not run, so v1 is not the pipeline arm ADR-002 measured")
-	}
-}
-
-// TestAFailedRefineStillCountsAsACall: the flag pays for counting calls, so a
-// refine that errored must not report false. It used to be set only on the
-// success branch, which made a paid call invisible to the eval.
-func TestAFailedRefineStillCountsAsACall(t *testing.T) {
-	counter := &failingSecondCall{first: replyWithSelfQA}
-	settingsSvc := settings.NewServiceFrom(settings.Default(), func(string) string { return "key" })
-	svc := NewService(settingsSvc, nil)
-	svc.newClient = func(string, llm.Config) (llm.Client, error) { return counter, nil }
-
-	result, err := svc.Pyramidize(PyramidizeRequest{
-		Text: "some draft", DocumentType: "email", PromptVariant: 1, Provider: "claude",
-	})
-	if err != nil {
-		t.Fatalf("a failed refine is non-fatal: %v", err)
-	}
-	if counter.calls != 2 {
-		t.Fatalf("calls = %d, want 2", counter.calls)
-	}
-	if !result.AppliedRefinement {
-		t.Error("a refine call that failed reported no call at all")
-	}
-}
-
-// failingSecondCall answers the foundation and then errors, the way a refine
-// call does when the provider is having a bad minute.
-type failingSecondCall struct {
-	calls int
-	first string
-}
-
-func (c *failingSecondCall) Complete(_ context.Context, _ llm.Request) (llm.Response, error) {
-	c.calls++
-	if c.calls == 1 {
-		return llm.Response{Text: c.first}, nil
-	}
-	return llm.Response{}, errors.New("refine failed")
-}
-
-// TestTheShippedEmailPromptAsksForNoSelfQA: the prompt text has to agree with
-// the schema, or the model is told to produce fields the schema forbids.
-func TestTheShippedEmailPromptAsksForNoSelfQA(t *testing.T) {
-	system, _, _ := buildDocTypePrompt("email", LatestEmailVariant, "professional", "professional", "", "some text")
-
-	for _, marker := range []string{"qualityScore", "qualityFlags"} {
-		if strings.Contains(system, marker) {
-			t.Errorf("the shipped email prompt mentions %q while its schema forbids it", marker)
+// TestVolunteeredQualityFieldsBuyNoSecondCall replaces ADR-002's caveat
+// (TestTheOneShotPropertyDependsOnPromptCompliance): schema enforcement is off,
+// so nothing stops a model from volunteering qualityScore and qualityFlags.
+// Under v2 that bought a refine call. Now nothing reads them, for any variant.
+func TestVolunteeredQualityFieldsBuyNoSecondCall(t *testing.T) {
+	for _, variant := range []int{0, 2, 3} {
+		counter, result := pyramidizeWithCounter(t, replyWithSelfQA, PyramidizeRequest{
+			Text: "some draft", DocumentType: "email", PromptVariant: variant,
+		})
+		if counter.calls != 1 {
+			t.Errorf("variant %d: calls = %d, want 1 — a volunteered low score must not buy a refine", variant, counter.calls)
+		}
+		if result.FullDocument != "doc" {
+			t.Errorf("variant %d: fullDocument = %q, want the first call's document", variant, result.FullDocument)
+		}
+		raw, _ := json.Marshal(result)
+		for _, gone := range []string{"qualityScore", "qualityFlags", "appliedRefinement", "refinementWarning", "detectedType"} {
+			if strings.Contains(string(raw), gone) {
+				t.Errorf("variant %d: the result still carries %q: %s", variant, gone, raw)
+			}
 		}
 	}
 }
 
-// TestTheOtherDocTypesAreStillPipelineShaped documents the scope ADR-002 leaves
-// open, and fails when that stops being true — which is the moment the refine
-// stage and the quality-threshold setting become removable.
-func TestTheOtherDocTypesAreStillPipelineShaped(t *testing.T) {
-	for _, docType := range []string{"memo", "wiki", "powerpoint"} {
-		_, _, schema := buildDocTypePrompt(docType, 0, "professional", "professional", "", "some text")
+// TestAutoFollowsTheAppPresetElseEmail: "auto" is no longer a model call. It
+// is the app preset for the captured source app, else email.
+func TestAutoFollowsTheAppPresetElseEmail(t *testing.T) {
+	presets := []settings.AppPreset{
+		{SourceApp: "Slack", DocumentType: "chat"},
+		{SourceApp: "Outlook", DocumentType: "memo"},
+		// More specific than "Outlook": the longest match wins.
+		{SourceApp: "Outlook Web", DocumentType: "wiki"},
+		{SourceApp: "Confluence", DocumentType: "nonsense"},
+	}
+	tests := []struct {
+		name      string
+		sourceApp string
+		want      string
+	}{
+		{"no source app", "", "EMAIL"},
+		{"no preset for the app", "Notepad", "EMAIL"},
+		{"preset matches part of the window title", "general | Acme - Slack", "CHAT"},
+		{"case-insensitive", "Inbox - OUTLOOK", "MEMO"},
+		{"the longest matching preset wins", "Inbox - outlook web - Firefox", "WIKI"},
+		{"a preset naming no form falls back to email", "Space - Confluence", "EMAIL"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := settings.Default()
+			cfg.AppPresets = presets
+			svc, counter := newCountingService(cfg, replyV3)
+			svc.sourceAppName = tc.sourceApp
 
-		var parsed struct {
-			Properties map[string]json.RawMessage `json:"properties"`
-		}
-		if err := json.Unmarshal(schema, &parsed); err != nil {
-			t.Fatalf("%s schema is not valid JSON: %v", docType, err)
-		}
-		if _, present := parsed.Properties["qualityFlags"]; !present {
-			t.Errorf("%s no longer asks for qualityFlags — if every doc type is one-shot now, "+
-				"the refine stage and PyramidizeQualityThreshold have no caller left; see ADR-002", docType)
-		}
+			result, err := svc.Pyramidize(PyramidizeRequest{Text: "draft", DocumentType: "auto", Provider: "claude"})
+			if err != nil {
+				t.Fatalf("Pyramidize: %v", err)
+			}
+			if result.DocumentType != tc.want {
+				t.Errorf("documentType = %q, want %q", result.DocumentType, tc.want)
+			}
+			if counter.calls != 1 {
+				t.Errorf("calls = %d, want 1 — auto is a lookup, not a model call", counter.calls)
+			}
+			// The prompt that went out is the resolved form's.
+			form := strings.ToLower(tc.want)
+			if !strings.Contains(counter.requests[0].System, promptV3Forms[form]) {
+				t.Errorf("the system prompt is not the %s form's", form)
+			}
+			if got := svc.GetDefaultDocType(); got != form {
+				t.Errorf("GetDefaultDocType = %q, want %q — the UI preselects what auto would write", got, form)
+			}
+		})
 	}
 }
 
-// TestV1IsStillThePipelineVariant: ADR-002's comparison used --variant 1 as the
-// pipeline arm. If v1 stops emitting the quality fields, that measurement no
-// longer refers to anything in the code.
-func TestV1IsStillThePipelineVariant(t *testing.T) {
-	_, _, schema := buildDocTypePrompt("email", 1, "professional", "professional", "", "some text")
-
-	var parsed struct {
-		Properties map[string]json.RawMessage `json:"properties"`
-	}
-	if err := json.Unmarshal(schema, &parsed); err != nil {
-		t.Fatalf("v1 schema is not valid JSON: %v", err)
-	}
-	for _, field := range []string{"qualityScore", "qualityFlags"} {
-		if _, present := parsed.Properties[field]; !present {
-			t.Errorf("v1 no longer asks for %q, so it is not the pipeline arm ADR-002 measured", field)
-		}
-	}
-}
-
-// TestASavedThresholdNoLongerSteersRefine: the threshold control is gone from
-// the UI (owner decision 2026-10-11, ADR-002 §5), but beta users may still have
-// a value in settings.json that they can no longer see or change. The pipeline
-// uses the default whatever is stored, so a hidden 0.9 cannot buy extra refine
-// calls and a hidden 0.05 cannot switch refinement off.
-func TestASavedThresholdNoLongerSteersRefine(t *testing.T) {
+// TestAnExplicitFormBeatsThePreset: the user's pick is never overridden.
+func TestAnExplicitFormBeatsThePreset(t *testing.T) {
 	cfg := settings.Default()
-	cfg.PyramidizeQualityThreshold = 0.05 // below replyWithSelfQA's 0.1
-	counter := &countingClient{reply: replyWithSelfQA}
-	settingsSvc := settings.NewServiceFrom(cfg, func(string) string { return "key" })
-	svc := NewService(settingsSvc, nil)
-	svc.newClient = func(string, llm.Config) (llm.Client, error) { return counter, nil }
+	cfg.AppPresets = []settings.AppPreset{{SourceApp: "Slack", DocumentType: "chat"}}
+	svc, _ := newCountingService(cfg, replyV3)
+	svc.sourceAppName = "Slack"
 
-	result, err := svc.Pyramidize(PyramidizeRequest{
-		Text: "some draft", DocumentType: "email", PromptVariant: 1, Provider: "claude",
-	})
+	result, err := svc.Pyramidize(PyramidizeRequest{Text: "draft", DocumentType: "wiki", Provider: "claude"})
 	if err != nil {
 		t.Fatalf("Pyramidize: %v", err)
 	}
-	if !result.AppliedRefinement || counter.calls != 2 {
-		t.Errorf("calls = %d, refined = %v: a stored 0.05 still switched refinement off, "+
-			"want the default %.2f to apply", counter.calls, result.AppliedRefinement, settings.DefaultQualityThreshold)
+	if result.DocumentType != "WIKI" {
+		t.Errorf("documentType = %q, want WIKI", result.DocumentType)
+	}
+}
+
+// TestChatIsAForm: chat is accepted and gets its own section.
+func TestChatIsAForm(t *testing.T) {
+	counter, result := pyramidizeWithCounter(t, replyV3, PyramidizeRequest{Text: "draft", DocumentType: "chat"})
+	if result.DocumentType != "CHAT" {
+		t.Errorf("documentType = %q, want CHAT", result.DocumentType)
+	}
+	if !strings.Contains(counter.requests[0].System, `<form name="chat">`) {
+		t.Error("a chat run did not send the chat section")
+	}
+}
+
+// TestPresentationIsPowerpoint: "presentation" names the same form as
+// "powerpoint", the value presets and the CLI already store.
+func TestPresentationIsPowerpoint(t *testing.T) {
+	_, result := pyramidizeWithCounter(t, replyV3, PyramidizeRequest{Text: "draft", DocumentType: "Presentation"})
+	if result.DocumentType != "POWERPOINT" {
+		t.Errorf("documentType = %q, want POWERPOINT", result.DocumentType)
+	}
+}
+
+// TestRefusedRequestsSpendNothing: an unknown form or a variant that does not
+// exist for it is an error before any call — it used to fall back to the email
+// prompt (and variant 1) without a word.
+func TestRefusedRequestsSpendNothing(t *testing.T) {
+	cases := []struct {
+		name string
+		req  PyramidizeRequest
+		want string
+	}{
+		{"unknown form", PyramidizeRequest{DocumentType: "blog"}, "unknown document type"},
+		{"v1 was removed", PyramidizeRequest{DocumentType: "email", PromptVariant: 1}, "removed"},
+		{"v2 is email only", PyramidizeRequest{DocumentType: "memo", PromptVariant: 2}, "email only"},
+		{"no such variant", PyramidizeRequest{DocumentType: "email", PromptVariant: 9}, "unknown prompt variant"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, counter := newCountingService(settings.Default(), replyV3)
+			tc.req.Text, tc.req.Provider = "draft", "claude"
+			_, err := svc.Pyramidize(tc.req)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("err = %v, want one mentioning %q", err, tc.want)
+			}
+			if counter.calls != 0 {
+				t.Errorf("calls = %d, want 0", counter.calls)
+			}
+		})
+	}
+}
+
+// TestAnEmptyDocumentIsAnError: a reply without a document must not reach the
+// editor (or Send back) as an empty result.
+func TestAnEmptyDocumentIsAnError(t *testing.T) {
+	svc, _ := newCountingService(settings.Default(), `{"language":"de"}`)
+	_, err := svc.Pyramidize(PyramidizeRequest{Text: "draft", DocumentType: "email", Provider: "claude"})
+	if err == nil || !strings.Contains(err.Error(), "no document") {
+		t.Errorf("err = %v, want a no-document error", err)
+	}
+}
+
+// TestEachVariantSendsItsOwnSchema: the schema a run carries matches the prompt
+// it sends — v3's two fields, v2's three. Swapping them at the call site would
+// otherwise leave the suite green while enforcement is off.
+func TestEachVariantSendsItsOwnSchema(t *testing.T) {
+	original := schemaEnforcement
+	t.Cleanup(func() { schemaEnforcement = original })
+	schemaEnforcement = true
+
+	for _, tc := range []struct {
+		variant int
+		want    json.RawMessage
+	}{{0, documentSchemaV3}, {3, documentSchemaV3}, {2, documentSchemaV2}} {
+		counter, _ := pyramidizeWithCounter(t, replyV3, PyramidizeRequest{Text: "d", DocumentType: "email", PromptVariant: tc.variant})
+		if string(counter.requests[0].JSONSchema) != string(tc.want) {
+			t.Errorf("variant %d sent schema %s, want %s", tc.variant, counter.requests[0].JSONSchema, tc.want)
+		}
 	}
 }
