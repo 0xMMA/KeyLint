@@ -61,8 +61,11 @@ changed with it, and the builder sets neither:
   may count calls on a shared mock and pass only because of it.
   `src/testing/vitest-defaults.spec.ts` fails if a runner config or a later
   vitest turns it off. Implementations survive: that would be `mockReset`.
-- **The default reporter hides `console.log` from passing tests.** A failing
-  test still shows its output. `npx ng test --reporters=verbose` shows all.
+- **Run by an AI agent, the reporter is `minimal`.** Vitest 5 picks it when
+  it detects one (`AI_AGENT`, `CLAUDECODE`, … via std-env), and it hides
+  `console.log` from passing tests; a failing test still shows its output.
+  In a terminal and in CI the `default` reporter shows everything, as before.
+  An agent that needs the logs passes `--reporters=verbose`.
 
 ## Go Tests
 

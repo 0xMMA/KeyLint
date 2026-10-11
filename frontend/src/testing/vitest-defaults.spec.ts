@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 
-// Guards a runner default the suite now relies on, see .claude/rules/testing.md.
+// Guards a runner default specs may come to rely on, see .claude/rules/testing.md.
 // Vitest 5 clears every mock's calls before each test (`clearMocks: true`);
 // vitest 4 did not, and the Angular builder sets neither. A spec written since
 // the upgrade may assert call counts on a mock shared across its tests and pass
