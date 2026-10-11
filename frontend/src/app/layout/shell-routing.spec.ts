@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
+import { By } from '@angular/platform-browser';
 import { Component, OnDestroy } from '@angular/core';
 import { ShellComponent } from './shell.component';
 import { SettingsComponent } from '../features/settings/settings.component';
@@ -10,21 +10,6 @@ import { FixComponent } from '../features/fix/fix.component';
 import { TextEnhancementComponent, resetPyramidizeProviderSession } from '../features/text-enhancement/text-enhancement.component';
 import { WailsService } from '../core/wails.service';
 import { createWailsMock, defaultSettings } from '../../testing/wails-mock';
-
-// jsdom gaps that PrimeNG reaches for. See .claude/rules/testing.md.
-(globalThis as Record<string, unknown>)['ResizeObserver'] = class {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-};
-if (!window.matchMedia) {
-  window.matchMedia = ((query: string) => ({
-    matches: false, media: query, onchange: null,
-    addListener() {}, removeListener() {},
-    addEventListener() {}, removeEventListener() {},
-    dispatchEvent: () => false,
-  })) as unknown as typeof window.matchMedia;
-}
 
 // #38: after clicking the version footer (which navigates to Settings with a
 // query param) and touching the tabs, navigating away left Settings on screen
@@ -48,7 +33,6 @@ describe('ShellComponent — routing away from Settings', () => {
     await TestBed.configureTestingModule({
       imports: [ShellComponent],
       providers: [
-        provideAnimationsAsync(),
         provideRouter([
           {
             path: '',
@@ -104,6 +88,35 @@ describe('ShellComponent — routing away from Settings', () => {
     fixture.detectChanges();
 
     expect(routedPages(el), 'Settings must not survive the navigation').toEqual(['enhance']);
+  });
+
+  it('opens About again from the version link after another tab was picked (same URL)', async () => {
+    const harness = await RouterTestingHarness.create();
+    const fixture = harness.fixture;
+    const el: HTMLElement = fixture.nativeElement;
+    const settle = async () => { fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges(); };
+    const selected = () => el.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.trim();
+    // The first visit as the version link makes it; the second goes through
+    // the shell's own goToAbout().
+    await router.navigate(['/settings'], { queryParams: { tab: 'about' } });
+    await settle();
+    expect(selected()).toBe('About');
+    const shell = fixture.debugElement.query(By.directive(ShellComponent)).componentInstance as ShellComponent;
+    // goToAbout() does not return the navigation; wait for it before rendering.
+    const navigate = vi.spyOn(router, 'navigate');
+    const versionLink = async () => {
+      shell.goToAbout();
+      await navigate.mock.results.at(-1)!.value;
+      await settle();
+    };
+
+    Array.from(el.querySelectorAll<HTMLElement>('[role="tab"]')).find(t => t.textContent?.trim() === 'General')!.click();
+    await settle();
+    expect(selected()).toBe('General');
+    expect(router.url).toBe('/settings?tab=about');
+
+    await versionLink();
+    expect(selected()).toBe('About');
   });
 });
 
@@ -191,7 +204,6 @@ describe('SettingsComponent — leaving while it is still starting up', () => {
 
     await TestBed.configureTestingModule({
       providers: [
-        provideAnimationsAsync(),
         provideRouter([
           { path: 'settings', component: SettingsComponent },
           { path: 'fix', component: FixComponent },

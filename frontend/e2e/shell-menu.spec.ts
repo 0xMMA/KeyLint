@@ -19,7 +19,7 @@ async function gotoFix(page: Page): Promise<void> {
   // "idle" needs 500ms of quiet that a second worker hammering the same server
   // keeps pushing away — Playwright discourages it for exactly this. The
   // sidebar being painted is the condition these tests actually need.
-  await expect(page.locator('.layout-sidebar')).toBeVisible();
+  await expect(page.getByTestId('sidebar')).toBeVisible();
   await settle(page);
 }
 
@@ -43,12 +43,12 @@ async function settle(page: Page): Promise<void> {
 }
 
 async function collapse(page: Page): Promise<void> {
-  await page.locator('.collapse-btn').click();
+  await page.getByTestId('collapse-btn').click();
   await settle(page);
 }
 
 async function expand(page: Page): Promise<void> {
-  await page.locator('.collapse-btn').click();
+  await page.getByTestId('collapse-btn').click();
   await settle(page);
 }
 
@@ -89,9 +89,9 @@ test.describe('Shell — expanded sidebar', () => {
 
   test('icons are visible inside each expanded nav link', async ({ page }) => {
     await gotoFix(page);
-    // Fix and Settings use <i>, Pyramidize uses <svg>
-    const fixIcon    = await getRect(page, '.nav-item a[href="/fix"] i');
-    const settingsIcon = await getRect(page, '.nav-item a[href="/settings"] i');
+    // Every nav icon is an inline SVG (kl-icon).
+    const fixIcon    = await getRect(page, '.nav-item a[href="/fix"] svg');
+    const settingsIcon = await getRect(page, '.nav-item a[href="/settings"] svg');
     const pyramidSvg = await getRect(page, '.nav-item a[href="/enhance"] svg');
 
     expect(fixIcon.width).toBeGreaterThan(0);
@@ -120,7 +120,7 @@ test.describe('Shell — expanded sidebar', () => {
 
   test('collapse button is visible and has non-zero size', async ({ page }) => {
     await gotoFix(page);
-    const r = await getRect(page, '.collapse-btn');
+    const r = await getRect(page, '[data-testid="collapse-btn"]');
     expect(r.width).toBeGreaterThan(0);
     expect(r.height).toBeGreaterThan(0);
   });
@@ -169,8 +169,8 @@ test.describe('Shell — collapsed sidebar', () => {
     await gotoFix(page);
     await collapse(page);
 
-    const fixIcon    = await getRect(page, '.nav-item a[href="/fix"] i');
-    const settingsIcon = await getRect(page, '.nav-item a[href="/settings"] i');
+    const fixIcon    = await getRect(page, '.nav-item a[href="/fix"] svg');
+    const settingsIcon = await getRect(page, '.nav-item a[href="/settings"] svg');
     const pyramidSvg = await getRect(page, '.nav-item a[href="/enhance"] svg');
 
     expect(fixIcon.width, 'Fix icon width').toBeGreaterThan(0);
@@ -187,8 +187,8 @@ test.describe('Shell — collapsed sidebar', () => {
     const sidebarCenterX = sidebar.left + sidebar.width / 2;
 
     for (const sel of [
-      '.nav-item a[href="/fix"] i',
-      '.nav-item a[href="/settings"] i',
+      '.nav-item a[href="/fix"] svg',
+      '.nav-item a[href="/settings"] svg',
       '.nav-item a[href="/enhance"] svg',
     ]) {
       const r = await getRect(page, sel);
@@ -206,8 +206,8 @@ test.describe('Shell — collapsed sidebar', () => {
     const sidebar = await getRect(page, '.layout-sidebar');
 
     for (const sel of [
-      '.nav-item a[href="/fix"] i',
-      '.nav-item a[href="/settings"] i',
+      '.nav-item a[href="/fix"] svg',
+      '.nav-item a[href="/settings"] svg',
       '.nav-item a[href="/enhance"] svg',
     ]) {
       const r = await getRect(page, sel);
@@ -253,18 +253,28 @@ test.describe('Shell — collapsed sidebar', () => {
     expect(fixActive).toBe(false);
   });
 
-  test('collapse button shows chevron-right (expand icon) when collapsed', async ({ page }) => {
+  test('collapse button shows chevron-right and says "Expand sidebar" when collapsed', async ({ page }) => {
     await gotoFix(page);
     await collapse(page);
 
-    const hasRight = await page.locator('.collapse-btn i').evaluate(
-      (el) => el.classList.contains('pi-chevron-right'),
-    );
-    const hasLeft = await page.locator('.collapse-btn i').evaluate(
-      (el) => el.classList.contains('pi-chevron-left'),
-    );
-    expect(hasRight).toBe(true);
-    expect(hasLeft).toBe(false);
+    const button = page.getByTestId('collapse-btn');
+    await expect(button.locator('kl-icon')).toHaveAttribute('data-icon', 'chevron-right');
+    await expect(button).toHaveAccessibleName('Expand sidebar');
+  });
+
+  test('a collapsed nav link still has its name, and shows it as a tooltip on hover', async ({ page }) => {
+    await gotoFix(page);
+    await collapse(page);
+    await expect(page.getByRole('link', { name: 'Settings' })).toBeVisible();
+
+    // Hovering expands the rail (labels back), so the tooltip is for keyboard
+    // users: focus the link instead.
+    await page.getByTestId('nav-settings').focus();
+    const tip = page.getByRole('tooltip');
+    await expect(tip).toHaveText('Settings');
+    const tipBox = (await tip.boundingBox())!;
+    const sidebar = await getRect(page, '.layout-sidebar');
+    expect(tipBox.x, 'tooltip sits to the right of the rail').toBeGreaterThanOrEqual(sidebar.right - 1);
   });
 
   test('collapse button is visible and centered within the collapsed sidebar', async ({ page }) => {
@@ -272,7 +282,7 @@ test.describe('Shell — collapsed sidebar', () => {
     await collapse(page);
 
     const sidebar = await getRect(page, '.layout-sidebar');
-    const btn     = await getRect(page, '.collapse-btn');
+    const btn     = await getRect(page, '[data-testid="collapse-btn"]');
 
     expect(btn.width).toBeGreaterThan(0);
     expect(btn.height).toBeGreaterThan(0);
@@ -341,9 +351,8 @@ test.describe('Shell — click target minimum size', () => {
 /**
  * Folded in from the exploratory shell-menu-deep* probes (#43). Only the
  * assertions that guard a named behaviour survived: the popover must overlay
- * rather than push, it must not move the nav items under the cursor, the
- * two-tone logo must collapse to "KL", and the active Pyramidize icon must not
- * end up orange on an orange background.
+ * rather than push, it must not move the nav items under the cursor, and the
+ * two-tone logo must collapse to "KL".
  */
 
 async function hoverSidebar(page: Page): Promise<void> {
@@ -484,8 +493,7 @@ test.describe('Shell — two-tone logo', () => {
     expect(Math.min(k.r, k.g, k.b), `"K" should be near-white, got rgb(${k.r}, ${k.g}, ${k.b})`).toBeGreaterThanOrEqual(240);
     expect(k.a, '"K" is fully transparent, which no colour assertion would catch').toBeGreaterThan(0.9);
 
-    // Aura's dark scheme resolves primary to orange.400 = rgb(251, 146, 60);
-    // light mode would be orange.500. Either way: red dominant, blue faint.
+    // The primary orange, #f97316 = rgb(249, 115, 22): red dominant, blue faint.
     const l = channels(await page.locator('.layout-logo .logo-l').evaluate((el) => getComputedStyle(el).color));
     expect(l.r, `"L" red channel, got rgb(${l.r}, ${l.g}, ${l.b})`).toBeGreaterThan(200);
     expect(l.b, `"L" blue channel, got rgb(${l.r}, ${l.g}, ${l.b})`).toBeLessThan(120);
@@ -495,17 +503,16 @@ test.describe('Shell — two-tone logo', () => {
 // ── Active route icon ──────────────────────────────────────────────────────────
 
 test.describe('Shell — active route icon colour', () => {
-  test('the Pyramidize SVG turns white on the active orange background', async ({ page }) => {
+  test('the active item’s icon is orange, the inactive ones are not', async ({ page }) => {
     await page.goto('/enhance');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(200);
+    await expect(page.getByTestId('nav-enhance')).toHaveClass(/active-route/);
+    await settle(page);
 
-    const color = await page.locator('.nav-item a[href="/enhance"] svg').evaluate(
-      (el) => getComputedStyle(el).color,
-    );
-    // An inline SVG does not inherit the active link's colour by itself; left
-    // orange it disappears into the orange highlight.
-    expect(color, 'SVG colour on the active Pyramidize link').toBe('rgb(255, 255, 255)');
+    // design.md: the active item is a grey fill with an orange icon.
+    const active = await page.locator('.nav-item a[href="/enhance"] svg').evaluate((el) => getComputedStyle(el).color);
+    expect(active, 'icon on the active Pyramidize link').toBe('rgb(249, 115, 22)');
+    const inactive = await page.locator('.nav-item a[href="/fix"] svg').evaluate((el) => getComputedStyle(el).color);
+    expect(inactive, 'icon on an inactive link').not.toBe('rgb(249, 115, 22)');
   });
 });
 
@@ -521,10 +528,10 @@ test.describe('Shell — active route icon colour', () => {
 test.describe('Shell — collapse button click target', () => {
   test('is at least 40px tall in both states', async ({ page }) => {
     await gotoFix(page);
-    expect((await getRect(page, '.collapse-btn')).height, 'height when expanded').toBeGreaterThanOrEqual(40);
+    expect((await getRect(page, '[data-testid="collapse-btn"]')).height, 'height when expanded').toBeGreaterThanOrEqual(40);
 
     await collapse(page);
-    expect((await getRect(page, '.collapse-btn')).height, 'height when collapsed').toBeGreaterThanOrEqual(40);
+    expect((await getRect(page, '[data-testid="collapse-btn"]')).height, 'height when collapsed').toBeGreaterThanOrEqual(40);
   });
 });
 
@@ -540,25 +547,22 @@ test.describe('Shell — version row dead space', () => {
 });
 
 test.describe('Shell — active route highlight', () => {
-  test('the active link is painted with the primary colour, inactive ones are not', async ({ page }) => {
+  test('the active link has the grey fill (not orange), inactive ones none', async ({ page }) => {
     await gotoFix(page);
 
-    // Aura's dark scheme resolves primary to orange.400 = rgb(251, 146, 60).
-    // Asserting the paint, not just the routerLinkActive class, is what catches
-    // a deleted stylesheet rule.
+    // design.md: grey fill, orange icon — no orange fill. Asserting the paint,
+    // not just the routerLinkActive class, is what catches a deleted rule.
     const active = channels(await page.locator('.nav-item a[href="/fix"]').evaluate(
       (el) => getComputedStyle(el).backgroundColor,
     ));
-    expect(active.a, 'active link background is transparent').toBeGreaterThan(0);
-    expect(active.r, `active link background rgb(${active.r}, ${active.g}, ${active.b})`).toBeGreaterThan(200);
-    expect(active.b, `active link background rgb(${active.r}, ${active.g}, ${active.b})`).toBeLessThan(120);
+    expect(active, 'active link background is the raised grey').toEqual({ r: 42, g: 42, b: 47, a: 1 });
+    await expect(page.getByTestId('nav-fix')).toHaveAttribute('aria-current', 'page');
 
     for (const href of ['/enhance', '/settings']) {
       const inactive = channels(await page.locator(`.nav-item a[href="${href}"]`).evaluate(
         (el) => getComputedStyle(el).backgroundColor,
       ));
-      const isPrimary = inactive.a > 0 && inactive.r > 200 && inactive.b < 120;
-      expect(isPrimary, `${href} must not be highlighted while /fix is active`).toBe(false);
+      expect(inactive.a, `${href} must not be filled while /fix is active`).toBe(0);
     }
   });
 });
@@ -582,7 +586,7 @@ test.describe('Shell — footer separator', () => {
   test('is one line above the collapse button that stays put in every state', async ({ page }) => {
     await gotoFix(page);
     const expanded = await footerLines(page);
-    const button = await getRect(page, '.collapse-btn');
+    const button = await getRect(page, '[data-testid="collapse-btn"]');
     const version = await getRect(page, '[data-testid="version-footer"]');
     expect(expanded, 'exactly one line, on the collapse button').toEqual([Math.round(button.top)]);
     expect(version.bottom, 'the version sits above the line').toBeLessThanOrEqual(button.top + 0.5);

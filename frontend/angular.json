@@ -33,6 +33,7 @@
             ],
             "styles": [
               "src/theme.css",
+              "src/ui.css",
               "src/styles.scss"
             ]
           },

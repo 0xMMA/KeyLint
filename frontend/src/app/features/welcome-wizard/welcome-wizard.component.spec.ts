@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
-import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { WelcomeWizardComponent } from './welcome-wizard.component';
 import { WailsService, ClaudeCodeStatus, KeyStatus, Settings } from '../../core/wails.service';
 import { createWailsMock, defaultSettings, defaultClaudeCodeStatus, WailsMock } from '../../../testing/wails-mock';
@@ -36,7 +35,6 @@ describe('WelcomeWizardComponent', () => {
       imports: [WelcomeWizardComponent],
       providers: [
         provideRouter([]),
-        provideAnimationsAsync(),
         { provide: WailsService, useValue: wails },
       ],
     }).compileComponents();

@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
-import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { DevChannelComponent } from './dev-channel.component';
 import { WailsService, DevBuild, DevChannel } from '../../../core/wails.service';
 import { createWailsMock, defaultDevChannel, defaultBuildIdentity } from '../../../../testing/wails-mock';
@@ -35,7 +34,7 @@ describe('DevChannelComponent', () => {
     wailsMock.listDevBuilds.mockResolvedValue({ ...defaultDevChannel, ...channel });
     await TestBed.configureTestingModule({
       imports: [DevChannelComponent],
-      providers: [provideAnimationsAsync(), { provide: WailsService, useValue: wailsMock }],
+      providers: [{ provide: WailsService, useValue: wailsMock }],
     }).compileComponents();
     fixture = TestBed.createComponent(DevChannelComponent);
     fixture.componentRef.setInput('version', version);
@@ -176,7 +175,7 @@ describe('DevChannelComponent', () => {
       wailsMock.listDevBuilds.mockReturnValue(new Promise(() => {}));
       await TestBed.configureTestingModule({
         imports: [DevChannelComponent],
-        providers: [provideAnimationsAsync(), { provide: WailsService, useValue: wailsMock }],
+        providers: [{ provide: WailsService, useValue: wailsMock }],
       }).compileComponents();
       fixture = TestBed.createComponent(DevChannelComponent);
       el = fixture.nativeElement;

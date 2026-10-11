@@ -2,10 +2,10 @@
  * #38 — navigating away from Settings left it on screen, with the next page
  * appended underneath.
  *
- * jsdom cannot see this: `provideAnimationsAsync()` loads the real animations
- * engine in a browser and a stub under Vitest, and the reported cause is an
- * animation that never finishes. So the repro lives here, where the engine is
- * the real one.
+ * The reported cause was a PrimeNG animation that never finished, which
+ * jsdom could not reproduce (it stubbed the animations engine). PrimeNG and
+ * the animations package are gone (E11), but the repro stays here, in a real
+ * browser, where a leave transition that hangs would show.
  *
  * The assertion is deliberately about the DOM rather than the URL: the router
  * changed the URL in the bug report too. What failed was the outlet swapping
@@ -43,8 +43,8 @@ test.describe('leaving Settings', () => {
 
     // 2. Click through every Settings tab.
     // toHaveCount retries; locator.count() samples once. The container is
-    // visible before PrimeNG has rendered the tabs into it, so counting here
-    // returned 0 in roughly one local run in three. The number is pinned rather
+    // visible before the tabs have rendered into it (PrimeNG's did so late;
+    // counting here returned 0 in roughly one local run in three). The number is pinned rather
     // than lower-bounded because a tab appearing or disappearing should fail
     // this test loudly, not quietly change what it clicks through.
     const tabs = page.locator('.settings-page [role="tab"]');
@@ -94,5 +94,21 @@ test.describe('leaving Settings', () => {
     expect(await routedPages(page)).toEqual(['fix-page']);
 
     expect(errors).toEqual([]);
+  });
+
+  test('the version footer opens About again after another tab was picked', async ({ page }) => {
+    // The URL stays /settings?tab=about while the user moves to General, so
+    // the second click is a navigation to the URL the router is already on.
+    await page.goto('/fix');
+    const footer = page.locator('[data-testid="version-footer"]');
+    await footer.click();
+    const about = page.getByRole('tab', { name: 'About' });
+    await expect(about).toHaveAttribute('aria-selected', 'true');
+
+    await page.getByRole('tab', { name: 'General' }).click();
+    await expect(page.getByRole('tab', { name: 'General' })).toHaveAttribute('aria-selected', 'true');
+
+    await footer.click();
+    await expect(about).toHaveAttribute('aria-selected', 'true');
   });
 });

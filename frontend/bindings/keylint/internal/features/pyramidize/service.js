@@ -53,7 +53,9 @@ export function GetAppPresets() {
 }
 
 /**
- * GetQualityThreshold returns the configured quality threshold, defaulting to 0.65.
+ * GetQualityThreshold returns the threshold the pipeline uses, which is always
+ * the default since the control was removed (see Pyramidize). Kept for the
+ * binding; nothing in the frontend calls it any more.
  * @returns {$CancellablePromise<number>}
  */
 export function GetQualityThreshold() {

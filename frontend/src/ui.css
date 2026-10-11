@@ -1,0 +1,74 @@
+/*
+ * Global pieces of KeyLint's own UI that are classes rather than components:
+ * the text field look (klInput) and keyboard keys. In @layer components (the
+ * order is declared in theme.css, which comes first), so Tailwind utilities on
+ * the same element win, and so does any unlayered component style.
+ */
+@layer components {
+  .kl-input {
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.4;
+    width: 100%;
+    min-height: 40px;
+    padding: 9px 12px;
+    color: var(--kl-text);
+    background: var(--kl-field);
+    border: 1px solid var(--kl-line-control);
+    border-radius: var(--kl-radius-md);
+    transition: border-color 0.12s;
+  }
+  textarea.kl-input {
+    padding: 10px 12px;
+    resize: vertical;
+  }
+  .kl-input::placeholder {
+    color: var(--kl-muted);
+    opacity: 1;
+  }
+  .kl-input:hover:not(:disabled) {
+    border-color: var(--kl-line-strong);
+  }
+  .kl-input:focus {
+    border-color: var(--kl-primary);
+    outline: none;
+  }
+  .kl-input:focus-visible {
+    outline: 2px solid var(--kl-focus);
+    outline-offset: 2px;
+  }
+  .kl-input:disabled {
+    background: var(--kl-rail);
+    color: var(--kl-muted);
+    cursor: not-allowed;
+  }
+  .kl-input-invalid,
+  .kl-input-invalid:hover:not(:disabled) {
+    border-color: var(--kl-error);
+  }
+
+  kbd {
+    font: inherit;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--kl-text-soft);
+    background: var(--kl-raised);
+    border: 1px solid var(--kl-line-control);
+    border-bottom-width: 2px;
+    border-radius: var(--kl-radius-sm);
+    padding: 0 6px;
+  }
+  /* A key hint inside a primary button: dark on orange, like the label. A
+     disabled primary is grey (kl-button), so its keys stay grey and muted. */
+  .kl-button.primary:not(:disabled) kbd,
+  .kl-button.primary[aria-busy='true'] kbd {
+    font-size: 11px;
+    color: var(--kl-on-primary);
+    background: color-mix(in srgb, var(--kl-on-primary), transparent 88%);
+    border: 1px solid color-mix(in srgb, var(--kl-on-primary), transparent 75%);
+    padding: 0 5px;
+  }
+  .kl-button.primary:disabled:not([aria-busy='true']) kbd {
+    color: var(--kl-muted);
+  }
+}

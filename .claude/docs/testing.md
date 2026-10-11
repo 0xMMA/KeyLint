@@ -13,12 +13,9 @@ Runner: `@angular/build:unit-test` with `runner: vitest` (configured in `angular
 
 **NG0100 (ExpressionChangedAfterChecked):** call `fixture.detectChanges()` twice, or pre-set async state before the first `detectChanges()`.
 
-**`@switch` navigation tests:** click the real inner `<button>` element (PrimeNG wraps `p-button`), not the `p-button` host. Directly mutating `component.step` won't trigger Angular change detection the same way.
+**`@switch` navigation tests:** click the real inner `<button>` element (`kl-button` wraps it; the testid sits on the host), not the `kl-button` host. Directly mutating `component.step` won't trigger Angular change detection the same way.
 
-**TabList in jsdom:** TabList uses `ResizeObserver` which doesn't exist in jsdom. Mock it at the top of any spec that imports tab components:
-```typescript
-(globalThis as any)['ResizeObserver'] = class { observe() {} unobserve() {} disconnect() {} };
-```
+**No jsdom stubs needed for the UI primitives:** KeyLint's own components (`shared/ui`) use neither `ResizeObserver` nor `matchMedia`. The stubs the suite used to carry were for PrimeNG's tabs and overlays and went with it (E11). CDK overlays render on `<body>`: query `document`, and empty `.cdk-overlay-container` in `afterEach`.
 
 **DOM-first testing principle:** assert on what the user sees, not internal TypeScript state. Use `data-testid` attributes. Example: `el.querySelector('[data-testid="fix-output"]')?.value`.
 

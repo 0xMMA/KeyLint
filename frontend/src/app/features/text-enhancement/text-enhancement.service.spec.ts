@@ -51,7 +51,7 @@ describe('TextEnhancementService', () => {
 
   it('pyramidize() delegates to wails.pyramidize()', async () => {
     wailsMock.pyramidize.mockResolvedValue(mockPyramidizeResult);
-    const req = { text: 'hello', documentType: 'auto', communicationStyle: 'professional', relationshipLevel: 'professional', customInstructions: '', provider: 'claude', model: 'claude-sonnet-4-6', promptVariant: 0 };
+    const req = { text: 'hello', documentType: 'auto', communicationStyle: 'professional', relationshipLevel: 'professional', customInstructions: '', provider: 'claude', model: 'claude-sonnet-4-6', effort: 'high', promptVariant: 0 };
     const result = await svc.pyramidize(req);
     expect(wailsMock.pyramidize).toHaveBeenCalledWith(req);
     expect(result).toEqual(mockPyramidizeResult);
@@ -62,7 +62,7 @@ describe('TextEnhancementService', () => {
   it('refineGlobal() delegates to wails.refineGlobal()', async () => {
     const mockResult = { newCanvas: 'Refined text' };
     wailsMock.refineGlobal.mockResolvedValue(mockResult);
-    const req = { fullCanvas: 'canvas', originalText: 'orig', instruction: 'shorter', documentType: 'email', communicationStyle: 'professional', relationshipLevel: 'professional', provider: 'claude', model: 'claude-sonnet-4-6' };
+    const req = { fullCanvas: 'canvas', originalText: 'orig', instruction: 'shorter', documentType: 'email', communicationStyle: 'professional', relationshipLevel: 'professional', provider: 'claude', model: 'claude-sonnet-4-6', effort: '' };
     const result = await svc.refineGlobal(req);
     expect(wailsMock.refineGlobal).toHaveBeenCalledWith(req);
     expect(result).toEqual(mockResult);
@@ -73,7 +73,7 @@ describe('TextEnhancementService', () => {
   it('splice() delegates to wails.splice()', async () => {
     const mockResult = { rewrittenSection: 'New section' };
     wailsMock.splice.mockResolvedValue(mockResult);
-    const req = { fullCanvas: 'canvas', originalText: 'orig', selectedText: 'selected', instruction: 'rewrite', provider: 'claude', model: 'claude-sonnet-4-6' };
+    const req = { fullCanvas: 'canvas', originalText: 'orig', selectedText: 'selected', instruction: 'rewrite', provider: 'claude', model: 'claude-sonnet-4-6', effort: 'none' };
     const result = await svc.splice(req);
     expect(wailsMock.splice).toHaveBeenCalledWith(req);
     expect(result).toEqual(mockResult);
@@ -105,20 +105,6 @@ describe('TextEnhancementService', () => {
   it('deleteAppPreset() delegates to wails.deleteAppPreset()', async () => {
     await svc.deleteAppPreset('Outlook');
     expect(wailsMock.deleteAppPreset).toHaveBeenCalledWith('Outlook');
-  });
-
-  // ── QualityThreshold delegation ──
-
-  it('getQualityThreshold() delegates to wails.getQualityThreshold()', async () => {
-    wailsMock.getQualityThreshold.mockResolvedValue(0.75);
-    const result = await svc.getQualityThreshold();
-    expect(wailsMock.getQualityThreshold).toHaveBeenCalled();
-    expect(result).toBe(0.75);
-  });
-
-  it('setQualityThreshold() delegates to wails.setQualityThreshold()', async () => {
-    await svc.setQualityThreshold(0.8);
-    expect(wailsMock.setQualityThreshold).toHaveBeenCalledWith(0.8);
   });
 
   // ── enhance() propagates errors ──

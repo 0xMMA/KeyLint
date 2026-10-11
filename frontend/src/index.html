@@ -1,12 +1,13 @@
 <!doctype html>
 <html lang="en" class="app-dark">
 <!--
-  .app-dark belongs on <html>, not <body>. PrimeNG declares each component's
-  tokens on :root as aliases of the theme tokens (e.g. the select panel's
-  background = var(overlay background)), and an alias resolves on the element
-  that declares it. With the class on <body>, <html> never saw the dark theme,
-  so every aliased token came out light: select panels, tab bars, disabled
-  fields (#28). ShellComponent.applyTheme() keeps it there.
+  .app-dark marks the theme, and it belongs on <html>, not <body>. KeyLint's
+  tokens live on :root (theme.css), several of them aliases of others
+  (--kl-hover: var(--kl-raised)), and an alias resolves on the element that
+  declares it. A theme class below the root would leave the aliases on the
+  old values; that is how PrimeNG's select panels, tab bars and disabled
+  fields stayed light (#28). Only the dark theme exists for now (#24); the
+  light one (#25) keys off this class. ShellComponent.applyTheme() keeps it.
 -->
 <head>
   <meta charset="utf-8">

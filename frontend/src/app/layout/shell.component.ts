@@ -1,8 +1,9 @@
 import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { Router, RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
+import { CdkScrollable } from '@angular/cdk/scrolling';
 import { isDevMode } from '@angular/core';
 import { Subscription } from 'rxjs';
-import { TooltipModule } from 'primeng/tooltip';
+import { IconComponent, TooltipDirective, type IconName } from '../shared/ui';
 import { versionLabel } from '../core/version-label';
 import { WailsService, type SilentFixNotice } from '../core/wails.service';
 import { LogService } from '../core/log.service';
@@ -15,57 +16,29 @@ let sidebarHovered   = false;
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, TooltipModule],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, CdkScrollable, IconComponent, TooltipDirective],
   styleUrls: ['./shell.component.scss'],
   template: `
     <div class="layout-wrapper" [class.sidebar-collapsed]="collapsedView">
-      <aside class="layout-sidebar"
+      <aside class="layout-sidebar" data-testid="sidebar"
         [class.collapsed]="collapsedView"
         [class.hover-expanded]="hoverExpanded"
         (mouseenter)="onSidebarEnter()"
         (mouseleave)="onSidebarLeave()">
-        <div class="layout-logo">
-          <span class="logo-k logo-key">K</span><span class="logo-reveal logo-ey logo-key">ey</span><span class="logo-l logo-lint">L</span><span class="logo-reveal logo-int logo-lint">int</span>
+        <div class="layout-logo" aria-label="KeyLint" role="img">
+          <span class="logo-k logo-key" aria-hidden="true">K</span><span class="logo-reveal logo-ey logo-key" aria-hidden="true">ey</span><span class="logo-l logo-lint" aria-hidden="true">L</span><span class="logo-reveal logo-int logo-lint" aria-hidden="true">int</span>
         </div>
-        <nav class="sidebar-nav">
+        <nav class="sidebar-nav" aria-label="Main" cdkScrollable>
           <ul>
-            <li class="nav-item">
-              <a routerLink="/fix" routerLinkActive="active-route"
-                [pTooltip]="collapsedView && !hoverExpanded ? 'Fix' : ''"
-                tooltipPosition="right"
-                appendTo="body">
-                <i class="pi pi-sparkles"></i>
-                @if (!collapsedView || hoverExpanded) { <span>Fix</span> }
-              </a>
-            </li>
-            <li class="nav-item">
-              <a routerLink="/enhance" routerLinkActive="active-route"
-                [pTooltip]="collapsedView && !hoverExpanded ? 'Pyramidize' : ''"
-                tooltipPosition="right"
-                appendTo="body">
-                <svg class="nav-icon-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" width="1rem" height="1rem">
-                  <polygon points="12,3 22,21 2,21"/>
-                </svg>
-                @if (!collapsedView || hoverExpanded) { <span>Pyramidize</span> }
-              </a>
-            </li>
-            <li class="nav-item">
-              <a routerLink="/settings" routerLinkActive="active-route"
-                [pTooltip]="collapsedView && !hoverExpanded ? 'Settings' : ''"
-                tooltipPosition="right"
-                appendTo="body">
-                <i class="pi pi-cog"></i>
-                @if (!collapsedView || hoverExpanded) { <span>Settings</span> }
-              </a>
-            </li>
-            @if (dev) {
+            @for (item of navItems; track item.path) {
               <li class="nav-item">
-                <a routerLink="/dev-tools" routerLinkActive="active-route"
-                  [pTooltip]="collapsedView && !hoverExpanded ? 'Dev Tools' : ''"
-                  tooltipPosition="right"
-                  appendTo="body">
-                  <i class="pi pi-wrench"></i>
-                  @if (!collapsedView || hoverExpanded) { <span>Dev Tools</span> }
+                <a [routerLink]="item.path" routerLinkActive="active-route" ariaCurrentWhenActive="page"
+                  [attr.data-testid]="'nav-' + item.id"
+                  [attr.aria-label]="labelsShown ? null : item.label"
+                  [klTooltip]="labelsShown ? '' : item.label"
+                  klTooltipPosition="right">
+                  <kl-icon class="nav-icon" [name]="item.icon" [size]="18" />
+                  @if (labelsShown) { <span>{{ item.label }}</span> }
                 </a>
               </li>
             }
@@ -73,26 +46,31 @@ let sidebarHovered   = false;
         </nav>
         <div class="sidebar-footer">
           <div class="version-row" data-testid="version-footer" (click)="goToAbout()">
-            @if (!collapsedView || hoverExpanded) {
-              <span class="version-text" data-testid="version-text">{{ versionLabel(appVersion) }}</span>
-              @if (updateAvailable) {
-                <i class="pi pi-arrow-circle-up update-indicator" data-testid="update-indicator" [title]="updateTitle"></i>
-              }
-            } @else {
-              @if (updateAvailable) {
-                <i class="pi pi-arrow-circle-up update-indicator" data-testid="update-indicator" [title]="updateTitle"></i>
-              }
+            @if (labelsShown || updateAvailable) {
+              <button type="button" class="version-link"
+                [attr.aria-label]="labelsShown ? null : updateTitle + ' — open About'"
+                [title]="labelsShown ? 'About KeyLint' : ''">
+                @if (labelsShown) {
+                  <span class="version-text" data-testid="version-text">{{ versionLabel(appVersion) }}</span>
+                }
+                @if (updateAvailable) {
+                  <kl-icon class="update-indicator" data-testid="update-indicator" name="circle-arrow-up"
+                    [size]="15" [attr.title]="updateTitle" [label]="updateTitle" />
+                }
+              </button>
             }
           </div>
-          <button class="collapse-btn" (click)="toggleSidebar()" type="button"
-            [pTooltip]="collapsedView ? 'Expand sidebar' : 'Collapse sidebar'"
-            tooltipPosition="right"
-            appendTo="body">
-            <i class="pi" [class.pi-chevron-left]="!collapsedView" [class.pi-chevron-right]="collapsedView"></i>
+          <button class="collapse-btn" data-testid="collapse-btn" (click)="toggleSidebar()" type="button"
+            [attr.aria-label]="collapsedView ? 'Expand sidebar' : 'Collapse sidebar'"
+            [attr.aria-expanded]="!collapsedView"
+            [klTooltip]="collapsedView ? 'Expand sidebar' : 'Collapse sidebar'"
+            klTooltipPosition="right">
+            <kl-icon [name]="collapsedView ? 'chevron-right' : 'chevron-left'" [size]="16" />
           </button>
         </div>
       </aside>
-      <div class="layout-main">
+      <!-- cdkScrollable: open selects and tooltips follow this area's scroll. -->
+      <div class="layout-main" cdkScrollable>
         <router-outlet />
       </div>
     </div>
@@ -100,6 +78,12 @@ let sidebarHovered   = false;
 })
 export class ShellComponent implements OnInit, OnDestroy {
   readonly dev = isDevMode();
+  readonly navItems: ReadonlyArray<{ id: string; path: string; label: string; icon: IconName }> = [
+    { id: 'fix', path: '/fix', label: 'Fix', icon: 'sparkle' },
+    { id: 'enhance', path: '/enhance', label: 'Pyramidize', icon: 'pyramid' },
+    { id: 'settings', path: '/settings', label: 'Settings', icon: 'sliders-horizontal' },
+    ...(isDevMode() ? [{ id: 'dev-tools', path: '/dev-tools', label: 'Dev Tools', icon: 'wrench' as IconName }] : []),
+  ];
   readonly versionLabel = versionLabel;
   appVersion = '';
   updateAvailable = false;
@@ -108,6 +92,8 @@ export class ShellComponent implements OnInit, OnDestroy {
 
   get collapsedView(): boolean  { return sidebarCollapsed; }
   get hoverExpanded(): boolean  { return sidebarCollapsed && sidebarHovered; }
+  /** Labels (and the version) show unless the rail is collapsed and not hovered. */
+  get labelsShown(): boolean    { return !sidebarCollapsed || sidebarHovered; }
 
   constructor(
     private readonly wails: WailsService,
@@ -132,7 +118,9 @@ export class ShellComponent implements OnInit, OnDestroy {
   }
 
   goToAbout(): void {
-    void this.router.navigate(['/settings'], { queryParams: { tab: 'about' } });
+    // 'reload': the URL may already be /settings?tab=about with another tab
+    // picked since; Settings reads the tab from every finished navigation.
+    void this.router.navigate(['/settings'], { queryParams: { tab: 'about' }, onSameUrlNavigation: 'reload' });
   }
 
   toggleSidebar(): void {
@@ -198,7 +186,7 @@ export class ShellComponent implements OnInit, OnDestroy {
     // itself, because the router ignores a navigation to the URL it is on.
     this.silentNotices.present(notice);
     if (notice.target === 'providers') {
-      void this.router.navigate(['/settings'], { queryParams: { tab: 'providers' } });
+      void this.router.navigate(['/settings'], { queryParams: { tab: 'providers' }, onSameUrlNavigation: 'reload' });
       return;
     }
     void this.router.navigate(['/fix']);
@@ -206,8 +194,8 @@ export class ShellComponent implements OnInit, OnDestroy {
 
   private applyTheme(): void {
     // Only the dark theme is styled (#24). theme_preference is deliberately
-    // not read: a "light" or "system" saved by an older version would drop
-    // PrimeNG into its unstyled light mode. The light theme (#25) reads it again.
+    // not read: a "light" or "system" saved by an older version would ask for
+    // a theme that does not exist yet. The light theme (#25) reads it again.
     // On <html>, not <body>: see index.html.
     document.documentElement.classList.add('app-dark');
   }

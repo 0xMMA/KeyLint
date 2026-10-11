@@ -1,65 +1,46 @@
-import { Component } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { ButtonModule } from 'primeng/button';
-import { CardModule } from 'primeng/card';
+import { ChangeDetectorRef, Component } from '@angular/core';
+import { JsonPipe } from '@angular/common';
+import { RouterLink } from '@angular/router';
+import { ButtonComponent, CardComponent } from '../../shared/ui';
 import { WailsService, Settings as AppSettings } from '../../core/wails.service';
 
 @Component({
   selector: 'app-dev-tools',
   standalone: true,
-  imports: [CommonModule, ButtonModule, CardModule],
+  imports: [JsonPipe, RouterLink, ButtonComponent, CardComponent],
   template: `
-    <div class="dev-tools-container">
-      <h2>Dev Tools</h2>
-      <p class="note">This panel is only visible in development mode.</p>
+    <div class="flex max-w-[760px] flex-col gap-6 px-11 py-9">
+      <div>
+        <h1 class="m-0 text-2xl font-bold tracking-tight text-fg-strong">Dev tools</h1>
+        <p class="mt-2 mb-0 text-sm text-muted">This panel is only visible in development mode. <a class="text-link" routerLink="/dev-tools/ui" data-testid="ui-gallery-link">UI primitives</a></p>
+      </div>
 
-      <p-card header="Shortcut Simulation">
-        <p>Fires a synthetic shortcut event — same as pressing Ctrl+G on Windows.</p>
-        <p-button
-          label="Simulate Shortcut (Ctrl+G)"
-          icon="pi pi-bolt"
-          (onClick)="simulate()"
-          [loading]="simulating"
-        />
-      </p-card>
+      <kl-card heading="Shortcut simulation" subheading="Fires a synthetic shortcut event — the same as pressing Ctrl+G on Windows.">
+        <div>
+          <kl-button data-testid="simulate-shortcut-btn" variant="primary" icon="zap" [loading]="simulating" (click)="simulate()">Simulate shortcut (Ctrl+G)</kl-button>
+        </div>
+      </kl-card>
 
-      <p-card header="Current Settings" styleClass="mt-4">
+      <kl-card heading="Current settings">
         @if (settings) {
-          <pre>{{ settings | json }}</pre>
+          <pre class="m-0 max-h-[28rem] overflow-auto rounded-md bg-field p-4 text-xs text-soft">{{ settings | json }}</pre>
         } @else {
-          <p-button label="Load Settings" severity="secondary" (onClick)="loadSettings()" />
+          <div>
+            <kl-button data-testid="load-settings-btn" (click)="loadSettings()">Load settings</kl-button>
+          </div>
         }
-      </p-card>
+      </kl-card>
     </div>
   `,
-  styles: [`
-    .dev-tools-container {
-      padding: 2rem;
-      color: var(--kl-surface-100);
-      max-width: 700px;
-    }
-    h2 { margin: 0 0 0.5rem; color: var(--kl-primary-text); }
-    .note { color: var(--kl-muted); margin-bottom: 1.5rem; }
-    pre {
-      background: var(--kl-sheet);
-      padding: 1rem;
-      border-radius: 6px;
-      font-size: 0.8rem;
-      overflow: auto;
-    }
-    code {
-      background: var(--kl-sheet);
-      padding: 2px 5px;
-      border-radius: 3px;
-      font-family: monospace;
-    }
-  `],
 })
 export class DevToolsComponent {
   simulating = false;
   settings: AppSettings | null = null;
 
-  constructor(private readonly wails: WailsService) {}
+  constructor(
+    private readonly wails: WailsService,
+    private readonly cdr: ChangeDetectorRef,
+  ) {}
 
   async simulate(): Promise<void> {
     this.simulating = true;
@@ -67,10 +48,12 @@ export class DevToolsComponent {
       await this.wails.simulateShortcut();
     } finally {
       this.simulating = false;
+      this.cdr.markForCheck();
     }
   }
 
   async loadSettings(): Promise<void> {
     this.settings = await this.wails.loadSettings();
+    this.cdr.markForCheck();
   }
 }

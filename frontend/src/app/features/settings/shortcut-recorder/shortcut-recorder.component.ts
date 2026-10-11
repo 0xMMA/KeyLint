@@ -1,6 +1,5 @@
 import { ChangeDetectionStrategy, Component, Input, Output, EventEmitter, OnDestroy, inject } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { ButtonModule } from 'primeng/button';
+import { ButtonComponent } from '../../../shared/ui';
 import { WailsService } from '../../../core/wails.service';
 import { formatCombo } from '../../../core/shortcut-format';
 
@@ -16,60 +15,44 @@ const KEY_TO_NAME: Record<string, string> = {
 @Component({
   selector: 'app-shortcut-recorder',
   standalone: true,
-  imports: [CommonModule, ButtonModule],
+  imports: [ButtonComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="recorder-wrapper" [class.recording]="recording" data-testid="recorder-field"
-         tabindex="0" (keydown)="onKeyDown($event)">
+    <!-- The field itself takes the keys while recording, so it is focusable;
+         it names what it holds for a screen reader. -->
+    <div class="recorder" [class.recording]="recording" data-testid="recorder-field"
+         tabindex="0" role="group" [attr.aria-label]="ariaLabel || null" (keydown)="onKeyDown($event)">
       @if (recording) {
-        <span class="recording-text" data-testid="recording-indicator">Press a key combo...</span>
+        <span class="recording-text" data-testid="recording-indicator" aria-live="polite">Press a key combo…</span>
       } @else {
         <span class="combo-text" data-testid="combo-display">{{ displayValue }}</span>
       }
-      <button
+      <kl-button
         data-testid="record-btn"
-        class="p-button p-button-sm"
-        [class.p-button-danger]="recording"
-        [class.p-button-secondary]="!recording"
-        type="button"
+        size="sm"
+        [variant]="recording ? 'danger' : 'quiet'"
         (click)="toggleRecording()"
-      >{{ recording ? 'Cancel' : 'Record...' }}</button>
+      >{{ recording ? 'Cancel' : 'Record…' }}</kl-button>
     </div>
   `,
   styles: [`
-    .recorder-wrapper {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border: 1px solid var(--kl-line);
-      border-radius: 6px;
-      padding: 0.5rem 0.75rem;
-      background: var(--kl-sheet);
-      min-height: 2.5rem;
-      outline: none;
+    .recorder {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      min-width: 260px; height: 44px; padding: 0 6px 0 12px;
+      background: var(--kl-field); border: 1px solid var(--kl-line-control); border-radius: var(--kl-radius-md);
     }
-    .recorder-wrapper.recording {
-      border-color: var(--kl-primary);
-      box-shadow: 0 0 0 1px var(--kl-primary);
-    }
-    .combo-text {
-      font-family: monospace;
-      font-size: 0.9rem;
-      color: var(--kl-text);
-    }
-    .recording-text {
-      font-size: 0.85rem;
-      color: var(--kl-muted);
-      animation: pulse 1.5s ease-in-out infinite;
-    }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
-    }
+    .recorder:focus-visible { outline: 2px solid var(--kl-focus); outline-offset: 2px; }
+    .recorder.recording { border-color: var(--kl-primary); }
+    .combo-text { font-size: 14px; font-weight: 600; color: var(--kl-text); letter-spacing: 0.01em; }
+    .recording-text { font-size: 13px; color: var(--kl-primary-text); animation: pulse 1.5s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity: 0.55; } }
+    @media (prefers-reduced-motion: reduce) { .recording-text { animation: none; } }
   `],
 })
 export class ShortcutRecorderComponent implements OnDestroy {
   @Input() value = '';
+  /** What the shortcut is for, e.g. "Fix shortcut". */
+  @Input() ariaLabel = '';
   @Output() valueChange = new EventEmitter<string>();
 
   private readonly wails = inject(WailsService);

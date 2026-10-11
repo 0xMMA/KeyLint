@@ -1,4 +1,5 @@
 import type { ClaudeCodeStatus, KeyStatus } from './wails.service';
+import { unavailableProviderName } from './constants';
 
 /**
  * The providers a user can choose, in the order Settings › AI Providers lists
@@ -14,6 +15,16 @@ export const PROVIDER_OPTIONS: ReadonlyArray<{ label: string; value: string }> =
   { label: 'Claude Code (installed CLI)', value: 'claude-code' },
   { label: 'Ollama (local)', value: 'ollama' },
 ];
+
+/**
+ * A provider's name without the parenthetical ("Claude Code", "Ollama"), for
+ * tight places like a chip; a known but unavailable one by its name ("AWS
+ * Bedrock"); the provider ID only if KeyLint does not know it at all.
+ */
+export function providerShortLabel(provider: string): string {
+  const label = PROVIDER_OPTIONS.find(o => o.value === provider)?.label;
+  return label ? label.replace(/\s*\(.*\)$/, '') : (unavailableProviderName(provider) ?? provider);
+}
 
 /** The providers that work with an API key, and nothing else. */
 export const KEY_PROVIDERS: ReadonlyArray<string> = ['openai', 'claude'];
@@ -47,13 +58,13 @@ export interface ConnectionTag {
 }
 
 export function cliTag(status: ClaudeCodeStatus): ConnectionTag {
-  if (status.installed && status.loggedIn) return { value: '● signed in', severity: 'success' };
+  if (status.installed && status.loggedIn) return { value: 'signed in', severity: 'success' };
   if (status.installed) return { value: 'not signed in', severity: 'warn' };
   return { value: 'not installed', severity: 'secondary' };
 }
 
 export function keyTag(status: KeyStatus): ConnectionTag {
   if (status.is_set && status.source === 'env') return { value: 'key from env var', severity: 'info' };
-  if (status.is_set) return { value: '● key set', severity: 'success' };
+  if (status.is_set) return { value: 'key set', severity: 'success' };
   return { value: 'no key', severity: 'secondary' };
 }

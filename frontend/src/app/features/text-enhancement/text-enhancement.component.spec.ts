@@ -1,19 +1,12 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { ChangeDetectorRef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ComponentFixture } from '@angular/core/testing';
-import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideRouter } from '@angular/router';
 import { TextEnhancementComponent, resetPyramidizeProviderSession } from './text-enhancement.component';
 import { TextEnhancementService } from './text-enhancement.service';
 import { WailsService } from '../../core/wails.service';
 import { createWailsMock, defaultSettings } from '../../../testing/wails-mock';
-
-// PrimeNG TabList uses ResizeObserver which is not available in jsdom
-(globalThis as Record<string, unknown>)['ResizeObserver'] = class {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-};
 
 function makeEnhancementServiceMock() {
   return {
@@ -38,8 +31,6 @@ function makeEnhancementServiceMock() {
     getAppPresets: vi.fn().mockResolvedValue([]),
     setAppPreset: vi.fn().mockResolvedValue(undefined),
     deleteAppPreset: vi.fn().mockResolvedValue(undefined),
-    getQualityThreshold: vi.fn().mockResolvedValue(0.65),
-    setQualityThreshold: vi.fn().mockResolvedValue(undefined),
     enhance: vi.fn().mockResolvedValue('Enhanced text.'),
   };
 }
@@ -63,7 +54,6 @@ describe('TextEnhancementComponent (Pyramidize)', () => {
     await TestBed.configureTestingModule({
       imports: [TextEnhancementComponent],
       providers: [
-        provideAnimationsAsync(),
         provideRouter([]),
         { provide: WailsService, useValue: wailsMock },
         { provide: TextEnhancementService, useValue: svcMock },
@@ -307,8 +297,19 @@ describe('TextEnhancementComponent (Pyramidize)', () => {
     expect(el.querySelector('[data-testid="api-key-banner"]')).toBeTruthy();
   });
 
-  it('renders trace log panel', () => {
+  it('opens the history from the toggle in the tab bar and closes it again', async () => {
+    expect(el.querySelector('[data-testid="trace-log-panel"]')).toBeNull();
+    const toggle = el.querySelector<HTMLButtonElement>('[data-testid="trace-log-toggle"] button')!;
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+
+    toggle.click();
+    await fixture.whenStable();
     expect(el.querySelector('[data-testid="trace-log-panel"]')).toBeTruthy();
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+
+    el.querySelector<HTMLButtonElement>('[data-testid="trace-log-close"] button')!.click();
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid="trace-log-panel"]')).toBeNull();
   });
 
   it('pyramidize() does nothing when originalText is empty', async () => {
@@ -419,7 +420,6 @@ describe('TextEnhancementComponent — Pyramidize shortcut from another page', (
     await TestBed.configureTestingModule({
       imports: [TextEnhancementComponent],
       providers: [
-        provideAnimationsAsync(),
         provideRouter([]),
         { provide: WailsService, useValue: wailsMock },
         { provide: TextEnhancementService, useValue: makeEnhancementServiceMock() },
@@ -488,7 +488,6 @@ describe('TextEnhancementComponent — Claude Code provider', () => {
       imports: [TextEnhancementComponent],
       providers: [
         provideRouter([]),
-        provideAnimationsAsync(),
         { provide: WailsService, useValue: wailsMock },
         { provide: TextEnhancementService, useValue: makeEnhancementServiceMock() },
       ],
@@ -689,7 +688,6 @@ describe('TextEnhancementComponent — provider follows Settings', () => {
       imports: [TextEnhancementComponent],
       providers: [
         provideRouter([]),
-        provideAnimationsAsync(),
         { provide: WailsService, useValue: wailsMock },
         { provide: TextEnhancementService, useValue: makeEnhancementServiceMock() },
       ],
@@ -829,7 +827,6 @@ describe('TextEnhancementComponent — Apply button emphasis', () => {
     await TestBed.configureTestingModule({
       imports: [TextEnhancementComponent],
       providers: [
-        provideAnimationsAsync(),
         provideRouter([]),
         { provide: WailsService, useValue: createWailsMock() },
         { provide: TextEnhancementService, useValue: makeEnhancementServiceMock() },
@@ -865,21 +862,512 @@ describe('TextEnhancementComponent — Apply button emphasis', () => {
     fixture.detectChanges();
   }
 
-  it('is secondary while the instruction is empty', () => {
-    expect(applyButton().classList).toContain('p-button-secondary');
+  it('is quiet while the instruction is empty', () => {
+    expect(applyButton().classList).toContain('quiet');
+    expect(applyButton().classList).not.toContain('primary');
   });
 
   it('becomes the primary action once an instruction is typed', async () => {
     await typeInstruction('make it shorter');
 
     expect(applyButton().disabled).toBe(false);
-    expect(applyButton().classList).not.toContain('p-button-secondary');
+    expect(applyButton().classList).toContain('primary');
   });
 
   it('recedes again when the instruction is only whitespace', async () => {
     await typeInstruction('make it shorter');
     await typeInstruction('   ');
 
-    expect(applyButton().classList).toContain('p-button-secondary');
+    expect(applyButton().classList).toContain('quiet');
+  });
+});
+
+// The page in the E11 look: what the user sees and can reach by keyboard. The
+// behaviour underneath is covered above through the component's methods.
+describe('TextEnhancementComponent — page', () => {
+  let fixture: ComponentFixture<TextEnhancementComponent>;
+  let component: TextEnhancementComponent;
+  let el: HTMLElement;
+  let wailsMock: ReturnType<typeof createWailsMock>;
+  let svcMock: ReturnType<typeof makeEnhancementServiceMock>;
+
+  beforeEach(async () => {
+    TestBed.resetTestingModule();
+    wailsMock = createWailsMock();
+    svcMock = makeEnhancementServiceMock();
+    await TestBed.configureTestingModule({
+      imports: [TextEnhancementComponent],
+      providers: [
+        provideRouter([]),
+        { provide: WailsService, useValue: wailsMock },
+        { provide: TextEnhancementService, useValue: svcMock },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(TextEnhancementComponent);
+    component = fixture.componentInstance;
+    el = fixture.nativeElement;
+    component.originalTextView = '';
+    component.canvasTextView = '';
+    component.docTypeView = 'auto';
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await new Promise(r => setTimeout(r));
+    await refresh();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    component.originalTextView = '';
+    component.canvasTextView = '';
+    component.docTypeView = 'auto';
+    if (component.traceLogOpenView) component.toggleTraceLog();
+    component.onTabChange('original');
+    component.setPreviewMode(false);
+    fixture.destroy();
+    // kl-select renders its options into the CDK container on <body>.
+    document.querySelector('.cdk-overlay-container')?.replaceChildren();
+  });
+
+  /** Zoneless: a field set from here does not mark the view dirty by itself. */
+  async function refresh(): Promise<void> {
+    fixture.debugElement.injector.get(ChangeDetectorRef).markForCheck();
+    fixture.detectChanges();
+    await fixture.whenStable();
+  }
+
+  function q<T extends HTMLElement = HTMLElement>(testid: string): T | null {
+    return el.querySelector<T>(`[data-testid="${testid}"]`);
+  }
+
+  function button(testid: string): HTMLButtonElement {
+    return q(testid)!.querySelector('button')!;
+  }
+
+  function ctrlEnter(target: HTMLElement): void {
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
+  }
+
+  it('says "Detect automatically" for the automatic document type', () => {
+    expect(q('doc-type-select')!.textContent).toContain('Detect automatically');
+  });
+
+  it('names the detected type in words after an automatic run', async () => {
+    component.originalTextView = 'Hi Sarah, two things';
+    await component.pyramidize();
+    await refresh();
+
+    expect(q('detected-type')!.textContent!.replace(/\s+/g, ' ').trim()).toBe('Detected: Email');
+  });
+
+  it('labels every option with a visible label', () => {
+    for (const id of ['pz-provider', 'pz-model', 'pz-doc-type', 'pz-style', 'pz-relationship', 'pz-instructions']) {
+      expect(el.querySelector(`label[for="${id}"]`), id).not.toBeNull();
+      expect(el.querySelector(`#${id}`), id).not.toBeNull();
+    }
+  });
+
+  it('offers to pyramidize again once the editor holds a result', async () => {
+    component.originalTextView = 'Some text';
+    await refresh();
+    expect(button('pyramidize-btn').textContent).toContain('Pyramidize');
+    expect(button('pyramidize-btn').textContent).not.toContain('again');
+
+    component.canvasTextView = 'A result';
+    await refresh();
+    expect(button('pyramidize-btn').textContent).toContain('Pyramidize again');
+  });
+
+  it('pyramidizes on Ctrl+Enter in the instruction field, as the button hint says', async () => {
+    component.originalTextView = 'Some text';
+    await refresh();
+
+    ctrlEnter(q('custom-instructions')!);
+    await fixture.whenStable();
+
+    expect(svcMock.pyramidize).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores Ctrl+Enter in the instruction field while there is nothing to pyramidize', async () => {
+    ctrlEnter(q('custom-instructions')!);
+    await fixture.whenStable();
+
+    expect(svcMock.pyramidize).not.toHaveBeenCalled();
+  });
+
+  it('pyramidizes on Ctrl+Enter in the original text', async () => {
+    component.originalTextView = 'Some text';
+    await refresh();
+
+    ctrlEnter(q('original-textarea')!);
+    await fixture.whenStable();
+
+    expect(svcMock.pyramidize).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the step over the editor while it works, and keeps the text out of reach', async () => {
+    let finish!: (v: unknown) => void;
+    svcMock.pyramidize.mockReturnValue(new Promise(r => (finish = r)));
+    component.originalTextView = 'Some text';
+    await refresh();
+
+    const running = component.pyramidize();
+    await refresh();
+
+    expect(q('step-label')!.textContent).toContain('Step 1/2');
+    expect(q('cancel-btn')).not.toBeNull();
+    expect(el.querySelector('kl-tabs')!.hasAttribute('inert')).toBe(true);
+    expect(button('pyramidize-btn').getAttribute('aria-busy')).toBe('true');
+
+    finish({ fullDocument: 'Done', detectedType: 'email', refinementWarning: '' });
+    await running;
+    await refresh();
+    expect(q('step-indicator')).toBeNull();
+    expect(el.querySelector('kl-tabs')!.hasAttribute('inert')).toBe(false);
+    expect(el.querySelector('kl-tab[data-value="canvas"]')!.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('switches the editor between editing and a formatted preview', async () => {
+    component.canvasTextView = '# Title\n\nBody';
+    component.onTabChange('canvas');
+    await refresh();
+    expect(q('canvas-textarea')).not.toBeNull();
+
+    q<HTMLButtonElement>('segment-preview')!.click();
+    await refresh();
+
+    expect(q('canvas-textarea')).toBeNull();
+    expect(q('canvas-preview')!.querySelector('h1')!.textContent).toBe('Title');
+    q<HTMLButtonElement>('segment-edit')!.click();
+    await refresh();
+    expect(q('canvas-textarea')).not.toBeNull();
+  });
+
+  it('counts the history steps on its toggle', async () => {
+    const before = component.traceLogView.length;
+    component.canvasTextView = 'Text';
+    component.addCheckpoint();
+    await refresh();
+    const n = before + 1;
+    expect(button('trace-log-toggle').textContent!.trim()).toBe(`History, ${n} ${n === 1 ? 'step' : 'steps'}`);
+  });
+
+  it('previews a history entry on hover, pins it on click, and reverts from the pinned preview', async () => {
+    component.canvasTextView = 'First version';
+    component.addCheckpoint();
+    component.canvasTextView = 'Second version';
+    button('trace-log-toggle').click();
+    await refresh();
+
+    const entries = el.querySelectorAll<HTMLButtonElement>('[data-testid="trace-entry"]');
+    const last = entries[entries.length - 1];
+    expect(last.textContent).toContain('Checkpoint');
+
+    last.dispatchEvent(new MouseEvent('mouseenter'));
+    await refresh();
+    expect(q('trace-peek-content')!.textContent).toBe('First version');
+    expect(q('trace-peek-close')).toBeNull();
+
+    last.click();
+    await refresh();
+    expect(last.getAttribute('aria-current')).toBe('true');
+    expect(q('trace-peek-close')).not.toBeNull();
+
+    button('trace-revert-btn').click();
+    await refresh();
+    expect(component.canvasTextView).toBe('First version');
+    expect(q('trace-peek-overlay')).toBeNull();
+  });
+
+  it('closes a pinned preview on Escape', async () => {
+    component.canvasTextView = 'A version';
+    component.addCheckpoint();
+    button('trace-log-toggle').click();
+    await refresh();
+    const entries = el.querySelectorAll<HTMLButtonElement>('[data-testid="trace-entry"]');
+    entries[entries.length - 1].click();
+    await refresh();
+    expect(q('trace-peek-overlay')).not.toBeNull();
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await refresh();
+
+    expect(q('trace-peek-overlay')).toBeNull();
+  });
+
+  it('adds a checkpoint from the history column', async () => {
+    component.canvasTextView = 'Worth keeping';
+    button('trace-log-toggle').click();
+    await refresh();
+    const before = component.traceLogView.length;
+
+    button('add-checkpoint-btn').click();
+    await refresh();
+
+    expect(component.traceLogView.length).toBe(before + 1);
+  });
+
+  it('keeps the chosen model when the provider in use is picked again', async () => {
+    component.modelView = 'claude-opus-4';
+    await refresh();
+    const before = wailsMock.listModels.mock.calls.length;
+
+    q('provider-select')!.querySelector<HTMLButtonElement>('button')!.click();
+    await refresh();
+    const current = component.providerOptions.find(o => o.value === component.providerView)!;
+    const option = Array.from(document.querySelectorAll<HTMLElement>('.cdk-overlay-container [role="option"]'))
+      .find(o => o.textContent!.trim() === current.label)!;
+    option.click();
+    await refresh();
+
+    expect(component.modelView).toBe('claude-opus-4');
+    expect(wailsMock.listModels.mock.calls.length).toBe(before);
+  });
+
+  it('shows the error again when a retried Pyramidize fails too', async () => {
+    component.originalTextView = 'Some text';
+    svcMock.pyramidize.mockRejectedValue(new Error('API failure'));
+    await component.pyramidize();
+    await component.retry();
+    await refresh();
+
+    expect(q('error-row')!.textContent).toContain('Pyramidize failed: API failure');
+  });
+
+  it('keeps the history out of reach while a step runs', async () => {
+    let finish!: (v: unknown) => void;
+    svcMock.pyramidize.mockReturnValue(new Promise(r => (finish = r)));
+    component.originalTextView = 'Some text';
+    component.canvasTextView = '';
+    button('trace-log-toggle').click();
+    await refresh();
+
+    const running = component.pyramidize();
+    await refresh();
+    expect(q('trace-log-panel')!.hasAttribute('inert')).toBe(true);
+
+    finish({ fullDocument: 'Done', detectedType: '', refinementWarning: '' });
+    await running;
+    await refresh();
+    expect(q('trace-log-panel')!.hasAttribute('inert')).toBe(false);
+  });
+
+  it('gives the focus back to the history entry when a pinned preview closes', async () => {
+    component.canvasTextView = 'A version';
+    component.addCheckpoint();
+    button('trace-log-toggle').click();
+    await refresh();
+    const entries = el.querySelectorAll<HTMLButtonElement>('[data-testid="trace-entry"]');
+    const last = entries[entries.length - 1];
+    last.click();
+    await refresh();
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await refresh();
+
+    expect(document.activeElement).toBe(last);
+  });
+
+  it('opens the selection bubble for text selected in the editor, and not for a plain click', async () => {
+    component.canvasTextView = 'Some text to change';
+    component.onTabChange('canvas');
+    await refresh();
+    const textarea = q<HTMLTextAreaElement>('canvas-textarea')!;
+    expect(textarea.value).toBe('Some text to change');
+
+    // Only the textarea knows: Chromium keeps the document selection collapsed.
+    textarea.setSelectionRange(5, 9);
+    textarea.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: 300, clientY: 200 }));
+    await refresh();
+    expect(q('selection-bubble')).not.toBeNull();
+
+    textarea.setSelectionRange(3, 3);
+    textarea.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: 300, clientY: 200 }));
+    await refresh();
+    expect(q('selection-bubble')).toBeNull();
+  });
+
+  it('gives the selection bubble an Apply that waits for an instruction, and closes it on Escape', async () => {
+    component.canvasTextView = 'Some text to change';
+    component.onTabChange('canvas');
+    component.showSelectionBubble = true;
+    await refresh();
+
+    expect(button('selection-apply-btn').disabled).toBe(true);
+    const input = q<HTMLInputElement>('selection-instruction-input')!;
+    input.value = 'more formal';
+    input.dispatchEvent(new Event('input'));
+    await refresh();
+    expect(component.selectionInstruction).toBe('more formal');
+    expect(button('selection-apply-btn').disabled).toBe(false);
+
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await refresh();
+    expect(q('selection-bubble')).toBeNull();
+  });
+
+  it('shows a failure as an error message with Retry', async () => {
+    component.originalTextView = 'Some text';
+    svcMock.pyramidize.mockRejectedValueOnce(new Error('API failure'));
+    await component.pyramidize();
+    await refresh();
+
+    const row = q('error-row')!;
+    expect(row.getAttribute('role')).toBe('alert');
+    expect(row.textContent).toContain('Pyramidize failed: API failure');
+
+    button('retry-btn').click();
+    await fixture.whenStable();
+    await refresh();
+    expect(svcMock.pyramidize).toHaveBeenCalledTimes(2);
+  });
+});
+
+// The Effort picker under Model: Settings' levels, a session override like the
+// model (never written to settings), sent with every call the page makes.
+describe('TextEnhancementComponent — effort', () => {
+  let fixture: ComponentFixture<TextEnhancementComponent>;
+  let component: TextEnhancementComponent;
+  let el: HTMLElement;
+  let wailsMock: ReturnType<typeof createWailsMock>;
+  let svcMock: ReturnType<typeof makeEnhancementServiceMock>;
+
+  async function open(settings: Partial<typeof defaultSettings> = {}): Promise<void> {
+    wailsMock = createWailsMock();
+    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, ...settings });
+    svcMock = makeEnhancementServiceMock();
+    await TestBed.configureTestingModule({
+      imports: [TextEnhancementComponent],
+      providers: [
+        provideRouter([]),
+        { provide: WailsService, useValue: wailsMock },
+        { provide: TextEnhancementService, useValue: svcMock },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(TextEnhancementComponent);
+    component = fixture.componentInstance;
+    el = fixture.nativeElement;
+    component.originalTextView = '';
+    component.canvasTextView = '';
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await refresh();
+  }
+
+  async function refresh(): Promise<void> {
+    fixture.debugElement.injector.get(ChangeDetectorRef).markForCheck();
+    fixture.detectChanges();
+    await fixture.whenStable();
+  }
+
+  const q = (testid: string) => el.querySelector<HTMLElement>(`[data-testid="${testid}"]`);
+  const overlayOptions = () => Array.from(document.querySelectorAll<HTMLElement>('.cdk-overlay-container [role="option"]'));
+
+  async function pickEffort(label: string): Promise<void> {
+    q('effort-select')!.querySelector<HTMLButtonElement>('button')!.click();
+    await refresh();
+    overlayOptions().find(o => o.textContent!.trim() === label)!.click();
+    await refresh();
+  }
+
+  async function effortLabels(): Promise<string[]> {
+    q('effort-select')!.querySelector<HTMLButtonElement>('button')!.click();
+    await refresh();
+    const labels = overlayOptions().map(o => o.textContent!.trim());
+    q('effort-select')!.querySelector<HTMLButtonElement>('button')!.click();
+    await refresh();
+    return labels;
+  }
+
+  afterEach(() => {
+    component.originalTextView = '';
+    component.canvasTextView = '';
+    fixture.destroy();
+    document.querySelector('.cdk-overlay-container')?.replaceChildren();
+  });
+
+  it('offers Settings’ levels under Model, led by "Model default", with what effort does there', async () => {
+    await open({ active_provider: 'claude' });
+    expect(q('effort-select')).not.toBeNull();
+    expect(await effortLabels()).toEqual(['Model default', 'Low', 'Medium', 'High', 'Extra high', 'Max']);
+    expect(q('effort-note')!.textContent).toContain('more reasoning');
+    expect(q('effort-select')!.textContent).toContain('Model default');
+  });
+
+  it('names Settings’ level first when Settings has one, and offers "Model default" to send none', async () => {
+    await open({
+      active_provider: 'claude',
+      models: { claude: { fix: '', pyramidize: '', fix_effort: '', pyramidize_effort: 'high' } },
+    });
+    expect(await effortLabels()).toEqual(['Settings: High', 'Model default', 'Low', 'Medium', 'High', 'Extra high', 'Max']);
+    expect(q('effort-select')!.textContent).toContain('Settings: High');
+  });
+
+  it('falls back to following Settings when "Model default" was picked and Settings has no level any more', async () => {
+    const high = { claude: { fix: '', pyramidize: '', fix_effort: '', pyramidize_effort: 'high' } };
+    await open({ active_provider: 'claude', models: high });
+    await pickEffort('Model default');
+    expect(component.effortView).toBe('none');
+    fixture.destroy();
+    TestBed.resetTestingModule();
+
+    // Settings' level went back to "Model default" meanwhile; same provider.
+    await open({ active_provider: 'claude' });
+    await refresh(); // ngModel writes the corrected value on the next turn
+    expect(component.effortView).toBe('');
+    expect(q('effort-select')!.textContent).toContain('Model default');
+  });
+
+  it('is not there on a provider that does nothing with effort (Ollama)', async () => {
+    await open({ active_provider: 'ollama' });
+    expect(q('model-select')).not.toBeNull();
+    expect(q('effort-select')).toBeNull();
+    expect(q('effort-note')).toBeNull();
+  });
+
+  it('is not there for a provider that is not available yet', async () => {
+    await open({ active_provider: 'bedrock' });
+    expect(q('effort-select')).toBeNull();
+  });
+
+  it('sends the chosen effort with Pyramidize, a whole-text change and a splice; never saves it', async () => {
+    await open({ active_provider: 'claude' });
+    await pickEffort('Extra high');
+
+    component.originalTextView = 'Some text';
+    await component.pyramidize();
+    expect(svcMock.pyramidize).toHaveBeenCalledWith(expect.objectContaining({ provider: 'claude', effort: 'xhigh' }));
+
+    component.canvasTextView = 'Canvas';
+    component.globalInstruction = 'Shorter';
+    await component.applyGlobalInstruction();
+    expect(svcMock.refineGlobal).toHaveBeenCalledWith(expect.objectContaining({ effort: 'xhigh' }));
+
+    expect(wailsMock.saveSettings).not.toHaveBeenCalled();
+  });
+
+  it('sends "none" for "Model default" over a level in Settings, and "" while it follows Settings', async () => {
+    await open({
+      active_provider: 'claude',
+      models: { claude: { fix: '', pyramidize: '', fix_effort: '', pyramidize_effort: 'high' } },
+    });
+    component.originalTextView = 'Some text';
+    await component.pyramidize();
+    expect(svcMock.pyramidize).toHaveBeenLastCalledWith(expect.objectContaining({ effort: '' }));
+
+    await pickEffort('Model default');
+    component.canvasTextView = '';
+    await component.pyramidize();
+    expect(svcMock.pyramidize).toHaveBeenLastCalledWith(expect.objectContaining({ effort: 'none' }));
+  });
+
+  it('goes back to following Settings when the provider changes, as the model does', async () => {
+    await open({ active_provider: 'claude' });
+    await pickEffort('Max');
+    expect(component.effortView).toBe('max');
+    component.providerView = 'openai';
+    await component.onProviderChange();
+    await refresh();
+    expect(component.effortView).toBe('');
+    expect(component.modelView).toBe('');
   });
 });

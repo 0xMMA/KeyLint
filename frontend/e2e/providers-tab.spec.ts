@@ -51,12 +51,13 @@ test.describe('Settings — AI Providers layout', () => {
     await installFakeBackend(page, state);
 
     await page.goto('/settings?tab=providers');
-    await page.getByTestId('model-pyramidize-claude').locator('.p-select-dropdown').click();
+    await page.getByTestId('model-pyramidize-claude').getByRole('button', { name: 'Show options' }).click();
 
     const alias = page.getByTestId('model-option-sonnet');
     await expect(alias).toBeVisible();
-    const name = alias.locator('.model-option-name');
-    const id = alias.locator('.model-option-id');
+    await expect(alias).toHaveAttribute('role', 'option');
+    const name = alias.getByText('Sonnet (latest)', { exact: true });
+    const id = alias.getByText('claude-sonnet-5-5', { exact: true });
     await expect(name).toHaveText('Sonnet (latest)');
     await expect(id).toHaveText('claude-sonnet-5-5');
     // Stacked: the ID starts below the name, not beside it.

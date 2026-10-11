@@ -2,7 +2,7 @@
 
 ## What (The Map)
 
-**Stack:** Go 1.27 + Wails v3 (beta.25) + Wire DI | Angular v21 + PrimeNG v21 + Tailwind v4 (utilities, `--kl-*` tokens) + Vitest
+**Stack:** Go 1.27 + Wails v3 (beta.25) + Wire DI | Angular v21 + Angular CDK + own UI components (`frontend/src/app/shared/ui`) + Tailwind v4 (utilities, `--kl-*` tokens) + Vitest
 
 **Key directories:**
 - `main.go` — Wails entry point, service registration, event loop
@@ -87,7 +87,7 @@ KeyLint is a desktop app that fixes/enhances clipboard text via AI (OpenAI, Anth
 **Architecture decisions:**
 - AI API calls go through the Go backend (`internal/features/enhance/service.go:1`) — WebKitGTK on Linux blocks external HTTPS fetch from the webview
 - API keys stored in OS keyring (`github.com/zalando/go-keyring`); env vars take priority over keyring — see `internal/features/settings/service.go`
-- PrimeNG Stepper was replaced with a custom `@switch`-based wizard (`welcome-wizard.component.ts`) because PrimeNG v21 StepPanel animations broke DOM visibility
+- The welcome wizard is a custom `@switch`-based component (`welcome-wizard.component.ts`): it replaced PrimeNG's Stepper, whose StepPanel animations broke DOM visibility. PrimeNG itself is gone since E11 (`docs/ui/primeng-replacement.md`)
 - CLI mode (`-fix`, `-pyramidize`) dispatches before Wails boots in `main.go`, uses the same service layer with manual wiring (no Wire/Wails). Prompts are identical between CLI and GUI — output formatting is the caller's concern.
 - The `claude-code` provider spawns the user's installed Claude Code CLI (`internal/llm/claudecode.go`) instead of calling an HTTP API. Anthropic's terms allow running the unmodified binary the user installed and signed in to themselves — so KeyLint never reads, stores or forwards credentials, never offers a login, and never uses the Claude Code or Anthropic name as part of a KeyLint feature name. Never pass `--bare`: it skips credential reads and makes a signed-in user look signed out.
 - Evaluation tests use `//go:build eval` build tag to isolate from normal `go test` runs. They make real API calls and write results to `test-data/eval-runs/<timestamp>/`.
@@ -100,7 +100,7 @@ KeyLint is a desktop app that fixes/enhances clipboard text via AI (OpenAI, Anth
 
 **Adding a frontend route:** add component folder in `frontend/src/app/features/<name>/<name>.component.ts`, add route in `app.routes.ts`, add nav link in `shell.component.ts` if needed. → See `.claude/rules/architecture.md#component-structure`
 
-**Dark mode / PrimeNG / state:** → See `.claude/rules/architecture.md` for dark mode, PrimeNG imports, and navigation state patterns.
+**Dark mode / UI components / styling / state:** → See `.claude/rules/architecture.md` for dark mode, the shared UI primitives, tokens and Tailwind, and navigation state patterns.
 
 **Environment setup:** copy `.env.example` → `.env` and add `ANTHROPIC_API_KEY` for E2E tests. Linux needs `libgtk-3-dev libwebkit2gtk-4.1-dev` and **`-tags gtk3` on every Linux `go build`/`go test`/`go vet` and on `go install …/wails3`** — Wails v3 defaults to GTK4 + WebKitGTK 6.0 since alpha.93, and KeyLint deliberately stays on GTK3 (the Taskfile and CI pass the tag; see `docs/roadmap.md` E4 for the decision due before Wails v3.1 removes GTK3). The tag is ignored on Windows. `go env -w GOFLAGS=-tags=gtk3` saves typing, but an explicit `-tags` (e.g. `-tags eval`) replaces it, so write `-tags eval,gtk3` there.
 

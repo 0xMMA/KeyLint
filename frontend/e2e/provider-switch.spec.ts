@@ -63,7 +63,7 @@ test.describe('Settings — provider in use', () => {
     await expect(page.getByTestId('provider-select')).toContainText('Anthropic API');
 
     await page.locator('a[routerLink="/settings"], a[href="/settings"]').first().click();
-    await page.getByRole('tab', { name: 'AI Providers' }).click();
+    await page.getByRole('tab', { name: 'AI providers' }).click();
     await page.getByTestId('provider-use-claude-code').getByRole('button').click();
     await expect(page.getByTestId('provider-in-use-claude-code')).toBeVisible();
     await expect.poll(() => state.saves.at(-1)?.['active_provider']).toBe('claude-code');
@@ -96,7 +96,7 @@ test.describe('Settings — provider in use', () => {
     await expect(page.getByTestId('active-provider-select')).toHaveCount(0);
 
     await page.getByTestId('provider-pointer-link').click();
-    await expect(page.getByRole('tab', { name: 'AI Providers' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('tab', { name: 'AI providers' })).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByTestId('provider-in-use-claude')).toBeVisible();
   });
 });

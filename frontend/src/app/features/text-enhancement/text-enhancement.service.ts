@@ -43,14 +43,6 @@ export class TextEnhancementService {
     return this.wails.deleteAppPreset(sourceApp);
   }
 
-  getQualityThreshold(): Promise<number> {
-    return this.wails.getQualityThreshold();
-  }
-
-  setQualityThreshold(v: number): Promise<void> {
-    return this.wails.setQualityThreshold(v);
-  }
-
   // Keep enhance() for backward compatibility with remaining callers.
   enhance(text: string): Promise<string> {
     return this.wails.enhance(text);

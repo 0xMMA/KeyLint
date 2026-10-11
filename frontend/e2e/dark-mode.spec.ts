@@ -30,7 +30,7 @@ test.describe('Dark mode — visual verification', () => {
       getComputedStyle(document.body).backgroundColor,
     );
     console.log(`Body background: ${bgColor}`);
-    // rgb(9,9,11) = zinc-950 (#09090b). Must not be white (255,255,255).
+    // The ground token (#1f1f23). Must not be white (255,255,255).
     expect(bgColor, `Body is white: ${bgColor}`).not.toBe('rgb(255, 255, 255)');
     expect(bgColor, `Body is white: ${bgColor}`).not.toBe('rgba(0, 0, 0, 0)');
     await screenshot(page, '02-body-background');
@@ -59,22 +59,21 @@ test.describe('Dark mode — visual verification', () => {
     await screenshot(page, '04-settings-full');
 
     // Tab list and Save button must be present (content rendered)
-    await expect(page.locator('p-tablist')).toBeVisible();
+    await expect(page.getByRole('tablist', { name: 'Settings sections' })).toBeVisible();
     await expect(page.locator('[data-testid="save-btn"] button')).toBeVisible();
     await expect(page.locator('[data-testid="reset-btn"] button')).toBeVisible();
   });
 
-  test('settings page card background is dark (not white)', async ({ page }) => {
+  test('settings sections sit on the dark sheet (not white)', async ({ page }) => {
     await page.goto('/settings');
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1000);
 
-    const cardBg = await page.evaluate(() => {
-      const card = document.querySelector('.p-card') as HTMLElement | null;
-      return card ? getComputedStyle(card).backgroundColor : null;
-    });
-    console.log(`p-card background: ${cardBg}`);
-    expect(cardBg, 'Settings card is white').not.toBe('rgb(255, 255, 255)');
+    // The list the Shortcuts rows sit in: the sheet token (#27272a).
+    const list = page.getByTestId('shortcut-mode-section').locator('xpath=..');
+    await expect(list).toBeVisible();
+    const bg = await list.evaluate((el) => getComputedStyle(el).backgroundColor);
+    console.log(`settings list background: ${bg}`);
+    expect(bg, `Settings list background: ${bg}`).toBe('rgb(39, 39, 42)');
     await screenshot(page, '05-settings-card-bg');
   });
 
@@ -103,37 +102,29 @@ test.describe('Dark mode — visual verification', () => {
     await screenshot(page, '06-settings-shortcut-value');
   });
 
-  test('select label stays transparent so the rounded corners render', async ({ page }) => {
+  // #37 was PrimeNG's square label painting over the select's rounded
+  // corners. kl-select is one rounded box with nothing inside it painting a
+  // background, so what is left to guard is the dark field surface itself.
+  test('a select sits on the dark field surface with rounded corners', async ({ page }) => {
     await page.goto('/settings');
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1000);
 
-    // Without this the test is vacuous: in light mode the label would be
-    // transparent over a white page and every assertion below would pass.
+    // Without this the test is vacuous: in light mode a transparent field
+    // over a white page would read as "not dark" for the wrong reason.
     const isDark = await page.evaluate(() => document.documentElement.classList.contains('app-dark'));
     expect(isDark, '<html> must have .app-dark on /settings').toBe(true);
 
-    const colors = await page.evaluate(() => {
-      const select = document.querySelector('.p-select') as HTMLElement | null;
-      const label = select?.querySelector('.p-select-label') as HTMLElement | null;
-      if (!select || !label) return null;
-      return {
-        select: getComputedStyle(select).backgroundColor,
-        label: getComputedStyle(label).backgroundColor,
-      };
+    const trigger = page.getByTestId('log-level-section').getByRole('combobox');
+    await expect(trigger).toBeVisible();
+    const style = await trigger.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { bg: cs.backgroundColor, radius: cs.borderTopLeftRadius };
     });
-    console.log(`p-select bg: ${colors?.select} / p-select-label bg: ${colors?.label}`);
-    expect(colors, 'no .p-select with .p-select-label found on /settings').not.toBeNull();
-
-    // The label is a square span 1px inside the rounded .p-select box. An opaque
-    // background on it paints over the border's corner arcs (#37), so it must stay
-    // transparent while the select itself keeps the dark surface background.
-    expect(colors!.label, `Select label is not transparent: ${colors!.label}`)
-      .toBe('rgba(0, 0, 0, 0)');
-    // zinc-950 (#09090b) is the dark surface. Asserting the exact colour, not
+    console.log(`log level select: ${style.bg} / ${style.radius}`);
+    // The field surface (--kl-field, #232327). Asserting the exact colour, not
     // merely "not transparent", is what makes a light-mode regression fail.
-    expect(colors!.select, `Select background: ${colors!.select}`)
-      .toBe('rgb(9, 9, 11)');
+    expect(style.bg, `Select background: ${style.bg}`).toBe('rgb(35, 35, 39)');
+    expect(style.radius).toBe('6px');
     await screenshot(page, '07-select-label-transparent');
   });
 
@@ -148,12 +139,12 @@ test.describe('Dark mode — visual verification', () => {
 
     // Proves the stored value actually reached the app, so the dark assertion
     // below is not vacuous: Log Level comes from the same stubbed response.
-    await expect(page.locator('[data-testid="log-level-section"] .p-select-label')).toHaveText('Debug');
+    await expect(page.getByTestId('log-level-section').getByRole('combobox')).toHaveText('Debug');
 
     const hasAppDark = await page.evaluate(() => document.documentElement.classList.contains('app-dark'));
     expect(hasAppDark, 'stored "light" must not remove .app-dark').toBe(true);
     const bgColor = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    expect(bgColor).toBe('rgb(9, 9, 11)');
+    expect(bgColor).toBe('rgb(31, 31, 35)');
 
     await expect(page.locator('label', { hasText: /^Theme$/ })).toHaveCount(0);
     await screenshot(page, '08-stored-light-stays-dark');
@@ -170,33 +161,32 @@ test.describe('Dark mode — visual verification', () => {
     await expect(input).toBeDisabled();
     const bg = await input.evaluate((el) => getComputedStyle(el).backgroundColor);
     console.log(`disabled instruction input bg: ${bg}`);
-    // zinc-900 (#18181b): the dark surface one step up from enabled fields.
+    // The rail surface (--kl-rail, #18181b): darker than an enabled field.
     expect(bg, `Disabled input background: ${bg}`).toBe('rgb(24, 24, 27)');
 
-    // The colour above comes from KeyLint's own override and would hold with
-    // .app-dark on <body> too. What regressed was PrimeNG's token, which only
-    // resolves dark when the class sits on <html>: on <body> it reads #e2e8f0.
+    // What regressed was PrimeNG's token, which only resolved dark with the
+    // class on <html>. PrimeNG is gone (E11), but the rule outlives it: tokens
+    // that alias other tokens resolve where they are declared, so the theme
+    // class has to sit on <html>, where KeyLint's tokens are (index.html).
     const onRoot = await page.evaluate(() => document.documentElement.classList.contains('app-dark'));
     expect(onRoot, '.app-dark must sit on <html>').toBe(true);
-    const token = await input.evaluate((el) =>
-      getComputedStyle(el).getPropertyValue('--p-inputtext-disabled-background').trim());
-    expect(token, `--p-inputtext-disabled-background: ${token}`).toBe('#3f3f46');
     await screenshot(page, '09-disabled-input-dark');
   });
 
-  // Same root cause as above: the dropdown panel's background is a :root alias
-  // of the overlay token and used to resolve to white.
+  // Same root cause as above: PrimeNG's dropdown panel background was a :root
+  // alias of the overlay token and used to resolve to white. Pyramidize's
+  // selects are kl-select now (E11), whose panel takes the raised token.
   test('an open select panel is dark', async ({ page }) => {
     await page.goto('/enhance');
     await page.waitForLoadState('networkidle');
 
     await page.locator('[data-testid="provider-select"]').click();
-    const panel = page.locator('.p-select-overlay');
+    const panel = page.getByRole('listbox');
     await expect(panel).toBeVisible();
     const bg = await panel.evaluate((el) => getComputedStyle(el).backgroundColor);
     console.log(`select panel bg: ${bg}`);
-    // zinc-900 (#18181b), Aura's dark overlay background.
-    expect(bg, `Select panel background: ${bg}`).toBe('rgb(24, 24, 27)');
+    // The raised surface (--kl-raised, #2a2a2f) that every overlay uses.
+    expect(bg, `Select panel background: ${bg}`).toBe('rgb(42, 42, 47)');
     await screenshot(page, '10-select-panel-dark');
   });
 });

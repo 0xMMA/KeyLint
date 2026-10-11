@@ -1,18 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
-import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideRouter } from '@angular/router';
 import { TextEnhancementComponent, resetPyramidizeProviderSession } from './text-enhancement.component';
 import { TextEnhancementService } from './text-enhancement.service';
 import { WailsService } from '../../core/wails.service';
 import { createWailsMock, defaultSettings } from '../../../testing/wails-mock';
-
-// PrimeNG TabList uses ResizeObserver which is not available in jsdom.
-(globalThis as Record<string, unknown>)['ResizeObserver'] = class {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-};
 
 // Needs claude-code, the only provider that probes the CLI. The selected
 // provider is module-level and survives between tests, so each test resets it
@@ -62,7 +54,6 @@ describe('TextEnhancementComponent — startup does not wait on the CLI probe', 
     await TestBed.configureTestingModule({
       imports: [TextEnhancementComponent],
       providers: [
-        provideAnimationsAsync(),
         provideRouter([]),
         { provide: WailsService, useValue: wailsMock },
         { provide: TextEnhancementService, useValue: makeEnhancementServiceMock() },
@@ -83,7 +74,7 @@ describe('TextEnhancementComponent — startup does not wait on the CLI probe', 
     expect(el.querySelector('.pyramidize-page')).not.toBeNull();
     // The work sequenced after the probe in ngOnInit. These are what a hanging
     // CLI used to swallow.
-    expect(wailsMock.getQualityThreshold, 'startup stopped at the probe').toHaveBeenCalled();
+    expect(wailsMock.takePendingPyramidize, 'startup stopped at the probe').toHaveBeenCalled();
     expect(wailsMock.listModels, 'the model list never loaded').toHaveBeenCalled();
 
     release({ installed: true, path: '/usr/bin/claude', version: '1.0', loggedIn: true });
@@ -100,7 +91,6 @@ describe('TextEnhancementComponent — startup does not wait on the CLI probe', 
     await TestBed.configureTestingModule({
       imports: [TextEnhancementComponent],
       providers: [
-        provideAnimationsAsync(),
         provideRouter([]),
         { provide: WailsService, useValue: wailsMock },
         { provide: TextEnhancementService, useValue: makeEnhancementServiceMock() },
@@ -133,7 +123,6 @@ describe('TextEnhancementComponent — startup does not wait on the CLI probe', 
     await TestBed.configureTestingModule({
       imports: [TextEnhancementComponent],
       providers: [
-        provideAnimationsAsync(),
         provideRouter([]),
         { provide: WailsService, useValue: wailsMock },
         { provide: TextEnhancementService, useValue: makeEnhancementServiceMock() },

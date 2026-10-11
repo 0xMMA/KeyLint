@@ -119,7 +119,7 @@ export function fakeState(opts: {
 }
 
 /** methodID → method name, parsed from one service's generated bindings. */
-function methodIDs(feature: string): Map<number, string> {
+export function methodIDs(feature: string): Map<number, string> {
   const file = path.join(__dirname, `../../bindings/keylint/internal/features/${feature}/service.js`);
   const src = fs.readFileSync(file, 'utf8');
   const ids = new Map<number, string>();

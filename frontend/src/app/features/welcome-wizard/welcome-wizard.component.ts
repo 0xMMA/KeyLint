@@ -1,9 +1,6 @@
 import { Component, OnInit, computed, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { Button } from 'primeng/button';
-import { InputText } from 'primeng/inputtext';
-import { Tag } from 'primeng/tag';
-import { Message } from 'primeng/message';
+import { ButtonComponent, InputDirective, MessageComponent, SpinnerComponent, TagComponent } from '../../shared/ui';
 import { WailsService, ClaudeCodeStatus, KeyStatus, Settings } from '../../core/wails.service';
 import { ENV_KEY_VARS, KEY_PROVIDERS, PROVIDER_OPTIONS, cliTag, isKeyProvider, keyPlaceholder, keyTag } from '../../core/providers';
 import { comboKeys } from '../../core/shortcut-format';
@@ -30,51 +27,44 @@ type Screen = 'welcome' | 'provider';
 @Component({
   selector: 'app-welcome-wizard',
   standalone: true,
-  imports: [Button, InputText, Tag, Message],
+  imports: [ButtonComponent, InputDirective, MessageComponent, SpinnerComponent, TagComponent],
   template: `
     <main class="wizard">
-      <div class="wizard-column">
-        <p class="wordmark" aria-hidden="true">KeyLint</p>
+      <div class="w-full max-w-[34rem]">
+        <p class="mt-0 mb-10 text-xl font-bold tracking-tight" aria-hidden="true"><span class="text-fg-strong">Key</span><span class="text-primary">Lint</span></p>
 
         @switch (screen()) {
           @case ('welcome') {
-            <section data-testid="wizard-welcome" class="screen" aria-labelledby="welcome-title">
+            <section data-testid="wizard-welcome" aria-labelledby="welcome-title">
               <div class="keys" role="img" [attr.aria-label]="'Shortcut: ' + shortcutKeys().join(' + ')">
                 @for (key of shortcutKeys(); track $index) {
-                  @if (!$first) { <span class="keys-plus" aria-hidden="true">+</span> }
+                  @if (!$first) { <span class="text-xl text-muted" aria-hidden="true">+</span> }
                   <kbd class="keycap" [class.trigger]="$last">{{ key }}</kbd>
                 }
               </div>
 
               <h1 id="welcome-title">Fix any text right where you wrote it.</h1>
               <p class="lede">
-                Select text in any app and press <strong>{{ shortcutKeys().join('+') }}</strong>.
+                Select text in any app and press <strong class="text-fg-strong">{{ shortcutKeys().join('+') }}</strong>.
                 KeyLint corrects the grammar and spelling and puts the result back in place.
               </p>
               @if (doubleTap()) {
-                <p class="lede secondary">
+                <p class="lede text-muted">
                   Hold {{ modifierKeys() }} and press {{ triggerKey() }} twice instead to open Pyramidize, which restructures longer text.
                 </p>
               }
 
               <div class="actions">
-                <p-button
-                  data-testid="wizard-skip"
-                  label="Set up later"
-                  [text]="true"
-                  severity="secondary"
-                  [loading]="skipping()"
-                  (onClick)="skip()"
-                />
-                <p-button data-testid="wizard-next" label="Choose an AI" (onClick)="screen.set('provider')" />
+                <kl-button data-testid="wizard-skip" variant="ghost" size="lg" [loading]="skipping()" (click)="skip()">Set up later</kl-button>
+                <kl-button data-testid="wizard-next" variant="primary" size="lg" (click)="screen.set('provider')">Choose an AI</kl-button>
               </div>
             </section>
           }
 
           @case ('provider') {
-            <section data-testid="wizard-provider" class="screen" aria-labelledby="provider-title">
+            <section data-testid="wizard-provider" aria-labelledby="provider-title">
               <h1 id="provider-title">Which AI should fix your text?</h1>
-              <p class="lede">You can change this any time under Settings › AI Providers.</p>
+              <p class="lede text-muted">You can change this any time under Settings › AI providers.</p>
 
               <div class="options" role="radiogroup" aria-labelledby="provider-title">
                 @for (p of providers; track p.value) {
@@ -88,24 +78,24 @@ type Screen = 'welcome' | 'provider';
                         [attr.data-testid]="'wizard-radio-' + p.value"
                         (change)="choose(p.value)"
                       />
-                      <span class="option-text">
-                        <span class="option-name">{{ p.label }}</span>
-                        <span class="option-blurb">{{ blurbs[p.value] }}</span>
+                      <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <span class="text-[15px] font-semibold text-fg-strong">{{ p.label }}</span>
+                        <span class="text-[13px] leading-snug text-muted">{{ blurbs[p.value] }}</span>
                       </span>
-                      <span class="option-status" aria-live="polite" [attr.data-testid]="'wizard-status-' + p.value">
+                      <span class="flex-none" aria-live="polite" [attr.data-testid]="'wizard-status-' + p.value">
                         @if (p.value === 'claude-code') {
                           @if (cli(); as status) {
                             @let tag = cliTag(status);
-                            <p-tag [value]="tag.value" [severity]="tag.severity" />
+                            <kl-tag [value]="tag.value" [severity]="tag.severity" />
                           } @else {
-                            <span class="checking" data-testid="wizard-cli-checking">
-                              <i class="pi pi-spin pi-spinner" aria-hidden="true"></i> checking
+                            <span class="inline-flex items-center gap-1.5 whitespace-nowrap text-[13px] text-muted" data-testid="wizard-cli-checking">
+                              <kl-spinner [size]="14" /> checking
                             </span>
                           }
                         } @else if (keys()[p.value]; as status) {
                           @if (status.is_set) {
                             @let tag = keyTag(status);
-                            <p-tag [value]="tag.value" [severity]="tag.severity" />
+                            <kl-tag [value]="tag.value" [severity]="tag.severity" />
                           }
                         }
                       </span>
@@ -127,16 +117,14 @@ type Screen = 'welcome' | 'provider';
                                   The Claude Code CLI is not on this computer. Install it, sign in, then check again — or pick another option.
                                 }
                               </p>
-                              <p-button
+                              <kl-button
                                 data-testid="wizard-recheck"
-                                label="Check again"
-                                icon="pi pi-refresh"
-                                size="small"
-                                severity="secondary"
-                                [outlined]="true"
+                                size="sm"
+                                icon="refresh-cw"
+                                loadingLabel="Checking…"
                                 [loading]="rechecking()"
-                                (onClick)="recheck()"
-                              />
+                                (click)="recheck()"
+                              >Check again</kl-button>
                             }
                           }
                           @case ('ollama') {
@@ -153,9 +141,9 @@ type Screen = 'welcome' | 'provider';
                                 <button type="button" class="inline-action" data-testid="wizard-replace-key" (click)="startReplacing()">Replace it</button>
                               </p>
                             } @else {
-                              <label class="key-label" for="wizard-key">Paste your API key</label>
+                              <label class="text-[13px] font-semibold text-soft" for="wizard-key">Paste your API key</label>
                               <input
-                                pInputText
+                                klInput
                                 id="wizard-key"
                                 data-testid="wizard-key-input"
                                 type="password"
@@ -181,201 +169,88 @@ type Screen = 'welcome' | 'provider';
               </div>
 
               <div class="actions">
-                <p-button data-testid="wizard-back" label="Back" [text]="true" severity="secondary" (onClick)="screen.set('welcome')" />
-                <span class="actions-spacer"></span>
-                <p-button
+                <kl-button data-testid="wizard-back" variant="ghost" size="lg" icon="chevron-left" (click)="screen.set('welcome')">Back</kl-button>
+                <span class="flex-1"></span>
+                <kl-button
                   data-testid="wizard-skip"
-                  label="Set up later"
-                  [text]="true"
-                  severity="secondary"
+                  variant="ghost"
+                  size="lg"
                   [loading]="skipping()"
                   [disabled]="finishing()"
-                  (onClick)="skip()"
-                />
-                <p-button
+                  (click)="skip()"
+                >Set up later</kl-button>
+                <kl-button
                   data-testid="wizard-finish"
-                  label="Start using KeyLint"
+                  variant="primary"
+                  size="lg"
+                  loadingLabel="Saving…"
                   [loading]="finishing()"
                   [disabled]="!canFinish() || skipping()"
-                  (onClick)="finish()"
-                />
+                  (click)="finish()"
+                >Start using KeyLint</kl-button>
               </div>
             </section>
           }
         }
 
         @if (error(); as message) {
-          <p-message data-testid="wizard-error" severity="error" size="small" styleClass="wizard-error">{{ message }}</p-message>
+          <kl-message class="mt-4" data-testid="wizard-error" severity="error">{{ message }}</kl-message>
         }
       </div>
     </main>
   `,
   styles: [`
     :host { display: block; }
-
     .wizard {
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 2rem 1rem;
-      background: var(--kl-ground);
-      color: var(--kl-text);
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      padding: 32px 16px; background: var(--kl-ground); color: var(--kl-text);
     }
-    .wizard-column {
-      width: 100%;
-      max-width: 34rem;
-    }
-    .wordmark {
-      margin: 0 0 2.5rem;
-      font-weight: 700;
-      font-size: 1.05rem;
-      letter-spacing: -0.025em;
-      color: var(--kl-muted);
-    }
-
-    h1 {
-      margin: 0 0 0.75rem;
-      font-size: 1.75rem;
-      line-height: 1.2;
-      font-weight: 650;
-      letter-spacing: -0.02em;
-    }
-    .lede {
-      margin: 0 0 0.75rem;
-      font-size: 1rem;
-      line-height: 1.55;
-      color: var(--kl-text);
-      max-width: 32rem;
-    }
-    .lede.secondary { color: var(--kl-muted); }
+    h1 { margin: 0 0 12px; font-size: 28px; line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; color: var(--kl-text-strong); }
+    .lede { margin: 0 0 12px; font-size: 16px; line-height: 1.55; max-width: 32rem; }
 
     /* The shortcut is the product, so it is the picture: real keycaps. */
-    .keys {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      margin-bottom: 2.25rem;
-    }
-    .keys-plus { color: var(--kl-muted); font-size: 1.25rem; }
+    .keys { display: flex; align-items: center; gap: 12px; margin-bottom: 36px; }
     .keycap {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-width: 4rem;
-      height: 4rem;
-      padding: 0 1.1rem;
-      border-radius: 0.75rem;
-      font-family: inherit;
-      font-size: 1.25rem;
-      font-weight: 600;
-      line-height: 1;
-      color: var(--kl-text);
-      background: linear-gradient(180deg, var(--kl-surface-800), var(--kl-surface-900));
-      border: 1px solid var(--kl-surface-600);
-      box-shadow: 0 5px 0 var(--kl-surface-700), 0 8px 18px rgba(0, 0, 0, 0.45);
-      transform: translateY(0);
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 4rem; height: 4rem; padding: 0 1.1rem; border-radius: 12px;
+      font: 600 20px/1 var(--kl-font-ui); color: var(--kl-text);
+      background: linear-gradient(180deg, var(--kl-raised), var(--kl-rail));
+      border: 1px solid var(--kl-line-strong);
+      box-shadow: 0 5px 0 var(--kl-line-control), 0 8px 18px rgba(0, 0, 0, 0.45);
     }
-    .keycap.trigger {
-      border-color: var(--kl-primary);
-      color: var(--kl-primary-text);
-      animation: press 1.4s ease-in-out 0.6s 1 both;
-    }
+    .keycap.trigger { border-color: var(--kl-primary); color: var(--kl-primary-text); animation: press 1.4s ease-in-out 0.6s 1 both; }
     /* One press, once, when the screen opens: this is what the user will do. */
     @keyframes press {
-      0%, 30%, 100% { transform: translateY(0); box-shadow: 0 5px 0 var(--kl-surface-700), 0 8px 18px rgba(0, 0, 0, 0.45); }
-      12% { transform: translateY(4px); box-shadow: 0 1px 0 var(--kl-surface-700), 0 2px 6px rgba(0, 0, 0, 0.45); }
+      0%, 30%, 100% { transform: translateY(0); box-shadow: 0 5px 0 var(--kl-line-control), 0 8px 18px rgba(0, 0, 0, 0.45); }
+      12% { transform: translateY(4px); box-shadow: 0 1px 0 var(--kl-line-control), 0 2px 6px rgba(0, 0, 0, 0.45); }
     }
-    @media (prefers-reduced-motion: reduce) {
-      .keycap.trigger { animation: none; }
-    }
+    @media (prefers-reduced-motion: reduce) { .keycap.trigger { animation: none; } }
 
     /* One list with dividers rather than a stack of cards: it is one choice. */
     .options {
-      margin: 1.5rem 0 1rem;
-      border: 1px solid var(--kl-line);
-      border-radius: 0.75rem;
-      overflow: hidden;
-      background: var(--kl-surface-900);
+      margin: 24px 0 16px; overflow: hidden;
+      background: var(--kl-sheet); border: 1px solid var(--kl-line); border-radius: var(--kl-radius-sheet);
     }
-    .option + .option { border-top: 1px solid var(--kl-surface-800); }
+    .option + .option { border-top: 1px solid var(--kl-line); }
     /* The same marker as the provider in use on Settings › AI Providers. */
-    .option.selected {
-      box-shadow: inset 3px 0 0 var(--kl-primary);
-      background: color-mix(in srgb, var(--kl-primary) 5%, var(--kl-surface-900));
-    }
-    .option-head {
-      display: flex;
-      align-items: center;
-      gap: 0.85rem;
-      padding: 0.85rem 1rem;
-      cursor: pointer;
-    }
-    .option-head input[type="radio"] {
-      flex: none;
-      width: 1.05rem;
-      height: 1.05rem;
-      margin: 0;
-      accent-color: var(--kl-primary);
-    }
-    .option-head input[type="radio"]:focus-visible {
-      outline: 2px solid var(--kl-focus);
-      outline-offset: 3px;
-    }
-    .option-text { flex: 1; display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
-    .option-name { font-weight: 600; font-size: 0.95rem; }
-    .option-blurb { font-size: 0.85rem; line-height: 1.4; color: var(--kl-muted); }
-    .option-status { flex: none; }
-    .checking { font-size: 0.8rem; color: var(--kl-muted); white-space: nowrap; }
-
-    .option-detail {
-      padding: 0 1rem 1rem 2.9rem;
-      display: flex;
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 0.6rem;
-    }
-    .option-detail input { width: 100%; }
-    .key-label { font-size: 0.85rem; font-weight: 600; }
-    .note {
-      margin: 0;
-      font-size: 0.85rem;
-      line-height: 1.5;
-      color: var(--kl-muted);
-    }
-    code {
-      font-size: 0.8rem;
-      padding: 0.05rem 0.3rem;
-      border-radius: 4px;
-      background: var(--kl-sheet);
-    }
+    .option.selected { background: var(--kl-sheet-alt); box-shadow: inset 3px 0 0 var(--kl-primary); }
+    .option-head { display: flex; align-items: center; gap: 14px; padding: 14px 18px; cursor: pointer; }
+    .option-head input { flex: none; width: 17px; height: 17px; margin: 0; accent-color: var(--kl-primary); }
+    .option-head input:focus-visible { outline: 2px solid var(--kl-focus); outline-offset: 3px; }
+    .option-detail { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 0 18px 16px 49px; }
+    .note { margin: 0; font-size: 13px; line-height: 1.5; color: var(--kl-muted); }
+    code { font-size: 12px; padding: 1px 4px; border-radius: 3px; background: var(--kl-selected); color: var(--kl-text-soft); }
     .inline-action {
-      background: none;
-      border: 0;
-      padding: 0;
-      font: inherit;
-      color: var(--kl-primary-text);
-      cursor: pointer;
-      text-decoration: underline;
-      text-underline-offset: 2px;
+      font: inherit; color: var(--kl-link); background: none; border: 0; padding: 0; cursor: pointer;
+      text-decoration: underline; text-underline-offset: 2px;
     }
     .inline-action:focus-visible { outline: 2px solid var(--kl-focus); outline-offset: 2px; }
-
-    .actions {
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      gap: 0.5rem;
-      margin-top: 2rem;
-      flex-wrap: wrap;
-    }
-    .actions-spacer { flex: 1; }
-    :host ::ng-deep .wizard-error { margin-top: 1rem; }
+    .actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 32px; }
 
     @media (max-width: 480px) {
-      h1 { font-size: 1.45rem; }
+      h1 { font-size: 23px; }
       .keycap { min-width: 3.25rem; height: 3.25rem; }
-      .option-detail { padding-left: 1rem; }
+      .option-detail { padding-left: 18px; }
     }
   `],
 })

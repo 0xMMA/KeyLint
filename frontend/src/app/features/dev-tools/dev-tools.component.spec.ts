@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { ComponentFixture } from '@angular/core/testing';
-import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
+import { provideRouter } from '@angular/router';
 import { DevToolsComponent } from './dev-tools.component';
 import { WailsService } from '../../core/wails.service';
 import { createWailsMock, defaultSettings } from '../../../testing/wails-mock';
@@ -18,7 +18,7 @@ describe('DevToolsComponent', () => {
     await TestBed.configureTestingModule({
       imports: [DevToolsComponent],
       providers: [
-        provideAnimationsAsync(),
+        provideRouter([]),
         { provide: WailsService, useValue: wailsMock },
       ],
     }).compileComponents();

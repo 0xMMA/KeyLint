@@ -1,35 +1,29 @@
-import { Component, OnInit, OnDestroy, ChangeDetectorRef, ElementRef, ViewChild } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef, ElementRef } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { CommonModule } from '@angular/common';
-import { ButtonModule } from 'primeng/button';
-import { InputTextModule } from 'primeng/inputtext';
-import { SelectModule } from 'primeng/select';
-import { ToggleSwitchModule, ToggleSwitch } from 'primeng/toggleswitch';
-import { SliderModule } from 'primeng/slider';
-import { Tabs, TabList, Tab, TabPanels, TabPanel } from 'primeng/tabs';
-import { MessageModule } from 'primeng/message';
-import { CardModule } from 'primeng/card';
-import { TagModule } from 'primeng/tag';
-import { ActivatedRoute } from '@angular/router';
-import { Subscription } from 'rxjs';
-import { versionLabel } from '../../core/version-label';
+import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
+import { Subscription, filter } from 'rxjs';
+import {
+  ButtonComponent, InputDirective, MessageComponent, TabComponent, TabPanelComponent, TabsComponent,
+} from '../../shared/ui';
 import { ProviderCardComponent } from './provider-card/provider-card.component';
-import { DevChannelComponent } from './dev-channel/dev-channel.component';
 import { ActiveProviderComponent, FeatureChoice } from './active-provider/active-provider.component';
+import { SettingsSectionComponent } from './settings-section/settings-section.component';
+import { SettingsGeneralComponent } from './settings-general/settings-general.component';
+import { AppPresetsComponent } from './app-presets/app-presets.component';
+import { SettingsAboutComponent } from './settings-about/settings-about.component';
 import { DEFAULT_MODELS, Feature, ModelOption, defaultOption, effortNote, fixSkipsReasoning, toModelOption } from './model-options';
 import { SilentFixNoticeService } from '../fix/silent-fix-notice.service';
-import { WailsService, type SilentFixNotice, Settings as AppSettings, KeyStatus, UpdateInfo, AppPreset, ClaudeCodeStatus, ModelInfo, BuildIdentity } from '../../core/wails.service';
+import { WailsService, type SilentFixNotice, Settings as AppSettings, KeyStatus, ClaudeCodeStatus, ModelInfo, BuildIdentity } from '../../core/wails.service';
 import { noteForModelSource } from '../../core/model-source';
-import { DOCUMENT_TYPE_OPTIONS, unavailableProviderName } from '../../core/constants';
+import { unavailableProviderName } from '../../core/constants';
 import { LogService } from '../../core/log.service';
-import { ENV_KEY_VARS, PROVIDER_OPTIONS, cliTag, keyPlaceholder, keyTag } from '../../core/providers';
-import { ShortcutRecorderComponent } from './shortcut-recorder/shortcut-recorder.component';
+import { ENV_KEY_VARS, PROVIDER_OPTIONS, keyPlaceholder } from '../../core/providers';
 
 /** A provider's stored choices; see FeatureModels in internal/features/settings/model.go. */
 type ProviderModels = NonNullable<NonNullable<AppSettings['models']>[string]>;
 
-/** Taps on the version that unlock the developer options, as on Android. */
-const UNLOCK_TAPS = 7;
+/** Where a local Ollama listens when the URL field is left empty. */
+const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
 
 interface ProviderKey {
   id: string;
@@ -39,497 +33,280 @@ interface ProviderKey {
   saving: boolean;
 }
 
+/**
+ * Settings (docs/ui/design.md, mockup "Settings"): four tabs, saved together
+ * with the Save button at the bottom.
+ *
+ * This page owns the settings object and everything that has to stay in step
+ * across tabs — the provider in use, its keys and model lists, Save and Reset.
+ * The General, App Defaults and About tabs are their own components and edit
+ * the same object in place; the AI Providers tab is drawn here, because every
+ * row on it reaches into that shared state.
+ */
 @Component({
   selector: 'app-settings',
   standalone: true,
   imports: [
-    ProviderCardComponent, DevChannelComponent, ActiveProviderComponent,
-    CommonModule, FormsModule,
-    ButtonModule, InputTextModule, SelectModule, ToggleSwitchModule, SliderModule,
-    Tabs, TabList, Tab, TabPanels, TabPanel, MessageModule, CardModule, TagModule,
-    ShortcutRecorderComponent,
+    FormsModule,
+    ButtonComponent, InputDirective, MessageComponent, TabComponent, TabPanelComponent, TabsComponent,
+    ProviderCardComponent, ActiveProviderComponent, SettingsSectionComponent,
+    SettingsGeneralComponent, AppPresetsComponent, SettingsAboutComponent,
   ],
   template: `
     <div class="settings-page">
-      <p-card>
-        @if (settings) {
-          <p-tabs [(value)]="activeTab">
-            <p-tablist>
-              <p-tab value="general">General</p-tab>
-              <p-tab value="providers">AI Providers</p-tab>
-              <p-tab value="app-defaults">App Defaults</p-tab>
-              <p-tab value="about">About</p-tab>
-            </p-tablist>
+      <h1 class="m-0 mb-2 text-2xl font-bold tracking-tight text-fg-strong">Settings</h1>
+      @if (settings) {
+        <kl-tabs [(value)]="activeTab" ariaLabel="Settings sections">
+          <kl-tab value="general">General</kl-tab>
+          <kl-tab value="providers">AI providers</kl-tab>
+          <kl-tab value="app-defaults">App defaults</kl-tab>
+          <kl-tab value="about">About</kl-tab>
 
-            <p-tabpanels>
-              <!-- General tab -->
-              <p-tabpanel value="general">
-                <!-- Read-only: the provider is chosen on the AI Providers tab, next
-                     to the keys and the CLI status that decide whether it works. -->
-                <div class="form-group" data-testid="provider-pointer">
-                  <label>AI Provider</label>
-                  <div class="provider-pointer">
-                    <span data-testid="provider-pointer-text">
-                      @if (unavailableProvider) {
-                        No provider in use
-                      } @else if (activeProviderLabel; as label) {
-                        Using: <strong>{{ label }}</strong>
-                      } @else {
-                        No provider chosen yet
-                      }
-                    </span>
-                    <span class="provider-pointer-sep" aria-hidden="true">—</span>
-                    <!-- An action, not a link: it switches the tab, so it is a button. -->
-                    <button
-                      type="button"
-                      class="provider-pointer-link"
-                      data-testid="provider-pointer-link"
-                      (click)="openProvidersTab()"
-                    >change under AI Providers</button>
-                  </div>
-                  @if (unavailableProvider; as name) {
-                    <p-message data-testid="provider-unavailable" severity="warn" size="small">
-                      {{ name }} is saved but not available yet, so KeyLint has no provider in use. Pick another one under AI Providers.
-                    </p-message>
-                  } @else if (activeProviderProblem; as why) {
-                    <p-message data-testid="provider-pointer-problem" severity="warn" size="small">{{ why }}</p-message>
+          <kl-tab-panel value="general">
+            <div class="panel">
+              <app-settings-general
+                [settings]="settings"
+                [providerLabel]="activeProviderLabel"
+                [unavailableProvider]="unavailableProvider"
+                [providerProblem]="activeProviderProblem"
+                (openProviders)="openProvidersTab()"
+              />
+            </div>
+          </kl-tab-panel>
+
+          <!-- AI Providers: what is in use on top, every connection below. -->
+          <kl-tab-panel value="providers">
+            <div class="panel">
+              <!-- A clicked hotkey-fix notification sent the user here: say why,
+                   once, until it is dismissed or something here changes. -->
+              @if (silentFixNote; as note) {
+                <kl-message data-testid="silent-fix-note" severity="warn" closable (closed)="silentFixNote = null">
+                  <span><strong>{{ note.title }}:</strong> {{ note.body }}</span>
+                </kl-message>
+              }
+              @if (unavailableProvider; as name) {
+                <kl-message data-testid="providers-tab-unavailable" severity="warn">
+                  {{ name }} is saved but not available yet, so KeyLint has no provider in use.
+                </kl-message>
+              }
+              <!-- Screen readers hear a switch land; the marker itself only moves. -->
+              <div class="sr-only" aria-live="polite" data-testid="provider-announcement">{{ providerAnnouncement }}</div>
+              @if (switchError) {
+                <!-- Focusable, for a failed switch with no card in use to return to.
+                     The message is role="alert", so it announces itself. -->
+                <div class="switch-error" tabindex="-1" data-testid="provider-switch-error">
+                  <kl-message severity="error">{{ switchError }}</kl-message>
+                </div>
+              }
+
+              <!-- Pyramidize follows this choice unless the user picked another
+                   there for the session, and says so on its own page. -->
+              @if (activeProviderLabel && settings.active_provider; as active) {
+                <app-active-provider
+                  [providerId]="active"
+                  [label]="activeProviderLabel!"
+                  [fixOptions]="optionsFor(active, 'fix')"
+                  [pyramidizeOptions]="optionsFor(active, 'pyramidize')"
+                  [fixModel]="modelFor(active, 'fix')"
+                  [pyramidizeModel]="modelFor(active, 'pyramidize')"
+                  [fixEffort]="effortFor(active, 'fix')"
+                  [pyramidizeEffort]="effortFor(active, 'pyramidize')"
+                  [editable]="allowsFreeText(active)"
+                  [note]="modelListNote(active)"
+                  [showEffort]="effortNoteFor(active) !== null"
+                  [effortNote]="effortNoteFor(active)"
+                  [fixFastNote]="fixSkipsReasoningFor(active)"
+                  (modelChange)="onModelChange(active, $event)"
+                  (effortChange)="onEffortChange(active, $event)"
+                >
+                  @if (activeProviderProblem; as why) {
+                    <kl-message status data-testid="active-provider-problem" severity="warn">{{ why }}</kl-message>
                   }
-                </div>
-                <!-- Shortcuts section -->
-                <div class="form-group" data-testid="shortcut-mode-section">
-                  <div class="toggle-row">
-                    <div class="toggle-label-group">
-                      <label>Double-tap mode</label>
-                      <small class="hint-text">
-                        @if (settings.shortcut_mode === 'double_tap') {
-                          Hold your modifier keys, tap the trigger key once for Fix, twice for Pyramidize.
-                        } @else {
-                          Assign separate shortcuts for each action.
-                        }
-                      </small>
-                    </div>
-                    <p-toggle-switch
-                      [ngModel]="settings.shortcut_mode === 'double_tap'"
-                      (ngModelChange)="settings.shortcut_mode = $event ? 'double_tap' : 'independent'"
-                    />
-                  </div>
-                </div>
-
-                @if (settings.shortcut_mode === 'double_tap') {
-                  <div class="form-group" data-testid="shortcut-fix-section">
-                    <label>Shortcut</label>
-                    <app-shortcut-recorder
-                      [value]="settings.shortcut_fix"
-                      (valueChange)="settings.shortcut_fix = $event"
-                    />
-                    <small class="hint-text">Single tap → Fix · Double tap → Pyramidize</small>
-                  </div>
-                  <div class="form-group" data-testid="shortcut-delay-section">
-                    <label>Double-tap delay: {{ settings.shortcut_double_tap_delay }}ms</label>
-                    <p-slider
-                      [(ngModel)]="settings.shortcut_double_tap_delay"
-                      [min]="100"
-                      [max]="500"
-                      [step]="25"
-                    />
-                    <small class="hint-text">How long to wait for a second tap. Lower = faster but harder to trigger.</small>
-                  </div>
-                } @else {
-                  <div class="form-group" data-testid="shortcut-fix-section">
-                    <label>Fix shortcut</label>
-                    <app-shortcut-recorder
-                      [value]="settings.shortcut_fix"
-                      (valueChange)="settings.shortcut_fix = $event"
-                    />
-                    <small class="hint-text">Silently fixes clipboard text.</small>
-                  </div>
-                  <div class="form-group" data-testid="shortcut-pyramidize-section">
-                    <label>Pyramidize shortcut</label>
-                    <app-shortcut-recorder
-                      [value]="settings.shortcut_pyramidize"
-                      (valueChange)="settings.shortcut_pyramidize = $event"
-                    />
-                    <small class="hint-text">Opens the Pyramidize editor with clipboard text.</small>
-                  </div>
-                }
-                <div class="form-group" data-testid="start-on-boot-section">
-                  <div class="toggle-row">
-                    <label>Start on Boot</label>
-                    <p-toggle-switch [(ngModel)]="settings.start_on_boot" />
-                  </div>
-                </div>
-                <div class="form-group" data-testid="log-level-section">
-                  <label>Log Level</label>
-                  <p-select
-                    [(ngModel)]="settings.log_level"
-                    [options]="logLevels"
-                    optionLabel="label"
-                    optionValue="value"
-                  />
-                  <small class="hint-text">Writes to <code>~/.config/KeyLint/debug.log</code> (Linux) or <code>%AppData%/KeyLint/debug.log</code> (Windows). Takes effect on next launch.</small>
-                </div>
-                <div class="form-group" data-testid="sensitive-logging-section">
-                  <div class="toggle-row">
-                    <div class="toggle-label-group">
-                      <label>Sensitive Logging</label>
-                      <small class="hint-text">Logs full API request payloads and responses. <strong>Do not share the log file while this is enabled.</strong> Takes effect on next launch.</small>
-                    </div>
-                    <p-toggle-switch [(ngModel)]="settings.sensitive_logging" [disabled]="settings.log_level === 'off'" />
-                  </div>
-                </div>
-              </p-tabpanel>
-
-              <!-- AI Providers tab: what is in use on top, every connection below. -->
-              <p-tabpanel value="providers">
-                <!-- Pyramidize follows this choice unless the user picked another
-                     there for the session, and says so on its own page. Also the
-                     focus target of the General tab's pointer. -->
-                <p class="provider-summary" data-testid="providers-summary" tabindex="-1">
-                  @if (activeProviderLabel; as label) {
-                    KeyLint sends your text to <strong>{{ label }}</strong>. Pyramidize can pick another provider for one session.
-                  } @else {
-                    No provider is in use. Press <em>Use this</em> on the one KeyLint should send your text to.
-                  }
+                </app-active-provider>
+              } @else {
+                <!-- The focus target of the General tab's pointer, as the
+                     in-use block's header is when there is one. -->
+                <p class="no-provider" data-testid="providers-summary" tabindex="-1">
+                  No provider is in use. Press <em>Use this</em> on the one KeyLint should send your text to.
                 </p>
-                <!-- A clicked hotkey-fix notification sent the user here: say why,
-                     once, until it is dismissed or something here changes. -->
-                @if (silentFixNote; as note) {
-                  <p-message data-testid="silent-fix-note" severity="warn" size="small" styleClass="mb-4"
-                    [closable]="true" (onClose)="silentFixNote = null">
-                    {{ note.title }}: {{ note.body }}
-                  </p-message>
-                }
-                @if (unavailableProvider; as name) {
-                  <p-message data-testid="providers-tab-unavailable" severity="warn" size="small" styleClass="mb-4">
-                    {{ name }} is saved but not available yet, so KeyLint has no provider in use.
-                  </p-message>
-                }
-                <!-- Screen readers hear a switch land; the marker itself only moves. -->
-                <div class="sr-only" aria-live="polite" data-testid="provider-announcement">{{ providerAnnouncement }}</div>
-                @if (switchError) {
-                  <!-- Focusable, for a failed switch with no card in use to return to.
-                       The message is role="alert", so it announces itself. -->
-                  <div class="switch-error" tabindex="-1" data-testid="provider-switch-error">
-                    <p-message severity="error" size="small" styleClass="mb-4">{{ switchError }}</p-message>
-                  </div>
-                }
+              }
 
-                @if (activeProviderLabel && settings.active_provider; as active) {
-                  <app-active-provider
-                    [providerId]="active"
-                    [label]="activeProviderLabel!"
-                    [fixOptions]="optionsFor(active, 'fix')"
-                    [pyramidizeOptions]="optionsFor(active, 'pyramidize')"
-                    [fixModel]="modelFor(active, 'fix')"
-                    [pyramidizeModel]="modelFor(active, 'pyramidize')"
-                    [fixEffort]="effortFor(active, 'fix')"
-                    [pyramidizeEffort]="effortFor(active, 'pyramidize')"
-                    [editable]="allowsFreeText(active)"
-                    [note]="modelListNote(active)"
-                    [showEffort]="effortNoteFor(active) !== null"
-                    [effortNote]="effortNoteFor(active)"
-                    [fixFastNote]="fixSkipsReasoningFor(active)"
-                    (modelChange)="onModelChange(active, $event)"
-                    (effortChange)="onEffortChange(active, $event)"
-                  >
-                    @if (activeProviderProblem; as why) {
-                      <p-message status data-testid="active-provider-problem" severity="warn" size="small">{{ why }}</p-message>
-                    }
-                  </app-active-provider>
-                }
-
-                <h2 class="connections-heading">Connections</h2>
-                <p class="hint-text">
-                  Keys are stored in your OS keyring (Windows Credential Manager / libsecret on Linux).
-                  Environment variables (<code>OPENAI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>) take priority and cannot be overridden here.
-                </p>
-
+              <app-settings-section list heading="Connections" description="Set up as many as you like. Only the one in use receives your text.">
                 @for (p of providers; track p.value) {
                   <app-provider-card
                     [providerId]="p.value"
                     [label]="p.label"
                     [inUse]="settings.active_provider === p.value"
+                    [ready]="isReady(p.value)"
                     [problem]="providerProblem(p.value)"
                     [switching]="switchingTo === p.value"
                     [locked]="switchingTo !== null || formBusy"
                     (use)="useProvider(p.value)"
                   >
-                    <span cardStatus class="card-status">
+                    <!-- The status in words under the name, as the mockup's calm
+                         list has it; the dot beside the name carries it at a glance.
+                         One element per slot: projection by selector only reaches
+                         an element at the root, not one of several inside an @if. -->
+                    <div cardSummary>
                       @if (p.value === 'claude-code') {
-                        @if (claudeCodeStatus) {
-                          @let tag = cliTag(claudeCodeStatus);
-                          <p-tag data-testid="claude-code-status-tag" [value]="tag.value" [severity]="tag.severity" />
-                        }
+                        <!-- The CLI needs no key: the user signs in themselves. -->
+                        <div data-testid="claude-code-card">
+                          @if (claudeCodeStatus?.installed) {
+                            <p class="m-0" data-testid="claude-code-detected">
+                              @if (claudeCodeStatus!.loggedIn) {
+                                <span data-testid="claude-code-status-tag">Signed in</span>
+                              } @else {
+                                <span class="font-semibold text-warn" data-testid="claude-code-status-tag">Not signed in</span>
+                              }, found at <code>{{ claudeCodeStatus!.path }}</code>@if (claudeCodeStatus!.version) {<span> · version {{ claudeCodeStatus!.version }}</span>}
+                            </p>
+                            @if (!claudeCodeStatus!.loggedIn) {
+                              <p class="m-0" data-testid="claude-code-signin-hint">
+                                Open a terminal, run <code>claude</code>, and sign in. KeyLint never reads or stores your credentials.
+                              </p>
+                            }
+                          } @else if (claudeCodeStatus) {
+                            <p class="m-0" data-testid="claude-code-missing">
+                              <span data-testid="claude-code-status-tag">Not installed</span>: no Claude Code CLI found on this machine. Install it to use your own subscription instead of an API key.
+                            </p>
+                          } @else {
+                            <p class="m-0">Looking for the CLI…</p>
+                          }
+                        </div>
                       } @else if (p.value === 'ollama') {
-                        @switch (modelSource['ollama']) {
-                          @case ('live') { <p-tag data-testid="ollama-status-tag" value="● running" severity="success" /> }
-                          @case ('empty') { <p-tag data-testid="ollama-status-tag" value="no models" severity="warn" /> }
-                          @case ('unreachable') { <p-tag data-testid="ollama-status-tag" value="not reachable" severity="secondary" /> }
+                        <span data-testid="ollama-status-tag" [class.text-warn]="modelSource['ollama'] === 'empty'">{{ ollamaSummary }}</span>
+                      } @else if (keyFor(p.value); as pk) {
+                        @if (pk.status?.source === 'env') {
+                          <span [attr.data-testid]="'key-env-hint-' + pk.id">
+                            <span [attr.data-testid]="'key-status-' + pk.id">Key from the environment:</span>
+                            <code>{{ envVarFor(pk.id) }}</code> takes priority over a key saved here, so it can only be changed where it is set.
+                          </span>
+                        } @else if (pk.status?.is_set) {
+                          <span [attr.data-testid]="'key-status-' + pk.id">Key saved in your system keyring</span>
+                        } @else if (pk.status) {
+                          <span [attr.data-testid]="'key-status-' + pk.id">No key yet</span>
                         }
-                      } @else if (keyFor(p.value)?.status; as status) {
-                        @let tag = keyTag(status);
-                        <p-tag [attr.data-testid]="'key-status-' + p.value" [value]="tag.value" [severity]="tag.severity" />
                       }
-                    </span>
+                    </div>
+
+                    <div cardActions class="contents">
+                      @if (p.value === 'claude-code') {
+                        <kl-button
+                          data-testid="claude-code-recheck"
+                          size="sm"
+                          variant="ghost"
+                          icon="refresh-cw"
+                          loadingLabel="Checking…"
+                          [loading]="claudeCodeChecking"
+                          (click)="recheckClaudeCode(true)"
+                        >Check again</kl-button>
+                      } @else if (keyFor(p.value); as pk) {
+                        @if (!pk.editing && pk.status?.source !== 'env') {
+                          <kl-button
+                            [attr.data-testid]="'key-edit-' + pk.id"
+                            size="sm"
+                            icon="key-round"
+                            [variant]="pk.status?.is_set ? 'ghost' : 'quiet'"
+                            (click)="startEdit(pk)"
+                          >{{ pk.status?.is_set ? 'Edit key' : 'Add key' }}</kl-button>
+                          @if (pk.status?.is_set) {
+                            <kl-button
+                              [attr.data-testid]="'key-clear-' + pk.id"
+                              size="sm"
+                              variant="ghost"
+                              icon="trash"
+                              iconOnly
+                              [ariaLabel]="'Remove the ' + p.label + ' key'"
+                              [loading]="pk.saving"
+                              (click)="clearKey(pk)"
+                            />
+                          }
+                        }
+                      }
+                    </div>
 
                     @if (p.value === 'claude-code') {
-                      <!-- Claude Code CLI needs no key: the user signs in themselves. -->
-                      <div data-testid="claude-code-card">
-                        @if (claudeCodeStatus?.installed) {
-                          <p class="hint-text" data-testid="claude-code-detected">
-                            Detected at <code>{{ claudeCodeStatus!.path }}</code>
-                            @if (claudeCodeStatus!.version) {
-                              <span> · version {{ claudeCodeStatus!.version }}</span>
-                            }
-                          </p>
-                          <p class="hint-text" data-testid="claude-code-env-hint">
-                            KeyLint runs the CLI with your subscription login. API-key variables in your
-                            environment (<code>ANTHROPIC_API_KEY</code> and friends) are not passed through,
-                            so the CLI uses the account you signed in with.
-                          </p>
-
-                          @if (!claudeCodeStatus!.loggedIn) {
-                            <p class="hint-text" data-testid="claude-code-signin-hint">
-                              Open a terminal, run <code>claude</code>, and sign in. KeyLint never reads or stores your credentials.
-                            </p>
-                          }
-                        } @else if (claudeCodeStatus) {
-                          <p class="hint-text" data-testid="claude-code-missing">
-                            No Claude Code CLI found on this machine. Install it to use your own subscription instead of an API key.
-                          </p>
-                        }
-
-                        <div class="key-actions">
-                          <p-button
-                            data-testid="claude-code-recheck"
-                            label="Re-check"
-                            icon="pi pi-refresh"
-                            severity="secondary"
-                            size="small"
-                            (onClick)="recheckClaudeCode(true)"
-                            [loading]="claudeCodeChecking"
-                          />
-                        </div>
-                      </div>
+                      @if (claudeCodeStatus?.installed) {
+                        <p class="detail-hint" data-testid="claude-code-env-hint">
+                          KeyLint runs the CLI with your subscription login. API-key variables in your
+                          environment (<code>ANTHROPIC_API_KEY</code> and friends) are not passed through,
+                          so the CLI uses the account you signed in with.
+                        </p>
+                      }
                     } @else if (p.value === 'ollama') {
-                      <!-- Ollama URL (not a secret) -->
-                      <div class="form-group ollama-url">
-                        <label for="ollama-url">Server URL</label>
+                      <!-- The URL is not a secret, so it is a plain field saved with Save. -->
+                      <div class="flex flex-col gap-1.5">
+                        <label for="ollama-url" class="text-[13px] font-medium text-muted">Server URL</label>
                         <input
                           id="ollama-url"
                           data-testid="ollama-url-input"
-                          pInputText
+                          klInput
+                          class="max-w-md"
                           [(ngModel)]="settings.providers.ollama_url"
                           placeholder="http://localhost:11434"
                         />
-                        <small class="hint-text">Leave empty for a local Ollama on the default port. Saved with the Save button below; <em>Use this</em> only switches the provider.</small>
+                        <small class="detail-hint">Leave empty for a local Ollama on the default port. Saved with the Save button below; <em>Use this</em> only switches the provider.</small>
                       </div>
                     } @else if (keyFor(p.value); as pk) {
-                      @if (pk.status?.source === 'env') {
-                        <p class="hint-text" [attr.data-testid]="'key-env-hint-' + pk.id">
-                          Using the key from the <code>{{ envVarFor(pk.id) }}</code> environment variable.
-                          It takes priority over a key saved here, so it can only be changed where it is set.
-                        </p>
-                      }
                       @if (pk.editing) {
-                        <div class="key-edit">
-                          <input pInputText
+                        <div class="flex flex-wrap items-center gap-2">
+                          <input
+                            klInput
                             type="password"
+                            class="min-w-48 flex-1"
+                            autocomplete="off"
+                            spellcheck="false"
+                            [attr.data-testid]="'key-input-' + pk.id"
+                            [attr.aria-label]="p.label + ' API key'"
                             [(ngModel)]="pk.draftKey"
                             [placeholder]="keyPlaceholder(pk.id)"
-                            style="flex:1"
+                            (keydown.enter)="saveKey(pk)"
+                            (keydown.escape)="cancelEdit(pk)"
                           />
-                          <p-button
-                            label="Save"
-                            icon="pi pi-check"
-                            size="small"
-                            (onClick)="saveKey(pk)"
+                          <kl-button
+                            [attr.data-testid]="'key-save-' + pk.id"
+                            variant="primary"
+                            icon="check"
+                            loadingLabel="Saving…"
                             [loading]="pk.saving"
                             [disabled]="!pk.draftKey"
-                          />
-                          <p-button
-                            label="Cancel"
-                            icon="pi pi-times"
-                            severity="secondary"
-                            size="small"
-                            (onClick)="cancelEdit(pk)"
-                          />
-                        </div>
-                      } @else if (pk.status?.source !== 'env') {
-                        <div class="key-actions">
-                          <p-button
-                            [label]="pk.status?.is_set ? 'Update Key' : 'Set Key'"
-                            icon="pi pi-key"
-                            severity="secondary"
-                            size="small"
-                            (onClick)="startEdit(pk)"
-                          />
-                          @if (pk.status?.is_set) {
-                            <p-button
-                              label="Clear"
-                              icon="pi pi-trash"
-                              severity="danger"
-                              size="small"
-                              (onClick)="clearKey(pk)"
-                              [loading]="pk.saving"
-                            />
-                          }
+                            (click)="saveKey(pk)"
+                          >Save key</kl-button>
+                          <kl-button [attr.data-testid]="'key-cancel-' + pk.id" variant="ghost" (click)="cancelEdit(pk)">Cancel</kl-button>
                         </div>
                       }
                     }
                   </app-provider-card>
                 }
-              </p-tabpanel>
+                <p sectionFooter class="detail-hint">
+                  Keys are stored in your OS keyring (Windows Credential Manager, libsecret on Linux).
+                  Environment variables (<code>OPENAI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>) take priority and cannot be overridden here.
+                </p>
+              </app-settings-section>
+              @if (keyError) {
+                <kl-message data-testid="key-error" severity="error" [text]="keyError" />
+              }
+            </div>
+          </kl-tab-panel>
 
-              <!-- App Defaults tab -->
-              <p-tabpanel value="app-defaults">
-                <div class="form-group mt-6">
-                  <label>App Presets</label>
-                  @if (presets.length === 0 && !addingPreset) {
-                    <p class="hint-text">No app presets saved yet. Use Pyramidize with the global hotkey to detect apps automatically.</p>
-                  }
-                  @for (preset of presets; track preset.sourceApp) {
-                    @if (editingPreset?.sourceApp === preset.sourceApp) {
-                      <div class="preset-row editing">
-                        <input pInputText [(ngModel)]="editPresetDraft.sourceApp" style="flex:1" />
-                        <p-select [(ngModel)]="editPresetDraft.documentType" [options]="docTypeOptions" optionLabel="label" optionValue="value" style="width:140px" />
-                        <p-button icon="pi pi-check" size="small" (onClick)="saveEditPreset()" />
-                        <p-button icon="pi pi-times" size="small" severity="secondary" (onClick)="cancelEditPreset()" />
-                      </div>
-                    } @else {
-                      <div class="preset-row">
-                        <span style="flex:1">{{ preset.sourceApp }}</span>
-                        <span class="preset-type">{{ preset.documentType }}</span>
-                        <p-button icon="pi pi-pencil" size="small" severity="secondary" (onClick)="startEditPreset(preset)" />
-                        <p-button icon="pi pi-trash" size="small" severity="danger" (onClick)="deletePreset(preset.sourceApp)" />
-                      </div>
-                    }
-                  }
+          <kl-tab-panel value="app-defaults">
+            <div class="panel">
+              <app-app-presets [settings]="settings" />
+            </div>
+          </kl-tab-panel>
 
-                  @if (addingPreset) {
-                    <div class="preset-row editing">
-                      <input pInputText [(ngModel)]="addPresetDraft.sourceApp" placeholder="App name" style="flex:1" />
-                      <p-select [(ngModel)]="addPresetDraft.documentType" [options]="docTypeOptions" optionLabel="label" optionValue="value" style="width:140px" />
-                      <p-button icon="pi pi-check" size="small" (onClick)="saveAddPreset()" [disabled]="!addPresetDraft.sourceApp" />
-                      <p-button icon="pi pi-times" size="small" severity="secondary" (onClick)="cancelAddPreset()" />
-                    </div>
-                  } @else {
-                    <p-button label="+ Add manually" size="small" severity="secondary" outlined (onClick)="startAddPreset()" />
-                  }
-                </div>
-              </p-tabpanel>
+          <kl-tab-panel value="about">
+            <div class="panel">
+              <app-settings-about [settings]="settings" [version]="appVersion" [buildIdentity]="buildIdentity" />
+            </div>
+          </kl-tab-panel>
+        </kl-tabs>
 
-              <!-- About tab -->
-              <p-tabpanel value="about">
-                <p>KeyLint — Wails v3 + Angular v21</p>
-                <p>Built with Go, Angular, and PrimeNG.</p>
-                <!-- Tapping the version seven times unlocks the developer options,
-                     as on Android. A button, so it also works from the keyboard. -->
-                <p data-testid="app-version">Version: <button type="button" class="version-tap" data-testid="version-tap" (click)="onVersionTap()">{{ versionLabel(appVersion) }}</button></p>
-                <p class="hint-text unlock-hint" data-testid="unlock-hint" aria-live="polite">{{ unlockHint }}</p>
-
-                @if (settings.developer_options) {
-                  <div class="form-group" data-testid="developer-options-section">
-                    <div class="toggle-row">
-                      <div class="toggle-label-group">
-                        <label for="developer-options-toggle">Developer options</label>
-                        <small class="hint-text">Shows the dev channel below. Turn off to hide it again; tapping the version seven times brings it back.</small>
-                      </div>
-                      <p-toggle-switch
-                        #developerOptionsToggle
-                        inputId="developer-options-toggle"
-                        data-testid="developer-options-toggle"
-                        [ngModel]="settings.developer_options"
-                        (ngModelChange)="setDeveloperOptions($event)"
-                      />
-                    </div>
-                  </div>
-                }
-                @if (devOptionsError) {
-                  <p-message data-testid="developer-options-error" severity="error" [text]="devOptionsError" styleClass="mb-2" />
-                }
-
-                <!-- The channel stays settable in a dev build: it decides which
-                     release the dev channel's "latest release" offer installs. -->
-                <div class="form-group mt-4" data-testid="update-channel-section">
-                  <label>Update Channel</label>
-                  <p-select
-                    [(ngModel)]="settings.update_channel"
-                    [options]="updateChannels"
-                    optionLabel="label"
-                    optionValue="value"
-                  />
-                  <small class="hint-text">Auto detects from your current version: pre-release versions check for pre-releases, stable versions check for stable only. Test builds count as pre-release.</small>
-                </div>
-
-                <!-- A dev build is 0.0.0, so every release would read as an
-                     update: the dev channel replaces the normal check there. -->
-                @if (!buildIdentity.is_dev_build) {
-                <div class="mt-4">
-                  <p-button
-                    data-testid="check-update-btn"
-                    label="Check for Updates"
-                    icon="pi pi-refresh"
-                    severity="secondary"
-                    [loading]="updateChecking"
-                    (onClick)="checkForUpdate()"
-                  />
-                </div>
-                }
-
-                @if (updateInfo?.is_available) {
-                  <div class="mt-4">
-                    <p-message
-                      data-testid="update-available-msg"
-                      severity="info"
-                      [text]="'Update available: v' + updateInfo!.latest_version + (updateInfo!.notes ? ' — ' + updateInfo!.notes : '')"
-                      styleClass="mb-2"
-                    />
-                    <p-button
-                      data-testid="install-update-btn"
-                      label="Download and Install"
-                      icon="pi pi-download"
-                      [loading]="updateInstalling"
-                      (onClick)="installUpdate()"
-                    />
-                  </div>
-                }
-
-                @if (updateSuccess) {
-                  <p-message
-                    data-testid="update-success-msg"
-                    severity="success"
-                    [text]="updateRestartRequired
-                      ? 'Update is installing — the app will close shortly.'
-                      : 'Update installed! Restart the app to use the new version.'"
-                    styleClass="mt-4"
-                  />
-                }
-
-                @if (updateError) {
-                  <p-message
-                    data-testid="update-error-msg"
-                    severity="error"
-                    [text]="updateError"
-                    styleClass="mt-4"
-                  />
-                }
-
-                @if (settings.developer_options || buildIdentity.is_dev_build) {
-                  <app-dev-channel [version]="appVersion" />
-                }
-              </p-tabpanel>
-            </p-tabpanels>
-          </p-tabs>
-
+        <div class="footer">
           @if (saved) {
-            <p-message data-testid="saved-banner" severity="success" text="Settings saved!" styleClass="mt-4" />
+            <kl-message data-testid="saved-banner" class="mt-4" severity="success" text="Settings saved!" />
           }
           @if (saveError) {
-            <p-message data-testid="save-error" severity="error" [text]="saveError" styleClass="mt-4" />
-          }
-          @if (keyError) {
-            <p-message severity="error" [text]="keyError" styleClass="mt-4" />
+            <kl-message data-testid="save-error" class="mt-4" severity="error" [text]="saveError" />
           }
 
           @if (confirmingReset) {
@@ -542,15 +319,15 @@ interface ProviderKey {
               data-testid="reset-confirm"
               (keydown.escape)="cancelReset()"
             >
-              <p id="reset-confirm-title" class="reset-confirm-title">Reset all settings to their defaults?</p>
-              <p class="hint-text" data-testid="reset-confirm-detail">
+              <p id="reset-confirm-title" class="m-0 font-semibold text-fg-strong">Reset all settings to their defaults?</p>
+              <p class="mt-1 mb-4 text-sm text-muted" data-testid="reset-confirm-detail">
                 Shortcuts, models and effort, app presets, the Ollama address, logging, update and
                 developer options go back to their defaults.
-                <strong>Kept:</strong> your API keys in the OS keyring, the provider in use, and your completed setup.
+                <strong class="text-soft">Kept:</strong> your API keys in the OS keyring, the provider in use, and your completed setup.
               </p>
               <div class="flex gap-4">
-                <p-button data-testid="reset-confirm-btn" label="Reset" icon="pi pi-refresh" severity="danger" [disabled]="switchingTo !== null || formBusy" (onClick)="confirmReset()" />
-                <p-button data-testid="reset-cancel-btn" label="Cancel" severity="secondary" [outlined]="true" (onClick)="cancelReset()" />
+                <kl-button data-testid="reset-confirm-btn" variant="danger" icon="rotate-ccw" [disabled]="switchingTo !== null || formBusy" (click)="confirmReset()">Reset</kl-button>
+                <kl-button data-testid="reset-cancel-btn" (click)="cancelReset()">Cancel</kl-button>
               </div>
             </div>
           } @else {
@@ -558,138 +335,31 @@ interface ProviderKey {
               <!-- Held while a provider switch saves, and the switch is held while
                    these run: one landing in the middle of the other could
                    overwrite it or be overwritten by it. -->
-              <p-button data-testid="save-btn" label="Save" icon="pi pi-check" [disabled]="switchingTo !== null || formBusy" (onClick)="save()" />
-              <p-button data-testid="reset-btn" label="Reset to Defaults" icon="pi pi-refresh" severity="danger" outlined [disabled]="switchingTo !== null || formBusy" (onClick)="requestReset()" />
+              <kl-button data-testid="save-btn" variant="primary" icon="check" [disabled]="switchingTo !== null || formBusy" (click)="save()">Save</kl-button>
+              <kl-button data-testid="reset-btn" variant="danger" icon="rotate-ccw" [disabled]="switchingTo !== null || formBusy" (click)="requestReset()">Reset to defaults</kl-button>
             </div>
           }
-        }
-      </p-card>
+        </div>
+      }
     </div>
   `,
   styles: [`
-    .settings-page { padding: 1.5rem; max-width: 700px; }
-    .reset-confirm {
-      border: 1px solid var(--kl-error);
-      border-radius: var(--kl-radius-md);
-      padding: 0.75rem 1rem;
-    }
-    .reset-confirm-title { margin: 0 0 0.25rem; font-weight: 600; }
-    .reset-confirm .hint-text { display: block; margin: 0 0 0.75rem; }
-    .form-group {
-      display: flex;
-      flex-direction: column;
-      gap: 0.4rem;
-      margin-bottom: 1.25rem;
-    }
-    .toggle-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-    }
-    .toggle-label-group {
-      display: flex;
-      flex-direction: column;
-      gap: 0.25rem;
-    }
-    .toggle-label-group .hint-text { margin-bottom: 0; }
-    /* A long hint beside the switch would otherwise squeeze it narrower than
-       its track, and the knob slides out past the edge (#26). */
-    .toggle-row p-toggle-switch { flex-shrink: 0; }
-    label { font-size: 0.875rem; color: var(--kl-muted); }
-    input { width: 100%; }
-
+    .settings-page { padding: 32px 44px 40px; }
+    .panel, .footer { max-width: 820px; }
+    .panel { display: flex; flex-direction: column; gap: 24px; padding-top: 28px; }
+    .footer { display: flex; flex-direction: column; margin-top: 8px; }
     .switch-error:focus { outline: none; }
-    .provider-summary {
-      margin: 0 0 0.75rem;
-      font-size: 0.95rem;
+    .no-provider { margin: 0; font-size: 14px; color: var(--kl-muted); }
+    .no-provider:focus { outline: none; }
+    .no-provider:focus-visible { outline: 2px solid var(--kl-focus); outline-offset: 4px; }
+    .detail-hint { margin: 0; font-size: 13px; line-height: 1.5; color: var(--kl-muted); max-width: 72ch; }
+    .reset-confirm {
+      padding: 16px 20px; border-radius: var(--kl-radius-sheet);
+      border: 1px solid color-mix(in srgb, var(--kl-error), transparent 55%);
+      background: color-mix(in srgb, var(--kl-error), transparent 94%);
     }
-    .provider-pointer {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: baseline;
-      gap: 0.4rem;
-    }
-    .provider-pointer-sep { color: var(--kl-muted); }
-    .provider-pointer-link {
-      background: none;
-      border: none;
-      padding: 0;
-      font: inherit;
-      cursor: pointer;
-      color: var(--kl-primary-text);
-      text-decoration: none;
-    }
-    .provider-pointer-link:hover { text-decoration: underline; }
-    .card-status { display: inline-flex; gap: 0.5rem; }
-    .ollama-url { margin-bottom: 0; }
-    .ollama-url .hint-text { margin-bottom: 0; }
-
-    .key-row {
-      border: 1px solid var(--kl-line);
-      border-radius: var(--kl-radius-md);
-      padding: 0.75rem 1rem;
-      margin-bottom: 0.75rem;
-    }
-    .key-header {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      margin-bottom: 0.5rem;
-    }
-    .key-label {
-      font-weight: 600;
-      font-size: 0.9rem;
-    }
-    .key-edit {
-      display: flex;
-      gap: 0.5rem;
-      align-items: center;
-      margin-top: 0.5rem;
-    }
-    .key-actions {
-      display: flex;
-      gap: 0.5rem;
-    }
-    .version-tap {
-      background: none;
-      border: none;
-      padding: 0;
-      font: inherit;
-      color: inherit;
-      cursor: default;
-    }
-    .unlock-hint { min-height: 1em; }
-    .hint-text {
-      font-size: 0.8rem;
-      color: var(--kl-muted);
-      margin-bottom: 1rem;
-    }
-    .connections-heading {
-      margin: 0 0 0.35rem;
-      font-size: 1rem;
-      font-weight: 600;
-    }
-    code {
-      background: var(--kl-sheet);
-      padding: 1px 4px;
-      border-radius: 3px;
-      font-family: monospace;
-      font-size: 0.85em;
-    }
-    .preset-row {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.5rem 0;
-      border-bottom: 1px solid var(--kl-line);
-    }
-    .preset-type {
-      font-size: 0.8rem;
-      color: var(--kl-muted);
-      text-transform: uppercase;
-      width: 80px;
-    }
+    code { font-size: 12px; padding: 1px 4px; border-radius: 3px; background: var(--kl-selected); color: var(--kl-text-soft); }
+    @media (max-width: 600px) { .settings-page { padding: 24px 16px 32px; } }
   `],
 })
 export class SettingsComponent implements OnInit, OnDestroy {
@@ -697,58 +367,18 @@ export class SettingsComponent implements OnInit, OnDestroy {
   saved = false;
   keyError = '';
   /** Two-way bound to the tabs, so the General tab's pointer can switch it. */
-  activeTab: string | number | undefined = 'general';
+  activeTab = 'general';
 
   appVersion = '';
-  readonly versionLabel = versionLabel;
   /** What the running build says about itself; a release build until asked. */
   buildIdentity: BuildIdentity = { is_dev_build: false, kind: '', pr: 0, commit: '', tag: '' };
-  @ViewChild('developerOptionsToggle') private developerOptionsToggle?: ToggleSwitch;
-  /** Taps on the version so far, towards UNLOCK_TAPS. */
-  private versionTaps = 0;
-  unlockHint = '';
-  devOptionsError = '';
-  updateInfo: UpdateInfo | null = null;
-  updateChecking = false;
-  updateInstalling = false;
-  updateError = '';
-  updateSuccess = false;
-  updateRestartRequired = false;
-
-  // App Defaults tab state
-  presets: AppPreset[] = [];
-  qualityThreshold = 0.65;
-  editingPreset: AppPreset | null = null;
-  editPresetDraft: AppPreset = { sourceApp: '', documentType: 'email' };
-  addingPreset = false;
-  addPresetDraft: AppPreset = { sourceApp: '', documentType: 'email' };
 
   /**
-   * The providers a user can choose, in the order their cards appear on the AI
+   * The providers a user can choose, in the order their rows appear on the AI
    * Providers tab. The labels are what the General tab's pointer and the model
    * pickers show too.
    */
   readonly providers = PROVIDER_OPTIONS;
-  /** Shared with the setup wizard, so a connection reads the same in both. */
-  readonly cliTag = cliTag;
-  readonly keyTag = keyTag;
-
-  readonly updateChannels = [
-    { label: 'Auto (detect from version)', value: '' },
-    { label: 'Stable', value: 'stable' },
-    { label: 'Pre-release', value: 'pre-release' },
-  ];
-
-  readonly logLevels = [
-    { label: 'Off', value: 'off' },
-    { label: 'Trace', value: 'trace' },
-    { label: 'Debug', value: 'debug' },
-    { label: 'Info', value: 'info' },
-    { label: 'Warning', value: 'warning' },
-    { label: 'Error', value: 'error' },
-  ];
-
-  readonly docTypeOptions = DOCUMENT_TYPE_OPTIONS;
 
   /**
    * Providers whose model can be chosen. Derived from the provider list
@@ -788,7 +418,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   claudeCodeChecking = false;
   /** Detection can take seconds; the user may navigate away meanwhile. */
   private destroyed = false;
-  private noticeSub?: Subscription;
+  private readonly subs = new Subscription();
   /** Why a hotkey-fix notification sent the user to this tab, if one did. */
   silentFixNote: SilentFixNotice | null = null;
 
@@ -799,6 +429,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   constructor(
     private readonly route: ActivatedRoute,
+    private readonly router: Router,
     private readonly wails: WailsService,
     private readonly cdr: ChangeDetectorRef,
     private readonly log: LogService,
@@ -808,26 +439,39 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   async ngOnInit(): Promise<void> {
     this.activeTab = this.route.snapshot.queryParamMap.get('tab') ?? 'general';
+    // A later ?tab= while this page is open (the sidebar's version opens
+    // About) reuses this component rather than making a new one. Read from
+    // each finished navigation, not from queryParamMap: picking a tab leaves
+    // the URL as it was, so the version link clicked again is a navigation to
+    // the same URL (the shell sends it with onSameUrlNavigation: 'reload'),
+    // and queryParamMap only reports a change.
+    this.subs.add(this.router.events.pipe(filter(e => e instanceof NavigationEnd)).subscribe(e => {
+      const url = this.router.parseUrl(e.urlAfterRedirects);
+      const tab = url.queryParamMap.get('tab');
+      const onSettings = url.root.children['primary']?.segments[0]?.path === 'settings';
+      if (tab && onSettings) {
+        this.activeTab = tab;
+        this.cdr.markForCheck();
+      }
+    }));
     // A hotkey-fix notification clicked to get here — or clicked while this
     // page is already open, which the router does not report as a new
     // navigation.
     const pendingNote = this.silentNotices.take('providers');
     if (pendingNote) this.showSilentFixNote(pendingNote);
-    this.noticeSub = this.silentNotices.notices$.subscribe(() => {
+    this.subs.add(this.silentNotices.notices$.subscribe(() => {
       const note = this.silentNotices.take('providers');
       if (note) {
         this.showSilentFixNote(note);
         this.cdr.detectChanges();
       }
-    });
+    }));
     this.settings = await this.wails.loadSettings();
     this.savedOllamaURL = this.settings?.providers?.ollama_url ?? '';
     this.log.info('settings: loaded');
     await this.refreshKeyStatuses();
     this.appVersion = await this.wails.getVersion();
     this.buildIdentity = await this.wails.getBuildIdentity();
-    this.presets = await this.wails.getAppPresets();
-    this.qualityThreshold = await this.wails.getQualityThreshold();
     this.cdr.detectChanges();
 
     // Detection spawns processes, so the rest of the screen must not wait for it.
@@ -838,7 +482,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.destroyed = true;
-    this.noticeSub?.unsubscribe();
+    this.subs.unsubscribe();
   }
 
   private showSilentFixNote(note: SilentFixNotice): void {
@@ -870,6 +514,17 @@ export class SettingsComponent implements OnInit, OnDestroy {
     return active ? this.providerProblem(active) : null;
   }
 
+  /** The Ollama row's status line: where KeyLint looks, and what it found there. */
+  get ollamaSummary(): string {
+    const where = (this.savedOllamaURL || DEFAULT_OLLAMA_URL).replace(/^https?:\/\//, '');
+    switch (this.modelSource['ollama']) {
+      case 'live': return `Running at ${where}`;
+      case 'empty': return `Running at ${where}, no models pulled`;
+      case 'unreachable': return `Not running at ${where}`;
+      default: return `Looking for Ollama at ${where}…`;
+    }
+  }
+
   /**
    * Why a provider cannot work right now, or null when nothing is known to be
    * wrong — including while its status is still loading, so a card does not
@@ -889,7 +544,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
         return null;
       }
       case 'ollama': {
-        const where = this.savedOllamaURL || 'http://localhost:11434';
+        const where = this.savedOllamaURL || DEFAULT_OLLAMA_URL;
         switch (this.modelSource['ollama']) {
           case 'unreachable': return `Won't work yet: KeyLint cannot reach Ollama at ${where}. Start Ollama, or check the server URL.`;
           case 'empty': return "Won't work yet: Ollama has no models pulled. Pull one with `ollama pull`.";
@@ -901,6 +556,15 @@ export class SettingsComponent implements OnInit, OnDestroy {
         if (!status || status.is_set) return null;
         return "Won't work yet: no API key is set.";
       }
+    }
+  }
+
+  /** Set up and answering, for the filled dot on a connection row. */
+  isReady(provider: string): boolean {
+    switch (provider) {
+      case 'claude-code': return !!this.claudeCodeStatus?.installed && !!this.claudeCodeStatus.loggedIn;
+      case 'ollama': return this.modelSource['ollama'] === 'live';
+      default: return !!this.keyFor(provider)?.status?.is_set;
     }
   }
 
@@ -957,23 +621,23 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.providerAnnouncement = switched ? `KeyLint now uses ${label}.` : '';
     if (this.destroyed) return;
     this.cdr.detectChanges();
-    // The pressed button is gone (on success it became the "In use" tag) or
-    // no longer the point (on failure). Focus goes to the heading of the card
-    // in use now; after a failure with no card in use (a saved Bedrock, or
+    // The pressed button is gone (on success it became the "In use" mark) or
+    // no longer the point (on failure). Focus goes to the heading of the row
+    // in use now; after a failure with no row in use (a saved Bedrock, or
     // nothing saved), to the error that explains it.
     const inUse = this.activeProviderLabel ? this.settings?.active_provider : null;
     if (inUse) {
       this.focusCardHeading(inUse);
     } else if (!switched) {
-      (this.host.nativeElement as HTMLElement)
+      this.host.nativeElement
         .querySelector<HTMLElement>('[data-testid="provider-switch-error"]')?.focus();
     }
   }
 
   /**
-   * Re-asks about the provider just switched to, so its card does not show an
+   * Re-asks about the provider just switched to, so its row does not show an
    * answer from before the user set it up. The CLI probe is forced, the same
-   * bypass the card's Re-check uses. Ollama has no such bypass: the backend
+   * bypass the row's Check again uses. Ollama has no such bypass: the backend
    * keeps a failed listing for 30 s, so a daemon started moments ago can still
    * read as unreachable until that passes.
    */
@@ -988,7 +652,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       void this.wails.getKeyStatus(provider).then(status => {
         pk.status = status;
         if (!this.destroyed) this.cdr.detectChanges();
-      }).catch(() => { /* keep the answer the card already has */ });
+      }).catch(() => { /* keep the answer the row already has */ });
     }
   }
 
@@ -997,12 +661,12 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.activeTab = 'providers';
     this.cdr.detectChanges();
     // The pointer sits in the panel that just hid, so focus would be lost.
-    (this.host.nativeElement as HTMLElement)
+    this.host.nativeElement
       .querySelector<HTMLElement>('[data-testid="providers-summary"]')?.focus();
   }
 
   private focusCardHeading(provider: string): void {
-    (this.host.nativeElement as HTMLElement)
+    this.host.nativeElement
       .querySelector<HTMLElement>(`[data-testid="provider-heading-${provider}"]`)?.focus();
   }
 
@@ -1049,9 +713,9 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   /**
    * The provider's models for one feature, with a leading entry naming
-   * KeyLint's default for it. PrimeNG only renders a placeholder while the
-   * value is null or undefined, and this component writes "" — so an explicit
-   * option is what makes the default visible and selectable.
+   * KeyLint's default for it. The picker shows its placeholder only while the
+   * value is null, and this component writes "" — so an explicit option is
+   * what makes the default visible and selectable.
    */
   optionsFor(provider: string, feature: Feature): ModelOption[] {
     // Before the list arrives (or when it never does) the default entry still
@@ -1181,6 +845,9 @@ export class SettingsComponent implements OnInit, OnDestroy {
   startEdit(pk: ProviderKey): void {
     pk.editing = true;
     pk.draftKey = '';
+    // The field replaces the button that was pressed, so focus follows it.
+    this.cdr.detectChanges();
+    this.host.nativeElement.querySelector<HTMLInputElement>(`[data-testid="key-input-${pk.id}"]`)?.focus();
   }
 
   cancelEdit(pk: ProviderKey): void {
@@ -1203,6 +870,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       this.keyError = `Failed to save key: ${e instanceof Error ? e.message : String(e)}`;
     } finally {
       pk.saving = false;
+      if (!this.destroyed) this.cdr.markForCheck();
     }
     // The model list depends on this key.
     void this.loadModelOptions();
@@ -1219,91 +887,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
       this.keyError = `Failed to clear key: ${e instanceof Error ? e.message : String(e)}`;
     } finally {
       pk.saving = false;
+      if (!this.destroyed) this.cdr.markForCheck();
     }
     // The model list depends on this key.
     void this.loadModelOptions();
-  }
-
-  /**
-   * One tap on the version. The last few taps count down, Android-style, and
-   * the seventh turns the developer options on and saves that at once — there
-   * is no Save to press for an unlock.
-   */
-  async onVersionTap(): Promise<void> {
-    if (!this.settings) return;
-    if (this.settings.developer_options) {
-      this.unlockHint = 'Developer options are already on.';
-      return;
-    }
-    this.versionTaps++;
-    const left = UNLOCK_TAPS - this.versionTaps;
-    if (left > 0) {
-      if (left <= UNLOCK_TAPS - 3) {
-        this.unlockHint = `${left} more ${left === 1 ? 'tap' : 'taps'} to turn on the developer options.`;
-      }
-      return;
-    }
-    this.versionTaps = 0;
-    if (await this.setDeveloperOptions(true)) {
-      this.unlockHint = 'Developer options are on.';
-    }
-  }
-
-  /** Saves the developer options switch on its own; reports whether it stuck. */
-  async setDeveloperOptions(enabled: boolean): Promise<boolean> {
-    if (!this.settings) return false;
-    this.devOptionsError = '';
-    try {
-      await this.wails.setDeveloperOptions(enabled);
-      this.settings.developer_options = enabled;
-      if (!enabled) this.unlockHint = '';
-      this.log.info(`settings: developer options ${enabled ? 'on' : 'off'}`);
-      return true;
-    } catch (e) {
-      // The switch has already moved, and its [ngModel] input has not
-      // changed, so Angular will not move it back: do it here, so it shows
-      // what is saved rather than what was asked for.
-      this.developerOptionsToggle?.writeValue(this.settings.developer_options);
-      this.devOptionsError = `Could not change the developer options: ${e instanceof Error ? e.message : String(e)}`;
-      return false;
-    } finally {
-      if (!this.destroyed) this.cdr.detectChanges();
-    }
-  }
-
-  async checkForUpdate(): Promise<void> {
-    this.updateChecking = true;
-    this.updateError = '';
-    this.updateInfo = null;
-    try {
-      this.updateInfo = await this.wails.checkForUpdate();
-      if (!this.updateInfo.is_available) {
-        this.updateError = 'You are already on the latest version.';
-      }
-    } catch (e) {
-      this.updateError = `Update check failed: ${e instanceof Error ? e.message : String(e)}`;
-    } finally {
-      this.updateChecking = false;
-      this.cdr.detectChanges();
-    }
-  }
-
-  async installUpdate(): Promise<void> {
-    this.updateInstalling = true;
-    this.updateError = '';
-    this.updateSuccess = false;
-    this.updateRestartRequired = false;
-    try {
-      const result = await this.wails.downloadAndInstall();
-      this.updateSuccess = true;
-      this.updateRestartRequired = result.restart_required;
-      this.updateInfo = null;
-    } catch (e) {
-      this.updateError = `Install failed: ${e instanceof Error ? e.message : String(e)}`;
-    } finally {
-      this.updateInstalling = false;
-      this.cdr.detectChanges();
-    }
   }
 
   async save(): Promise<void> {
@@ -1382,63 +969,5 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.saved = true;
     this.cdr.detectChanges();
     setTimeout(() => { this.saved = false; this.cdr.detectChanges(); }, 3000);
-  }
-
-  // ── App Defaults tab methods ──
-
-  async saveThreshold(): Promise<void> {
-    await this.wails.setQualityThreshold(this.qualityThreshold);
-  }
-
-  /**
-   * Presets are saved by the backend the moment they change, outside save().
-   * The settings object on this page must follow, or the next save() — the
-   * Save button or a provider switch — writes back the list as it was when the
-   * page opened and undoes the change.
-   */
-  private syncPresets(presets: AppPreset[]): void {
-    this.presets = presets;
-    if (this.settings) {
-      this.settings.app_presets = presets.map(p => ({ ...p }));
-    }
-  }
-
-  startEditPreset(preset: AppPreset): void {
-    this.editingPreset = preset;
-    this.editPresetDraft = { ...preset };
-  }
-
-  cancelEditPreset(): void {
-    this.editingPreset = null;
-  }
-
-  async saveEditPreset(): Promise<void> {
-    await this.wails.setAppPreset(this.editPresetDraft);
-    this.syncPresets(await this.wails.getAppPresets());
-    this.editingPreset = null;
-    this.cdr.detectChanges();
-  }
-
-  async deletePreset(sourceApp: string): Promise<void> {
-    await this.wails.deleteAppPreset(sourceApp);
-    this.syncPresets(await this.wails.getAppPresets());
-    this.cdr.detectChanges();
-  }
-
-  startAddPreset(): void {
-    this.addingPreset = true;
-    this.addPresetDraft = { sourceApp: '', documentType: 'email' };
-  }
-
-  cancelAddPreset(): void {
-    this.addingPreset = false;
-  }
-
-  async saveAddPreset(): Promise<void> {
-    if (!this.addPresetDraft.sourceApp) return;
-    await this.wails.setAppPreset(this.addPresetDraft);
-    this.syncPresets(await this.wails.getAppPresets());
-    this.addingPreset = false;
-    this.cdr.detectChanges();
   }
 }

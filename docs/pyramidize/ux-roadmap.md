@@ -107,6 +107,8 @@ Model      [claude-sonnet-4-6 ▼]
 
 ## UX-04 — Quality Threshold in Pyramidize UI
 
+> **Superseded 2026-10-11:** the control was removed from the Pyramidize page by owner decision (ADR-002 §5: it can never act on email v2). Go keeps the 0.65 default. The place under Model went to an Effort picker — see `docs/roadmap.md` § Housekeeping.
+
 **Goal:** Move the quality threshold control from Settings › App Defaults into the Pyramidize left panel (advanced section), so users can tune it in-context.
 
 **Location:** `text-enhancement.component.ts` — bottom of left panel, collapsible "Advanced" section.

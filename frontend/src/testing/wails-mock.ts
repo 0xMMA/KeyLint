@@ -136,8 +136,6 @@ export function createWailsMock() {
     getAppPresets: vi.fn().mockResolvedValue([]),
     setAppPreset: vi.fn().mockResolvedValue(undefined),
     deleteAppPreset: vi.fn().mockResolvedValue(undefined),
-    getQualityThreshold: vi.fn().mockResolvedValue(0.65),
-    setQualityThreshold: vi.fn().mockResolvedValue(undefined),
   };
 }
 

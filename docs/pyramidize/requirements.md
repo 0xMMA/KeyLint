@@ -53,8 +53,8 @@ and powerpoint.
 - Foundation call includes self-evaluation: `qualityScore` (0-1) and `qualityFlags[]`
 - Flags: `MECE_VIOLATION`, `INFO_LOSS`, `STYLE_MISMATCH`, `SUBJECT_FORMAT`, `FIDELITY_VIOLATION`
 - If qualityScore < threshold (default 0.65) -> conditional refinement pass
-- Quality threshold configurable in Settings > App Defaults — the setting is
-  live and persisted, and for email it does nothing
+- Quality threshold: a persisted setting with no UI since 2026-10-11 (owner
+  decision, ADR-002 §5 — for email it does nothing); the pipeline uses 0.65
 
 ### FR-04 Canvas Model (3-Layer State)
 - `originalText` — immutable source

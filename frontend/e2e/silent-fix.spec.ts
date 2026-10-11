@@ -80,7 +80,8 @@ test.describe.skip('Silent Fix — live API verification (skipped)', () => {
     await page.waitForSelector('[data-testid="fix-output"]', { timeout: 30_000 });
     await screenshot(page, '12-fix-after');
 
-    const output = await page.locator('[data-testid="fix-output"]').inputValue();
+    await page.getByTestId('segment-clean').click();
+    const output = await page.getByTestId('fix-clean').innerText();
     console.log(`Input:  ${badText}`);
     console.log(`Output: ${output}`);
 

@@ -396,18 +396,6 @@ export class WailsService implements OnDestroy {
     return PyramidizeService.DeleteAppPreset(sourceApp);
   }
 
-  getQualityThreshold(): Promise<number> {
-    try {
-      return PyramidizeService.GetQualityThreshold().catch(() => 0.65);
-    } catch {
-      return Promise.resolve(0.65);
-    }
-  }
-
-  setQualityThreshold(v: number): Promise<void> {
-    return PyramidizeService.SetQualityThreshold(v);
-  }
-
   ngOnDestroy(): void {
     this.unsubscribers.forEach(fn => fn());
     this.silentFixOpen.complete();

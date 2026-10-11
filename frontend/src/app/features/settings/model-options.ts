@@ -6,8 +6,8 @@ export type Feature = 'fix' | 'pyramidize';
 /**
  * One entry in a model picker.
  *
- * `label` is deliberately the model ID, not the display name: PrimeNG writes
- * optionLabel into the editable input and submits whatever stands there as the
+ * `label` is deliberately the model ID, not the display name: the editable
+ * kl-select (like PrimeNG's p-select before it) writes optionLabel into the input and submits whatever stands there as the
  * value, so a display name there would be saved as a model ID that no provider
  * knows. The readable name lives in `display` and is rendered by the option
  * template instead; `secondary` is the muted line under it — the ID a family
@@ -58,11 +58,25 @@ function aliasLabel(id: string): string {
 }
 
 /**
+ * A model's readable name: the provider's own label where its listing has the
+ * ID, the alias label otherwise ("Haiku (latest)"), or the ID as it is. For
+ * places that name the model in use, like the Fix page's "Sent to" chip.
+ */
+export function modelName(id: string, listed: ModelOption[]): string {
+  return listed.find(o => o.id === id)?.display ?? aliasLabel(id);
+}
+
+/** The model a feature runs on a provider: the stored choice, else KeyLint's default. */
+export function effectiveModel(provider: string, feature: Feature, stored: string | undefined): string {
+  return stored || DEFAULT_MODELS[provider]?.[feature] || '';
+}
+
+/**
  * The leading "KeyLint default" entry for one feature, naming what the default
  * is today.
  *
- * Its value is null, not "": PrimeNG shows the placeholder only while the value
- * is null, and the picker passes null for a stored "" — so the empty editable
+ * Its value is null, not "": the editable select shows the placeholder only
+ * while the value is null (p-select's rule, kept by kl-select), and the picker passes null for a stored "" — so the empty editable
  * field reads "Default: Haiku (latest)" in placeholder grey, and typing
  * still starts from nothing rather than being appended to a word. The entry is
  * also a real option, so the default can be chosen back from the list. The

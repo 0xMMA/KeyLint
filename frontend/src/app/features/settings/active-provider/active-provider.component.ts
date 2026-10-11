@@ -1,6 +1,6 @@
 import { Component, computed, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Select } from 'primeng/select';
+import { SelectComponent, TagComponent } from '../../../shared/ui';
 import { EFFORT_OPTIONS, Feature, ModelOption } from '../model-options';
 
 /** A model or effort the user picked, for the settings page to store. */
@@ -28,68 +28,68 @@ const FEATURES: readonly FeatureRow[] = [
  * all four providers' pickers at once was the clutter this replaces.
  *
  * The settings page owns the values and saves them with its Save button; this
- * only renders them and reports a change.
+ * only renders them and reports a change. A warning about the provider goes in
+ * with the `status` attribute and shows under the header.
+ *
+ * The header (the name and what it means) is the focus target of the General
+ * tab's pointer, hence `providers-summary`.
  */
 @Component({
   selector: 'app-active-provider',
   standalone: true,
-  imports: [FormsModule, Select],
+  imports: [FormsModule, SelectComponent, TagComponent],
   template: `
     <section class="in-use" data-testid="active-provider" aria-labelledby="in-use-heading">
-      <div class="in-use-header">
-        <h2 id="in-use-heading" class="in-use-name" data-testid="active-provider-name">{{ label() }}</h2>
-        <ng-content select="[status]" />
-        <span class="in-use-mark"><i class="pi pi-check" aria-hidden="true"></i> In use</span>
+      <div class="head">
+        <div class="summary" data-testid="providers-summary" tabindex="-1">
+          <h2 id="in-use-heading" class="name" data-testid="active-provider-name">{{ label() }}</h2>
+          <p class="lede">KeyLint sends your text here. Pyramidize can pick another provider for one session.</p>
+        </div>
+        <kl-tag severity="primary" icon="check">In use</kl-tag>
       </div>
 
+      <ng-content select="[status]" />
+
       @if (note(); as text) {
-        <p class="in-use-note" [attr.data-testid]="'models-note-' + providerId()">{{ text }}</p>
+        <p class="hint" [attr.data-testid]="'models-note-' + providerId()">{{ text }}</p>
       }
 
-      <div class="feature-grid" [class.with-effort]="showEffort()">
+      <div class="grid" [class.with-effort]="showEffort()">
+        <span class="col-label"></span>
+        <span class="col-label" id="in-use-model-label">Model</span>
+        @if (showEffort()) {
+          <span class="col-label" id="in-use-effort-label">Effort</span>
+        }
         @for (f of features; track f.key) {
-          <span class="feature-name" [id]="'feature-' + f.key">{{ f.name }}</span>
+          <span class="feature" [id]="'feature-' + f.key">{{ f.name }}</span>
 
-          <div class="feature-model">
-            <p-select
+          <div class="model">
+            <kl-select
               [attr.data-testid]="'model-' + f.key + '-' + providerId()"
-              [ariaLabelledBy]="'feature-' + f.key"
+              [ariaLabelledBy]="'feature-' + f.key + ' in-use-model-label'"
               [editable]="editable()"
               [options]="optionsFor(f.key)"
               optionLabel="label"
               optionValue="id"
-              styleClass="w-full"
+              optionDisplay="display"
+              optionDescription="secondary"
+              [optionTestId]="optionTestId"
               [placeholder]="optionsFor(f.key)[0]?.display ?? ''"
               [ngModel]="modelFor(f.key) || null"
               (ngModelChange)="modelChange.emit({ feature: f.key, value: $event ?? '' })"
-            >
-              <ng-template #item let-option>
-                <!-- PrimeNG's option row is a flex row; this column keeps the
-                     name and the ID on two lines instead of jammed together. -->
-                <span class="model-option" [attr.data-testid]="'model-option-' + (option.id || 'default')">
-                  <span class="model-option-name">{{ option.display }}</span>
-                  @if (option.secondary) {
-                    <span class="model-option-id">{{ option.secondary }}</span>
-                  }
-                </span>
-              </ng-template>
-              <ng-template #selectedItem let-option>
-                <span class="model-selected">{{ option?.display || option?.id }}</span>
-              </ng-template>
-            </p-select>
+            />
             @if (effective(f.key); as runs) {
-              <small class="model-effective" [attr.data-testid]="'model-effective-' + f.key">{{ runs }}</small>
+              <small class="effective" [attr.data-testid]="'model-effective-' + f.key">{{ runs }}</small>
             }
           </div>
 
           @if (showEffort()) {
-            <p-select
+            <kl-select
               [attr.data-testid]="'effort-' + f.key + '-' + providerId()"
               [ariaLabel]="f.name + ' effort'"
               [options]="effortOptions"
               optionLabel="label"
               optionValue="value"
-              styleClass="w-full"
               [ngModel]="effortFor(f.key)"
               (ngModelChange)="effortChange.emit({ feature: f.key, value: $event ?? '' })"
             />
@@ -97,117 +97,52 @@ const FEATURES: readonly FeatureRow[] = [
         }
       </div>
 
-      @if (fixFastNote()) {
-        <p class="in-use-hint" data-testid="fix-fast-note">
-          Fix asks {{ fixModelName() }} to answer without reasoning first, so the hotkey stays quick. An effort lets it reason, but on a long text Fix can then run out of room.
-        </p>
-      }
-      @if (showEffort() && effortNote(); as text) {
-        <p class="in-use-hint" data-testid="effort-note">{{ text }}</p>
+      @if (fixFastNote() || (showEffort() && effortNote())) {
+        <div class="notes">
+          @if (fixFastNote()) {
+            <p class="hint" data-testid="fix-fast-note">
+              Fix asks {{ fixModelName() }} to answer without reasoning first, so the hotkey stays quick. An effort lets it reason, but on a long text Fix can then run out of room.
+            </p>
+          }
+          @if (showEffort() && effortNote(); as text) {
+            <p class="hint" data-testid="effort-note">{{ text }}</p>
+          }
+        </div>
       }
     </section>
   `,
   styles: [`
     :host { display: block; }
-
-    /* The one block on the tab that is about now: a raised surface and the
-       accent rule set it apart from the connection cards below it. */
+    /* The one block on the tab that is about now: a sheet of its own, set
+       apart from the connections list below it. */
     .in-use {
-      background: var(--kl-sheet);
-      border: 1px solid var(--kl-line);
-      border-left: 3px solid var(--kl-primary);
-      border-radius: var(--kl-radius-md);
-      padding: 1rem 1.125rem 0.875rem;
-      margin-bottom: 1.75rem;
+      display: flex; flex-direction: column; gap: 20px; padding: 24px 28px;
+      background: var(--kl-sheet); border: 1px solid var(--kl-line); border-radius: var(--kl-radius-sheet);
     }
-    .in-use-header {
-      display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 0.625rem;
-      margin-bottom: 0.875rem;
-    }
-    .in-use-name {
-      margin: 0;
-      font-size: 1.15rem;
-      font-weight: 600;
-      letter-spacing: -0.005em;
-    }
-    .in-use-mark {
-      margin-left: auto;
-      color: var(--kl-primary-text);
-      font-size: 0.85rem;
-      font-weight: 500;
-      display: inline-flex;
-      align-items: center;
-      gap: 0.35rem;
-    }
+    .head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .summary { min-width: 0; border-radius: 4px; }
+    .summary:focus { outline: none; }
+    .summary:focus-visible { outline: 2px solid var(--kl-focus); outline-offset: 4px; }
+    .name { margin: 0; font-size: 18px; font-weight: 700; color: var(--kl-text-strong); }
+    .lede { margin: 4px 0 0; font-size: 14px; color: var(--kl-muted); }
+    .hint { margin: 0; font-size: 13px; line-height: 1.5; color: var(--kl-muted); max-width: 72ch; }
+    .notes { display: flex; flex-direction: column; gap: 6px; }
 
-    .feature-grid {
-      display: grid;
-      grid-template-columns: 6.5rem minmax(0, 1fr);
-      column-gap: 0.75rem;
-      row-gap: 0.75rem;
-      align-items: start;
-    }
-    .feature-grid.with-effort {
-      grid-template-columns: 6.5rem minmax(0, 1fr) 10.5rem;
-    }
-    .feature-name {
-      font-size: 0.9rem;
-      font-weight: 500;
-      /* Centred on the select's first line, not on the row with its note. */
-      line-height: 2.5rem;
-    }
-    .feature-model {
-      display: flex;
-      flex-direction: column;
-      gap: 0.25rem;
-      min-width: 0;
-    }
-    .model-effective {
-      font-size: 0.75rem;
-      color: var(--kl-muted);
-      overflow-wrap: anywhere;
-    }
-
-    .in-use-note,
-    .in-use-hint {
-      margin: 0 0 0.75rem;
-      font-size: 0.8rem;
-      color: var(--kl-muted);
-      max-width: 70ch;
-    }
-    .in-use-hint { margin: 0.75rem 0 0; }
-    .in-use-hint + .in-use-hint { margin-top: 0.35rem; }
+    .grid { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 14px 16px; align-items: start; }
+    .grid.with-effort { grid-template-columns: 110px minmax(0, 1fr) minmax(0, 200px); }
+    .col-label { font-size: 13px; font-weight: 500; color: var(--kl-muted); margin-bottom: -6px; }
+    /* Centred on the 40px select, not on the select with its note. */
+    .feature { font-size: 15px; font-weight: 600; line-height: 40px; }
+    .model { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .effective { font-size: 12px; color: var(--kl-muted); overflow-wrap: anywhere; padding-left: 2px; }
 
     /* Narrow window: the feature name goes above its pickers. */
-    @media (max-width: 560px) {
-      .feature-grid,
-      .feature-grid.with-effort {
-        grid-template-columns: minmax(0, 1fr) 8.5rem;
-      }
-      .feature-grid:not(.with-effort) { grid-template-columns: minmax(0, 1fr); }
-      .feature-name { grid-column: 1 / -1; line-height: 1.4; margin-bottom: -0.4rem; }
-    }
-
-    /* Declared in this template, so encapsulation reaches them inside the
-       select's overlay too. */
-    .model-option {
-      display: flex;
-      flex-direction: column;
-      gap: 0.1rem;
-      min-width: 0;
-    }
-    .model-option-id {
-      font-size: 0.75rem;
-      color: var(--kl-muted);
-    }
-    .model-selected {
-      display: block;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+    @media (max-width: 600px) {
+      .in-use { padding: 20px; }
+      .grid, .grid.with-effort { grid-template-columns: minmax(0, 1fr) 9rem; }
+      .grid:not(.with-effort) { grid-template-columns: minmax(0, 1fr); }
+      .col-label { display: none; }
+      .feature { grid-column: 1 / -1; line-height: 1.4; margin-bottom: -8px; }
     }
   `],
 })
@@ -236,6 +171,8 @@ export class ActiveProviderComponent {
 
   readonly features = FEATURES;
   readonly effortOptions = [...EFFORT_OPTIONS];
+  /** A test id per model option; KeyLint's default is "model-option-default". */
+  readonly optionTestId = (option: unknown): string => `model-option-${(option as ModelOption).id || 'default'}`;
 
   optionsFor(feature: Feature): ModelOption[] {
     return feature === 'fix' ? this.fixOptions() : this.pyramidizeOptions();

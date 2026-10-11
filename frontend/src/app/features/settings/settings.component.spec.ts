@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { ComponentFixture } from '@angular/core/testing';
-import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
+import { By } from '@angular/platform-browser';
 import { ActivatedRoute, convertToParamMap } from '@angular/router';
 import { SettingsComponent } from './settings.component';
+import { SettingsAboutComponent } from './settings-about/settings-about.component';
+import { AppPresetsComponent } from './app-presets/app-presets.component';
 import { WailsService, ClaudeCodeStatus, KeyStatus } from '../../core/wails.service';
 import { createWailsMock, defaultSettings, defaultKeyStatus, defaultUpdateInfo, defaultClaudeCodeStatus, defaultModelList } from '../../../testing/wails-mock';
 
@@ -15,29 +17,16 @@ function makeActivatedRoute(tab?: string): Partial<ActivatedRoute> {
   };
 }
 
-// PrimeNG's overlay asks matchMedia whether it should go modal, and jsdom has
-// no such function. Answering "no match" keeps the dropdown inline, which is
-// what a desktop window does anyway. Test-only: the app itself must never ask
-// matchMedia — see .claude/rules/architecture.md on dark mode.
-if (!window.matchMedia) {
-  window.matchMedia = ((query: string) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener() {},
-    removeListener() {},
-    addEventListener() {},
-    removeEventListener() {},
-    dispatchEvent: () => false,
-  })) as unknown as typeof window.matchMedia;
-}
+// kl-select's options open in the CDK overlay container on <body>, outside
+// the fixture; spec files share one document, so it is emptied after each test.
+afterEach(() => {
+  document.querySelector('.cdk-overlay-container')?.replaceChildren();
+});
 
-// PrimeNG TabList uses ResizeObserver which is not available in jsdom
-(globalThis as Record<string, unknown>)['ResizeObserver'] = class {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-};
+/** The About tab's component, which owns the update check and the developer options. */
+function aboutOf(fixture: ComponentFixture<SettingsComponent>): SettingsAboutComponent {
+  return fixture.debugElement.query(By.directive(SettingsAboutComponent)).componentInstance;
+}
 
 describe('SettingsComponent', () => {
   let fixture: ComponentFixture<SettingsComponent>;
@@ -53,7 +42,6 @@ describe('SettingsComponent', () => {
     await TestBed.configureTestingModule({
       imports: [SettingsComponent],
       providers: [
-        provideAnimationsAsync(),
         { provide: WailsService, useValue: wailsMock },
         { provide: ActivatedRoute, useValue: makeActivatedRoute() },
       ],
@@ -77,20 +65,22 @@ describe('SettingsComponent', () => {
   // --- DOM tests ---
 
   it('renders tab list after settings load', () => {
-    expect(el.querySelector('p-tablist')).toBeTruthy();
+    expect(el.querySelector('[role="tablist"]')).toBeTruthy();
+    expect(Array.from(el.querySelectorAll('[role="tab"]')).map(t => t.textContent?.trim()))
+      .toEqual(['General', 'AI providers', 'App defaults', 'About']);
   });
 
   it('log-level section contains select and hint text', () => {
     const section = el.querySelector('[data-testid="log-level-section"]');
     expect(section).toBeTruthy();
-    expect(section!.querySelector('p-select')).toBeTruthy();
+    expect(section!.querySelector('kl-select')).toBeTruthy();
     expect(section!.querySelector('small')).toBeTruthy();
   });
 
   it('sensitive-logging section contains both toggle and hint text', () => {
     const section = el.querySelector('[data-testid="sensitive-logging-section"]');
     expect(section).toBeTruthy();
-    expect(section!.querySelector('p-toggle-switch')).toBeTruthy();
+    expect(section!.querySelector('kl-switch [role="switch"]')).toBeTruthy();
     expect(section!.querySelector('small')).toBeTruthy();
   });
 
@@ -229,7 +219,6 @@ describe('SettingsComponent', () => {
           await TestBed.configureTestingModule({
             imports: [SettingsComponent],
             providers: [
-              provideAnimationsAsync(),
               { provide: WailsService, useValue: wailsMock },
               { provide: ActivatedRoute, useValue: makeActivatedRoute('about') },
             ],
@@ -261,46 +250,51 @@ describe('SettingsComponent', () => {
         latest_version: '3.7.0',
         notes: 'Bug fixes',
       });
-      await component.checkForUpdate();
-      expect(component.updateInfo?.is_available).toBe(true);
-      expect(component.updateInfo?.latest_version).toBe('3.7.0');
-      expect(component.updateError).toBe('');
+      const about = aboutOf(fixture);
+      await about.checkForUpdate();
+      expect(about.updateInfo?.is_available).toBe(true);
+      expect(about.updateInfo?.latest_version).toBe('3.7.0');
+      expect(about.updateError).toBe('');
     });
 
     it('checkForUpdate() sets updateError when check throws', async () => {
       wailsMock.checkForUpdate.mockRejectedValue(new Error('network error'));
-      await component.checkForUpdate();
-      expect(component.updateError).toContain('network error');
-      expect(component.updateInfo).toBeNull();
+      const about = aboutOf(fixture);
+      await about.checkForUpdate();
+      expect(about.updateError).toContain('network error');
+      expect(about.updateInfo).toBeNull();
     });
 
     it('update channel selector renders in About tab', async () => {
       // Click on the About tab to activate it.
-      const aboutTab = el.querySelector('p-tab[value="about"]') as HTMLElement;
-      aboutTab?.click();
+      const aboutTab = el.querySelector('[role="tab"][data-value="about"]') as HTMLElement;
+      aboutTab.click();
       fixture.detectChanges();
       await fixture.whenStable();
       fixture.detectChanges();
 
       const section = el.querySelector('[data-testid="update-channel-section"]');
       expect(section).toBeTruthy();
-      expect(section!.querySelector('p-select')).toBeTruthy();
+      expect(section!.querySelector('kl-select')).toBeTruthy();
+      expect(el.querySelector('[role="tabpanel"][data-active="true"]')!.contains(section)).toBe(true);
     });
 
     it('installUpdate() sets updateSuccess on success', async () => {
       wailsMock.downloadAndInstall.mockResolvedValue({ restart_required: false });
-      component.updateInfo = { ...defaultUpdateInfo, is_available: true, latest_version: '3.7.0' };
-      await component.installUpdate();
-      expect(component.updateSuccess).toBe(true);
+      const about = aboutOf(fixture);
+      about.updateInfo = { ...defaultUpdateInfo, is_available: true, latest_version: '3.7.0' };
+      await about.installUpdate();
+      expect(about.updateSuccess).toBe(true);
       expect(wailsMock.downloadAndInstall).toHaveBeenCalled();
     });
 
     it('installUpdate() shows restart message when restart_required is true', async () => {
       wailsMock.downloadAndInstall.mockResolvedValue({ restart_required: true });
-      component.updateInfo = { ...defaultUpdateInfo, is_available: true, latest_version: '3.7.0' };
-      await component.installUpdate();
-      expect(component.updateSuccess).toBe(true);
-      expect(component.updateRestartRequired).toBe(true);
+      const about = aboutOf(fixture);
+      about.updateInfo = { ...defaultUpdateInfo, is_available: true, latest_version: '3.7.0' };
+      await about.installUpdate();
+      expect(about.updateSuccess).toBe(true);
+      expect(about.updateRestartRequired).toBe(true);
     });
 
     describe('developer options', () => {
@@ -316,7 +310,6 @@ describe('SettingsComponent', () => {
         await TestBed.configureTestingModule({
           imports: [SettingsComponent],
           providers: [
-            provideAnimationsAsync(),
             { provide: WailsService, useValue: mock },
             { provide: ActivatedRoute, useValue: makeActivatedRoute('about') },
           ],
@@ -377,7 +370,7 @@ describe('SettingsComponent', () => {
         const { f, q, mock } = await renderAbout({ developerOptions: true });
         expect(q('dev-channel')).toBeTruthy();
 
-        (q('developer-options-toggle')?.querySelector('input') as HTMLInputElement).click();
+        (q('developer-options-toggle')?.querySelector('[role="switch"]') as HTMLButtonElement).click();
         await f.whenStable();
         f.detectChanges();
 
@@ -390,7 +383,7 @@ describe('SettingsComponent', () => {
         const { f, q, mock } = await renderAbout({ developerOptions: true });
         mock.setDeveloperOptions.mockRejectedValue(new Error('disk full'));
 
-        (q('developer-options-toggle')?.querySelector('input') as HTMLInputElement).click();
+        (q('developer-options-toggle')?.querySelector('[role="switch"]') as HTMLButtonElement).click();
         await f.whenStable();
         f.detectChanges();
         await f.whenStable();
@@ -401,8 +394,8 @@ describe('SettingsComponent', () => {
         f.detectChanges();
         expect(q('developer-options-error')?.textContent).toContain('disk full');
         expect(q('dev-channel')).toBeTruthy();
-        // What the switch draws: PrimeNG mirrors its state onto the host.
-        expect(q('developer-options-toggle')?.getAttribute('data-p-checked')).toBe('true');
+        // What the switch draws, not only what is saved.
+        expect(q('developer-options-toggle')?.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('true');
       });
 
       it('replace the normal update check with the dev channel in a dev build, even when off', async () => {
@@ -417,10 +410,11 @@ describe('SettingsComponent', () => {
 
     it('installUpdate() shows standard success when restart_required is false', async () => {
       wailsMock.downloadAndInstall.mockResolvedValue({ restart_required: false });
-      component.updateInfo = { ...defaultUpdateInfo, is_available: true, latest_version: '3.7.0' };
-      await component.installUpdate();
-      expect(component.updateSuccess).toBe(true);
-      expect(component.updateRestartRequired).toBe(false);
+      const about = aboutOf(fixture);
+      about.updateInfo = { ...defaultUpdateInfo, is_available: true, latest_version: '3.7.0' };
+      await about.installUpdate();
+      expect(about.updateSuccess).toBe(true);
+      expect(about.updateRestartRequired).toBe(false);
     });
   });
 });
@@ -440,7 +434,6 @@ describe('SettingsComponent — Claude Code provider card', () => {
     await TestBed.configureTestingModule({
       imports: [SettingsComponent],
       providers: [
-        provideAnimationsAsync(),
         { provide: WailsService, useValue: wailsMock },
         { provide: ActivatedRoute, useValue: makeActivatedRoute('providers') },
       ],
@@ -466,7 +459,7 @@ describe('SettingsComponent — Claude Code provider card', () => {
   it('reports a signed-in CLI with its path and version', async () => {
     await render({ installed: true, loggedIn: true, path: '/home/dev/.local/bin/claude', version: '2.1.274' });
 
-    expect(text('claude-code-status-tag')).toContain('signed in');
+    expect(text('claude-code-status-tag')).toBe('Signed in');
     expect(text('claude-code-detected')).toContain('/home/dev/.local/bin/claude');
     expect(text('claude-code-detected')).toContain('2.1.274');
     expect(el.querySelector('[data-testid="claude-code-signin-hint"]')).toBeNull();
@@ -475,7 +468,7 @@ describe('SettingsComponent — Claude Code provider card', () => {
   it('tells an installed but signed-out user what to do', async () => {
     await render({ installed: true, loggedIn: false, path: '/usr/local/bin/claude', version: '2.1.274' });
 
-    expect(text('claude-code-status-tag')).toContain('not signed in');
+    expect(text('claude-code-status-tag')).toBe('Not signed in');
     expect(text('claude-code-signin-hint')).toContain('run');
     expect(text('claude-code-signin-hint')).toContain('sign in');
     // The sign-in happens in the user's own terminal, never inside KeyLint.
@@ -485,8 +478,8 @@ describe('SettingsComponent — Claude Code provider card', () => {
   it('reports a machine without the CLI', async () => {
     await render({ installed: false });
 
-    expect(text('claude-code-status-tag')).toContain('not installed');
-    expect(text('claude-code-missing')).toContain('No Claude Code CLI found');
+    expect(text('claude-code-status-tag')).toBe('Not installed');
+    expect(text('claude-code-missing')).toContain('no Claude Code CLI found');
     expect(el.querySelector('[data-testid="claude-code-detected"]')).toBeNull();
   });
 
@@ -532,8 +525,7 @@ describe('SettingsComponent — Claude Code provider card', () => {
 
     // Through the DOM, so the template binding is covered too: passing force
     // from the component but not from the button would be invisible otherwise.
-    // The inner <button>: PrimeNG's (onClick) fires from there, not from the
-    // host element carrying the test id.
+    // The inner <button>, as a click lands on it in the app.
     const host = el.querySelector('[data-testid="claude-code-recheck"]')!;
     (host.querySelector('button') ?? (host as HTMLElement)).click();
     await fixture.whenStable();
@@ -543,7 +535,7 @@ describe('SettingsComponent — Claude Code provider card', () => {
 
   it('re-checks on demand, so signing in elsewhere is picked up', async () => {
     await render({ installed: true, loggedIn: false, path: '/usr/local/bin/claude' });
-    expect(text('claude-code-status-tag')).toContain('not signed in');
+    expect(text('claude-code-status-tag')).toBe('Not signed in');
 
     wailsMock.getClaudeCodeStatus.mockResolvedValue({
       ...defaultClaudeCodeStatus, installed: true, loggedIn: true, path: '/usr/local/bin/claude',
@@ -555,7 +547,7 @@ describe('SettingsComponent — Claude Code provider card', () => {
     await fixture.whenStable();
     fixture.detectChanges();
 
-    expect(text('claude-code-status-tag')).toContain('signed in');
+    expect(text('claude-code-status-tag')).toBe('Signed in');
   });
 
   it('runs detection itself rather than waiting to be asked', async () => {
@@ -608,7 +600,6 @@ describe('SettingsComponent — model selection', () => {
     await TestBed.configureTestingModule({
       imports: [SettingsComponent],
       providers: [
-        provideAnimationsAsync(),
         { provide: WailsService, useValue: wailsMock },
         { provide: ActivatedRoute, useValue: makeActivatedRoute('providers') },
       ],
@@ -628,16 +619,28 @@ describe('SettingsComponent — model selection', () => {
     TestBed.resetTestingModule();
   });
 
-  /** Opens a PrimeNG select so its options are in the DOM. */
+  /**
+   * Opens a select so its options are in the DOM: the trigger of a fixed
+   * list, the chevron of an editable one (its first button either way).
+   */
   function openDropdown(testid: string): void {
-    el.querySelector<HTMLElement>(`[data-testid="${testid}"]`)!.click();
+    el.querySelector<HTMLElement>(`[data-testid="${testid}"] button`)!.click();
     fixture.detectChanges();
   }
 
-  /** The option rows of whichever select is open. */
+  /** The option rows of whichever select is open, in the overlay on <body>. */
+  function options(): HTMLElement[] {
+    return Array.from(document.querySelectorAll<HTMLElement>('.cdk-overlay-container [role="option"]'));
+  }
+
+  /** Each open option's text, its name and its second line run together. */
   function optionTexts(): string[] {
-    return Array.from(document.querySelectorAll('.p-select-option'))
-      .map(o => o.textContent?.trim() ?? '');
+    return options().map(o => o.textContent?.replace(/\s+/g, ' ').trim() ?? '');
+  }
+
+  /** An option's first line: what it is called, without the line under it. */
+  function optionName(option: Element): string {
+    return option.firstElementChild?.textContent?.trim() ?? '';
   }
 
   function q(testid: string): HTMLElement | null {
@@ -652,11 +655,10 @@ describe('SettingsComponent — model selection', () => {
     fixture.detectChanges();
   }
 
-  /** Opens a select and picks the option with this text. */
-  function pick(testid: string, text: string): void {
+  /** Opens a select and picks the option with this name. */
+  function pick(testid: string, name: string): void {
     openDropdown(testid);
-    Array.from(document.querySelectorAll<HTMLElement>('.p-select-option'))
-      .find(o => o.textContent?.trim() === text)!.click();
+    options().find(o => optionName(o) === name)!.click();
     fixture.detectChanges();
   }
 
@@ -730,7 +732,6 @@ describe('SettingsComponent — model selection', () => {
     await TestBed.configureTestingModule({
       imports: [SettingsComponent],
       providers: [
-        provideAnimationsAsync(),
         { provide: WailsService, useValue: wailsMock },
         { provide: ActivatedRoute, useValue: makeActivatedRoute('providers') },
       ],
@@ -758,7 +759,7 @@ describe('SettingsComponent — model selection', () => {
   it('lets a model be typed for the API providers', async () => {
     await render('live', {}, 'openai');
 
-    // An editable PrimeNG select renders a text input; a closed one does not.
+    // An editable select renders a text input; a fixed list does not.
     expect(q('model-fix-openai')!.querySelector('input')).not.toBeNull();
   });
 
@@ -772,7 +773,7 @@ describe('SettingsComponent — model selection', () => {
   it('offers KeyLint\'s default as a selectable entry that says what it is today', async () => {
     await render('live', {}, 'claude');
 
-    // PrimeNG only renders a placeholder while the value is null, and this
+    // The picker shows its placeholder only while the value is null, and this
     // component writes "" — so the default has to be a real option to be
     // reachable at all. It names the alias it stands for and, where the
     // listing says, the model that alias is today.
@@ -795,7 +796,7 @@ describe('SettingsComponent — model selection', () => {
   it('turns choosing the default back from the list into an empty setting', async () => {
     await render('live', { claude: { pyramidize: 'claude-sonnet-4-6' } }, 'claude');
 
-    pick('model-pyramidize-claude', 'Default: Sonnet (latest)claude-sonnet-5-5');
+    pick('model-pyramidize-claude', 'Default: Sonnet (latest)');
 
     expect(component.modelFor('claude', 'pyramidize')).toBe('');
     expect(component.settings!.models!['claude']?.pyramidize).toBe('');
@@ -821,13 +822,13 @@ describe('SettingsComponent — model selection', () => {
     // Anthropic is the provider whose display names differ from its IDs.
     await render('live', { claude: { fix: 'claude-sonnet-4-6' } }, 'claude');
 
-    // PrimeNG writes optionLabel into this field and submits whatever stands
+    // The picker writes optionLabel into this field and submits whatever stands
     // there as the value — so "Sonnet 4.6" here would persist as a model ID no
     // provider knows.
     expect(q('model-fix-claude')!.querySelector<HTMLInputElement>('input')?.value).toBe('claude-sonnet-4-6');
   });
 
-  // The bug: PrimeNG's option row is a flex row, so name and ID sat side by
+  // The old bug: the option row was a flex row, so name and ID sat side by
   // side with nothing between them ("Sonnet 4.6claude-sonnet-4-6").
   it('puts the readable name and the ID on separate lines in the dropdown', async () => {
     await render('live', {}, 'claude');
@@ -835,24 +836,23 @@ describe('SettingsComponent — model selection', () => {
     openDropdown('model-fix-claude');
     const option = document.querySelector('[data-testid="model-option-claude-sonnet-4-6"]')!;
     expect(option).not.toBeNull();
-    const name = option.querySelector('.model-option-name')!;
-    const id = option.querySelector('.model-option-id')!;
-    expect(name.textContent).toBe('Sonnet 4.6');
-    expect(id.textContent).toBe('claude-sonnet-4-6');
-    // One wrapper holds both, so the row's flex layout sees a single child;
-    // the wrapper itself stacks them.
-    expect(option.parentElement!.children.length).toBe(1);
+    expect(option.getAttribute('role')).toBe('option');
+    // Two lines: the name, then the ID, stacked.
+    expect(option.children.length).toBe(2);
+    expect(optionName(option)).toBe('Sonnet 4.6');
+    expect(option.children[1].textContent?.trim()).toBe('claude-sonnet-4-6');
     expect(getComputedStyle(option).flexDirection).toBe('column');
 
     const alias = document.querySelector('[data-testid="model-option-sonnet"]')!;
-    expect(alias.querySelector('.model-option-name')!.textContent).toBe('Sonnet (latest)');
-    expect(alias.querySelector('.model-option-id')!.textContent).toBe('claude-sonnet-5-5');
+    expect(optionName(alias)).toBe('Sonnet (latest)');
+    expect(alias.children[1].textContent?.trim()).toBe('claude-sonnet-5-5');
+    expect(document.querySelector('[data-testid="model-option-default"]')).not.toBeNull();
   });
 
   it('shows the readable name alone for a choice in the CLI picker', async () => {
     await render('fixed', { 'claude-code': { fix: 'sonnet' } }, 'claude-code');
 
-    const shown = q('model-fix-claude-code')!.querySelector('.model-selected')?.textContent?.trim();
+    const shown = q('model-fix-claude-code')!.querySelector('[role="combobox"]')?.textContent?.trim();
     expect(shown).toBe('Sonnet (latest)');
   });
 
@@ -1043,7 +1043,6 @@ describe('SettingsComponent — which provider is in use', () => {
     await TestBed.configureTestingModule({
       imports: [SettingsComponent],
       providers: [
-        provideAnimationsAsync(),
         { provide: WailsService, useValue: wailsMock },
         { provide: ActivatedRoute, useValue: makeActivatedRoute(setup.tab ?? 'providers') },
       ],
@@ -1156,7 +1155,7 @@ describe('SettingsComponent — which provider is in use', () => {
     q('provider-use-claude')!.querySelector('button')!.click();
     fixture.detectChanges();
 
-    expect(q('provider-use-claude')!.querySelector('.p-button-loading')).not.toBeNull();
+    expect(q('provider-use-claude')!.querySelector('button[aria-busy="true"]')).not.toBeNull();
     expect(inUse()).toEqual(['claude-code']);
     finish();
     await settle();
@@ -1233,16 +1232,19 @@ describe('SettingsComponent — which provider is in use', () => {
   it('keeps warnings to the card in use', async () => {
     await render({ active: 'claude-code', cli: { installed: true, loggedIn: true } });
 
-    expect(q('key-status-openai')!.textContent).toContain('no key');
+    expect(q('key-status-openai')!.textContent).toBe('No key yet');
     expect(q('provider-not-ready-openai')).toBeNull();
   });
 
   it('says when an environment variable supplies the key, and which one', async () => {
     await render({ active: 'claude', keys: { claude: 'env' } });
 
-    expect(q('key-status-claude')!.textContent).toContain('env var');
+    expect(q('key-status-claude')!.textContent).toContain('Key from the environment');
     expect(q('key-env-hint-claude')!.textContent).toContain('ANTHROPIC_API_KEY');
-    expect(q('provider-card-claude')!.textContent).not.toContain('Set Key');
+    // Positive first: the row is there, it only offers no key editing.
+    expect(q('key-status-claude')).not.toBeNull();
+    expect(q('key-edit-claude')).toBeNull();
+    expect(q('key-clear-claude')).toBeNull();
     expect(q('provider-not-ready-claude')).toBeNull();
   });
 
@@ -1448,7 +1450,7 @@ describe('SettingsComponent — which provider is in use', () => {
     await clickUse('openai');
 
     expect(wailsMock.getKeyStatus).toHaveBeenCalledWith('openai');
-    expect(q('key-status-openai')!.textContent).toContain('key set');
+    expect(q('key-status-openai')!.textContent).toContain('Key saved');
     expect(q('provider-not-ready-openai')).toBeNull();
   });
 
@@ -1469,9 +1471,10 @@ describe('SettingsComponent — which provider is in use', () => {
     await render({ active: 'claude-code', ...BOTH });
     const added = { sourceApp: 'Outlook', documentType: 'email' };
     wailsMock.getAppPresets.mockResolvedValue([added]);
-    fixture.componentInstance.startAddPreset();
-    fixture.componentInstance.addPresetDraft = { ...added };
-    await fixture.componentInstance.saveAddPreset();
+    const presets: AppPresetsComponent = fixture.debugElement.query(By.directive(AppPresetsComponent)).componentInstance;
+    presets.startAdd();
+    presets.addDraft = { ...added };
+    await presets.saveAdd();
 
     await fixture.componentInstance.save();
 
@@ -1505,7 +1508,7 @@ describe('SettingsComponent — which provider is in use', () => {
 
     it('opens the AI Providers tab from the pointer', async () => {
       await render({ active: 'claude-code', tab: 'general', ...BOTH });
-      const providersPanel = () => el.querySelector<HTMLElement>('p-tabpanel[data-p-active="true"]');
+      const providersPanel = () => el.querySelector<HTMLElement>('[role="tabpanel"][data-active="true"]');
       expect(providersPanel()!.contains(q('provider-pointer'))).toBe(true);
 
       q('provider-pointer-link')!.click();
@@ -1521,7 +1524,7 @@ describe('SettingsComponent — which provider is in use', () => {
     // the pointer setting it to "providers" again would change nothing.
     it('opens AI Providers from the pointer after a deep link and a tab click', async () => {
       await render({ active: 'claude-code', tab: 'providers', ...BOTH });
-      const activePanel = () => el.querySelector<HTMLElement>('p-tabpanel[data-p-active="true"]');
+      const activePanel = () => el.querySelector<HTMLElement>('[role="tabpanel"][data-active="true"]');
       const generalTab = Array.from(el.querySelectorAll<HTMLElement>('[role="tab"]'))
         .find(t => t.textContent?.trim() === 'General')!;
 
@@ -1577,7 +1580,6 @@ describe('SettingsComponent — AWS Bedrock is not offered yet', () => {
     await TestBed.configureTestingModule({
       imports: [SettingsComponent],
       providers: [
-        provideAnimationsAsync(),
         { provide: WailsService, useValue: wailsMock },
         { provide: ActivatedRoute, useValue: makeActivatedRoute(tab) },
       ],
@@ -1682,7 +1684,6 @@ describe('SettingsComponent — theme', () => {
     await TestBed.configureTestingModule({
       imports: [SettingsComponent],
       providers: [
-        provideAnimationsAsync(),
         { provide: WailsService, useValue: wailsMock },
         { provide: ActivatedRoute, useValue: makeActivatedRoute() },
       ],
@@ -1702,7 +1703,7 @@ describe('SettingsComponent — theme', () => {
     await render('dark');
 
     const labels = Array.from(el.querySelectorAll('label')).map(l => l.textContent?.trim());
-    expect(labels).toContain('Start on Boot');
+    expect(labels).toContain('Start on boot');
     expect(labels).not.toContain('Theme');
   });
 

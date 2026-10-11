@@ -4,29 +4,12 @@ import { By } from '@angular/platform-browser';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router, ActivatedRoute } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { ShellComponent } from './shell.component';
 import { SettingsComponent } from '../features/settings/settings.component';
 import { FixComponent } from '../features/fix/fix.component';
 import { WailsService, type SilentFixNotice } from '../core/wails.service';
 import { createWailsMock } from '../../testing/wails-mock';
 import { SilentFixNoticeService } from '../features/fix/silent-fix-notice.service';
-
-// jsdom gaps that PrimeNG reaches for (the Settings tabs). Set here, not
-// borrowed from another file: see .claude/rules/testing.md.
-(globalThis as Record<string, unknown>)['ResizeObserver'] = class {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-};
-if (!window.matchMedia) {
-  window.matchMedia = ((query: string) => ({
-    matches: false, media: query, onchange: null,
-    addListener() {}, removeListener() {},
-    addEventListener() {}, removeEventListener() {},
-    dispatchEvent: () => false,
-  })) as unknown as typeof window.matchMedia;
-}
 
 // A click on a hotkey-fix notification, through the real shell and router:
 // what the user sees is the page that can fix the problem, already showing it.
@@ -39,7 +22,6 @@ describe('ShellComponent — a clicked hotkey-fix notification', () => {
     await TestBed.configureTestingModule({
       imports: [ShellComponent],
       providers: [
-        provideAnimationsAsync(),
         provideRouter([
           {
             path: '',
@@ -86,7 +68,7 @@ describe('ShellComponent — a clicked hotkey-fix notification', () => {
     wailsMock._silentFixOpen$.next(notice({ body: 'No API key for Anthropic.', target: 'providers' }));
     await settle(harness);
 
-    expect(selectedTab(el)).toBe('AI Providers');
+    expect(selectedTab(el)).toBe('AI providers');
     expect(el.querySelector('[data-testid="silent-fix-note"]')?.textContent?.trim())
       .toBe("Fix didn't run: No API key for Anthropic.");
   });
@@ -111,7 +93,7 @@ describe('ShellComponent — a clicked hotkey-fix notification', () => {
 
     wailsMock._silentFixOpen$.next(notice({ id: 'silentfix-2', body: "Claude Code CLI isn't signed in.", target: 'providers' }));
     await settle(harness);
-    expect(selectedTab(el)).toBe('AI Providers');
+    expect(selectedTab(el)).toBe('AI providers');
   });
 
   it('lets the user dismiss the note', async () => {
@@ -195,7 +177,10 @@ describe('ShellComponent — a clicked hotkey-fix notification', () => {
     const el: HTMLElement = harness.fixture.nativeElement;
     expect(el.querySelectorAll('[data-testid="silent-fix-notice"]')).toHaveLength(1);
     expect(el.querySelector('[data-testid="silent-fix-notice-body"]')?.textContent).toContain('You switched windows');
-    expect(el.querySelector<HTMLTextAreaElement>('[data-testid="fix-output"]')?.value).toBe("They're going home.");
+    // The result shows the fix's marks; without the struck-out words it reads as the result.
+    const output = el.querySelector('[data-testid="fix-output"]')!.cloneNode(true) as HTMLElement;
+    output.querySelectorAll('del').forEach(n => n.remove());
+    expect(output.textContent).toBe("They're going home.");
   });
 });
 
@@ -221,7 +206,6 @@ describe('ShellComponent — a key or sign-in notification from another page', (
     await TestBed.configureTestingModule({
       imports: [ShellComponent],
       providers: [
-        provideAnimationsAsync(),
         provideRouter([
           {
             path: '',

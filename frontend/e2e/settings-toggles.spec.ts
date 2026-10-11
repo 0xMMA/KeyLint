@@ -14,14 +14,14 @@ test.describe('Settings — toggle switches', () => {
   test('every toggle switch keeps its full width beside a long hint', async ({ page }) => {
     await page.goto('/settings');
     await page.waitForLoadState('networkidle');
-    await expect(page.locator('[data-testid="sensitive-logging-section"] .p-toggleswitch')).toBeVisible();
+    await expect(page.getByTestId('sensitive-logging-section').getByRole('switch')).toBeVisible();
 
-    const widths = await page.locator('.toggle-row .p-toggleswitch').evaluateAll((els) =>
+    const widths = await page.locator('[role="tabpanel"][data-active="true"]').getByRole('switch').evaluateAll((els) =>
       els.map((el) => el.getBoundingClientRect().width),
     );
     console.log(`toggle widths: ${widths.join(', ')}`);
     expect(widths.length, 'no toggle rows found').toBeGreaterThanOrEqual(2);
-    // Aura's switch is 2.5rem wide.
+    // kl-switch's track is 40px wide.
     for (const w of widths) expect(w).toBe(40);
   });
 });

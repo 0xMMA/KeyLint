@@ -249,3 +249,28 @@ func TestV1IsStillThePipelineVariant(t *testing.T) {
 		}
 	}
 }
+
+// TestASavedThresholdNoLongerSteersRefine: the threshold control is gone from
+// the UI (owner decision 2026-10-11, ADR-002 §5), but beta users may still have
+// a value in settings.json that they can no longer see or change. The pipeline
+// uses the default whatever is stored, so a hidden 0.9 cannot buy extra refine
+// calls and a hidden 0.05 cannot switch refinement off.
+func TestASavedThresholdNoLongerSteersRefine(t *testing.T) {
+	cfg := settings.Default()
+	cfg.PyramidizeQualityThreshold = 0.05 // below replyWithSelfQA's 0.1
+	counter := &countingClient{reply: replyWithSelfQA}
+	settingsSvc := settings.NewServiceFrom(cfg, func(string) string { return "key" })
+	svc := NewService(settingsSvc, nil)
+	svc.newClient = func(string, llm.Config) (llm.Client, error) { return counter, nil }
+
+	result, err := svc.Pyramidize(PyramidizeRequest{
+		Text: "some draft", DocumentType: "email", PromptVariant: 1, Provider: "claude",
+	})
+	if err != nil {
+		t.Fatalf("Pyramidize: %v", err)
+	}
+	if !result.AppliedRefinement || counter.calls != 2 {
+		t.Errorf("calls = %d, refined = %v: a stored 0.05 still switched refinement off, "+
+			"want the default %.2f to apply", counter.calls, result.AppliedRefinement, settings.DefaultQualityThreshold)
+	}
+}

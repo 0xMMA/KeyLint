@@ -1,50 +1,81 @@
 /**
- * KeyLint's token layer and Tailwind, next to PrimeNG 21 (roadmap E11).
+ * KeyLint's token layer, fonts and Tailwind setup (roadmap E11).
  *
- * App code colours itself from --kl-* tokens (src/theme.css) while PrimeNG
- * still renders most controls from its own --p-* tokens. Until the new look
- * lands, the two must agree, or KeyLint's own blocks drift away from the
- * PrimeNG controls next to them. When the design.md palette is switched on,
- * the first test is meant to fail: replace it then, don't loosen it.
+ * The first test pins the palette to docs/ui/design.md: if a token moves, the
+ * design moved, and that should be a decision rather than a side effect.
  *
- * The second test guards the layering. PrimeNG injects its theme unlayered
- * and Tailwind's utilities live in @layer utilities, so a utility loses to
- * any PrimeNG rule that sets the same property on the same element. The
- * utilities below sit on PrimeNG hosts (styleClass); if one stops applying,
- * a PrimeNG update has started setting that property, and the class needs
- * the important modifier (see the comment in theme.css).
+ * The second checks that the bundled fonts load and that nothing — no font,
+ * no icon set, no stylesheet — is fetched from the network at runtime.
+ *
+ * The third guards the layering. Tailwind's utilities live in @layer
+ * utilities and every component style is unlayered, so a utility loses to any
+ * component rule that sets the same property on the same element (see the
+ * comment in theme.css). The utilities below sit on KeyLint components'
+ * hosts; if one stops applying, a component rule has started setting that
+ * property.
+ *
+ * The fourth checks Tailwind's preflight reset and the two UA defaults
+ * KeyLint puts back on top of it (theme.css).
+ *
+ * The last makes sure PrimeNG stays gone: it was removed in E11 phase D, and
+ * its token names, class names and icon font must not creep back in.
  */
 import { test, expect, Page } from '@playwright/test';
 import { installFakeBackend, fakeState, ANTHROPIC_MODELS } from './support/fake-backend';
 
-/** Each KeyLint token next to the PrimeNG token it mirrors today. */
-const MIRRORS: Array<[string, string]> = [
-  ['--kl-text', '--p-text-color'],
-  ['--kl-muted', '--p-text-muted-color'],
-  ['--kl-primary', '--p-primary-color'],
-  ['--kl-primary-text', '--p-primary-color'],
-  ['--kl-line', '--p-content-border-color'],
-  ['--kl-hover', '--p-content-hover-background'],
-  ['--kl-sheet', '--p-content-hover-background'],
-  ['--kl-highlight', '--p-highlight-background'],
-  ['--kl-error', '--p-red-400'],
-  ['--kl-warn', '--p-amber-400'],
-  ['--kl-radius-md', '--p-border-radius-md'],
-  ...['0', '50', '100', '200', '300', '400', '500', '600', '700', '800', '900', '950']
-    .map((n): [string, string] => [`--kl-surface-${n}`, `--p-surface-${n}`]),
+/** design.md's table, as theme.css names it. */
+const DESIGN: Array<[string, string]> = [
+  ['--kl-rail', '#18181b'],
+  ['--kl-ground', '#1f1f23'],
+  ['--kl-sheet', '#27272a'],
+  ['--kl-sheet-alt', '#2b2b30'],
+  ['--kl-line', '#36363c'],
+  ['--kl-line-control', '#3f3f46'],
+  ['--kl-text', '#f4f4f5'],
+  ['--kl-muted', '#a1a1aa'],
+  ['--kl-primary', '#f97316'],
+  ['--kl-primary-text', '#fdba74'],
+  ['--kl-link', '#fb923c'],
+  ['--kl-focus', '#fb923c'],
+  ['--kl-on-primary', '#1c1209'],
+  ['--kl-info', '#60a5fa'],
+  ['--kl-success', '#2dd4bf'],
+  ['--kl-warn', '#fbbf24'],
+  ['--kl-error', '#f87171'],
+  ['--kl-radius-md', '6px'],
+  ['--kl-radius-lg', '8px'],
+  ['--kl-radius-sheet', '10px'],
 ];
 
-/** What a token computes to as a colour and as a radius, so #fff and rgb(255,255,255) compare equal. */
-async function resolve(page: Page, token: string): Promise<string> {
-  return page.evaluate((t) => {
+/**
+ * Roles theme.css adds on top of design.md's table, each for a colour a
+ * component used to take from the zinc scale or a literal (`white`). Same
+ * values as before, so the pixels did not move; the role is what a light
+ * theme redefines.
+ */
+const ROLES: Array<[string, string]> = [
+  ['--kl-text-sheet', '#e4e4e7'],
+  ['--kl-text-control', '#e4e4e7'],
+  ['--kl-tone-text-mix', '#ffffff'],
+  ['--kl-scrim', 'color-mix(in srgb, #09090b, transparent 35%)'],
+];
+
+/** What a token or literal computes to as a colour and as a radius, so #fff and rgb(255,255,255) compare equal. */
+async function resolve(page: Page, value: string): Promise<string> {
+  return page.evaluate((v) => {
+    const css = v.startsWith('--') ? `var(${v})` : v;
     const probe = document.createElement('div');
-    probe.style.cssText = `color: var(${t}); border-top-left-radius: var(${t});`;
+    probe.style.cssText = `color: ${css}; border-top-left-radius: ${css};`;
     document.body.appendChild(probe);
     const cs = getComputedStyle(probe);
-    const value = `${cs.color} / ${cs.borderTopLeftRadius}`;
+    const out = `${cs.color} / ${cs.borderTopLeftRadius}`;
     probe.remove();
-    return value;
-  }, token);
+    return out;
+  }, value);
+}
+
+async function defined(page: Page, token: string): Promise<string> {
+  return page.evaluate((t) => getComputedStyle(document.documentElement).getPropertyValue(t).trim(), token);
 }
 
 async function configured(page: Page): Promise<void> {
@@ -56,39 +87,65 @@ async function configured(page: Page): Promise<void> {
   }));
 }
 
-test.describe('UI tokens and Tailwind next to PrimeNG', () => {
-  test('every KeyLint token resolves to what PrimeNG renders today', async ({ page }) => {
+test.describe('UI tokens, fonts and Tailwind', () => {
+  test('every KeyLint token has its design.md value', async ({ page }) => {
     await configured(page);
-    await page.goto('/settings');
-    await expect(page.getByTestId('save-btn')).toBeVisible();
+    await page.goto('/fix');
+    await expect(page.getByTestId('fix-btn')).toBeVisible();
 
-    for (const [kl, p] of MIRRORS) {
-      const defined = await page.evaluate((t) => getComputedStyle(document.documentElement).getPropertyValue(t).trim(), kl);
-      expect(defined, `${kl} is not defined`).not.toBe('');
-      // Both sides: an undefined --p-* would make the probe inherit, and the
-      // comparison could then pass for the wrong reason.
-      const mirrored = await page.evaluate((t) => getComputedStyle(document.documentElement).getPropertyValue(t).trim(), p);
-      expect(mirrored, `${p} is not defined`).not.toBe('');
-      expect(await resolve(page, kl), `${kl} vs ${p}`).toBe(await resolve(page, p));
+    for (const [token, value] of [...DESIGN, ...ROLES]) {
+      expect(await defined(page, token), `${token} is not defined`).not.toBe('');
+      expect(await resolve(page, token), token).toBe(await resolve(page, value));
     }
-    // The page itself sits on the ground token.
-    expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(9, 9, 11)');
+    // Native controls (radios, scrollbars) draw their dark variants.
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe('dark');
+    // The page itself sits on the ground token, the rail on its own.
+    expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(31, 31, 35)');
+    expect(await page.locator('.layout-sidebar').evaluate((el) => getComputedStyle(el).backgroundColor))
+      .toBe('rgb(24, 24, 27)');
+    // And the paint: a primary button is orange with dark text on it.
+    await page.goto('/settings');
+    const save = page.getByTestId('save-btn').getByRole('button');
+    await expect(save).toBeVisible();
+    expect(await save.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgb(249, 115, 22)');
+    expect(await save.evaluate((el) => getComputedStyle(el).color)).toBe('rgb(28, 18, 9)');
   });
 
-  test('Tailwind utilities apply on elements PrimeNG styles', async ({ page }) => {
+  test('the bundled fonts load and are used', async ({ page }) => {
+    const external: string[] = [];
+    page.on('request', (r) => {
+      const url = new URL(r.url());
+      if (url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') external.push(r.url());
+    });
+    await configured(page);
+    await page.goto('/fix');
+    await expect(page.getByTestId('fix-btn')).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
+    // check() is also true for a family with no @font-face at all, so ask the
+    // face itself whether it loaded.
+    const loaded = await page.evaluate(() =>
+      Array.from(document.fonts).filter((f) => f.status === 'loaded').map((f) => f.family.replace(/"/g, '')));
+    expect(loaded).toContain('Schibsted Grotesk');
+    expect(loaded).toContain('Literata');
+    expect(await page.evaluate(() => getComputedStyle(document.body).fontFamily)).toContain('Schibsted Grotesk');
+    expect(await page.getByTestId('fix-input').evaluate((el) => getComputedStyle(el).fontFamily)).toContain('Literata');
+    // Only KeyLint's two families are bundled; icons are inline SVG, not a font.
+    expect([...new Set(loaded)].sort()).toEqual(['Literata', 'Schibsted Grotesk']);
+    expect(external, 'no request leaves the machine').toEqual([]);
+  });
+
+  test('Tailwind utilities apply on KeyLint components', async ({ page }) => {
     await configured(page);
     await page.goto('/settings?tab=providers');
     await expect(page.getByTestId('model-fix-claude')).toBeVisible();
-    // (The w-full on the model and effort p-selects is not asserted: their
-    // grid cell stretches them to the same width with or without it.)
 
-    // mt-4 on a p-message host.
+    // mt-4 on a kl-message host.
     await page.getByTestId('save-btn').getByRole('button').click();
     const banner = page.getByTestId('saved-banner');
     await expect(banner).toBeVisible();
     expect(await banner.evaluate((el) => getComputedStyle(el).marginTop)).toBe('16px');
 
-    // flex + gap-4 + mt-6 on KeyLint's own button row, for completeness.
+    // flex + gap-4 + mt-6 on a button row.
     await page.getByTestId('reset-btn').getByRole('button').click();
     const row = page.getByTestId('reset-confirm-btn').locator('xpath=..');
     expect(await row.evaluate((el) => {
@@ -96,5 +153,47 @@ test.describe('UI tokens and Tailwind next to PrimeNG', () => {
       return `${cs.display} ${cs.columnGap}`;
     })).toBe('flex 16px');
     expect(await page.getByTestId('reset-confirm').evaluate((el) => getComputedStyle(el).marginTop)).toBe('24px');
+  });
+
+  test('the preflight base, and what KeyLint puts back on it', async ({ page }) => {
+    await configured(page);
+    await page.goto('/dev-tools');
+    const link = page.getByTestId('ui-gallery-link');
+    await expect(link).toBeVisible();
+    const base = await link.evaluate((a) => {
+      const btn = document.querySelector('button')!;
+      return {
+        // Preflight: border-box everywhere, controls take the page font.
+        boxSizing: getComputedStyle(a).boxSizing,
+        afterBoxSizing: getComputedStyle(a, '::after').boxSizing,
+        buttonFont: getComputedStyle(btn).fontFamily,
+        bodyFont: getComputedStyle(document.body).fontFamily,
+        // Put back: links stay underlined.
+        underline: getComputedStyle(a).textDecorationLine,
+      };
+    });
+    expect(base.boxSizing).toBe('border-box');
+    expect(base.afterBoxSizing).toBe('border-box');
+    expect(base.buttonFont).toBe(base.bodyFont);
+    expect(base.underline).toBe('underline');
+  });
+
+  test('no PrimeNG token, class or icon font is left on any screen', async ({ page }) => {
+    await configured(page);
+    for (const url of ['/fix', '/enhance', '/settings', '/settings?tab=providers', '/settings?tab=about', '/dev-tools/ui']) {
+      await page.goto(url);
+      await page.waitForLoadState('networkidle');
+      const found = await page.evaluate(() => ({
+        tokens: Array.from(getComputedStyle(document.documentElement)).filter((n) => n.startsWith('--p-')),
+        classes: Array.from(document.querySelectorAll('[class]'))
+          .flatMap((el) => Array.from(el.classList))
+          .filter((c) => /^(p-|pi$|pi-)/.test(c)),
+        tags: Array.from(document.querySelectorAll('*'))
+          .map((el) => el.tagName.toLowerCase())
+          .filter((t) => t.startsWith('p-')),
+        fonts: Array.from(document.fonts).map((f) => f.family.replace(/"/g, '')).filter((f) => /prime/i.test(f)),
+      }));
+      expect(found, url).toEqual({ tokens: [], classes: [], tags: [], fonts: [] });
+    }
   });
 });
