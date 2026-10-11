@@ -4,17 +4,28 @@ set -euo pipefail
 # Automated evaluation runner for pyramidize quality.
 # Wraps `go test -tags eval` and prints a summary.
 #
+# By default the pipeline AND the two judges (Haiku 5.5 and Sonnet 5.5, each
+# reported separately) run through the installed Claude Code CLI (provider
+# claude-code) on the signed-in subscription: no API key is read, and none is
+# needed. --provider claude (and EVAL_JUDGE_PROVIDER=claude for the judges)
+# measure against the API instead, with ANTHROPIC_API_KEY from .env.
+#
 # Usage:
 #   ./scripts/eval.sh                          # one run of the pyramidize suite
 #   ./scripts/eval.sh --suite fix --runs 3     # the silent grammar fix instead
 #   ./scripts/eval.sh --suite fix --split tune --runs 3   # the 10 tuning samples
 #   ./scripts/eval.sh --suite fix --split holdout --runs 3  # the 5 held back, once
-#   EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 ./scripts/eval.sh
+#   ./scripts/eval.sh --provider claude --model claude-sonnet-4-6   # the API, needs a key
+#   EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --provider claude  # API judges too
+#   EVAL_JUDGES=claude-haiku-5-5,claude-sonnet-5-5,claude-sonnet-4-5-20250929 ./scripts/eval.sh --runs 3
+#                                              # bridge run: the old judge as a third
 #   ./scripts/eval.sh --provider openai --model gpt-4o
 #   ./scripts/eval.sh --variant 1              # run with prompt variant v1
 #   ./scripts/eval.sh --schema                 # enforce the JSON schemas (off by default, see schemas.go)
 #   ./scripts/eval.sh --runs 3                 # run n times and write an aggregate baseline.json
 #   ./scripts/eval.sh --runs 3 --compare path/to/baseline.json
+#   ./scripts/eval.sh --dry-run                # print the resolved configuration, run nothing, ask the CLI nothing
+#   ./scripts/eval.sh --preflight              # the same plus the CLI sign-in check
 #
 # --compare wants --runs on both sides. A single run has no range, so it gets an
 # "indicative only" answer rather than a verdict: believing a one-run delta is
@@ -26,16 +37,7 @@ set -euo pipefail
 # a spread, and the spread is what makes a later comparison mean anything.
 
 cd "$(git rev-parse --show-toplevel)"
-
-# Load credentials from .env, and only credentials. Sourcing the whole file
-# would let it set EVAL_PROVIDER or EVAL_MODEL behind the flags parsed below —
-# the same trap the Go side had, in the opposite direction.
-if [[ -f .env ]]; then
-    while IFS='=' read -r key value; do
-        [[ "$key" == *_API_KEY ]] || continue
-        export "$key=${value%$'\r'}"
-    done < <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .env)
-fi
+command -v jq >/dev/null || { echo "jq is required" >&2; exit 3; }
 
 RUNS=1
 COMPARE=""
@@ -49,6 +51,8 @@ SUITE=pyramidize
 VARIANT_SET=0
 SCHEMA_SET=0
 SPLIT_SET=0
+DRY_RUN=0
+PREFLIGHT=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -60,9 +64,95 @@ while [[ $# -gt 0 ]]; do
         --suite)    SUITE="$2"; shift 2 ;;
         --split)    export EVAL_SPLIT="$2"; SPLIT_SET=1; shift 2 ;;
         --compare)  COMPARE="$2"; shift 2 ;;
+        --dry-run)  DRY_RUN=1; shift ;;
+        --preflight) DRY_RUN=1; PREFLIGHT=1; shift ;;
         *)          echo "Unknown flag: $1" >&2; exit 1 ;;
     esac
 done
+
+# The providers this run will use, resolved the way the Go side resolves them:
+# the command line or shell first, then a non-credential line in .env (the Go
+# side fills an empty EVAL_* from it), then the defaults — kept in step with
+# defaultEvalProvider and defaultJudgeProvider in both eval_config.go files.
+#
+# .env is parsed the way godotenv (the Go side) reads it: comments and blank
+# lines skipped, an optional `export ` prefix, single or double quotes around
+# the value, an inline ` # comment` after an unquoted one. Every function here
+# returns 0 whatever it finds — under `set -e` a lookup that finds nothing must
+# not end the script, least of all with exit 1, which means "regression".
+dotenv_entries() {
+    [[ -f .env ]] || return 0
+    local line key value
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%$'\r'}"
+        line="${line#"${line%%[![:space:]]*}"}"
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        if [[ "$line" =~ ^export[[:space:]]+(.*)$ ]]; then
+            line="${BASH_REMATCH[1]}"
+        fi
+        [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_.]*)[[:space:]]*=[[:space:]]*(.*)$ ]] || continue
+        key="${BASH_REMATCH[1]}"
+        value="${BASH_REMATCH[2]}"
+        if [[ "$value" =~ ^\"(.*)\"[[:space:]]*(#.*)?$ ]]; then
+            value="${BASH_REMATCH[1]}"
+        elif [[ "$value" =~ ^\'(.*)\'[[:space:]]*(#.*)?$ ]]; then
+            value="${BASH_REMATCH[1]}"
+        else
+            value="${value%%[[:space:]]#*}"
+            value="${value%"${value##*[![:space:]]}"}"
+        fi
+        printf '%s\t%s\n' "$key" "$value"
+    done < .env
+    return 0
+}
+dotenv_value() {
+    dotenv_entries | awk -F'\t' -v k="$1" '$1 == k { v = $2 } END { print v }'
+}
+PIPELINE_PROVIDER="${EVAL_PROVIDER:-$(dotenv_value EVAL_PROVIDER)}"
+PIPELINE_PROVIDER="${PIPELINE_PROVIDER:-claude-code}"
+JUDGE_PROVIDER="${EVAL_JUDGE_PROVIDER:-$(dotenv_value EVAL_JUDGE_PROVIDER)}"
+JUDGE_PROVIDER="${JUDGE_PROVIDER:-claude-code}"
+uses_api_key() { [[ "$1" == "claude" || "$1" == "openai" ]]; }
+
+# Load credentials from .env, and only credentials — and only when the run has
+# an API provider in it. Sourcing the whole file would let it set EVAL_PROVIDER
+# or EVAL_MODEL behind the flags parsed above; loading a key into a run that
+# goes entirely through the CLI would put a credential next to a process that
+# must not use one. (The CLI client strips it from the child anyway; a key that
+# is never loaded cannot be the one that answered.) The Go side applies the
+# same rule on its own reading of .env.
+LOADED_KEYS=()
+if uses_api_key "$PIPELINE_PROVIDER" || uses_api_key "$JUDGE_PROVIDER"; then
+    while IFS=$'\t' read -r key value; do
+        [[ "$key" == *_API_KEY ]] || continue
+        # An empty line copied from .env.example must not blank a key the
+        # shell exports.
+        [[ -n "$value" ]] || continue
+        export "$key=$value"
+        LOADED_KEYS+=("$key")
+    done < <(dotenv_entries)
+fi
+
+# A signed-out CLI fails every sample one by one; say so once, up front. Only
+# when the binary is on PATH — KeyLint also finds it in other places, and the
+# Go side reports a missing one per sample with the right wording.
+# --dry-run only prints the configuration, so it asks nothing of the CLI;
+# --preflight runs this check as well (and still runs nothing).
+if (( ! DRY_RUN || PREFLIGHT )) && [[ "$PIPELINE_PROVIDER" == "claude-code" || "$JUDGE_PROVIDER" == "claude-code" ]] && command -v claude >/dev/null; then
+    # The same variables internal/llm strips before every CLI call
+    # (blockedCLIEnv): detection must see the account the eval will run as.
+    # internal/llm/claudecode_evalsh_test.go fails when the two lists drift.
+    if ! env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL \
+            -u CLAUDE_CODE_OAUTH_TOKEN -u ANTHROPIC_MODEL \
+            -u ANTHROPIC_DEFAULT_OPUS_MODEL -u ANTHROPIC_DEFAULT_SONNET_MODEL \
+            -u ANTHROPIC_DEFAULT_HAIKU_MODEL -u ANTHROPIC_SMALL_FAST_MODEL \
+            -u CLAUDE_CODE_USE_BEDROCK -u CLAUDE_CODE_USE_VERTEX -u AWS_BEARER_TOKEN_BEDROCK \
+            -u MAX_THINKING_TOKENS -u CLAUDE_CODE_MAX_OUTPUT_TOKENS -u CLAUDE_CODE_DISABLE_AUTO_MEMORY \
+            claude auth status 2>/dev/null | jq -e '.loggedIn == true' >/dev/null 2>&1; then
+        echo "The Claude Code CLI is not signed in. Run \`claude\` in a terminal and sign in, then retry." >&2
+        exit 3
+    fi
+fi
 
 if ! [[ "$RUNS" =~ ^[0-9]+$ ]] || (( RUNS < 1 )); then
     echo "--runs takes a positive integer" >&2
@@ -78,7 +168,6 @@ if [[ -n "$COMPARE" && ! -f "$COMPARE" ]]; then
     echo "No such baseline: $COMPARE" >&2
     exit 3
 fi
-command -v jq >/dev/null || { echo "jq is required" >&2; exit 3; }
 
 case "$SUITE" in
     pyramidize) SUITE_PKG=./internal/features/pyramidize/ ;;
@@ -94,8 +183,10 @@ esac
 # up out of .env — it fills any EVAL_* key whose environment value is empty —
 # and the header below would print "all" while the run measured the holdout.
 # Same trap the *_API_KEY filter above exists for, one variable further on.
+# Exported rather than unset: an unset variable is exactly the "empty" the Go
+# side fills from .env, so unsetting it let the file decide after all.
 if (( ! SPLIT_SET )); then
-    unset EVAL_SPLIT
+    export EVAL_SPLIT=all
 fi
 case "${EVAL_SPLIT:-all}" in
     all|tune|holdout) ;;
@@ -121,17 +212,37 @@ if [[ "$SUITE" == "fix" ]]; then
 fi
 
 echo "=== KeyLint Eval: $SUITE ==="
-echo "Provider: ${EVAL_PROVIDER:-<eval default: claude>}"
-echo "Model:    ${EVAL_MODEL:-<provider default>}"
+echo "Provider: $PIPELINE_PROVIDER"
+echo "Model:    ${EVAL_MODEL:-<provider default>} (the resolved ID is recorded in summary.json)"
 if [[ "$SUITE" != "fix" ]]; then
     echo "Variant:  ${EVAL_VARIANT:-0 (latest)}"
 fi
 if [[ "$SUITE" == "fix" ]]; then
     echo "Split:    ${EVAL_SPLIT:-all}"
 fi
-echo "Judge:    ${EVAL_JUDGE_PROVIDER:-claude} / ${EVAL_JUDGE_MODEL:-<pinned>} @ temp 0"
+if [[ "$JUDGE_PROVIDER" == "claude" ]]; then
+    # llm.SupportsTemperature: Claude models up to 4.6 take the pin, the 5.5
+    # judges do not; summary.json records which per judge.
+    JUDGE_TEMP="temp 0 where the model takes one (not the 5.5 judges)"
+elif uses_api_key "$JUDGE_PROVIDER" || [[ "$JUDGE_PROVIDER" == "ollama" ]]; then
+    JUDGE_TEMP="temp 0"
+else
+    JUDGE_TEMP="temp unpinned (the CLI has no temperature flag)"
+fi
+# The judge set as the Go side will read it (JudgesFromEnv): EVAL_JUDGES, else
+# EVAL_JUDGE_MODEL as a set of one, else the two pinned judges.
+JUDGES="${EVAL_JUDGES:-$(dotenv_value EVAL_JUDGES)}"
+JUDGE_MODEL="${EVAL_JUDGE_MODEL:-$(dotenv_value EVAL_JUDGE_MODEL)}"
+JUDGES="${JUDGES:-${JUDGE_MODEL:-claude-haiku-5-5,claude-sonnet-5-5 (pinned)}}"
+echo "Judges:   $JUDGE_PROVIDER / ${JUDGES//,/, } @ $JUDGE_TEMP (each reported separately)"
 echo "Runs:     $RUNS"
 echo ""
+
+if (( DRY_RUN )); then
+    # Machine-readable, for scripts/eval.sh's own tests.
+    echo "dry-run pipeline=$PIPELINE_PROVIDER judge=$JUDGE_PROVIDER keys=${LOADED_KEYS[*]:-none}"
+    exit 0
+fi
 
 RUN_DIRS=()
 for (( i = 1; i <= RUNS; i++ )); do
@@ -143,7 +254,14 @@ for (( i = 1; i <= RUNS; i++ )); do
     # already spent on the earlier runs.
     BEFORE=$(ls -d test-data/eval-runs/*/ 2>/dev/null | sort || true)
     set +e
-    go test -tags eval "$SUITE_PKG" -v -timeout 900s 2>&1 | tee /dev/stderr | tail -1
+    # 10800 s covers the worst case the per-call deadlines allow with two
+    # judges: Fix 15 × (120 s fix + 2 × 180 s judge) = 7200 s, Pyramidize
+    # 13 × (2 × 120 s + 2 × 180 s) = 7800 s with a refine on every sample. A go
+    # test timeout panics before summary.json is written and throws the whole
+    # run away — the first CLI attempt at the Fix baseline lost a run to the old
+    # 900 s — so this is a safety net, not a budget. A single-judge run took
+    # 12–15 minutes; each judge adds one CLI call per sample.
+    go test -tags eval "$SUITE_PKG" -v -timeout 10800s 2>&1 | tee /dev/stderr | tail -1
     run_status=${PIPESTATUS[0]}
     set -e
     AFTER=$(ls -d test-data/eval-runs/*/ 2>/dev/null | sort || true)
@@ -161,8 +279,10 @@ for (( i = 1; i <= RUNS; i++ )); do
         exit 3
     fi
     if (( run_status != 0 )); then
-        # Some samples failed but the run still produced scores. A failed sample
-        # scores zero, which is the honest number; the run directory says which.
+        # Some samples failed but the run still produced scores. The averages
+        # cover the scored samples only (scoredCount/errorCount say how many),
+        # and the aggregate refuses to compare a run that did not score every
+        # sample; the run directory says which failed.
         echo "  ! run $i reported failures (go test exited $run_status); its scores are included" >&2
     fi
     RUN_DIRS+=("$LATEST")
@@ -196,7 +316,7 @@ if (( WRITE_BASELINE )); then
     trap - EXIT
     echo ""
     echo "=== Baseline written to $OUT_DIR/baseline.json ==="
-    jq '{runCount, config, deterministic, judge, samplesPassing}' "$OUT_DIR/baseline.json"
+    jq '{runCount, config, deterministic, judges, samplesPassing}' "$OUT_DIR/baseline.json"
 fi
 
 if [[ -n "$COMPARE" ]]; then

@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
+	"time"
 
 	"keylint/internal/features/settings"
 	"keylint/internal/llm"
@@ -20,47 +22,129 @@ import (
 type JudgeConfig struct {
 	Provider string `json:"provider"`
 	Model    string `json:"model"`
-	// Temperature is pinned at 0: the judge should return the same score for
-	// the same three texts, so that a difference between runs is a difference
-	// in the pipeline.
-	Temperature float64 `json:"temperature"`
+	// Temperature is pinned at 0 where the provider honours it: the judge
+	// should return the same score for the same three texts, so that a
+	// difference between runs is a difference in the pipeline.
+	//
+	// nil — written as null — where it cannot be pinned. The Claude Code CLI
+	// has no temperature flag, and recording a 0 that never reached the model
+	// would claim a repeatability the instrument does not have. null also keys
+	// differently from 0 in eval-aggregate.sh, so a CLI-judged run can never be
+	// compared as equal to an API-judged one.
+	Temperature *float64 `json:"temperature"`
+	// TemperatureNote says why Temperature is null. Empty when it is pinned.
+	TemperatureNote string `json:"temperatureNote,omitempty"`
+	// ResolvedModel is the model ID that actually answered, filled in after a
+	// run from what the provider reported. For a full ID it should equal
+	// Model; if it does not, the instrument was not what the config says.
+	ResolvedModel string `json:"resolvedModel,omitempty"`
 }
 
 const (
-	// defaultJudgeProvider and defaultJudgeModel pin the instrument. Changing
+	// defaultJudgeProvider and defaultJudgeModels pin the instrument. Changing
 	// either invalidates every baseline recorded with the old one — which is
-	// why they are constants here rather than a fallback to whatever the
-	// pipeline happens to use.
+	// why they are fixed here rather than a fallback to whatever the pipeline
+	// happens to use.
 	//
-	// The model is a DATED snapshot on purpose. #53 suspected the March
-	// baseline had drifted under an alias, and an alias is exactly what a
-	// measuring instrument must not be: claude-sonnet-4-6 is what the account
-	// lists, with no dated form behind it, so anything judged by that alias can
-	// change without a commit. claude-sonnet-4-5-20250929 cannot.
-	//
-	// The pipeline under test still runs on the alias, because that is what
-	// users get. Only the judge is frozen.
-	defaultJudgeProvider = "claude"
-	defaultJudgeModel    = "claude-sonnet-4-5-20250929"
+	// The provider is the installed Claude Code CLI since 2026-10: every eval
+	// call goes through the owner's subscription, not an API key. The price is
+	// the temperature pin, which the CLI cannot set — see JudgeConfig. The
+	// API-judged baselines before that date are a different instrument.
+	defaultJudgeProvider = llm.ProviderClaudeCode
 	judgeTemperature     = 0.0
 )
 
-// JudgeConfigFromEnv resolves the judge's configuration, pinned unless a run
-// deliberately overrides it. An override is recorded in summary.json like
-// everything else, so a run judged by something else says so.
-func JudgeConfigFromEnv() JudgeConfig {
-	cfg := JudgeConfig{
-		Provider:    defaultJudgeProvider,
-		Model:       defaultJudgeModel,
-		Temperature: judgeTemperature,
+// defaultJudgeModels are the judges that score every sample: two since
+// 2026-10-11 (docs/roadmap.md, E3), reported separately and never averaged.
+// A cheap judge and a strong one; whether both earn their place is an open
+// question, and the set may shrink to one.
+//
+// Full model IDs, never aliases. #53 suspected the March baseline had drifted
+// under an alias, and an alias is exactly what a measuring instrument must not
+// be. Haiku 5.5 and Sonnet 5.5 have no dated snapshot behind them — the ID is
+// the pin — so a run also records the ID that answered for each judge
+// (resolvedModel), and the configKey keys on it.
+//
+// The pipeline under test still runs on the alias, because that is what users
+// get. Only the judges are frozen.
+var defaultJudgeModels = []string{"claude-haiku-5-5", "claude-sonnet-5-5"}
+
+// judgeTemperatureNote is recorded wherever the judge's temperature is null.
+const judgeTemperatureNote = "not pinned: the Claude Code CLI has no temperature flag, so the judge samples at the CLI default (and thinks first, as the CLI does by default)"
+
+// judgeModelTemperatureNote is recorded for an API judge whose model takes no
+// temperature (see llm.SupportsTemperature) — the 5.5 judges among them.
+const judgeModelTemperatureNote = "not pinned: this model takes no temperature on the API (the 4.7 generation and later reject a non-default one), so the judge samples at the model default"
+
+// JudgesFromEnv resolves the judge set, pinned unless a run deliberately
+// overrides it. An override is recorded in summary.json like everything else,
+// so a run judged by something else says so.
+func JudgesFromEnv() ([]JudgeConfig, error) { return judgesFrom(os.Getenv) }
+
+// judgesFrom reads the set: EVAL_JUDGES (comma-separated model IDs) chooses it
+// — a bridge run adds the old claude-sonnet-4-5-20250929 as a third judge —
+// and EVAL_JUDGE_MODEL, from before the set, names a single judge. All judges
+// share EVAL_JUDGE_PROVIDER. The two model variables together are refused, as
+// are an empty entry and a duplicate: each would record a set that is not the
+// one that ran.
+func judgesFrom(getenv func(string) string) ([]JudgeConfig, error) {
+	models := defaultJudgeModels
+	list := strings.TrimSpace(getenv("EVAL_JUDGES"))
+	single := strings.TrimSpace(getenv("EVAL_JUDGE_MODEL"))
+	switch {
+	case list != "" && single != "":
+		return nil, fmt.Errorf("EVAL_JUDGES and EVAL_JUDGE_MODEL are both set; use EVAL_JUDGES")
+	case list != "":
+		models = nil
+		for _, m := range strings.Split(list, ",") {
+			m = strings.TrimSpace(m)
+			if m == "" {
+				return nil, fmt.Errorf("EVAL_JUDGES %q has an empty entry", list)
+			}
+			if slices.Contains(models, m) {
+				return nil, fmt.Errorf("EVAL_JUDGES names %q twice", m)
+			}
+			models = append(models, m)
+		}
+	case single != "":
+		models = []string{single}
 	}
-	if v := strings.TrimSpace(os.Getenv("EVAL_JUDGE_PROVIDER")); v != "" {
-		cfg.Provider = v
+	provider := judgeProviderFrom(getenv)
+	judges := make([]JudgeConfig, len(models))
+	for i, m := range models {
+		judges[i] = newJudgeConfig(provider, m)
 	}
-	if v := strings.TrimSpace(os.Getenv("EVAL_JUDGE_MODEL")); v != "" {
-		cfg.Model = v
+	return judges, nil
+}
+
+// judgeProviderFrom is the provider every judge runs on.
+func judgeProviderFrom(getenv func(string) string) string {
+	if v := strings.TrimSpace(getenv("EVAL_JUDGE_PROVIDER")); v != "" {
+		return v
+	}
+	return defaultJudgeProvider
+}
+
+func newJudgeConfig(provider, model string) JudgeConfig {
+	cfg := JudgeConfig{Provider: provider, Model: model}
+	switch {
+	case llm.SupportsTemperature(provider, model):
+		cfg.Temperature = llm.Temp(judgeTemperature)
+	case provider == llm.ProviderClaudeCode:
+		cfg.TemperatureNote = judgeTemperatureNote
+	default:
+		cfg.TemperatureNote = judgeModelTemperatureNote
 	}
 	return cfg
+}
+
+// TemperatureLabel is the judge's temperature for a log line: the number when
+// pinned, "unpinned" when the provider cannot set one.
+func (c JudgeConfig) TemperatureLabel() string {
+	if c.Temperature == nil {
+		return "unpinned (model default)"
+	}
+	return fmt.Sprintf("%.1f", *c.Temperature)
 }
 
 // JudgeScore holds the LLM-as-judge evaluation of one sample.
@@ -96,6 +180,10 @@ Respond with ONLY a JSON object:
 // that measures the pipeline.
 const judgeMaxTokens = 4096
 
+// judgeTimeout bounds one judge call. Through the CLI a judge call takes about
+// 30 s; this is a safety net against a hung process, not a budget.
+const judgeTimeout = 180 * time.Second
+
 // runJudge calls the LLM to evaluate a candidate output against the baseline.
 //
 // The judge always sends its schema, whatever KEYLINT_PYRAMIDIZE_SCHEMA says.
@@ -118,19 +206,25 @@ func (svc *Service) runJudge(settingsSvc *settings.Service, judge JudgeConfig, r
 
 	// Resolve API key upfront so callAISync has no keyring dependency.
 	apiKey := ""
-	switch judge.Provider {
-	case "openai", "claude":
+	if llm.UsesAPIKey(judge.Provider) {
 		apiKey = settingsSvc.GetKey(judge.Provider)
 	}
 
 	opts := aiOpts{
-		noEffort:    true,
-		provider:    judge.Provider,
-		model:       judge.Model,
-		temperature: llm.Temp(judge.Temperature),
+		noEffort: true,
+		provider: judge.Provider,
+		model:    judge.Model,
+		// nil for the CLI, which could not honour it anyway.
+		temperature: judge.Temperature,
 		maxTokens:   judgeMaxTokens,
 	}
-	raw, err := svc.callAISync(context.Background(), cfg, opts, apiKey, judgeSystemPrompt, userMessage, judgeSchema)
+	// callAISync has no deadline of its own (callAIWithContext adds the
+	// pipeline's), and a CLI process that hangs would otherwise run into the
+	// go test timeout, which panics before summary.json is written and throws
+	// away every sample already paid for.
+	ctx, cancel := context.WithTimeout(context.Background(), judgeTimeout)
+	defer cancel()
+	raw, err := svc.callAISync(ctx, cfg, opts, apiKey, judgeSystemPrompt, userMessage, judgeSchema)
 	if err != nil {
 		return JudgeScore{}, fmt.Errorf("judge AI call failed: %w", err)
 	}

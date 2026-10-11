@@ -1,6 +1,6 @@
 # Pyramidize Output Quality — Status & Open Issues
 
-> Last updated: 2026-09-25
+> Last updated: 2026-10-11
 
 > The Fix prompt has its own suite and baseline: [`docs/fix/quality-status.md`](../fix/quality-status.md).
 
@@ -12,12 +12,123 @@
 - **Eval framework:** Deterministic checks + LLM-as-judge, build-tagged (`//go:build eval`)
 - **Test data:** 13 anonymized German business email samples in `test-data/pyramidal-emails/` (one mixes German and English heavily — code-switching the prompts preserve on purpose)
 - **Results:** Logged to `test-data/eval-runs/<timestamp>/` with `summary.json`, `results.jsonl`, `samples/`
-- **Run:** `EVAL_PROVIDER=claude go test -tags eval ./internal/features/pyramidize/ -v -timeout 600s`
-- **Requires:** `.env` with `ANTHROPIC_API_KEY` in project root
+- **Run:** `./scripts/eval.sh --runs 3` — pipeline and judges through the installed Claude Code CLI (since 2026-10-04; two judges since 2026-10-11)
+- **Requires:** a signed-in Claude Code CLI (`claude auth status`), no API key. Against the API instead: `EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --provider claude --runs 3` with `ANTHROPIC_API_KEY` in `.env`. That is a different instrument from the API era's too (two judges, resolved IDs, judges unpinned on 5.5): **the API-era baselines below are not comparable with any run of this instrument**, whichever route it takes.
 
 ---
 
-## Eval Scores — baseline of 2026-09-18
+## Instrument change — 2026-10-11: two judges
+
+**Two judges since 2026-10-11 (E3 phase 1).** Every sample is scored by
+`claude-haiku-5-5` and `claude-sonnet-5-5`, both through the Claude Code CLI,
+and each judge is reported on its own — `summary.json` has `judges`,
+`avgJudges` and `judgeCounts`, a baseline has one interval per judge under
+`judges`, and nothing averages across them.
+
+- **Pinned by ID.** Neither model has a dated snapshot: the full ID is the pin.
+  Each judge records the ID that answered (`resolvedModel`; both smoke calls on
+  2026-10-11, CLI 2.1.296, answered with the requested ID), and the aggregate
+  names each judge column by that ID, as the key does.
+- **The judge set is in the `configKey`**, so **every single-judge baseline
+  below reads "not comparable" against a two-judge run** — there are no
+  two-judge numbers yet. `EVAL_JUDGES=a,b,c` chooses the set (a bridge run adds
+  `claude-sonnet-4-5-20250929` as a third); `EVAL_JUDGE_MODEL` names a single
+  judge.
+- **`--compare` judges each metric** (deterministic, then each judge) by the
+  interval rule: any metric clearly worse is a regression, and the output names
+  which (`regressedMetrics`), so a regression carried by one judge alone reads
+  as that; an improvement needs one metric clearly better and none worse. A
+  judge with no interval on one side is "not comparable", never an overlap.
+- **Temperature.** Through the CLI no judge is pinned (`null` plus a note).
+  Through the API (`EVAL_JUDGE_PROVIDER=claude`) the 5.5 judges are not pinned
+  either — Anthropic rejects a non-default temperature from the 4.7 generation
+  on — and record `null` with a note saying so; the Sonnet 4.5 bridge judge
+  keeps temperature 0.
+- **The CLI version is reported, not keyed** (`claudeCodeVersion`, next to the
+  verdict like `promptHash`): the CLI updates itself, and a keyed version
+  would make every baseline incomparable within days.
+- **Isolation.** Since #127 every CLI call runs in an empty KeyLint-owned
+  directory with Claude Code's auto-memory off. Runs before that, including the
+  2026-10-04 baselines below, may have carried the auto-memory of the
+  checkout's directory into every call.
+
+---
+
+## Eval Scores — baseline of 2026-10-04 (Claude Code CLI — a new instrument)
+
+> **Possibly affected, superseded.** These runs predate the CLI isolation fix
+> (#127): Claude Code's auto-memory for the checkout's directory may have been
+> injected into every pipeline and judge call. They are superseded by the coming
+> two-judge baselines and will not be re-recorded. The numbers stay as a record;
+> read nothing into them beyond that.
+
+**Every eval call goes through the owner's subscription now.** Pipeline and
+judge both run through the installed Claude Code CLI (`claude-code`); no API key
+is read. That was the owner's decision, made knowing that it costs the judge its
+temperature pin and that **every number below this section becomes history**:
+none of the API-era rows is comparable with this one, and `--compare` refuses
+the pair (exit 2) instead of printing a delta.
+
+What makes it a different instrument:
+
+- **The judge is not pinned to a temperature.** It is still the dated snapshot
+  `claude-sonnet-4-5-20250929` — the CLI takes the dated ID and answers with it
+  (`modelUsage` named it in every call) — but the CLI has no temperature flag.
+  `summary.json` records `"temperature": null` and a note rather than a 0 that
+  never reached the model, and the temperature is part of the `configKey`. The
+  judge's spread below (0.0662) is nearly three times Sonnet 4.6's 0.0231 and
+  about 1.4 times Sonnet 5's 0.0477 through the API. Why is unconfirmed: the
+  missing pin, the possible auto-memory leak, or both.
+- **The pipeline runs on the alias users get.** `sonnet` resolved to
+  `claude-sonnet-5-5` in every call of all three runs. That is a newer
+  generation than any API-era row, so the gap below is model *and* route *and*
+  judge sampling at once — it cannot be attributed to any one of them.
+- **Resolved IDs are recorded and keyed.** `resolvedModel` and
+  `judge.resolvedModel` come from the CLI's `modelUsage`; the `configKey` uses
+  them in place of the requested names. When `sonnet` moves to the next
+  generation, a comparison against this baseline reads "not comparable" rather
+  than crediting the move to the prompt.
+
+Three runs, `claude-code` / `sonnet` → `claude-sonnet-5-5`, judge `claude-code` /
+`claude-sonnet-4-5-20250929` (temperature unpinned), prompt v2, schema
+enforcement off, threshold 0.65, 13 samples, gitSHA `f8e362c`. Baseline in
+`test-data/eval-baselines/2026-10-04T22-01-17/baseline.json`.
+
+| Metric | Mean | Min | Max | Spread |
+|--------|:---:|:---:|:---:|:---:|
+| Avg deterministic | **0.8780** | 0.8706 | 0.8836 | 0.0131 |
+| Avg judge overall | **0.7682** | 0.7323 | 0.7985 | 0.0662 |
+| Samples passing | 9.7 | 9/13 | 10/13 | 1 sample |
+
+All 13 documents produced in every run; the refine step never fired (0 calls).
+Failing in all three runs: `email-dataquality-reply-to-feedback`,
+`email-diagnose-update`, `email-meeting-request`.
+
+Next to the API-era rows, **labelled not comparable** — different route,
+different judge sampling, and for the pipeline a different model:
+
+| Configuration | Deterministic | Judge | Passing |
+|---|:---:|:---:|:---:|
+| **CLI: Sonnet alias → `claude-sonnet-5-5` + v2 (2026-10-04)** | **0.8780** (0.8706–0.8836) | **0.7682** (0.7323–0.7985) | 9–10 |
+| API: Sonnet 4.6 + v2 (2026-09-18) | 0.8353 (0.8209–0.8446) | 0.8485 (0.8338–0.8569) | 7–9 |
+| API: Sonnet 5 + v2 (2026-09-18) | 0.8651 (0.8606–0.8683) | 0.8251 (0.8000–0.8477) | 8–10 |
+| API: Opus 5 + v2 (2026-09-25) | 0.8878 (0.8848–0.8895) | 0.8197 (0.8123–0.8238) | 10 |
+
+*Unconfirmed, given the note above:* the shape resembled what Opus 5 showed —
+the deterministic checks liking the newer model, the judge marking it down,
+with rationales about subject lines that pack several messages. Whether that
+survives an isolated run is for the two-judge baseline to show.
+
+**Cost:** 13 samples × (one pipeline call + one judge call) × 3 runs on the
+subscription, 12.5–14 minutes per run — close enough to the old 900 s `go test`
+limit that `eval.sh` raised it (3600 s then; 10800 s since the second judge — the Fix suite did lose a run to the old limit).
+CLI version on the machine at the time: 2.1.289. These baselines predate the
+`claudeCodeVersion` field, so the files do not carry it; runs recorded from now
+on do, and `--compare` names a CLI version change next to the verdict.
+
+---
+
+## Eval Scores — baseline of 2026-09-18 (API era — history, not comparable with any CLI-era run)
 
 **Three runs of the same commit, same model, same judge.** Run individually they
 report 0.82, 0.84 and 0.84 on the deterministic checks — that variation is the

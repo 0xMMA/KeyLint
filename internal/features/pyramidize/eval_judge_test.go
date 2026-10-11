@@ -2,88 +2,213 @@ package pyramidize
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
 	"keylint/internal/features/settings"
+	"keylint/internal/llm"
 )
 
 // The judge is the instrument. These pin the properties that make its numbers
 // comparable between runs — all without an API call, so they run in the normal
 // suite rather than behind the eval tag.
 
-// TestTheJudgeIsPinnedAndSeparateFromThePipeline: a pipeline under test changes,
-// the thing measuring it must not. If the judge followed the pipeline's model,
-// a Sonnet run and an Opus run could not go in the same table.
-func TestTheJudgeIsPinnedAndSeparateFromThePipeline(t *testing.T) {
-	t.Setenv("EVAL_JUDGE_PROVIDER", "")
-	t.Setenv("EVAL_JUDGE_MODEL", "")
-	t.Setenv("EVAL_PROVIDER", "openai")
-	t.Setenv("EVAL_MODEL", "gpt-4.1")
-
-	cfg := JudgeConfigFromEnv()
-
-	if cfg.Provider != defaultJudgeProvider || cfg.Model != defaultJudgeModel {
-		t.Errorf("judge = %s/%s, want the pinned %s/%s — the pipeline's provider must not reach it",
-			cfg.Provider, cfg.Model, defaultJudgeProvider, defaultJudgeModel)
-	}
-	if cfg.Temperature != 0 {
-		t.Errorf("temperature = %v, want 0 — the same three texts should score the same twice", cfg.Temperature)
+func clearJudgeEnv(t *testing.T) {
+	t.Helper()
+	for _, k := range []string{"EVAL_JUDGE_PROVIDER", "EVAL_JUDGE_MODEL", "EVAL_JUDGES"} {
+		t.Setenv(k, "")
 	}
 }
 
-// TestTheJudgeModelIsADatedSnapshot: #53 suspected the March baseline had
-// drifted under an alias. An alias is what an instrument must not be.
-func TestTheJudgeModelIsADatedSnapshot(t *testing.T) {
-	// A dated Anthropic ID ends in -YYYYMMDD.
-	const datePart = 8
-	id := defaultJudgeModel
-	if len(id) < datePart+1 || id[len(id)-datePart-1] != '-' {
-		t.Fatalf("judge model %q is not a dated snapshot", id)
+// testJudge is the first judge of the set the environment selects.
+func testJudge(t *testing.T) JudgeConfig {
+	t.Helper()
+	judges, err := JudgesFromEnv()
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, r := range id[len(id)-datePart:] {
-		if r < '0' || r > '9' {
-			t.Fatalf("judge model %q does not end in a date", id)
+	return judges[0]
+}
+
+func judgeModels(judges []JudgeConfig) []string {
+	models := make([]string, len(judges))
+	for i, j := range judges {
+		models[i] = j.Model
+	}
+	return models
+}
+
+// TestTwoJudgesByDefault: Haiku 5.5 and Sonnet 5.5 score every sample
+// (decision 2026-10-11), both through the CLI, and the pipeline's provider and
+// model reach neither — a Sonnet run and an Opus run must go in one table.
+func TestTwoJudgesByDefault(t *testing.T) {
+	clearJudgeEnv(t)
+	t.Setenv("EVAL_PROVIDER", "openai")
+	t.Setenv("EVAL_MODEL", "gpt-4.1")
+
+	judges, err := JudgesFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := judgeModels(judges), []string{"claude-haiku-5-5", "claude-sonnet-5-5"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("judges = %v, want %v", got, want)
+	}
+	for _, j := range judges {
+		if j.Provider != llm.ProviderClaudeCode {
+			t.Errorf("%s: provider = %q, want %q", j.Model, j.Provider, llm.ProviderClaudeCode)
 		}
 	}
 }
 
-// TestAnOverrideIsStillPossibleAndVisible: pinning must not make the judge
-// unchangeable, only deliberate — and summary.json records what ran.
-func TestAnOverrideIsStillPossibleAndVisible(t *testing.T) {
-	t.Setenv("EVAL_JUDGE_PROVIDER", "openai")
-	t.Setenv("EVAL_JUDGE_MODEL", "gpt-4.1")
+// TestTheDefaultJudgesSayTheyAreUnpinned: the CLI has no temperature flag.
+// Recording a 0 that never reached the model would claim a repeatability the
+// instrument does not have.
+func TestTheDefaultJudgesSayTheyAreUnpinned(t *testing.T) {
+	clearJudgeEnv(t)
+	for _, cfg := range mustJudges(t) {
+		if cfg.Temperature != nil {
+			t.Errorf("%s: temperature = %v, want nil — the CLI cannot pin it", cfg.Model, *cfg.Temperature)
+		}
+		if cfg.TemperatureNote == "" {
+			t.Errorf("%s: an unpinned temperature carries no note saying why", cfg.Model)
+		}
+		// It has to reach summary.json as null, not as a missing field or a
+		// 0: eval-aggregate.sh keys on it.
+		data, err := json.Marshal(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var back map[string]any
+		if err := json.Unmarshal(data, &back); err != nil {
+			t.Fatal(err)
+		}
+		if v, ok := back["temperature"]; !ok || v != nil {
+			t.Errorf("%s: temperature in JSON = %v (present=%v), want null", cfg.Model, v, ok)
+		}
+	}
+}
 
-	cfg := JudgeConfigFromEnv()
-	if cfg.Provider != "openai" || cfg.Model != "gpt-4.1" {
-		t.Errorf("judge = %s/%s, want the override", cfg.Provider, cfg.Model)
+func mustJudges(t *testing.T) []JudgeConfig {
+	t.Helper()
+	judges, err := JudgesFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return judges
+}
+
+// TestAnAPIJudgeIsPinnedOnlyWhereTheModelTakesIt: EVAL_JUDGE_PROVIDER=claude
+// is the way back to the API judges. The 5.5 judges reject a non-default
+// temperature there, so they record null with a note, like the CLI; the old
+// Sonnet 4.5 bridge judge still takes the pin.
+func TestAnAPIJudgeIsPinnedOnlyWhereTheModelTakesIt(t *testing.T) {
+	clearJudgeEnv(t)
+	t.Setenv("EVAL_JUDGE_PROVIDER", llm.ProviderClaude)
+	for _, cfg := range mustJudges(t) {
+		if cfg.Provider != llm.ProviderClaude {
+			t.Errorf("%s: provider = %q, want the API", cfg.Model, cfg.Provider)
+		}
+		if cfg.Temperature != nil {
+			t.Errorf("%s: temperature = %v, want null — the model rejects a pin", cfg.Model, *cfg.Temperature)
+		}
+		if cfg.TemperatureNote == "" || strings.Contains(cfg.TemperatureNote, "CLI") {
+			t.Errorf("%s: note = %q, want one about the model", cfg.Model, cfg.TemperatureNote)
+		}
+	}
+
+	t.Setenv("EVAL_JUDGES", "claude-sonnet-4-5-20250929")
+	cfg := mustJudges(t)[0]
+	if cfg.Temperature == nil || *cfg.Temperature != 0 {
+		t.Fatalf("bridge judge: temperature = %v, want a pinned 0", cfg.Temperature)
+	}
+	if cfg.TemperatureNote != "" {
+		t.Errorf("bridge judge: a pinned temperature carries a note: %q", cfg.TemperatureNote)
+	}
+}
+
+// TestTheJudgesAreFullModelIDs: #53 suspected the March baseline had drifted
+// under an alias, and an alias is what an instrument must not be. Haiku 5.5
+// and Sonnet 5.5 have no dated form; their IDs are the pin, and a run records
+// the ID that answered (resolvedModel) so a move would still show.
+func TestTheJudgesAreFullModelIDs(t *testing.T) {
+	for _, id := range defaultJudgeModels {
+		if llm.IsModelFamily(id) || llm.IsClaudeCodeAlias(id) || !strings.HasPrefix(id, "claude-") {
+			t.Errorf("judge %q is an alias, not a model ID", id)
+		}
+	}
+}
+
+// TestEvalJudgesChoosesTheSet: a bridge run adds the old Sonnet 4.5 judge as a
+// third; order and spacing do not matter to the set, and summary.json records
+// what ran.
+func TestEvalJudgesChoosesTheSet(t *testing.T) {
+	clearJudgeEnv(t)
+	t.Setenv("EVAL_JUDGES", " claude-haiku-5-5, claude-sonnet-5-5 ,claude-sonnet-4-5-20250929")
+	judges := mustJudges(t)
+	if got, want := judgeModels(judges), []string{"claude-haiku-5-5", "claude-sonnet-5-5", "claude-sonnet-4-5-20250929"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("judges = %v, want %v", got, want)
 	}
 
 	// It has to survive the round trip into summary.json, or a run judged by
 	// something else would look like one that was not.
-	data, err := json.Marshal(cfg)
+	data, err := json.Marshal(judges)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var back JudgeConfig
+	var back []JudgeConfig
 	if err := json.Unmarshal(data, &back); err != nil {
 		t.Fatal(err)
 	}
-	if back != cfg {
-		t.Errorf("round trip = %+v, want %+v", back, cfg)
+	if !reflect.DeepEqual(back, judges) {
+		t.Errorf("round trip = %+v, want %+v", back, judges)
+	}
+}
+
+// TestEvalJudgeModelIsASetOfOne: the variable from before the judge set still
+// works, as a single-judge run — which keys like the single-judge runs before.
+func TestEvalJudgeModelIsASetOfOne(t *testing.T) {
+	clearJudgeEnv(t)
+	t.Setenv("EVAL_JUDGE_PROVIDER", "openai")
+	t.Setenv("EVAL_JUDGE_MODEL", "gpt-4.1")
+	judges := mustJudges(t)
+	if len(judges) != 1 || judges[0].Provider != "openai" || judges[0].Model != "gpt-4.1" {
+		t.Errorf("judges = %+v, want openai/gpt-4.1 alone", judges)
+	}
+}
+
+// TestABadJudgeSetIsRefused: a set with a hole or a duplicate would record
+// fewer judges than it claims, and both variables at once leave the reader
+// guessing which one ran.
+func TestABadJudgeSetIsRefused(t *testing.T) {
+	for _, env := range []map[string]string{
+		{"EVAL_JUDGES": "claude-haiku-5-5,,claude-sonnet-5-5"},
+		{"EVAL_JUDGES": "claude-haiku-5-5,claude-haiku-5-5"},
+		{"EVAL_JUDGES": ","},
+		{"EVAL_JUDGES": "claude-haiku-5-5", "EVAL_JUDGE_MODEL": "claude-sonnet-5-5"},
+	} {
+		if judges, err := judgesFrom(envFrom(env)); err == nil {
+			t.Errorf("%v was accepted: %+v", env, judges)
+		}
 	}
 }
 
 // TestTheJudgeSendsItsTemperatureAndSchema walks the real call path with a fake
 // provider client: the pin is worth nothing if it stops at the struct.
 func TestTheJudgeSendsItsTemperatureAndSchema(t *testing.T) {
+	// The API judge: the one provider path where a temperature can be pinned.
+	clearJudgeEnv(t)
+	t.Setenv("EVAL_JUDGE_PROVIDER", llm.ProviderClaude)
+	// The bridge judge: the 5.5 judges take no temperature on the API.
+	t.Setenv("EVAL_JUDGES", "claude-sonnet-4-5-20250929")
 	svc, rec := newTestService()
+	judge := testJudge(t)
 	rec.client.reply = `{"pyramidStructure":0.8,"clarity":0.8,"completeness":0.8,"tonePreservation":0.8,"overall":0.8,"rationale":"ok"}`
 	settingsSvc := settings.NewServiceFrom(settings.Default(), func(string) string { return "key" })
 
 	// Through RunJudge itself, not a hand-built aiOpts: the pin is worth
 	// nothing if RunJudge stops applying it.
-	if _, err := svc.runJudge(settingsSvc, JudgeConfigFromEnv(), "raw", "baseline", "candidate"); err != nil {
+	if _, err := svc.runJudge(settingsSvc, judge, "raw", "baseline", "candidate"); err != nil {
 		t.Fatalf("RunJudge: %v", err)
 	}
 
@@ -94,7 +219,7 @@ func TestTheJudgeSendsItsTemperatureAndSchema(t *testing.T) {
 	if *got.Temperature != 0 {
 		t.Errorf("temperature = %v, want 0", *got.Temperature)
 	}
-	if got.Model != defaultJudgeModel {
+	if got.Model != judge.Model {
 		t.Errorf("model = %q, want the pinned judge model", got.Model)
 	}
 	if len(got.JSONSchema) == 0 {
@@ -118,10 +243,11 @@ func TestTheJudgeSchemaIgnoresThePipelineFlag(t *testing.T) {
 	}
 
 	svc, rec := newTestService()
+	judge := testJudge(t)
 	rec.client.reply = `{"pyramidStructure":0.8,"clarity":0.8,"completeness":0.8,"tonePreservation":0.8,"overall":0.8,"rationale":"ok"}`
 	settingsSvc := settings.NewServiceFrom(settings.Default(), func(string) string { return "key" })
 
-	if _, err := svc.runJudge(settingsSvc, JudgeConfigFromEnv(), "raw", "baseline", "candidate"); err != nil {
+	if _, err := svc.runJudge(settingsSvc, judge, "raw", "baseline", "candidate"); err != nil {
 		t.Fatalf("RunJudge: %v", err)
 	}
 	if len(rec.client.gotRequest.JSONSchema) == 0 {
@@ -133,10 +259,11 @@ func TestTheJudgeSchemaIgnoresThePipelineFlag(t *testing.T) {
 // would move the scores for a reason that has nothing to do with the pipeline.
 func TestTheJudgeReadsTheThreeTextsInAFixedOrder(t *testing.T) {
 	svc, rec := newTestService()
+	judge := testJudge(t)
 	rec.client.reply = `{"pyramidStructure":0.8,"clarity":0.8,"completeness":0.8,"tonePreservation":0.8,"overall":0.8,"rationale":"ok"}`
 	settingsSvc := settings.NewServiceFrom(settings.Default(), func(string) string { return "key" })
 
-	if _, err := svc.runJudge(settingsSvc, JudgeConfigFromEnv(), "RAW", "BASE", "CAND"); err != nil {
+	if _, err := svc.runJudge(settingsSvc, judge, "RAW", "BASE", "CAND"); err != nil {
 		t.Fatalf("RunJudge: %v", err)
 	}
 
@@ -154,15 +281,39 @@ func TestTheJudgeReadsTheThreeTextsInAFixedOrder(t *testing.T) {
 // effort chosen for Pyramidize on the judge's provider must not reach it.
 func TestTheJudgeNeverTakesTheUsersEffort(t *testing.T) {
 	svc, rec := newTestService()
+	judge := testJudge(t)
 	rec.client.reply = `{"pyramidStructure":0.8,"clarity":0.8,"completeness":0.8,"tonePreservation":0.8,"overall":0.8,"rationale":"ok"}`
 	cfg := settings.Default()
 	cfg.Models = map[string]settings.FeatureModels{"claude": {PyramidizeEffort: "max"}}
 	settingsSvc := settings.NewServiceFrom(cfg, func(string) string { return "key" })
 
-	if _, err := svc.runJudge(settingsSvc, JudgeConfigFromEnv(), "raw", "baseline", "candidate"); err != nil {
+	if _, err := svc.runJudge(settingsSvc, judge, "raw", "baseline", "candidate"); err != nil {
 		t.Fatalf("RunJudge: %v", err)
 	}
 	if got := rec.client.gotRequest.Effort; got != "" {
 		t.Errorf("judge effort = %q, want none", got)
+	}
+}
+
+// TestTheCLIJudgeSendsNoTemperature: the default judge must not hand the CLI
+// client a pin it silently drops — the request says what the run really did.
+func TestTheCLIJudgeSendsNoTemperature(t *testing.T) {
+	clearJudgeEnv(t)
+	svc, rec := newTestService()
+	judge := testJudge(t)
+	rec.client.reply = `{"pyramidStructure":0.8,"clarity":0.8,"completeness":0.8,"tonePreservation":0.8,"overall":0.8,"rationale":"ok"}`
+	settingsSvc := settings.NewServiceFrom(settings.Default(), nil)
+
+	if _, err := svc.runJudge(settingsSvc, judge, "raw", "baseline", "candidate"); err != nil {
+		t.Fatalf("runJudge: %v", err)
+	}
+	if rec.provider != llm.ProviderClaudeCode {
+		t.Errorf("provider = %q, want %q", rec.provider, llm.ProviderClaudeCode)
+	}
+	if rec.client.gotRequest.Temperature != nil {
+		t.Errorf("temperature = %v, want none", *rec.client.gotRequest.Temperature)
+	}
+	if rec.client.gotRequest.Model != judge.Model {
+		t.Errorf("model = %q, want the pinned snapshot", rec.client.gotRequest.Model)
 	}
 }
