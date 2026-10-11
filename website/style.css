@@ -371,7 +371,18 @@ code {
   text-align: center;
   font-size: 1.25rem;
   font-weight: 700;
-  margin: 56px 0 24px;
+  margin: 48px 0 8px;
+}
+
+.demo-text {
+  text-align: center;
+  color: var(--text-muted);
+  max-width: 600px;
+  margin: 0 auto 24px;
+}
+
+.shot video {
+  cursor: pointer;
 }
 
 /* CTA */

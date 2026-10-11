@@ -138,43 +138,30 @@
     <section class="demo" id="demo">
       <div class="container">
         <div class="section-label">See it work</div>
-        <h2>Rough notes in, a clear email out</h2>
-        <p class="section-lead">Pyramidize puts the point first and the details after it. Press the shortcut twice on selected text, or paste it in, and edit the result before it goes anywhere.</p>
-        <!-- Outlook recording slot (PR #126 has the recording guide). To use it:
-             add img/demo-pyramidize-outlook.mp4 and its poster still
-             img/demo-pyramidize-outlook.webp (a frame of the recording, made with it),
-             set width/height to the recording's pixel size, uncomment this block
-             and delete the in-app figure below. Playback starts from the script
-             at the end of the page, never under prefers-reduced-motion.
+        <h2>Right where you write</h2>
+        <p class="section-lead">Two staged clips: the chat app and the mail client are mock-ups made for this page. The KeyLint parts are the real app, and the correction and the email are what KeyLint actually returned.</p>
+
+        <h3 class="demo-title">Silent Fix in a chat app</h3>
+        <p class="demo-text">Select the message and press <kbd>Ctrl+G</kbd>. A dot on KeyLint's tray icon shows it is working, then the corrected text replaces your selection. Nothing else pops up.</p>
         <figure class="shot">
-          <video class="demo-video" muted loop playsinline width="1600" height="900"
-            poster="img/demo-pyramidize-outlook.webp"
-            aria-label="Pyramidize in Outlook: messy notes selected, the shortcut pressed twice, and the structured email pasted back into the message">
-            <source src="img/demo-pyramidize-outlook.mp4" type="video/mp4" />
+          <video class="demo-video" muted loop playsinline preload="none" width="1600" height="1000"
+            poster="img/demo-fix.webp"
+            aria-label="A chat app: a message with typos is typed and selected, Ctrl+G is pressed, the corrected message replaces it and is sent">
+            <source src="img/demo-fix.webm" type="video/webm" />
           </video>
+          <figcaption>Staged demo. The correction is what KeyLint actually returned for this message.</figcaption>
         </figure>
-        -->
+
+        <h3 class="demo-title">Pyramidize from a mail client</h3>
+        <p class="demo-text">Hold <kbd>Ctrl</kbd> and tap <kbd>G</kbd> twice on your notes. KeyLint opens with them and puts the point first. Copy the result as rich text and paste it back as a formatted email.</p>
         <figure class="shot">
-          <picture>
-            <source srcset="img/pyramidize.webp" media="(prefers-reduced-motion: reduce)" />
-            <img src="img/pyramidize-demo.webp" width="1600" height="937" loading="lazy"
-              alt="Pyramidize in KeyLint: rough notes about a delayed laptop delivery are pasted in and turned into a structured email with the recommendation first" />
-          </picture>
-          <figcaption>The in-app Pyramidize page. The email shown is what KeyLint actually returned for these notes.</figcaption>
-        </figure>
-        <!-- Outlook recording slot for the hotkey Fix (PR #126 has the recording
-             guide). Add img/demo-fix-outlook.mp4 and its poster still
-             img/demo-fix-outlook.webp (a frame of the recording, made with it),
-             set width/height to the recording's pixel size and uncomment.
-        <h3 class="demo-title">Or just fix it where you typed it</h3>
-        <figure class="shot">
-          <video class="demo-video" muted loop playsinline width="1600" height="900"
-            poster="img/demo-fix-outlook.webp"
-            aria-label="KeyLint in Outlook: a sentence with typos is selected, Ctrl+G is pressed, and the corrected sentence replaces it">
-            <source src="img/demo-fix-outlook.mp4" type="video/mp4" />
+          <video class="demo-video" muted loop playsinline preload="none" width="1600" height="1000"
+            poster="img/demo-pyramidize.webp"
+            aria-label="A webmail draft: rough notes are selected, the shortcut is pressed twice, KeyLint opens and structures them into an email, which is copied as rich text, pasted into the draft, and its first line moved into the subject">
+            <source src="img/demo-pyramidize.webm" type="video/webm" />
           </video>
+          <figcaption>Staged demo with the real KeyLint window. The email is what KeyLint actually returned; its first line is the suggested subject.</figcaption>
         </figure>
-        -->
       </div>
     </section>
 
@@ -236,16 +223,23 @@
   </footer>
 
   <script>
-    // Demo videos: play only when the visitor has not asked for reduced
-    // motion; otherwise show controls so they can start one themselves.
-    // A click pauses or resumes. Does nothing while no .demo-video exists.
+    // Demo videos: they load and play only while on screen, and only when the
+    // visitor has not asked for reduced motion; then they show controls and
+    // their poster instead. A click pauses or resumes.
     (function () {
       var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      document.querySelectorAll('video.demo-video').forEach(function (v) {
+      var videos = document.querySelectorAll('video.demo-video');
+      videos.forEach(function (v) {
         if (reduce) { v.controls = true; return; }
-        v.play().catch(function () { v.controls = true; });
         v.addEventListener('click', function () { if (v.paused) { v.play(); } else { v.pause(); } });
       });
+      if (reduce) return;
+      function play(v) { v.play().catch(function () { v.controls = true; }); }
+      if (!('IntersectionObserver' in window)) { videos.forEach(play); return; }
+      var seen = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) { if (e.isIntersecting) { play(e.target); } else { e.target.pause(); } });
+      }, { threshold: 0.4 });
+      videos.forEach(function (v) { seen.observe(v); });
     })();
   </script>
 </body>

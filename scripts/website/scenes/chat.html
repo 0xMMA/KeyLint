@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Chat (demo scene)</title>
+<!-- A generic chat app for the Silent Fix demo: no real product, names or
+     colours. Layout only reads as a team chat. -->
+<link rel="stylesheet" href="stage.css" />
+<style>
+  .app { position: absolute; inset: 0 0 40px 0; display: flex; background: #1b1e24; color: #e6e8eb; }
+  .rail { width: 64px; background: #13161b; display: flex; flex-direction: column; align-items: center; gap: 14px; padding-top: 16px; }
+  .rail .ws { width: 40px; height: 40px; border-radius: 12px; background: #2f7d6d; color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 16px; }
+  .rail .ic { width: 36px; height: 36px; border-radius: 10px; background: #22262d; }
+  .rail .ic.on { background: #2b3038; box-shadow: inset 3px 0 0 #3fb59c; }
+  .side { width: 250px; background: #171a1f; border-right: 1px solid #262a31; padding: 18px 12px; }
+  .side h2 { font-size: 16px; padding: 0 10px 14px; color: #f3f4f6; }
+  .side .group { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #8b929c; padding: 14px 10px 6px; }
+  .side .item { font-size: 15px; color: #b8bec7; padding: 7px 10px; border-radius: 8px; display: flex; align-items: center; gap: 8px; }
+  .side .item.on { background: #262b33; color: #fff; }
+  .side .dot { width: 8px; height: 8px; border-radius: 50%; background: #3fb59c; }
+  .side .dot.away { background: #6b7280; }
+  .main { flex: 1; display: flex; flex-direction: column; }
+  .head { height: 60px; border-bottom: 1px solid #262a31; display: flex; align-items: center; padding: 0 24px; gap: 10px; }
+  .head h1 { font-size: 18px; }
+  .head span { color: #8b929c; font-size: 14px; }
+  .thread { flex: 1; padding: 22px 28px; display: flex; flex-direction: column; justify-content: flex-end; gap: 20px; overflow: hidden; }
+  .msg { display: flex; gap: 14px; }
+  .av { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px; color: #fff; flex-shrink: 0; }
+  .who { font-weight: 700; font-size: 15px; }
+  .who time { font-weight: 400; color: #8b929c; font-size: 13px; margin-left: 8px; }
+  .body { font-size: 16px; line-height: 1.5; color: #d9dde3; margin-top: 3px; max-width: 760px; }
+  .msg.new { animation: rise 260ms ease-out; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  .compose { margin: 0 28px 22px; border: 1px solid #353b44; border-radius: 12px; background: #20242b; }
+  .compose:focus-within { border-color: #4f5864; }
+  #box {
+    display: block; width: 100%; height: 86px; resize: none; border: 0; outline: 0; background: transparent;
+    color: #eef0f3; font: 16px/1.5 'Liberation Sans', Arial, sans-serif; padding: 14px 16px 6px;
+  }
+  #box::selection { background: #3b5f8a; color: #fff; }
+  .tools { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px 10px; color: #8b929c; font-size: 13px; }
+  .send { width: 34px; height: 30px; border-radius: 8px; background: #2f7d6d; display: grid; place-items: center; }
+</style>
+</head>
+<body>
+  <div class="app">
+    <nav class="rail">
+      <div class="ws">A</div>
+      <div class="ic on"></div><div class="ic"></div><div class="ic"></div><div class="ic"></div>
+    </nav>
+    <aside class="side">
+      <h2>Atlas team</h2>
+      <div class="group">Channels</div>
+      <div class="item"># general</div>
+      <div class="item on"># launch</div>
+      <div class="item"># design</div>
+      <div class="item"># random</div>
+      <div class="group">Direct messages</div>
+      <div class="item"><span class="dot"></span>Mara Lind</div>
+      <div class="item"><span class="dot"></span>Theo Brandt</div>
+      <div class="item"><span class="dot away"></span>Ines Okafor</div>
+    </aside>
+    <main class="main">
+      <header class="head"><h1># launch</h1><span>3 members</span></header>
+      <section class="thread" id="thread">
+        <div class="msg">
+          <div class="av" style="background:#3f7fbf">IO</div>
+          <div><div class="who">Ines Okafor<time>9:41</time></div>
+            <div class="body">Pushed the new pricing table to the shared folder.</div></div>
+        </div>
+        <div class="msg">
+          <div class="av" style="background:#8a5cd0">ML</div>
+          <div><div class="who">Mara Lind<time>9:58</time></div>
+            <div class="body">Morning! Did anyone hear back about the client demo?</div></div>
+        </div>
+        <div class="msg">
+          <div class="av" style="background:#c0662f">TB</div>
+          <div><div class="who">Theo Brandt<time>10:03</time></div>
+            <div class="body">Not yet. I still have two slides to finish either way.</div></div>
+        </div>
+      </section>
+      <div class="compose">
+        <textarea id="box" spellcheck="false" placeholder="Message #launch"></textarea>
+        <div class="tools"><span>Enter to send</span><span class="send">
+          <svg width="16" height="16" viewBox="0 0 24 24"><path d="M3 11l18-8-8 18-2-8z" fill="#fff"/></svg></span></div>
+      </div>
+    </main>
+  </div>
+  <div class="taskbar">
+    <svg class="glyph" viewBox="0 0 24 24"><path d="M2 9a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0" stroke="#c9ced6" stroke-width="2" fill="none" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.5" fill="#c9ced6"/></svg>
+    <svg class="glyph" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z" fill="#c9ced6"/><path d="M16 9a4 4 0 0 1 0 6" stroke="#c9ced6" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+    <span class="tray-keylint" title="KeyLint"><img src="/build/appicon.png" alt="" /><span class="busy"></span></span>
+    <span class="clock">10:06</span>
+  </div>
+  <script src="stage.js"></script>
+  <script>
+    // Enter posts the message, as a chat app does.
+    const box = document.getElementById('box');
+    box.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || e.shiftKey) return;
+      e.preventDefault();
+      const text = box.value.trim();
+      if (!text) return;
+      const msg = document.createElement('div');
+      msg.className = 'msg new';
+      msg.innerHTML = '<div class="av" style="background:#2f7d6d">YO</div><div><div class="who">You<time>10:06</time></div><div class="body"></div></div>';
+      msg.querySelector('.body').textContent = text;
+      document.getElementById('thread').appendChild(msg);
+      box.value = '';
+    });
+  </script>
+</body>
+</html>

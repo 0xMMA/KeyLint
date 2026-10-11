@@ -3,7 +3,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: '.',
-  testMatch: 'capture.spec.ts',
+  testMatch: ['capture.spec.ts', 'demos.spec.ts'],
   outputDir: 'out/test-results',
   workers: 1,
   reporter: [['list']],

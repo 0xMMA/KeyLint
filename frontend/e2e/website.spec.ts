@@ -6,10 +6,12 @@
  * - Download links use /releases/latest, which resolves to the newest
  *   non-prerelease (the site ships with the first stable 4.x). Every one must
  *   be exactly that, so no stale tag link creeps in and none is missed.
- * - Every image loads and carries width, height (no layout shift) and alt.
+ * - Every image loads and carries width, height (no layout shift) and alt;
+ *   every demo video has a poster, sources, size and a label, all on disk.
  * - Nothing scrolls sideways at phone width.
  */
 import { test, expect, Page } from '@playwright/test';
+import * as fs from 'fs';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
 
@@ -63,6 +65,29 @@ test.describe('website', () => {
         expect(Number(img.width), `${img.src} has a width`).toBeGreaterThan(0);
         expect(Number(img.height), `${img.src} has a height`).toBeGreaterThan(0);
         expect(img.alt, `${img.src} has alt text`).not.toBe('');
+      }
+    });
+
+    test(`${name}: every video has a poster, sources, width, height and a label on disk`, async ({ page }) => {
+      await page.goto(url(name));
+      const videos = await page.evaluate(() => [...document.querySelectorAll('video')].map((v) => ({
+        poster: v.getAttribute('poster'),
+        sources: [...v.querySelectorAll('source')].map((s) => s.getAttribute('src')),
+        width: v.getAttribute('width'),
+        height: v.getAttribute('height'),
+        label: (v.getAttribute('aria-label') ?? '').trim(),
+      })));
+      for (const v of videos) {
+        const id = v.sources.join(', ');
+        expect(v.poster, `${id} has a poster`).toBeTruthy();
+        expect(fs.existsSync(path.join(SITE, v.poster!)), `${v.poster} exists`).toBe(true);
+        expect(v.sources.length, 'a video has a source').toBeGreaterThan(0);
+        for (const src of v.sources) {
+          expect(fs.existsSync(path.join(SITE, src!)), `${src} exists`).toBe(true);
+        }
+        expect(Number(v.width), `${id} has a width`).toBeGreaterThan(0);
+        expect(Number(v.height), `${id} has a height`).toBeGreaterThan(0);
+        expect(v.label, `${id} has a label`).not.toBe('');
       }
     });
 
