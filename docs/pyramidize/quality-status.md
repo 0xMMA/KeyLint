@@ -4,6 +4,8 @@
 
 > The Fix prompt has its own suite and baseline: [`docs/fix/quality-status.md`](../fix/quality-status.md).
 
+> **Prompt v3 is the default since 2026-10-11 ([ADR-003](adr-003-prompt-v3.md)) and is not measured yet.** Every baseline below is v2 email (or older); a run with no `--variant` now measures v3, and `promptVariant` in `summary.json` says which. v2 stays selectable with `--variant 2`; variant 1 and the refine pass are gone, so `appliedRefinement` is always false from here on.
+
 ---
 
 ## Eval Infrastructure

@@ -25,11 +25,14 @@ cat input.txt | ./bin/KeyLint -fix                     # fix from stdin
 # Input precedence: -f wins, then the inline argument, then stdin. Stdin is only
 # read when neither of the others is given, and gives up after 15 s of silence
 # rather than hanging on a pipe that never speaks.
-./bin/KeyLint -pyramidize -type email -f input.md      # pyramidize from file
-./bin/KeyLint -pyramidize --json -f input.md           # JSON output with quality score
+./bin/KeyLint -pyramidize -type email -f input.md      # pyramidize from file, one model call
+                                                       # -type: email (default) | chat | memo | wiki | powerpoint
+                                                       # ("presentation" = powerpoint; "auto" = app preset, else email)
+./bin/KeyLint -pyramidize --json -f input.md           # JSON: {documentType, language, fullDocument}
+                                                       # (no qualityScore since v3 — nothing produces one, ADR-003)
 ./bin/KeyLint -pyramidize --provider claude --model claude-sonnet-4-6 -f input.md
-./bin/KeyLint -pyramidize --variant 1 -f input.md     # use prompt variant v1
-./bin/KeyLint -pyramidize --variant 2 -f input.md     # use prompt variant v2 (0=latest)
+./bin/KeyLint -pyramidize --variant 2 -f input.md     # the v2 email prompt (email only); 0 = latest = v3
+                                                       # variant 1 was removed with the refine pass
 ```
 
 **Evaluation tests (real model calls — NOT run by default):**
@@ -62,7 +65,9 @@ EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 go test -tags eval ...
                                                        # split is in the configKey, so --compare refuses to mix halves.
 ./scripts/eval.sh --provider claude --model claude-sonnet-4-6   # API pipeline (needs the key)
 EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --provider claude  # fully API (still not comparable with API-era baselines)
-./scripts/eval.sh --variant 1                          # compare v1 vs v2 prompts
+./scripts/eval.sh --variant 2                          # the v2 email prompt, for v3 (latest) vs v2
+                                                       # variant is in the configKey: --compare calls the
+                                                       # pair "not comparable"; compare the intervals by hand
 ./scripts/eval.sh --schema                             # enforce the JSON schemas (default off, see pyramidize/schemas.go)
 ./scripts/eval.sh --runs 3                             # n runs → test-data/eval-baselines/<ts>/baseline.json (needs n≥2)
 ./scripts/eval.sh --runs 3 --compare path/to/baseline.json   # verdict vs a baseline
@@ -159,6 +164,6 @@ KeyLint is a desktop app that fixes/enhances clipboard text via AI (OpenAI, Anth
 
 **Logging conventions:** `docs/logging.md` (levels, Redact() usage, source tagging, CLI flags)
 
-**Pyramidize docs:** `docs/pyramidize/` (requirements, ADR, quality status, NLP/LangChain research, UX roadmap)
+**Pyramidize docs:** `docs/pyramidize/` (requirements, ADRs — ADR-003 is the current design: the user picks the form, one call writes it — quality status, NLP/LangChain research, UX roadmap)
 
 **Fix docs:** `docs/fix/quality-status.md` (eval suite, baseline, what it found). Two eval suites exist — `--suite pyramidize` (default) and `--suite fix`; their baselines are not comparable with each other.
