@@ -34,9 +34,9 @@ app code for theme detection, see `architecture.md`.
 (`frontend/angular.json`). Two things about it are worth knowing before you
 change anything.
 
-**Spec files are NOT isolated from each other.** The builder's `isolate`
-option defaults to `false` (`@angular/build/src/builders/unit-test/schema.json`;
-`angular.json` leaves it unset),
+**Spec files are NOT isolated from each other.** The builder sets
+`isolate: false` (`@angular/build/src/builders/unit-test/runners/vitest/plugins.js`)
+unless its `isolate` option says otherwise, and `angular.json` leaves it unset,
 so the files that land in one fork share a process, a `globalThis` and one jsdom
 window. Measured on this suite (when it still carried PrimeNG stubs): 11 of
 14 files landed in a single fork and saw `ResizeObserver` and `matchMedia`

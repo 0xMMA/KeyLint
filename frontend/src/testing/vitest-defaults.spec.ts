@@ -8,7 +8,9 @@ import { describe, it, expect, vi } from 'vitest';
 // this file fails first and says why.
 const shared = vi.fn();
 
-describe('vitest defaults', () => {
+// The second test reads what the first left behind, so order is pinned. Run
+// the second on its own (-t) and it passes whatever the setting: run the file.
+describe('vitest defaults', { shuffle: false }, () => {
   it('records a call in one test', () => {
     shared();
     expect(shared).toHaveBeenCalledTimes(1);

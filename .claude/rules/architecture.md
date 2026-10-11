@@ -34,6 +34,8 @@ Layout utilities are Tailwind v4 (`mt-4`, `flex`, `gap-4`, `text-muted`, `bg-she
 
 **Frontend (Angular):** every component lives in its own folder — `feature-name/feature-name.component.ts`. Subcomponents go in nested folders: `feature-name/sub-part/sub-part.component.ts`. Colocate specs, services, and related files in the same folder as the component they belong to. Decompose large components into focused subcomponents rather than growing monolithic templates.
 
+**Change detection:** a new component is OnPush, Angular 22's default — leave `changeDetection` out and drive what the template shows through signals (or `markForCheck()` after setting a plain field). The app components that existed before the upgrade carry `ChangeDetectionStrategy.Eager`, the pre-v22 behaviour the migration kept; a plain field set from a Wails callback updates only there. Copy their state handling into a new component and it silently stops refreshing. Move them to OnPush one at a time, each with its own check.
+
 **Backend (Go):** vertical slices in `internal/features/<domain>/`. Group by domain — service, model, platform-specific files, and tests all colocate in the same package. Add a new package when a new domain emerges; don't force single-file packages but keep each package focused on one concern.
 
 ## State Across Navigation

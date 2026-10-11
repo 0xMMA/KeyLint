@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Component } from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { By } from '@angular/platform-browser';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router, ActivatedRoute } from '@angular/router';
@@ -191,7 +191,11 @@ describe('ShellComponent — a clicked hotkey-fix notification', () => {
 // block, with or without this change). The real page switching tabs on the
 // same request is covered above.
 describe('ShellComponent — a key or sign-in notification from another page', () => {
-  @Component({ standalone: true, template: `<div class="stub-settings" data-testid="stub-tab">{{ tab }}</div>` })
+  @Component({
+    standalone: true,
+    changeDetection: ChangeDetectionStrategy.Eager,
+    template: `<div class="stub-settings" data-testid="stub-tab">{{ tab }}</div>`,
+  })
   class StubSettings {
     tab = '';
     constructor(route: ActivatedRoute) {
