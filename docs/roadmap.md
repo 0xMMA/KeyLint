@@ -210,8 +210,8 @@ The Fix page redesign (#36, E5) is the natural first screen for the new look.
 | `v4.6.0-beta` | ✅ released 2026-10-10: E0 shortcut hook (#31) · E2 step 5 model families + effort + AI Providers redesign (#108) · silent fix in Go with toast feedback, closes #93 (#110) · setup wizard never blocks (#109). Follow-ups #112–#115 |
 | `v4.6.1-beta` | ✅ released 2026-10-10: Wails v3 beta.25 (#95) · October dependency bumps, openai-go held at 3.68 (#117, #116) · Send Back fixed, closes #114 (#119) |
 | `v4.7.0-beta` | ✅ released 2026-10-11: E11 own UI on CDK + Tailwind, new look incl. Fix page redesign, PrimeNG out (#121, #123) · Pyramidize effort picker, quality threshold removed (#123) |
-| `v4.7.1-beta` (next) | Pyramidize options fit the default window again (#124) |
-| `v4.8.0-beta` | E3 one-shot overhaul with eval · E4 upgrade wave (Angular 22 now unblocked) |
+| `v4.7.1-beta` | ✅ released 2026-10-11: Pyramidize options fit the default window again (#124) |
+| `v4.8.0-beta` (next) | E3 one-shot overhaul with eval · E4 upgrade wave (Angular 22 now unblocked) |
 | `v5.0.0` | Bedrock UI · light theme · HTML clipboard · Codex/Gemini CLI providers · OpenRouter (E10) |
 
 ---
