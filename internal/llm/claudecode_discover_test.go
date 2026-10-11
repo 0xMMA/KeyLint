@@ -195,3 +195,39 @@ func TestClaudeCodeStatusCarriesNoAccountDetails(t *testing.T) {
 		}
 	}
 }
+
+// TestStatusProbesRunInTheNeutralDir: `claude --version` and `claude auth
+// status` are CLI runs too, and must not start in KeyLint's own working
+// directory any more than a completion does.
+func TestStatusProbesRunInTheNeutralDir(t *testing.T) {
+	workDir := t.TempDir()
+	old := cliWorkDir
+	cliWorkDir = func() (string, error) { return workDir, nil }
+	t.Cleanup(func() { cliWorkDir = old })
+	t.Setenv("CLAUDESTUB_VERSION", "2.1.296 (Claude Code)")
+	t.Setenv("CLAUDESTUB_AUTH", `{"loggedIn":true}`)
+	want, _ := filepath.EvalSymlinks(workDir)
+
+	for name, probe := range map[string]func(string){
+		"version": func(cwdFile string) {
+			t.Setenv("CLAUDESTUB_CWD_FILE", cwdFile)
+			claudeCodeVersion(context.Background(), stubPath)
+		},
+		"auth status": func(cwdFile string) {
+			t.Setenv("CLAUDESTUB_CWD_FILE", cwdFile)
+			if _, err := runClaudeCode(context.Background(), stubPath, "auth", "status"); err != nil {
+				t.Fatalf("auth status: %v", err)
+			}
+		},
+	} {
+		cwdFile := filepath.Join(t.TempDir(), "cwd")
+		probe(cwdFile)
+		data, err := os.ReadFile(cwdFile)
+		if err != nil {
+			t.Fatalf("%s: the stub recorded no working directory: %v", name, err)
+		}
+		if got := string(data); got != workDir && got != want {
+			t.Errorf("%s ran in %q, want the neutral directory %q", name, got, workDir)
+		}
+	}
+}

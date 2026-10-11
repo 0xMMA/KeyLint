@@ -39,6 +39,12 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	// No test may create KeyLint's working directory under the developer's
+	// real cache directory. os.UserCacheDir reads a different variable per OS
+	// (XDG_CACHE_HOME, LocalAppData, HOME), so the seam is replaced instead.
+	cache := filepath.Join(dir, "cache")
+	userCacheDir = func() (string, error) { return cache, nil }
+
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)
@@ -592,4 +598,133 @@ func TestClaudeCodeOrdinaryStopReasonsPass(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestClaudeCodeRunsIsolatedFromTheUsersClaudeCodeSessions: --setting-sources ""
+// does not stop Claude Code's auto-memory. Measured: with KeyLint's own working
+// directory inherited, the memory file of the matching ~/.claude/projects/<slug>
+// was injected into every call. The spawn now runs in an empty directory
+// KeyLint owns, with auto-memory switched off — for every caller, not just evals.
+func TestClaudeCodeRunsIsolatedFromTheUsersClaudeCodeSessions(t *testing.T) {
+	s := newStub(t)
+	s.replies(successEnvelope)
+	cwdFile := filepath.Join(t.TempDir(), "cwd")
+	t.Setenv("CLAUDESTUB_CWD_FILE", cwdFile)
+	workDir := t.TempDir()
+	old := cliWorkDir
+	cliWorkDir = func() (string, error) { return workDir, nil }
+	t.Cleanup(func() { cliWorkDir = old })
+	// Inherited values must not win over KeyLint's own.
+	t.Setenv("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "0")
+	t.Setenv("MAX_THINKING_TOKENS", "31999")
+	t.Setenv("ANTHROPIC_DEFAULT_HAIKU_MODEL", "claude-something-else")
+
+	if _, err := s.client().Complete(context.Background(), Request{Model: "haiku", User: "x"}); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	got := readRecorded(t, cwdFile)
+	if want, _ := filepath.EvalSymlinks(workDir); got != workDir && got != want {
+		t.Errorf("CLI ran in %q, want the neutral directory %q", got, workDir)
+	}
+	values := map[string][]string{}
+	for _, entry := range s.env() {
+		name, value, _ := strings.Cut(entry, "=")
+		values[strings.ToUpper(name)] = append(values[strings.ToUpper(name)], value)
+	}
+	if v := values["CLAUDE_CODE_DISABLE_AUTO_MEMORY"]; len(v) != 1 || v[0] != "1" {
+		t.Errorf("CLAUDE_CODE_DISABLE_AUTO_MEMORY = %v, want exactly [1]", v)
+	}
+	for _, name := range []string{"MAX_THINKING_TOKENS", "ANTHROPIC_DEFAULT_HAIKU_MODEL"} {
+		if v, ok := values[name]; ok {
+			t.Errorf("%s = %v reached the CLI; a shell setting must not shape KeyLint's call", name, v)
+		}
+	}
+}
+
+func TestDefaultCLIWorkDirIsKeyLintsOwn(t *testing.T) {
+	cache := t.TempDir()
+	withCacheDir(t, func() (string, error) { return cache, nil })
+	dir, err := defaultCLIWorkDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(cache, "KeyLint", "claude-cli"); dir != want {
+		t.Errorf("dir = %q, want %q", dir, want)
+	}
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("dir %q was not created: %v", dir, err)
+	}
+	// Idempotent: the second call finds what the first made.
+	if again, _ := defaultCLIWorkDir(); again != dir {
+		t.Errorf("second call = %q, want %q", again, dir)
+	}
+}
+
+// TestNoCacheDirFallsBackToAPrivateTempDir: without a user cache directory the
+// spawn must not land in a shared, predictable path under the system temp dir
+// — another account could create it first. A directory made for this process
+// (os.MkdirTemp, mode 0700) is used instead, the same one for every call.
+func TestNoCacheDirFallsBackToAPrivateTempDir(t *testing.T) {
+	withCacheDir(t, func() (string, error) { return "", errors.New("no cache dir") })
+	resetPrivateWorkDir(t)
+
+	first, err := defaultCLIWorkDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(first) })
+	if filepath.Base(first) == "keylint-claude-cli" {
+		t.Errorf("dir = %q, a shared fixed name", first)
+	}
+	if !strings.HasPrefix(filepath.Base(first), "keylint-claude-cli-") {
+		t.Errorf("dir = %q, want a per-process keylint-claude-cli-* directory", first)
+	}
+	if runtime.GOOS != "windows" {
+		if info, err := os.Stat(first); err != nil || info.Mode().Perm() != 0o700 {
+			t.Errorf("mode = %v (%v), want 0700", info.Mode().Perm(), err)
+		}
+	}
+	if second, _ := defaultCLIWorkDir(); second != first {
+		t.Errorf("second call = %q, want the same %q", second, first)
+	}
+}
+
+// TestNoNeutralDirIsAnError: a call that cannot get a neutral directory fails
+// and says so, rather than running in KeyLint's own working directory, where
+// Claude Code would find whatever that directory holds.
+func TestNoNeutralDirIsAnError(t *testing.T) {
+	s := newStub(t)
+	s.replies(successEnvelope)
+	old := cliWorkDir
+	cliWorkDir = func() (string, error) { return "", errors.New("disk full") }
+	t.Cleanup(func() { cliWorkDir = old })
+
+	if _, err := s.client().Complete(context.Background(), Request{Model: "haiku", User: "x"}); err == nil || !strings.Contains(err.Error(), "disk full") {
+		t.Errorf("err = %v, want the working-directory failure", err)
+	}
+	if _, err := os.Stat(s.argvFile); err == nil {
+		t.Error("the CLI ran anyway")
+	}
+}
+
+func withCacheDir(t *testing.T, f func() (string, error)) {
+	t.Helper()
+	old := userCacheDir
+	userCacheDir = f
+	t.Cleanup(func() { userCacheDir = old })
+}
+
+func resetPrivateWorkDir(t *testing.T) {
+	t.Helper()
+	privateWorkDir.Lock()
+	saved := privateWorkDir.path
+	privateWorkDir.path = ""
+	privateWorkDir.Unlock()
+	t.Cleanup(func() {
+		privateWorkDir.Lock()
+		privateWorkDir.path = saved
+		privateWorkDir.Unlock()
+	})
 }
