@@ -252,7 +252,7 @@ kbd {
   padding: 1px 8px;
   font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'Menlo', monospace;
   font-size: 0.8rem;
-  color: #64748b;
+  color: var(--text-muted);
   line-height: 1.6;
 }
 
@@ -307,7 +307,8 @@ kbd {
 }
 
 .provider-card-highlight {
-  border-color: rgba(249, 115, 22, 0.4);
+  border-top: 3px solid var(--primary);
+  background: linear-gradient(rgba(249, 115, 22, 0.07), var(--surface-card) 60%);
 }
 
 code {

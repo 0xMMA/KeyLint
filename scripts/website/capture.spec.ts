@@ -8,7 +8,7 @@
  *     python3 scripts/website/encode.py
  *
  * It serves the production build (frontend/dist/browser — no Dev Tools nav
- * item, no dev-mode UI) on its own port, so it never collides with an
+ * item, no dev-mode UI) on its own port (127.0.0.1:47813), so it never collides with an
  * `ng serve` on :4200, and answers the Wails binding calls with the e2e fake
  * backend. Raw frames land in scripts/website/out/ (gitignored); encode.py
  * turns them into the WebP files the page uses.
@@ -30,7 +30,8 @@ import { installFakePyramidize, fakePyramidize } from '../../frontend/e2e/suppor
 const ROOT = path.join(__dirname, '../..');
 const DIST = path.join(ROOT, 'frontend/dist/browser');
 const OUT = path.join(__dirname, 'out');
-const PORT = 4317;
+// Not a well-known dev-server default, so it never meets another tool's server.
+const PORT = 47813;
 
 // The default window (main.go: 1280×800 outer) leaves about this much page.
 const VIEWPORT = { width: 1264, height: 740 };
@@ -65,7 +66,7 @@ alex`;
 
 let server: http.Server;
 
-test.use({ viewport: VIEWPORT, deviceScaleFactor: 2, baseURL: `http://localhost:${PORT}` });
+test.use({ viewport: VIEWPORT, deviceScaleFactor: 2, baseURL: `http://127.0.0.1:${PORT}` });
 
 test.beforeAll(async () => {
   if (!fs.existsSync(path.join(DIST, 'index.html'))) {
@@ -85,11 +86,15 @@ test.beforeAll(async () => {
     res.writeHead(200, { 'Content-Type': types[path.extname(file)] ?? 'application/octet-stream' });
     fs.createReadStream(file).pipe(res);
   });
-  await new Promise<void>((resolve) => server.listen(PORT, resolve));
+  // Fails fast (port taken, no permission) instead of hanging the run.
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(PORT, '127.0.0.1', resolve);
+  });
 });
 
 test.afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  if (server?.listening) await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
 /** The version in the sidebar footer, and no update dot. */
