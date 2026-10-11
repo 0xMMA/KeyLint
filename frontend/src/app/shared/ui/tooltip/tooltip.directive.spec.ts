@@ -141,6 +141,49 @@ describe('klTooltip', () => {
   });
 });
 
+/** A help button whose click exists to show the text. */
+@Component({
+  standalone: true,
+  imports: [TooltipDirective],
+  template: `<button data-testid="target" klTooltip="What it does" klTooltipOnClick>?</button>`,
+})
+class HelpHost {}
+
+describe('klTooltip with klTooltipOnClick', () => {
+  const tooltip = () => document.querySelector<HTMLElement>('[role="tooltip"]');
+
+  afterEach(() => {
+    document.querySelectorAll('.cdk-overlay-container').forEach(c => (c.innerHTML = ''));
+  });
+
+  it('a click (or a tap) toggles it, and a click elsewhere still takes it away', async () => {
+    await TestBed.configureTestingModule({ imports: [HelpHost] }).compileComponents();
+    const fixture = TestBed.createComponent(HelpHost);
+    fixture.detectChanges();
+    const target: HTMLButtonElement = fixture.nativeElement.querySelector('[data-testid="target"]');
+    const settle = async () => { fixture.detectChanges(); await fixture.whenStable(); };
+
+    // A tap: pointerdown, focus, pointerup, click — the focus shows nothing, the click does.
+    target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    target.focus();
+    target.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+    target.click();
+    await settle();
+    expect(tooltip()?.textContent?.trim()).toBe('What it does');
+
+    target.click();
+    await settle();
+    expect(tooltip()).toBeNull();
+
+    target.click();
+    await settle();
+    target.blur();
+    await settle();
+    expect(tooltip()).toBeNull();
+    fixture.destroy();
+  });
+});
+
 describe('klTooltip on a kl-button', () => {
   afterEach(() => {
     document.querySelectorAll('.cdk-overlay-container').forEach(c => (c.innerHTML = ''));

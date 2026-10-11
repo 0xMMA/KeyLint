@@ -88,12 +88,15 @@ export interface ModelOption { id: string; label: string }
              picker it pushed the column past the default window height. -->
         <div class="pz-label-row">
           <label class="pz-label" for="pz-effort">Effort</label>
-          <button type="button" class="pz-info" data-testid="effort-note" aria-label="What effort does"
-            [klTooltip]="note" klTooltipPosition="right"><kl-icon name="info" [size]="14" /></button>
+          <button type="button" class="pz-info" data-testid="effort-info" aria-label="What effort does"
+            [klTooltip]="note" klTooltipPosition="right" klTooltipOnClick><kl-icon name="info" [size]="14" /></button>
         </div>
+        <!-- The same text for a screen reader, read where the user is: on the picker. -->
+        <span id="pz-effort-note" class="sr-only" data-testid="effort-note">{{ note }}</span>
         <kl-select
           data-testid="effort-select"
           inputId="pz-effort"
+          ariaDescribedBy="pz-effort-note"
           [options]="effortOptions()"
           optionLabel="label"
           optionValue="value"
@@ -103,7 +106,14 @@ export interface ModelOption { id: string; label: string }
     }
 
     <div class="pz-field">
-      <label class="pz-label" for="pz-doc-type">Document type</label>
+      <!-- What detection found sits on the label's line: a line of its own
+           pushed the column past the default window height after a run. -->
+      <div class="pz-label-row">
+        <label class="pz-label" for="pz-doc-type">Document type</label>
+        @if (detectedType()) {
+          <small class="pz-hint pz-detected-hint" data-testid="detected-type">Detected: <span class="pz-detected">{{ detectedType() }}</span></small>
+        }
+      </div>
       <kl-select
         data-testid="doc-type-select"
         inputId="pz-doc-type"
@@ -113,9 +123,6 @@ export interface ModelOption { id: string; label: string }
         [(ngModel)]="docType"
         (changed)="docTypePicked.emit()"
       />
-      @if (detectedType()) {
-        <small class="pz-hint" data-testid="detected-type">Detected: <span class="pz-detected">{{ detectedType() }}</span></small>
-      }
     </div>
 
     <div class="pz-field">
@@ -135,7 +142,7 @@ export interface ModelOption { id: string; label: string }
         klInput
         id="pz-instructions"
         data-testid="custom-instructions"
-        rows="2"
+        rows="1"
         class="pz-instructions resize-none"
         placeholder="Optional, e.g. keep it under 100 words"
         [(ngModel)]="customInstructions"
@@ -159,7 +166,8 @@ export interface ModelOption { id: string; label: string }
     :host {
       /* Fits the default window (1280×800) without scrolling with every
          provider: e2e/pyramidize-options-fit.spec.ts. The instruction field
-         takes what height is left, from two rows up. */
+         takes what height is left: usually a few lines, one when a hint or
+         two take the room. */
       display: flex; flex-direction: column; gap: 14px;
       width: 300px; flex: none; padding: 24px; overflow-y: auto;
       border-right: 1px solid var(--kl-line);
@@ -167,7 +175,9 @@ export interface ModelOption { id: string; label: string }
     .pz-title { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.015em; color: var(--kl-text-strong); }
     .pz-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
     .pz-field-grow { flex: 1 0 auto; }
-    .pz-instructions { flex: 1; }
+    /* Fills the height left, up to about ten lines; the button stays at the bottom. */
+    .pz-instructions { flex: 1; max-height: 14rem; }
+    .pz-detected-hint { margin-left: auto; }
     .pz-label-row { display: flex; align-items: center; gap: 6px; }
     .pz-info {
       display: inline-flex; padding: 2px; border: 0; border-radius: 4px; background: none;
