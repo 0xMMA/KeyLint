@@ -34,8 +34,9 @@ app code for theme detection, see `architecture.md`.
 (`frontend/angular.json`). Two things about it are worth knowing before you
 change anything.
 
-**Spec files are NOT isolated from each other.** The builder sets
-`isolate: false` (`@angular/build/src/builders/unit-test/runners/vitest/plugins.js`),
+**Spec files are NOT isolated from each other.** The builder's `isolate`
+option defaults to `false` (`@angular/build/src/builders/unit-test/schema.json`;
+`angular.json` leaves it unset),
 so the files that land in one fork share a process, a `globalThis` and one jsdom
 window. Measured on this suite (when it still carried PrimeNG stubs): 11 of
 14 files landed in a single fork and saw `ResizeObserver` and `matchMedia`
@@ -49,22 +50,19 @@ written or changed gets one run on its own —
 applies to anything else process-global: module singletons, leftover TestBed
 state, patched prototypes.
 
-**vitest stays on 4.x.** The builder declares vitest as an optional peer at
-`^4.0.8` on every published 21.2.x and on 22.0.x–22.1.x. 22.2.0 (2026-09-23)
-is the first to accept `^5.0.0`, so this lifts with an Angular upgrade to
->= 22.2, not with any Angular 22. vitest 5
-does run — the suite passes and the builder's watch path works — but it makes
-`npm install` fail outright with `ERESOLVE could not resolve`, for every
-developer and every package, until someone adds `--legacy-peer-deps`. `npm ci`
-is unaffected, so CI would never have caught it. A test-runner major is not
-worth that, so the bump stopped at 4.1.11.
+**vitest 5, and what it changed.** The suite moved to vitest 5 with Angular
+22.2, the first `@angular/build` to accept `^5` (up to 22.1.x it declared
+`^4.0.8`, and vitest 5 made `npm install` fail with `ERESOLVE`). Two defaults
+changed with it, and the builder sets neither:
 
-Once `@angular/build` is on >= 22.2 (the first to declare `^5`), two things need handling in the same
-change: vitest 5 flips `clearMocks` from `false` to `true` by default and the
-builder does not set it, so a mock's calls no longer survive into the next test
-— an assertion on call counts that should fail could start passing. It also
-changes the default reporter, which swallows `console.log` (`--reporters=verbose`
-brings it back).
+- **`clearMocks` is `true`:** every mock's calls are cleared before each test.
+  Under vitest 4 they piled up across the tests of a file. The suite passed
+  both ways when it moved, so no spec relied on either, but specs written since
+  may count calls on a shared mock and pass only because of it.
+  `src/testing/vitest-defaults.spec.ts` fails if a runner config or a later
+  vitest turns it off. Implementations survive: that would be `mockReset`.
+- **The default reporter hides `console.log` from passing tests.** A failing
+  test still shows its output. `npx ng test --reporters=verbose` shows all.
 
 ## Go Tests
 
