@@ -264,15 +264,17 @@ kbd {
 
 /* AI Providers */
 .providers {
-  padding: 64px 0;
+  padding: 72px 0;
   border-top: 1px solid var(--surface-border);
-  text-align: center;
 }
 
-.providers p {
-  color: var(--text-muted);
-  font-size: 0.9rem;
-  margin-bottom: 20px;
+.providers h2,
+.demo h2 {
+  text-align: center;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  margin-bottom: 24px;
 }
 
 .provider-list {
@@ -280,6 +282,7 @@ kbd {
   gap: 12px;
   justify-content: center;
   flex-wrap: wrap;
+  margin-bottom: 40px;
 }
 
 .provider-chip {
@@ -290,6 +293,84 @@ kbd {
   font-weight: 500;
   padding: 6px 16px;
   border-radius: 99px;
+}
+
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px;
+  margin-bottom: 40px;
+}
+
+.provider-grid h3 {
+  margin-bottom: 10px;
+}
+
+.provider-card-highlight {
+  border-color: rgba(249, 115, 22, 0.4);
+}
+
+code {
+  font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'Menlo', monospace;
+  font-size: 0.85em;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  padding: 0 5px;
+  color: var(--text-color);
+}
+
+.fine-print {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin-top: 28px;
+}
+
+/* Screenshots and demos */
+.hero-shot {
+  padding: 0 0 72px;
+}
+
+.shot {
+  margin: 0;
+}
+
+.shot img,
+.shot video {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  background: #1f1f23;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.shot figcaption {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-align: center;
+  margin-top: 14px;
+}
+
+.demo {
+  padding: 72px 0;
+  border-top: 1px solid var(--surface-border);
+}
+
+.section-lead {
+  text-align: center;
+  color: var(--text-muted);
+  max-width: 600px;
+  margin: 0 auto 40px;
+}
+
+.demo-title {
+  text-align: center;
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 56px 0 24px;
 }
 
 /* CTA */
@@ -344,6 +425,21 @@ footer a:hover {
 @media (max-width: 600px) {
   .hero {
     padding: 64px 0 48px;
+  }
+
+  .container {
+    padding: 0 16px;
+  }
+
+  .hero-shot {
+    padding-bottom: 48px;
+  }
+
+  .features h2,
+  .providers h2,
+  .demo h2,
+  .cta h2 {
+    font-size: 1.6rem;
   }
 
   .nav-links {

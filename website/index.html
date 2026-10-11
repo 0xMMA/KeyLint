@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KeyLint — Fix text instantly with AI | One hotkey, perfect writing</title>
-  <meta name="description" content="KeyLint fixes your text instantly with one hotkey. Perfect for emails, chat messages, documents, and social media posts. Supports OpenAI, Anthropic, and Ollama. For Windows. Free." />
+  <meta name="description" content="KeyLint fixes your text instantly with one hotkey. Perfect for emails, chat messages, documents, and social media posts. Works with OpenAI, Anthropic, Ollama, or the Claude Code CLI you already use — no API key needed for that. For Windows. Free." />
   <meta name="theme-color" content="#f97316" />
   <meta property="og:title" content="KeyLint — Fix text instantly with AI" />
   <meta property="og:description" content="One hotkey. Perfect text. Fixes grammar, tone, and style silently in the background." />
@@ -31,7 +31,6 @@
     },
     "url": "https://keylint.io",
     "downloadUrl": "https://github.com/0xMMA/KeyLint/releases/latest",
-    "softwareVersion": "4.1.5-alpha",
     "author": {
       "@type": "Organization",
       "name": "0xMMA",
@@ -49,6 +48,7 @@
       <span class="nav-brand">Key<span>Lint</span></span>
       <ul class="nav-links">
         <li><a href="#features">Features</a></li>
+        <li><a href="#providers">AI providers</a></li>
         <li><a href="https://github.com/0xMMA/KeyLint/releases/latest">Download</a></li>
         <li><a href="https://github.com/0xMMA/KeyLint">GitHub</a></li>
       </ul>
@@ -72,6 +72,15 @@
       </div>
     </section>
 
+    <section class="hero-shot">
+      <div class="container">
+        <figure class="shot">
+          <img src="img/fix.webp" width="1600" height="937"
+            alt="KeyLint's Fix page: the original text on the left, the corrected text on the right with new words underlined in orange and removed words struck through" />
+        </figure>
+      </div>
+    </section>
+
     <section class="features" id="features">
       <div class="container">
         <div class="section-label">Features</div>
@@ -82,21 +91,21 @@
               <span class="feature-icon">⚡</span>
               <h3>Silent Fix</h3>
             </div>
-            <p>Select text in any app. Press the hotkey. Your clipboard text is fixed and written back — no window, no interruption, no copy-paste loop.</p>
+            <p>Select text in any app and press <kbd>Ctrl+G</kbd>. The corrected text replaces your selection — no window, no interruption, no copy-paste loop.</p>
           </div>
           <div class="feature-card">
             <div class="feature-head">
               <span class="feature-icon">✍️</span>
-              <h3>Deep Enhance</h3>
+              <h3>Pyramidize</h3>
             </div>
-            <p>Open the enhancement panel to rewrite for tone, brevity, or formality. Preview the result before it replaces your text.</p>
+            <p>Hold <kbd>Ctrl</kbd> and tap <kbd>G</kbd> twice to turn rough notes into a clear email, memo, wiki page or slide outline — main point first. Pick a style, refine it, then send it back.</p>
           </div>
           <div class="feature-card">
             <div class="feature-head">
               <span class="feature-icon">🤖</span>
-              <h3>BYOK</h3>
+              <h3>Bring your own AI</h3>
             </div>
-            <p>Bring your own API key — OpenAI, Anthropic, or Ollama. Keys stay in your OS keyring and never leave your machine.</p>
+            <p>An OpenAI or Anthropic API key, a local model through Ollama — or the Claude Code CLI you're already signed in to, with no key at all. <a href="#providers">How that works</a></p>
           </div>
           <div class="feature-card">
             <div class="feature-head">
@@ -117,27 +126,82 @@
               <span class="feature-icon">🔒</span>
               <h3>Private</h3>
             </div>
-            <p>All API calls go through the local Go backend on your machine. No telemetry, no cloud sync, no clipboard history stored.</p>
+            <p>Your text goes from your PC straight to the provider you picked — no KeyLint server in between. No telemetry, no cloud sync, no clipboard history stored.</p>
           </div>
         </div>
       </div>
     </section>
 
-    <section class="providers">
+    <section class="demo" id="demo">
       <div class="container">
-        <p>Works with the AI providers you already use</p>
+        <div class="section-label">See it work</div>
+        <h2>Rough notes in, a clear email out</h2>
+        <p class="section-lead">Pyramidize puts the point first and the details after it. Press the shortcut twice on selected text, or paste it in, and edit the result before it goes anywhere.</p>
+        <!-- Swap for the Outlook recording once it exists (see the PR that added this):
+        <figure class="shot">
+          <video autoplay muted loop playsinline preload="none" width="1600" height="900"
+            aria-label="Pyramidize in Outlook: messy notes selected, the shortcut pressed twice, and a structured email sent back into the message">
+            <source src="img/demo-pyramidize-outlook.mp4" type="video/mp4" />
+          </video>
+        </figure>
+        -->
+        <figure class="shot">
+          <picture>
+            <source srcset="img/pyramidize.webp" media="(prefers-reduced-motion: reduce)" />
+            <img src="img/pyramidize-demo.webp" width="1600" height="937" loading="lazy"
+              alt="Pyramidize in KeyLint: rough notes about a delayed laptop delivery are pasted in and turned into a structured email with the recommendation first" />
+          </picture>
+          <figcaption>The in-app Pyramidize page. The email shown is what KeyLint actually returned for these notes.</figcaption>
+        </figure>
+        <!-- The hotkey Fix in Outlook, once recorded (see the PR that added this):
+        <h3 class="demo-title">Or just fix it where you typed it</h3>
+        <figure class="shot">
+          <video autoplay muted loop playsinline preload="none" width="1600" height="900"
+            aria-label="KeyLint in Outlook: a sentence with typos is selected, Ctrl+G is pressed, and the corrected sentence replaces it">
+            <source src="img/demo-fix-outlook.mp4" type="video/mp4" />
+          </video>
+        </figure>
+        -->
+      </div>
+    </section>
+
+    <section class="providers" id="providers">
+      <div class="container">
+        <div class="section-label">AI providers</div>
+        <h2>Use the AI you already have</h2>
         <div class="provider-list">
           <span class="provider-chip">OpenAI</span>
-          <span class="provider-chip">Anthropic</span>
+          <span class="provider-chip">Anthropic API</span>
+          <span class="provider-chip">Claude Code CLI (installed)</span>
           <span class="provider-chip">Ollama (local)</span>
         </div>
+        <div class="provider-grid">
+          <div class="feature-card">
+            <h3>An API key</h3>
+            <p>OpenAI or Anthropic: paste your key once. It is kept in your operating system's keyring and only ever sent to the provider it belongs to.</p>
+          </div>
+          <div class="feature-card provider-card-highlight">
+            <h3>No key: the Claude Code CLI</h3>
+            <p>Already signed in to Claude Code on this PC? Then you need no API key. KeyLint runs your installed <code>claude</code> command, unmodified, so usage counts against your own Claude plan. KeyLint never reads, stores or forwards your credentials and never asks you to log in: you sign in to Claude Code in your own terminal.</p>
+          </div>
+          <div class="feature-card">
+            <h3>Local: Ollama</h3>
+            <p>Run a model on your own machine with Ollama. Your text never leaves your PC.</p>
+          </div>
+        </div>
+        <figure class="shot">
+          <img src="img/providers.webp" width="1600" height="1533" loading="lazy"
+            alt="KeyLint Settings, AI providers tab: the installed Claude Code CLI is in use and signed in, with model choices for Fix and Pyramidize; OpenAI and Anthropic API are listed as other connections" />
+          <figcaption>Set up as many as you like; only the one in use receives your text. The setup wizard picks a signed-in CLI by itself.</figcaption>
+        </figure>
+        <p class="fine-print">Claude Code is Anthropic's product. KeyLint is an independent project and is not affiliated with or endorsed by Anthropic.</p>
       </div>
     </section>
 
     <section class="cta">
       <div class="container">
         <h2>Fix your writing in 60 seconds</h2>
-        <p>Download, add your API key, press <kbd>Ctrl+G</kbd>.</p>
+        <p>Download, pick your AI, press <kbd>Ctrl+G</kbd>.</p>
         <a class="btn btn-primary" href="https://github.com/0xMMA/KeyLint/releases/latest">
           Download for Windows
         </a>
