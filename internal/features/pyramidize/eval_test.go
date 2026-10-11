@@ -78,6 +78,23 @@ func loadTestSamples(t *testing.T) []evalSample {
 	return samples
 }
 
+// TestDumpEvalSamples is scripts/eval-human.sh's sample parser, not a test:
+// with KEYLINT_SAMPLE_DUMP naming an absolute directory it writes every
+// sample's raw input and accepted output there (dumpEvalSamples). Without it,
+// it skips. No model is called.
+func TestDumpEvalSamples(t *testing.T) {
+	dst := os.Getenv("KEYLINT_SAMPLE_DUMP")
+	if dst == "" {
+		t.Skip("KEYLINT_SAMPLE_DUMP is not set")
+	}
+	if !filepath.IsAbs(dst) {
+		t.Fatalf("KEYLINT_SAMPLE_DUMP must be absolute (go test runs in the package directory): %q", dst)
+	}
+	if err := dumpEvalSamples(filepath.Join("..", "..", "..", "test-data", "pyramidal-emails"), dst); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestEvalPyramidize(t *testing.T) {
 	loadEvalEnv(t)
 
@@ -203,7 +220,7 @@ func TestEvalPyramidize(t *testing.T) {
 				os.WriteFile(outPath, []byte(result.FullDocument), 0644)
 
 				// Deterministic checks.
-				sr.Deterministic = RunDeterministicChecks(sample.RawInput, sample.AuthorText, result.FullDocument)
+				sr.Deterministic = RunDeterministicChecks(sample.Input(), result.FullDocument)
 				totalDet += sr.Deterministic.OverallScore
 				scored++
 

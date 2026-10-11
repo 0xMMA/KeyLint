@@ -462,3 +462,64 @@ func TestTheJudgePromptIsInTheKey(t *testing.T) {
 		t.Errorf("runs judged by two different prompts averaged together: exit %d, want 2", code)
 	}
 }
+
+// stringOnlyBaseline aggregates runs into a baseline and strips its config
+// object, leaving the stored configKey (cut to fields) as baselineKey's only
+// source — the upgradeKey path.
+func stringOnlyBaseline(t *testing.T, out string, fields int, runs ...string) {
+	t.Helper()
+	doc, code := aggregate(t, runs...)
+	if code != 0 {
+		t.Fatalf("building the baseline exited %d", code)
+	}
+	parts := strings.Split(doc["configKey"].(string), "|")
+	if len(parts) != 14 {
+		t.Fatalf("configKey has %d fields, want 14", len(parts))
+	}
+	doc["configKey"] = strings.Join(parts[:fields], "|")
+	delete(doc, "config")
+	data, _ := json.Marshal(doc)
+	if err := os.WriteFile(out, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestAStringOnlyKeyKeepsItsJudgePromptHash: a 14-field key without a config
+// object used to be read as the one PR revision that ended in the CLI version,
+// and its last field was replaced by "unrecorded" — a real j1- hash with it,
+// which made a baseline judged by the current prompt "not comparable" with
+// runs judged by the same prompt.
+func TestAStringOnlyKeyKeepsItsJudgePromptHash(t *testing.T) {
+	root := t.TempDir()
+	hash := func(s map[string]any) { s["judgePromptHash"] = "j1-0123456789abcdef" }
+	base := filepath.Join(root, "baseline.json")
+	stringOnlyBaseline(t, base, 14,
+		fakeRunJudged(t, filepath.Join(root, "b1"), 0.80, twoJudges(0.90, 0.70), hash),
+		fakeRunJudged(t, filepath.Join(root, "b2"), 0.78, twoJudges(0.86, 0.74), hash))
+	got, code := aggregate(t, "--compare", base,
+		fakeRunJudged(t, filepath.Join(root, "n1"), 0.79, twoJudges(0.88, 0.72), hash),
+		fakeRunJudged(t, filepath.Join(root, "n2"), 0.77, twoJudges(0.87, 0.73), hash))
+	if code != 0 {
+		t.Errorf("exit %d, verdict %v — the same judge prompt on both sides", code, got["verdict"])
+	}
+}
+
+// TestAThirteenFieldStringOnlyKeyReadsUnrecorded: a key stored before the
+// judge prompt hash existed gains "unrecorded" and still compares with runs
+// that record none.
+func TestAThirteenFieldStringOnlyKeyReadsUnrecorded(t *testing.T) {
+	root := t.TempDir()
+	base := filepath.Join(root, "baseline.json")
+	stringOnlyBaseline(t, base, 13,
+		fakeRunJudged(t, filepath.Join(root, "b1"), 0.80, twoJudges(0.90, 0.70), nil),
+		fakeRunJudged(t, filepath.Join(root, "b2"), 0.78, twoJudges(0.86, 0.74), nil))
+	got, code := aggregate(t, "--compare", base,
+		fakeRunJudged(t, filepath.Join(root, "n1"), 0.79, twoJudges(0.88, 0.72), nil),
+		fakeRunJudged(t, filepath.Join(root, "n2"), 0.77, twoJudges(0.87, 0.73), nil))
+	if code != 0 {
+		t.Errorf("exit %d, verdict %v — a 13-field key should upgrade to unrecorded", code, got["verdict"])
+	}
+	if b, _ := got["baseline"].(map[string]any); b == nil || !strings.HasSuffix(b["config"].(string), "|unrecorded") {
+		t.Errorf("baseline key = %v, want it to end in unrecorded", got["baseline"])
+	}
+}

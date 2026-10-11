@@ -26,25 +26,28 @@ func sampleFile(raw, baseline string) string {
 // AuthorText, and neither marker survives in RawInput.
 func TestHistoryMarkersSplitTheInput(t *testing.T) {
 	for _, tc := range []struct {
-		name, raw, wantInput, wantAuthor string
+		name, raw, wantInput, wantAuthor, wantHistory string
 	}{
 		{
-			name:       "history below",
-			raw:        "Hallo Leo,\nDeploy am Montag.\n\n<!-- history -->\n---- Mail historie:\nHallo, wir brauchen Logs.\nLeo\n<!-- /history -->",
-			wantInput:  "Hallo Leo,\nDeploy am Montag.\n\n---- Mail historie:\nHallo, wir brauchen Logs.\nLeo",
-			wantAuthor: "Hallo Leo,\nDeploy am Montag.",
+			name:        "history below",
+			raw:         "Hallo Leo,\nDeploy am Montag.\n\n<!-- history -->\n---- Mail historie:\nHallo, wir brauchen Logs.\nLeo\n<!-- /history -->",
+			wantInput:   "Hallo Leo,\nDeploy am Montag.\n\n---- Mail historie:\nHallo, wir brauchen Logs.\nLeo",
+			wantAuthor:  "Hallo Leo,\nDeploy am Montag.",
+			wantHistory: "---- Mail historie:\nHallo, wir brauchen Logs.\nLeo",
 		},
 		{
-			name:       "history above",
-			raw:        "<!-- history -->\nHi Michael,\nbitte Forecast.\nAlex\n----\n<!-- /history -->\n\nHallo Alex\n- Forecast morgen",
-			wantInput:  "Hi Michael,\nbitte Forecast.\nAlex\n----\n\nHallo Alex\n- Forecast morgen",
-			wantAuthor: "Hallo Alex\n- Forecast morgen",
+			name:        "history above",
+			raw:         "<!-- history -->\nHi Michael,\nbitte Forecast.\nAlex\n----\n<!-- /history -->\n\nHallo Alex\n- Forecast morgen",
+			wantInput:   "Hi Michael,\nbitte Forecast.\nAlex\n----\n\nHallo Alex\n- Forecast morgen",
+			wantAuthor:  "Hallo Alex\n- Forecast morgen",
+			wantHistory: "Hi Michael,\nbitte Forecast.\nAlex\n----",
 		},
 		{
-			name:       "two regions",
-			raw:        "<!-- history -->\nerste Mail\n<!-- /history -->\nmeine Antwort\n<!-- history -->\nzweite Mail\n<!-- /history -->",
-			wantInput:  "erste Mail\nmeine Antwort\nzweite Mail",
-			wantAuthor: "meine Antwort",
+			name:        "two regions",
+			raw:         "<!-- history -->\nerste Mail\n<!-- /history -->\nmeine Antwort\n<!-- history -->\nzweite Mail\n<!-- /history -->",
+			wantInput:   "erste Mail\nmeine Antwort\nzweite Mail",
+			wantAuthor:  "meine Antwort",
+			wantHistory: "erste Mail\nzweite Mail",
 		},
 		{
 			name:       "no history",
@@ -64,10 +67,13 @@ func TestHistoryMarkersSplitTheInput(t *testing.T) {
 			if s.AuthorText != tc.wantAuthor {
 				t.Errorf("AuthorText = %q\nwant         %q", s.AuthorText, tc.wantAuthor)
 			}
+			if s.History != tc.wantHistory {
+				t.Errorf("History = %q\nwant      %q", s.History, tc.wantHistory)
+			}
 			if s.Baseline != "accepted" {
 				t.Errorf("Baseline = %q", s.Baseline)
 			}
-			if s.HasHistory() != (tc.wantInput != tc.wantAuthor) {
+			if s.HasHistory() != (tc.wantHistory != "") {
 				t.Errorf("HasHistory = %v", s.HasHistory())
 			}
 		})
@@ -85,6 +91,14 @@ func TestAMalformedMarkingIsRefused(t *testing.T) {
 		"empty region":       sampleFile("mine\n<!-- history -->\n\n<!-- /history -->", "ok"),
 		"all history":        sampleFile("<!-- history -->\ntheirs\n<!-- /history -->", "ok"),
 		"marker in output":   sampleFile("mine", "<!-- history -->\nx\n<!-- /history -->"),
+		// Near misses: each would otherwise pass as plain text, reach the
+		// model and leave the history counted as the author's message.
+		"no spaces":                sampleFile("mine\n<!--history-->\ntheirs\n<!--/history-->", "ok"),
+		"capitalised":              sampleFile("mine\n<!-- History -->\ntheirs\n<!-- /History -->", "ok"),
+		"inline open":              sampleFile("mine <!-- history -->\ntheirs\n<!-- /history -->", "ok"),
+		"inline close":             sampleFile("mine\n<!-- history -->\ntheirs <!-- /history -->", "ok"),
+		"near miss in output":      sampleFile("mine", "ok <!--history-->"),
+		"marker outside the fence": "# Raw Input\n<!-- history -->\n```\nmine\n```\n<!-- /history -->\n\n# User accepted output\n```\nok\n```\n",
 	} {
 		if _, _, err := parseTestData(file); err == nil {
 			t.Errorf("%s: parsed without an error", name)
@@ -164,42 +178,83 @@ func TestNoMarkerReachesThePipeline(t *testing.T) {
 	}
 }
 
-// TestEvalHumanSendsNoMarker: scripts/eval-human.sh parses the samples in
-// shell and pipes the raw input to bin/KeyLint -pyramidize. Its raw_input
-// function is run on the marked reply sample (whose headers it can read) and
-// must hand on the text without a marker line.
-func TestEvalHumanSendsNoMarker(t *testing.T) {
+// TestEvalHumanUsesTheGoParser: scripts/eval-human.sh pipes each sample's
+// raw input to bin/KeyLint -pyramidize. Its own sed parsing read 6 of the 13
+// samples (case-sensitive headers, the "accpted" typo, trailing spaces) and
+// dropped "# " and ``` lines inside the input. It now asks this parser, through
+// its dump_samples function: run here, every sample must come out non-empty,
+// marker-free and byte for byte the RawInput the eval sends.
+func TestEvalHumanUsesTheGoParser(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and runs the eval-tagged package")
+	}
 	if runtime.GOOS == "windows" {
 		t.Skip("eval-human.sh is bash; CI runs it on Linux")
 	}
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not installed")
+	for _, tool := range []string{"bash", "go"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s is not installed", tool)
+		}
 	}
-	script, err := os.ReadFile(filepath.Join("..", "..", "..", "scripts", "eval-human.sh"))
+	repo, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
-	start := strings.Index(string(script), "raw_input() {")
+	script, err := os.ReadFile(filepath.Join(repo, "scripts", "eval-human.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := strings.Index(string(script), "dump_samples() {")
 	if start < 0 {
-		t.Fatal("eval-human.sh has no raw_input function")
+		t.Fatal("eval-human.sh has no dump_samples function")
 	}
 	end := strings.Index(string(script)[start:], "\n}\n")
 	if end < 0 {
-		t.Fatal("eval-human.sh's raw_input function does not end")
+		t.Fatal("eval-human.sh's dump_samples function does not end")
 	}
 	fn := string(script)[start : start+end+3]
-	sample, err := filepath.Abs(filepath.Join(pyramidSamplesDir, "email-dataquality-reply-to-feedback.md"))
+
+	dump := t.TempDir()
+	cmd := exec.Command("bash", "-c", fn+`dump_samples "$1"`, "bash", dump)
+	cmd.Dir = repo
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("dump_samples: %v\n%s", err, out)
+	}
+
+	samples, _, err := loadEvalSamples(pyramidSamplesDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := exec.Command("bash", "-c", fn+`raw_input "$1"`, "bash", sample).Output()
-	if err != nil {
-		t.Fatalf("raw_input: %v", err)
+	files, _ := filepath.Glob(filepath.Join(pyramidSamplesDir, "*.md"))
+	if len(samples) != len(files) {
+		t.Fatalf("the Go parser read %d of %d samples", len(samples), len(files))
 	}
-	if !strings.Contains(string(out), "Im nachfolgenden die erste mail") || !strings.Contains(string(out), "versuch aus meinen vorgeschriebenen infos") {
-		t.Fatalf("raw_input did not return the sample's raw input:\n%s", out)
+	raws, _ := filepath.Glob(filepath.Join(dump, "*.raw"))
+	if len(raws) != len(samples) {
+		t.Errorf("dump_samples wrote %d raw inputs, want %d", len(raws), len(samples))
 	}
-	if strings.Contains(string(out), "<!--") {
-		t.Errorf("eval-human.sh sends a history marker to the model:\n%s", out)
+	for _, s := range samples {
+		raw, err := os.ReadFile(filepath.Join(dump, s.Name+".raw"))
+		if err != nil {
+			t.Errorf("%s: %v", s.Name, err)
+			continue
+		}
+		accepted, err := os.ReadFile(filepath.Join(dump, s.Name+".accepted"))
+		if err != nil {
+			t.Errorf("%s: %v", s.Name, err)
+			continue
+		}
+		if len(raw) == 0 || len(accepted) == 0 {
+			t.Errorf("%s: empty raw input or accepted output", s.Name)
+		}
+		if string(raw) != s.RawInput {
+			t.Errorf("%s: the raw input eval-human.sh sends differs from the eval's", s.Name)
+		}
+		if string(accepted) != s.Baseline {
+			t.Errorf("%s: the accepted output eval-human.sh shows differs from the eval's", s.Name)
+		}
+		if historyMarkerLike.Match(raw) {
+			t.Errorf("%s: eval-human.sh would send a history marker", s.Name)
+		}
 	}
 }

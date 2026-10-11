@@ -60,12 +60,12 @@ by default, keep the author's voice:
 - "professional" style with "professional" relationship is the default, not a choice: keep the author's voice.
 - any other style or relationship is a choice: adjust register, formality and directness to it, even where that departs from the author's tone — more formal for "authority" or "public", plainer for "casual" or "close".
 - additional instructions are the user's own words: follow them over the voice defaults and the form's defaults. "auf Englisch" means write in English; "formeller" means raise the formality.
-- a choice changes how the text reads, never what it says: facts, names, numbers, dates and asks stay as in the input, and nothing is added.
+- a choice changes how the text reads, never what it says: facts, names, numbers, dates and asks stay as in the author's message, and nothing is added.
 </user_choices>
 
 <style>
-compact but complete: no filler, no courtesy phrases the input does not have unless a choice calls for them, nothing the input does not say.
-the form's shape is fixed: email, memo, wiki and presentation always take their full shape, however short the input. chat is the form for a short result.
+compact but complete: no filler, no courtesy phrases the author's message does not have unless a choice calls for them, nothing the input does not say.
+the form's shape is fixed: email, memo, wiki and presentation always take their full shape, however short the author's message. chat is the form for a short result.
 </style>`
 
 // promptV3Output is the reply shape every form shares: the document and its
@@ -76,7 +76,7 @@ Respond ONLY with valid JSON (no markdown fences, no explanation, no trailing te
 CRITICAL: All double-quote characters inside string values MUST be escaped as \" — this includes quotes in the document text.
 {
   "fullDocument": "the restructured text as a single string with \n linebreaks",
-  "language": "language of the input (ISO 639-1)"
+  "language": "language of the author's message (ISO 639-1)"
 }
 </output_format>`
 
@@ -130,7 +130,7 @@ output: {"fullDocument": "Hi Tom, das Deployment kommt erst mit dem neuen Zertif
 	"memo": `<form name="memo">
 an internal memo. fullDocument, in order:
 1. header line (first line, all on one line): **TO:** [recipient] | **FROM:** [sender] | **RE:** [the key message as a statement]
-   labels in the language of the input (German: **AN:** | **VON:** | **BETREFF:**).
+   labels in the language of the author's message (German: **AN:** | **VON:** | **BETREFF:**).
    recipient or sender the input does not name: keep the brackets as a placeholder — never invent a name.
    RE states the message, not the topic. WRONG: "RE: Project Update" RIGHT: "RE: Q2 Launch Slips Two Weeks — Scope Decision Needed by Friday"
 2. one sentence that states the key point
@@ -151,7 +151,7 @@ a wiki page: reference text for any reader, read now or in a year. fullDocument,
 3. sections: ## headers, each followed by bullet points; the most important section first
 - code, commands and configuration go in code blocks
 - no greeting, no sign-off, no addressing a reader as in a message: they belong to a message, not a page. keep every fact they carried, and the author's person ("we fixed" stays "we fixed").
-- keep source references and links from the input
+- keep source references and links from the author's message
 
 <example name="logout-bug-en">
 input: "so we had this bug where users were getting logged out randomly. turned out it was because the session token wasnt being refreshed properly. the token expires after 30 mins and we refresh it on every api call but there was a race condition in the refresh logic. fixed it with a mutex. this affects all users on v2.3.1 and below."
@@ -167,7 +167,7 @@ followed by at most 5 bullet points; fragments are fine, sub-bullets sparingly (
 - slide 1 is the executive summary: the main point of the whole deck
 - read in sequence, the slide titles tell the whole story
 - as many slides as the content needs, never a filler slide
-- specific numbers and facts from the input over vague statements — never a number the input does not have
+- specific numbers and facts from the author's message over vague statements — never a number the input does not have
 - no greeting, no sign-off
 
 <example name="cost-savings-de">

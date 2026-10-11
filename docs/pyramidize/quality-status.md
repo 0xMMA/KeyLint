@@ -33,11 +33,18 @@ mails it answers is not scored down:
   before the input reaches Pyramidize or a judge.
 - **`info_coverage` counts key terms of the author's own message only**;
   `no_hallucination` still reads the whole input, so a fact the reply takes
-  from the history is not counted as invented. **`checksVersion` 2** (1 was
-  never recorded; the aggregate reads a missing field as 1).
+  from the history is not counted as invented, but its ratio leaves out output
+  terms the history holds — pasted history used to dilute it and raise the
+  score. **`no_history_reproduction`** (samples with history only) fails an
+  output sharing 12+ consecutive words with the history or 10 %+ of its 8-word
+  windows; its score is 1 minus that share. **`checksVersion` 2** (1 was never
+  recorded; the aggregate reads a missing field as 1). A near-miss marker
+  (`<!--history-->`, other case, inline, outside the fence) is refused, not
+  ignored.
 - **The judges are told** that history is context, that the candidate must not
-  reproduce it, and that leaving it out is no completeness flaw. Their prompt is
-  recorded as **`judgePromptHash`** in `summary.json` and the baseline, and it
+  reproduce it, and that leaving it out is no completeness flaw. Their prompt,
+  user-message template, schema and output limit are recorded as one
+  **`judgePromptHash`** in `summary.json` and the baseline, and it
   is the last field of the `configKey` (runs before it key as `unrecorded`).
 - **Every baseline below reads "not comparable"** against a run on this
   instrument, both 2026-10-11 references included. New v2 and v3 runs are

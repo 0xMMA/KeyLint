@@ -22,7 +22,7 @@ The prompt for every form is **v3**: one shared core plus one section per form
 | Core: `<voice>` | The default: the language (the author's message's, addendum) and code-switching (none introduced), tone and person; never raise formality on its own; greetings and sign-offs as written |
 | Core: `<user_choices>` | An explicit choice wins over the voice defaults: professional/professional (what the UI always sends) is the default, not a choice; any other style or relationship sets register and formality; additional instructions ("auf Englisch", "formeller") are followed — a choice changes how the text reads, never what it says |
 | Core: `<style>` | Compact but complete, no filler, nothing the input does not say; the form's shape is fixed — email, memo, wiki and presentation always take their full shape, however short the input; chat is the form for a short result |
-| Form sections | email (subject line `Decision \| Details \| Actions`, greeting, bold headers + bullets, sign-off), **chat (new)**: no subject, no headers, first sentence carries the point, greeting only if the input has one, may shorten but keeps every fact and ask; memo (`TO \| FROM \| RE` line, one-sentence summary, bold headers); wiki (`# title`, one-sentence summary, `##` sections); presentation (`# Slide N:` titles that tell the story, slide 1 is the summary) |
+| Form sections | email (subject line `Decision \| Details \| Actions`, greeting, bold headers + bullets, sign-off), **chat (new)**: no subject, no headers, first sentence carries the point, greeting only if the author's message has one, may shorten but keeps every fact and ask; memo (`TO \| FROM \| RE` line, one-sentence summary, bold headers); wiki (`# title`, one-sentence summary, `##` sections); presentation (`# Slide N:` titles that tell the story, slide 1 is the summary) |
 | Output | `{"fullDocument", "language"}` — subject, title and headers live inside the document, where the user sees them |
 
 The style block (`<style_injection>`) is v2's, word for word.
@@ -67,8 +67,9 @@ understand the message and refer to it. **The output never reproduces earlier
 messages:** no recap, no history section, no quoted originals. Facts from the
 history may be referred to where the author's message needs them, and must not
 be contradicted. The accepted output of `email-dataquality-reply-to-feedback`
-shows the intended behaviour: a reply that answers, without restating the mails
-it answers.
+shows the intended history behaviour: a reply that answers, without restating
+the mails it answers. It is not a fidelity model — it adds a closing ask and a
+thank-you the author did not write.
 
 This replaces the first version's "earlier messages in a thread are context:
 they move to the end, they do not drop out", which produced exactly that recap
@@ -82,7 +83,11 @@ they move to the end, they do not drop out", which produced exactly that recap
   "the author's whole message", not "the whole input".
 - What follows from it, stated as general principles: the reply's language is
   the author's message's; the email's greeting, sign-off and `@person` asks,
-  and the chat's greeting and sign-off, are the author's, not a quoted mail's.
+  and the chat's greeting and sign-off, are the author's, not a quoted mail's;
+  so are the asks a user choice keeps, the courtesy phrases, the memo's label
+  language, the wiki's links and the presentation's facts. `<fidelity>`'s
+  "information not in the input" stays as it is: a reference to the history is
+  not added information.
 - The prompt states the rule, not the reasons for it.
   `TestMailHistoryIsContextNeverOutput` pins it; v2 is untouched.
 
@@ -97,11 +102,20 @@ The eval follows, so it does not punish the intended behaviour:
   would select (`TestTheMarkedSamplesSendWhatTheUserSelected` pins the hashes).
 - **Info coverage counts only the author's message**; the hallucination check
   still reads the whole input, so a fact referred to from the history is not
-  "invented". `checksVersion` goes from 1 (never recorded) to **2**.
+  "invented", but takes its ratio over output terms the history does not hold,
+  so pasted history cannot dilute it (it did: appending the history to the
+  accepted reply-to-feedback output raised its deterministic score). A new
+  check, **`no_history_reproduction`**, for samples with history only, fails a
+  copy: 12 or more consecutive words shared with the history, or 10 % or more
+  of the history's 8-word windows found verbatim in the output (score = 1 minus
+  that share). A reference keeps a name or a phrase; a quote keeps sentences.
+  `checksVersion` goes from 1 (never recorded) to **2**.
 - **The judges are told** that history is context, that the candidate must not
   reproduce it, and that leaving it out is no completeness flaw; completeness
-  asks for the author's own message. The judge prompt is now recorded as
-  `judgePromptHash` and is part of the `configKey`.
+  asks for the author's own message, tone the language of the author's
+  message. The judge instrument — system prompt, user-message template, schema
+  and output limit — is now recorded as `judgePromptHash` and is part of the
+  `configKey`.
 - So **every earlier baseline reads "not comparable"** with a run on this
   instrument, the v3 and v2 references of 2026-10-11 included. Both need new
   runs (pending).

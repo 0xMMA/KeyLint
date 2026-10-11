@@ -121,6 +121,38 @@ func TestMailHistoryIsContextNeverOutput(t *testing.T) {
 	if !strings.Contains(promptV3Forms["email"], "when the author asks something of someone") {
 		t.Error("the email subject takes its @person asks from the whole input, quoted mails included")
 	}
+	// Every rule that says what the output keeps or is written in names the
+	// author's message, not "the input", which would take in the history.
+	// <fidelity>'s "information not in the input" stays: referring to the
+	// history is allowed.
+	for _, form := range forms {
+		system, _, _ := buildPromptV3(form, "professional", "professional", "", "x")
+		for _, gone := range []string{
+			"asks stay as in the input",
+			"courtesy phrases the input does not have",
+			"language of the input",
+			"source references and links from the input",
+			"numbers and facts from the input",
+		} {
+			if strings.Contains(system, gone) {
+				t.Errorf("the %s prompt still says %q", form, gone)
+			}
+		}
+	}
+	for part, phrase := range map[string]string{
+		promptV3Core:                "asks stay as in the author's message",
+		promptV3Output:              "language of the author's message (ISO 639-1)",
+		promptV3Forms["memo"]:       "labels in the language of the author's message",
+		promptV3Forms["wiki"]:       "keep source references and links from the author's message",
+		promptV3Forms["powerpoint"]: "specific numbers and facts from the author's message",
+	} {
+		if !strings.Contains(part, phrase) {
+			t.Errorf("v3 lacks %q", phrase)
+		}
+	}
+	if !strings.Contains(promptV3Core, "information not in the input") {
+		t.Error("<fidelity> must keep \"information not in the input\": a reference to the history is not added information")
+	}
 	for form, phrase := range map[string]string{
 		"email": "the author's greeting, exactly as written",
 		"chat":  "only if the author's message has them",
@@ -167,7 +199,7 @@ func TestFixedFormsKeepTheirShape(t *testing.T) {
 			}
 		}
 	}
-	if !strings.Contains(promptV3Core, "always take their full shape, however short the input") {
+	if !strings.Contains(promptV3Core, "always take their full shape, however short the author's message") {
 		t.Error("the core does not say the fixed forms keep their shape")
 	}
 	if !strings.Contains(promptV3Forms["email"], "always this shape, also for a three-sentence casual mail") {

@@ -181,10 +181,11 @@ def sampleScores(r; s): if (r.judges|type) == "object" then renamed(s; r.judges 
 # temperature and thinking fields, and every one of them was an API run judged
 # at a pinned 0. A 12-field key has the temperature but not thinking, so it
 # gains "n/a". Every key shorter than 14 fields predates the judge prompt hash
-# and gains "unrecorded". A 14-field key stored WITHOUT a config object can only
-# be the one PR revision (never on main) that ended in the CLI version, which
-# is no longer keyed and is dropped; every baseline since carries its config,
-# and baselineKey reads that instead of the string.
+# and gains "unrecorded". A 14-field key is current when its last field is a
+# judge prompt hash ("j1-…") or "unrecorded", and is kept as it is; otherwise
+# it is the one PR revision (never on main) that ended in the CLI version, which
+# is no longer keyed and gives way to "unrecorded". Every baseline written since
+# carries its config, and baselineKey reads that instead of the string.
 def upgradeKey(k): (k | split("|")) as $p
                  | if ($p|length) == 8 then ((["pyramidize"] + $p + ["1", "all", "0", "n/a", "unrecorded"]) | join("|"))
                    elif ($p|length) == 9 then (($p + ["1", "all", "0", "n/a", "unrecorded"]) | join("|"))
@@ -192,6 +193,7 @@ def upgradeKey(k): (k | split("|")) as $p
                    elif ($p|length) == 11 then (($p + ["0", "n/a", "unrecorded"]) | join("|"))
                    elif ($p|length) == 12 then (($p + ["n/a", "unrecorded"]) | join("|"))
                    elif ($p|length) == 13 then (($p + ["unrecorded"]) | join("|"))
+                   elif ($p|length) == 14 and (($p[13] | startswith("j1-")) or $p[13] == "unrecorded") then k
                    elif ($p|length) == 14 then (($p[:13] + ["unrecorded"]) | join("|"))
                    else k end;
 def baselineKey(b): if (b.config|type) == "object" then keyFrom(b.config) else upgradeKey(b.configKey // "unknown") end;'

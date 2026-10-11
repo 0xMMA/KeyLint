@@ -115,8 +115,8 @@ EVAL_JUDGE_MODEL=... ./scripts/eval.sh                 # a single judge instead 
 # is NOT in the key — a suite that refuses to compare across a prompt change
 # cannot answer the question it exists for. Changing the deterministic checks
 # DOES bump checksVersion (enhance.ChecksVersion, pyramidize.ChecksVersion — 2
-# since Pyramidize coverage counts only the author's message, not the marked
-# mail history), which makes older runs read
+# since marked mail history is context: coverage counts only the author's
+# message and no_history_reproduction fails a copy), which makes older runs read
 # "not comparable" rather than reporting the instrument's move as the model's.
 ```
 
