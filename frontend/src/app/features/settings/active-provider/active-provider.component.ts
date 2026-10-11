@@ -1,4 +1,4 @@
-import { Component, computed, input, output } from '@angular/core';
+import { Component, computed, input, output, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { SelectComponent, TagComponent } from '../../../shared/ui';
 import { EFFORT_OPTIONS, Feature, ModelOption } from '../model-options';
@@ -38,6 +38,7 @@ const FEATURES: readonly FeatureRow[] = [
   selector: 'app-active-provider',
   standalone: true,
   imports: [FormsModule, SelectComponent, TagComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <section class="in-use" data-testid="active-provider" aria-labelledby="in-use-heading">
       <div class="head">

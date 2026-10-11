@@ -18,7 +18,7 @@ PrimeNG is out. `primeng`, `@primeuix/themes` (and the `@primeuix/*` packages it
 
 How it turned out, against the decision above:
 
-- **Behaviour:** the stable CDK primitives on Angular 21 (overlay, portal) under our own `kl-select`, `klTooltip`, `kl-tabs` and the rest; no `@angular/aria` yet. It comes with the Angular 22 upgrade, which PrimeNG no longer blocks (roadmap E4 step 2).
+- **Behaviour:** the stable CDK primitives on Angular 21 (overlay, portal) under our own `kl-select`, `klTooltip`, `kl-tabs` and the rest; no `@angular/aria` yet. It comes with the Angular 22 upgrade, which PrimeNG no longer blocks (roadmap E4 step 2). That upgrade is done (PR #125, Angular 22.2); `@angular/aria` still waits for a component that needs it.
 - **Icons:** Lucide (ISC), the SVG bodies vendored into `shared/ui/icon/icons.ts`; the licence is `frontend/public/LICENSE-lucide.txt`, so it ships in the build. No icon package, no icon font.
 - **Fonts:** Schibsted Grotesk and Literata, subset woff2 in `frontend/public/fonts` with their OFL texts; nothing is fetched at runtime.
 - **Diff marks** on the Fix page come from `diff` (jsdiff, BSD-3-Clause), word level.

@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Component } from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { TagComponent } from './tag.component';
 
 @Component({
   standalone: true,
   imports: [TagComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <kl-tag data-testid="in-use" severity="primary" icon="check">In use</kl-tag>
     <kl-tag data-testid="value" value="● key set" severity="success" />

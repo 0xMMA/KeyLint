@@ -2,7 +2,7 @@
 
 ## What (The Map)
 
-**Stack:** Go 1.27 + Wails v3 (beta.25) + Wire DI | Angular v21 + Angular CDK + own UI components (`frontend/src/app/shared/ui`) + Tailwind v4 (utilities, `--kl-*` tokens) + Vitest
+**Stack:** Go 1.27 + Wails v3 (beta.25) + Wire DI | Angular v22 + Angular CDK + own UI components (`frontend/src/app/shared/ui`) + Tailwind v4 (utilities, `--kl-*` tokens) + Vitest
 
 **Key directories:**
 - `main.go` — Wails entry point, service registration, event loop

@@ -3,7 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { By } from '@angular/platform-browser';
-import { Component, OnDestroy } from '@angular/core';
+import { Component, OnDestroy, ChangeDetectionStrategy } from '@angular/core';
 import { ShellComponent } from './shell.component';
 import { SettingsComponent } from '../features/settings/settings.component';
 import { FixComponent } from '../features/fix/fix.component';
@@ -131,7 +131,7 @@ describe('ShellComponent — routing away from Settings', () => {
 // Worth keeping, because it rules a hypothesis out. A blank content area and a
 // stuck page are different bugs with different causes.
 describe('what a throwing ngOnDestroy does to a router outlet', () => {
-  @Component({ standalone: true, template: `<div class="page-a">A</div>` })
+  @Component({ standalone: true, changeDetection: ChangeDetectionStrategy.Eager, template: `<div class="page-a">A</div>` })
   class PageA implements OnDestroy {
     static throwOnDestroy = false;
     ngOnDestroy(): void {
@@ -141,7 +141,7 @@ describe('what a throwing ngOnDestroy does to a router outlet', () => {
     }
   }
 
-  @Component({ standalone: true, template: `<div class="page-b">B</div>` })
+  @Component({ standalone: true, changeDetection: ChangeDetectionStrategy.Eager, template: `<div class="page-b">B</div>` })
   class PageB {}
 
   beforeEach(async () => {

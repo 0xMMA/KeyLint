@@ -62,7 +62,7 @@ MIT + Commons Clause — see [LICENSE](LICENSE) for details.
 | Desktop runtime | [Wails v3](https://v3.wails.io/) (Go) |
 | Backend language | Go 1.27 |
 | Dependency injection | [Wire](https://github.com/google/wire) |
-| Frontend | Angular v21 |
+| Frontend | Angular v22 |
 | UI components | KeyLint's own (`frontend/src/app/shared/ui`), built on Angular CDK |
 | Styling | Tailwind v4 utilities and `--kl-*` design tokens (dark theme, orange on zinc) |
 

@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 import { WailsService, type SilentFixNotice } from '../../core/wails.service';
@@ -39,6 +39,7 @@ const NO_DIFF: WordDiff = { segments: [], corrections: 0 };
     '(keydown.control.enter)': 'onShortcut($event)',
     '(keydown.meta.enter)': 'onShortcut($event)',
   },
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <div class="fix-page">
       <header class="fix-header">

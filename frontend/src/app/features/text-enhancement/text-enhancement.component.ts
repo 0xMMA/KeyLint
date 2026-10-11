@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, ChangeDetectorRef, ElementRef, ViewChild } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef, ElementRef, ViewChild, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
@@ -129,6 +129,7 @@ function addTrace(label: string, snapshot: string): void {
     OptionsPanelComponent, TraceLogComponent, TracePeekComponent, SelectionBubbleComponent,
     MarkdownPipe,
   ],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <div class="pyramidize-page">
 

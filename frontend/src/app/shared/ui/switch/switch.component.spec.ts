@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Component, signal } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { FormsModule } from '@angular/forms';
 import { SwitchComponent } from './switch.component';
@@ -7,6 +7,7 @@ import { SwitchComponent } from './switch.component';
 @Component({
   standalone: true,
   imports: [SwitchComponent, FormsModule],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <kl-switch data-testid="boot" [(ngModel)]="boot" [disabled]="locked()">Start on boot</kl-switch>
     <kl-switch data-testid="named" [(checked)]="plain" ariaLabel="Sensitive logging" />

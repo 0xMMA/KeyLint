@@ -1,4 +1,4 @@
-import { ChangeDetectorRef, Component, OnDestroy, ViewChild, input } from '@angular/core';
+import { ChangeDetectorRef, Component, OnDestroy, ViewChild, input, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ButtonComponent, MessageComponent, SelectComponent, SwitchComponent } from '../../../shared/ui';
 import { WailsService, type BuildIdentity, type Settings as AppSettings, type UpdateInfo } from '../../../core/wails.service';
@@ -26,6 +26,7 @@ const UNLOCK_TAPS = 7;
     FormsModule, ButtonComponent, MessageComponent, SelectComponent, SwitchComponent,
     SettingsSectionComponent, SettingRowComponent, DevChannelComponent,
   ],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     @let s = settings();
     <div class="flex flex-col gap-7">

@@ -1,4 +1,4 @@
-import { ChangeDetectorRef, Component, effect, input } from '@angular/core';
+import { ChangeDetectorRef, Component, effect, input, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ButtonComponent, InputDirective, SelectComponent } from '../../../shared/ui';
 import { WailsService, type AppPreset, type Settings as AppSettings } from '../../../core/wails.service';
@@ -18,6 +18,7 @@ import { SettingsSectionComponent } from '../settings-section/settings-section.c
   selector: 'app-app-presets',
   standalone: true,
   imports: [FormsModule, ButtonComponent, InputDirective, SelectComponent, SettingsSectionComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <app-settings-section heading="App presets" description="Pyramidize picks the document type from the app the text came from. Presets are saved as soon as you change them.">
       @if (presets.length === 0 && !adding) {

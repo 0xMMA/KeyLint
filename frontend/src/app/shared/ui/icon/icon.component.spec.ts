@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Component } from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { IconComponent } from './icon.component';
 import { ICONS } from './icons';
@@ -7,6 +7,7 @@ import { ICONS } from './icons';
 @Component({
   standalone: true,
   imports: [IconComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <kl-icon data-testid="deco" name="copy" />
     <kl-icon data-testid="named" name="check" label="Signed in" [size]="20" />

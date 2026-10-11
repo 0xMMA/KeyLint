@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Component, signal } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { MessageComponent, type MessageSeverity } from './message.component';
 
 @Component({
   standalone: true,
   imports: [MessageComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <kl-message data-testid="msg" [severity]="severity()" title="Fix took too long" closable (closed)="closed = true">
       <span data-testid="body">Try a shorter selection.</span>

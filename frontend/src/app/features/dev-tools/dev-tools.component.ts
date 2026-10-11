@@ -1,4 +1,4 @@
-import { ChangeDetectorRef, Component } from '@angular/core';
+import { ChangeDetectorRef, Component, ChangeDetectionStrategy } from '@angular/core';
 import { JsonPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { ButtonComponent, CardComponent } from '../../shared/ui';
@@ -8,6 +8,7 @@ import { WailsService, Settings as AppSettings } from '../../core/wails.service'
   selector: 'app-dev-tools',
   standalone: true,
   imports: [JsonPipe, RouterLink, ButtonComponent, CardComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <div class="flex max-w-[760px] flex-col gap-6 px-11 py-9">
       <div>
