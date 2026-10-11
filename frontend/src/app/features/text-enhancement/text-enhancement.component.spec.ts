@@ -1289,8 +1289,30 @@ describe('TextEnhancementComponent — effort', () => {
     await open({ active_provider: 'claude' });
     expect(q('effort-select')).not.toBeNull();
     expect(await effortLabels()).toEqual(['Model default', 'Low', 'Medium', 'High', 'Extra high', 'Max']);
-    expect(q('effort-note')!.textContent).toContain('more reasoning');
     expect(q('effort-select')!.textContent).toContain('Model default');
+  });
+
+  it('explains effort in a tooltip on the info button next to the label, not as a line under the picker', async () => {
+    await open({ active_provider: 'claude' });
+    const info = q('effort-info')!;
+    expect(info.getAttribute('aria-label')).toBe('What effort does');
+    const tip = () => document.querySelector('[data-testid="kl-tooltip"]');
+
+    // A click shows it (a help button does nothing else), a second hides it.
+    info.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await refresh();
+    expect(tip()!.textContent).toContain('more reasoning');
+    info.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await refresh();
+    expect(tip()).toBeNull();
+  });
+
+  it('describes the effort picker with the same text for a screen reader', async () => {
+    await open({ active_provider: 'claude' });
+    const trigger = q('effort-select')!.querySelector('[role="combobox"]')!;
+    const note = document.getElementById(trigger.getAttribute('aria-describedby')!)!;
+    expect(note.textContent).toContain('more reasoning');
+    expect(note.classList).toContain('sr-only');
   });
 
   it('names Settings’ level first when Settings has one, and offers "Model default" to send none', async () => {

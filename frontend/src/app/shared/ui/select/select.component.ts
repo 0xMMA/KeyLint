@@ -86,6 +86,7 @@ type Option = unknown;
           [disabled]="isDisabled()"
           [attr.aria-label]="ariaLabel() || null"
           [attr.aria-labelledby]="ariaLabelledBy() || null"
+          [attr.aria-describedby]="ariaDescribedBy() || null"
           [attr.aria-expanded]="isOpen()"
           [attr.aria-controls]="listboxId"
           [attr.aria-activedescendant]="activeId()"
@@ -109,6 +110,7 @@ type Option = unknown;
         [disabled]="isDisabled()"
         [attr.aria-label]="ariaLabel() || null"
         [attr.aria-labelledby]="ariaLabelledBy() || null"
+        [attr.aria-describedby]="ariaDescribedBy() || null"
         [attr.aria-expanded]="isOpen()"
         [attr.aria-controls]="listboxId"
         [attr.aria-activedescendant]="activeId()"
@@ -217,6 +219,8 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
   readonly disabled = input(false, { transform: booleanAttribute });
   readonly ariaLabel = input('');
   readonly ariaLabelledBy = input('');
+  /** id of an element that describes the control, set on the trigger. */
+  readonly ariaDescribedBy = input('');
   /** id of the trigger, for an outside <label for>. */
   readonly inputId = input('');
   /** data-testid per option row, e.g. o => 'model-option-' + (o.id || 'default'). */

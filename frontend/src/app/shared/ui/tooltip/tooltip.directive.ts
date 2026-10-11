@@ -1,5 +1,5 @@
 import {
-  ChangeDetectionStrategy, Component, ComponentRef, Directive, ElementRef, Injector, OnDestroy, effect, inject, input,
+  ChangeDetectionStrategy, Component, booleanAttribute, ComponentRef, Directive, ElementRef, Injector, OnDestroy, effect, inject, input,
   signal,
 } from '@angular/core';
 import { ComponentPortal } from '@angular/cdk/portal';
@@ -77,6 +77,11 @@ const POSITIONS: Record<TooltipPosition, ConnectedPosition[]> = {
  * that takes the focus is described by it (aria-describedby): the host, or
  * for a wrapper like kl-button the <button> inside it. An empty text means no
  * tooltip, which is how a caller switches it off.
+ *
+ * A click hides it, which is right on a button whose click does something.
+ * With `klTooltipOnClick` the click toggles it instead, for a help button that
+ * exists only to show its text — otherwise a click, or a tap on a touch
+ * screen, would never show anything.
  */
 @Directive({
   selector: '[klTooltip]',
@@ -91,7 +96,7 @@ const POSITIONS: Record<TooltipPosition, ConnectedPosition[]> = {
     '(pointerup)': 'pointerDown = false',
     '(pointercancel)': 'pointerDown = false',
     '(document:keydown.escape)': 'onEscape()',
-    '(click)': 'hide()',
+    '(click)': 'onClick()',
   },
 })
 export class TooltipDirective implements OnDestroy {
@@ -99,6 +104,8 @@ export class TooltipDirective implements OnDestroy {
   readonly klTooltipPosition = input<TooltipPosition>('right');
   /** Hover delay in ms; focus shows at once. */
   readonly klTooltipDelay = input(300);
+  /** A click toggles the tooltip rather than hiding it (help buttons). */
+  readonly klTooltipOnClick = input(false, { transform: booleanAttribute });
 
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
@@ -134,6 +141,11 @@ export class TooltipDirective implements OnDestroy {
     // Not for a focus that a click caused: the tooltip would stay up after
     // the pointer has gone. Keyboard (and programmatic) focus shows it.
     if (!this.pointerDown) this.show();
+  }
+
+  protected onClick(): void {
+    if (this.klTooltipOnClick() && !this.panel) this.show();
+    else this.hide();
   }
 
   onBlur(): void {
