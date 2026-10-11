@@ -149,7 +149,11 @@ func TestEvalPyramidize(t *testing.T) {
 	if v := os.Getenv("EVAL_VARIANT"); v != "" {
 		fmt.Sscanf(v, "%d", &variant)
 	}
-	judge := JudgeConfigFromEnv()
+	judges, err := JudgesFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	judgeProvider := judges[0].Provider // shared by every judge
 
 	evalSettings := settings.Default()
 	evalSettings.ActiveProvider = provider
@@ -161,7 +165,7 @@ func TestEvalPyramidize(t *testing.T) {
 	model = llm.ResolveModel(context.Background(), provider, model,
 		llm.Config{APIKey: settingsSvc.GetKey(provider), Feature: "eval"})
 
-	for _, p := range []string{provider, judge.Provider} {
+	for _, p := range []string{provider, judgeProvider} {
 		if llm.UsesAPIKey(p) && settingsSvc.GetKey(p) == "" {
 			t.Fatalf("no API key for %q in the environment or .env — the eval reads no keyring", p)
 		}
@@ -169,15 +173,19 @@ func TestEvalPyramidize(t *testing.T) {
 
 	// Read at the start and again at the end: the CLI is part of the
 	// instrument, and an auto-update mid-run would otherwise go unrecorded.
-	cliVersionAtStart := evalCLIVersion(provider, judge.Provider)
+	cliVersionAtStart := evalCLIVersion(provider, judgeProvider)
 	svc := NewService(settingsSvc, nil)
 	// What ran is read off the responses, for the Claude Code CLI's aliases.
-	// The judge runs on a service of its own, with a recorder of its own, so
-	// its pinned model is never counted as the pipeline's.
-	var answered, judgeAnswered llm.ModelRecorder
+	// Each judge runs on a service of its own, with a recorder of its own, so
+	// no judge's model is counted as the pipeline's or as another judge's.
+	var answered llm.ModelRecorder
 	svc.newClient = answered.Wrap(svc.newClient)
-	judgeSvc := NewService(settingsSvc, nil)
-	judgeSvc.newClient = judgeAnswered.Wrap(judgeSvc.newClient)
+	judgeSvcs := make([]*Service, len(judges))
+	judgeAnswered := make([]llm.ModelRecorder, len(judges))
+	for i := range judges {
+		judgeSvcs[i] = NewService(settingsSvc, nil)
+		judgeSvcs[i].newClient = judgeAnswered[i].Wrap(judgeSvcs[i].newClient)
+	}
 	samples := loadTestSamples(t)
 	t.Logf("prompt variant: %d (0=latest=%d)", variant, LatestEmailVariant)
 
@@ -192,12 +200,13 @@ func TestEvalPyramidize(t *testing.T) {
 	type sampleResult struct {
 		Name          string        `json:"name"`
 		Deterministic EvalScorecard `json:"deterministic"`
-		Judge         *JudgeScore   `json:"judge,omitempty"`
-		Error         string        `json:"error,omitempty"`
-		// JudgeError is recorded, not just logged: a judge that dropped an
-		// answer leaves judgeCount below scoredCount, and the run folder has to
-		// say why once the log is gone.
-		JudgeError string `json:"judgeError,omitempty"`
+		// Judges holds each judge's score, keyed by its model; never averaged.
+		Judges map[string]*JudgeScore `json:"judges,omitempty"`
+		Error  string                 `json:"error,omitempty"`
+		// JudgeErrors is recorded, not just logged: a judge that dropped an
+		// answer leaves its judgeCount below scoredCount, and the run folder
+		// has to say why once the log is gone.
+		JudgeErrors map[string]string `json:"judgeErrors,omitempty"`
 		// AppliedRefinement says whether this sample cost a second model call.
 		// Without it a run cannot show whether the pipeline arm of a comparison
 		// ever behaved like a pipeline — the gap ADR-002 had to record as
@@ -212,9 +221,12 @@ func TestEvalPyramidize(t *testing.T) {
 	defer resultsFile.Close()
 
 	totalDet := 0.0
-	totalJudge := 0.0
-	judgeCount := 0
 	scored := 0
+	judgeTotal := map[string]float64{}
+	judgeCount := map[string]int{}
+	for _, j := range judges {
+		judgeCount[j.Model] = 0
+	}
 
 	for _, sample := range samples {
 		t.Run(sample.Name, func(t *testing.T) {
@@ -248,21 +260,30 @@ func TestEvalPyramidize(t *testing.T) {
 					t.Logf("  %s: %.2f pass=%v — %s", c.Name, c.Score, c.Pass, c.Detail)
 				}
 
-				// LLM-as-judge (if baseline available).
-				if sample.Baseline != "" {
-					score, err := judgeSvc.runJudge(settingsSvc, judge,
+				// LLM-as-judge (if baseline available), every judge in turn.
+				for i, judge := range judges {
+					if sample.Baseline == "" {
+						break
+					}
+					score, err := judgeSvcs[i].runJudge(settingsSvc, judge,
 						sample.RawInput, sample.Baseline, result.FullDocument)
 					if err != nil {
-						sr.JudgeError = err.Error()
-						t.Logf("judge failed: %v", err)
-					} else {
-						sr.Judge = &score
-						totalJudge += score.Overall
-						judgeCount++
-						t.Logf("judge: overall=%.2f pyramid=%.2f clarity=%.2f completeness=%.2f tone=%.2f",
-							score.Overall, score.PyramidStructure, score.Clarity, score.Completeness, score.TonePreservation)
-						t.Logf("judge rationale: %s", score.Rationale)
+						if sr.JudgeErrors == nil {
+							sr.JudgeErrors = map[string]string{}
+						}
+						sr.JudgeErrors[judge.Model] = err.Error()
+						t.Logf("judge %s failed: %v", judge.Model, err)
+						continue
 					}
+					if sr.Judges == nil {
+						sr.Judges = map[string]*JudgeScore{}
+					}
+					sr.Judges[judge.Model] = &score
+					judgeTotal[judge.Model] += score.Overall
+					judgeCount[judge.Model]++
+					t.Logf("judge %s: overall=%.2f pyramid=%.2f clarity=%.2f completeness=%.2f tone=%.2f",
+						judge.Model, score.Overall, score.PyramidStructure, score.Clarity, score.Completeness, score.TonePreservation)
+					t.Logf("judge %s rationale: %s", judge.Model, score.Rationale)
 				}
 			}
 
@@ -280,7 +301,13 @@ func TestEvalPyramidize(t *testing.T) {
 	if effectiveVariant == 0 {
 		effectiveVariant = LatestEmailVariant
 	}
-	judge.ResolvedModel = judgeAnswered.Recorded(judge.Model)
+	avgJudges := map[string]float64{}
+	for i := range judges {
+		judges[i].ResolvedModel = judgeAnswered[i].Recorded(judges[i].Model)
+		if n := judgeCount[judges[i].Model]; n > 0 {
+			avgJudges[judges[i].Model] = judgeTotal[judges[i].Model] / float64(n)
+		}
+	}
 	summary := map[string]any{
 		"timestamp": timestamp,
 		"gitSHA":    gitSHA(),
@@ -290,11 +317,15 @@ func TestEvalPyramidize(t *testing.T) {
 		"modelRequested": requestedModel,
 		// The CLI is part of the instrument when either side runs through it:
 		// its defaults sit between the model and the score. In the configKey.
-		"claudeCodeVersion": cliVersionSpan(cliVersionAtStart, evalCLIVersion(provider, judge.Provider)),
+		"claudeCodeVersion": cliVersionSpan(cliVersionAtStart, evalCLIVersion(provider, judgeProvider)),
 		"thinking":          pyramidizeThinking(provider),
 		"promptVariant":     effectiveVariant,
-		"judge":             judge,
-		"qualityThreshold":  settings.DefaultQualityThreshold,
+		// Every judge, with the ID that answered for it. Their scores stay
+		// apart: avgJudges and judgeCounts are keyed by judge model.
+		"judges":           judges,
+		"avgJudges":        avgJudges,
+		"judgeCounts":      judgeCount,
+		"qualityThreshold": settings.DefaultQualityThreshold,
 		// Which configuration produced these numbers; see schemas.go.
 		"schemaEnforcement": schemaEnforcement,
 		"sampleCount":       len(samples),
@@ -306,21 +337,21 @@ func TestEvalPyramidize(t *testing.T) {
 		"scoredCount":      scored,
 		"errorCount":       len(samples) - scored,
 	}
-	if judgeCount > 0 {
-		summary["avgJudge"] = totalJudge / float64(judgeCount)
-		summary["judgeCount"] = judgeCount
-	}
 	summaryData, _ := json.MarshalIndent(summary, "", "  ")
 	os.WriteFile(filepath.Join(runDir, "summary.json"), summaryData, 0644)
 
 	t.Logf("\n=== EVAL SUMMARY ===")
 	t.Logf("Provider: %s | Model: %s (resolved: %s) | Prompt Variant: v%d", provider, requestedModel, answered.Recorded(model), effectiveVariant)
-	t.Logf("Judge: %s / %s (resolved: %s) @ temp %s", judge.Provider, judge.Model, judge.ResolvedModel, judge.TemperatureLabel())
+	for _, j := range judges {
+		t.Logf("Judge: %s / %s (resolved: %s) @ temp %s", j.Provider, j.Model, j.ResolvedModel, j.TemperatureLabel())
+	}
 	t.Logf("Schema enforcement: %v | Quality threshold: %.2f", schemaEnforcement, settings.DefaultQualityThreshold)
 	t.Logf("Samples: %d", len(samples))
 	t.Logf("Avg deterministic: %.2f (%d of %d samples scored)", totalDet/float64(max(scored, 1)), scored, len(samples))
-	if judgeCount > 0 {
-		t.Logf("Avg judge overall: %.2f (%d samples)", totalJudge/float64(judgeCount), judgeCount)
+	for _, j := range judges {
+		if n := judgeCount[j.Model]; n > 0 {
+			t.Logf("Avg judge %s overall: %.2f (%d samples)", j.Model, avgJudges[j.Model], n)
+		}
 	}
 	t.Logf("Results: %s", runDir)
 }

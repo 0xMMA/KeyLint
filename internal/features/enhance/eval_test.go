@@ -132,7 +132,11 @@ func TestEvalFix(t *testing.T) {
 	requestedModel := model
 	model = llm.ResolveModel(context.Background(), provider, model,
 		llm.Config{APIKey: settings.EnvOnlyKeys(provider), Feature: "eval"})
-	judge := JudgeConfigFromEnv(os.Getenv)
+	judges, err := JudgesFromEnv(os.Getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	judgeProvider := judges[0].Provider // shared by every judge
 
 	// Explicit configuration and environment-only keys: the developer's own
 	// settings file and keyring cannot move a number here.
@@ -141,7 +145,7 @@ func TestEvalFix(t *testing.T) {
 	evalSettings.Models = map[string]settings.FeatureModels{provider: {Fix: model}}
 	settingsSvc := settings.NewServiceFrom(evalSettings, settings.EnvOnlyKeys)
 
-	for _, p := range []string{provider, judge.Provider} {
+	for _, p := range []string{provider, judgeProvider} {
 		if llm.UsesAPIKey(p) && settingsSvc.GetKey(p) == "" {
 			t.Fatalf("no API key for %q in the environment or .env — the eval reads no keyring", p)
 		}
@@ -150,14 +154,18 @@ func TestEvalFix(t *testing.T) {
 	thinkingLabel := fixThinkingLabel(provider, model)
 	// Read at the start and again at the end: the CLI is part of the
 	// instrument, and an auto-update mid-run would otherwise go unrecorded.
-	cliVersionAtStart := evalCLIVersion(provider, judge.Provider)
+	cliVersionAtStart := evalCLIVersion(provider, judgeProvider)
 	svc := NewService(settingsSvc)
 	// The Claude Code CLI resolves its aliases itself, so what ran is read
-	// off the responses. The judge has a recorder of its own, so its pinned
-	// model is never counted as the pipeline's.
-	var answered, judgeAnswered llm.ModelRecorder
+	// off the responses. Each judge has a recorder of its own, so no judge's
+	// model is counted as the pipeline's or as another judge's.
+	var answered llm.ModelRecorder
 	svc.newClient = answered.Wrap(svc.newClient)
-	judgeClient := judgeAnswered.Wrap(llm.New)
+	judgeAnswered := make([]llm.ModelRecorder, len(judges))
+	judgeClients := make([]func(string, llm.Config) (llm.Client, error), len(judges))
+	for i := range judges {
+		judgeClients[i] = judgeAnswered[i].Wrap(llm.New)
+	}
 	split, err := SplitFromEnv(os.Getenv("EVAL_SPLIT"))
 	if err != nil {
 		t.Fatal(err)
@@ -172,11 +180,12 @@ func TestEvalFix(t *testing.T) {
 	}
 
 	type sampleResult struct {
-		Name          string      `json:"name"`
-		Deterministic Scorecard   `json:"deterministic"`
-		Judge         *JudgeScore `json:"judge,omitempty"`
-		Error         string      `json:"error,omitempty"`
-		JudgeError    string      `json:"judgeError,omitempty"`
+		Name          string    `json:"name"`
+		Deterministic Scorecard `json:"deterministic"`
+		// Each judge's score, keyed by its model; never averaged.
+		Judges      map[string]*JudgeScore `json:"judges,omitempty"`
+		Error       string                 `json:"error,omitempty"`
+		JudgeErrors map[string]string      `json:"judgeErrors,omitempty"`
 	}
 
 	resultsFile, err := os.Create(filepath.Join(runDir, "results.jsonl"))
@@ -185,7 +194,12 @@ func TestEvalFix(t *testing.T) {
 	}
 	defer resultsFile.Close()
 
-	totalDet, totalJudge, judgeCount, scored := 0.0, 0.0, 0, 0
+	totalDet, scored := 0.0, 0
+	judgeTotal := map[string]float64{}
+	judgeCount := map[string]int{}
+	for _, j := range judges {
+		judgeCount[j.Model] = 0
+	}
 
 	for _, sample := range samples {
 		t.Run(sample.Name, func(t *testing.T) {
@@ -208,21 +222,29 @@ func TestEvalFix(t *testing.T) {
 					t.Logf("  %s: %.2f pass=%v — %s", c.Name, c.Score, c.Pass, c.Detail)
 				}
 
-				score, jErr := RunJudge(settingsSvc, judge, judgeClient, sample.Input, sample.Reference, output)
-				if jErr != nil {
-					// Recorded, not just logged: a judge that dropped an answer
-					// leaves judgeCount below sampleCount, and the run folder
-					// has to say why once the log is gone.
-					sr.JudgeError = jErr.Error()
-					t.Logf("judge failed: %v", jErr)
-				} else {
-					sr.Judge = &score
-					totalJudge += score.Overall
-					judgeCount++
-					t.Logf("judge: overall=%.2f correctness=%.2f meaning=%.2f tone=%.2f noOverEdit=%.2f",
-						score.Overall, score.Correctness, score.MeaningPreserved,
+				for i, judge := range judges {
+					score, jErr := RunJudge(settingsSvc, judge, judgeClients[i], sample.Input, sample.Reference, output)
+					if jErr != nil {
+						// Recorded, not just logged: a judge that dropped an
+						// answer leaves its judgeCount below sampleCount, and
+						// the run folder has to say why once the log is gone.
+						if sr.JudgeErrors == nil {
+							sr.JudgeErrors = map[string]string{}
+						}
+						sr.JudgeErrors[judge.Model] = jErr.Error()
+						t.Logf("judge %s failed: %v", judge.Model, jErr)
+						continue
+					}
+					if sr.Judges == nil {
+						sr.Judges = map[string]*JudgeScore{}
+					}
+					sr.Judges[judge.Model] = &score
+					judgeTotal[judge.Model] += score.Overall
+					judgeCount[judge.Model]++
+					t.Logf("judge %s: overall=%.2f correctness=%.2f meaning=%.2f tone=%.2f noOverEdit=%.2f",
+						judge.Model, score.Overall, score.Correctness, score.MeaningPreserved,
 						score.TonePreserved, score.NoOverEditing)
-					t.Logf("judge rationale: %s", score.Rationale)
+					t.Logf("judge %s rationale: %s", judge.Model, score.Rationale)
 				}
 			}
 
@@ -231,7 +253,13 @@ func TestEvalFix(t *testing.T) {
 		})
 	}
 
-	judge.ResolvedModel = judgeAnswered.Recorded(judge.Model)
+	avgJudges := map[string]float64{}
+	for i := range judges {
+		judges[i].ResolvedModel = judgeAnswered[i].Recorded(judges[i].Model)
+		if n := judgeCount[judges[i].Model]; n > 0 {
+			avgJudges[judges[i].Model] = judgeTotal[judges[i].Model] / float64(n)
+		}
+	}
 	summary := map[string]any{
 		"suite":         "fix",
 		"timestamp":     timestamp,
@@ -253,10 +281,14 @@ func TestEvalFix(t *testing.T) {
 		"modelRequested": requestedModel,
 		// The CLI is part of the instrument when either side runs through it:
 		// its defaults sit between the model and the score. In the configKey.
-		"claudeCodeVersion": cliVersionSpan(cliVersionAtStart, evalCLIVersion(provider, judge.Provider)),
+		"claudeCodeVersion": cliVersionSpan(cliVersionAtStart, evalCLIVersion(provider, judgeProvider)),
 		// What Fix does about reasoning on this route; see fixThinkingLabel.
-		"thinking":         thinkingLabel,
-		"judge":            judge,
+		"thinking": thinkingLabel,
+		// Every judge, with the ID that answered for it; their scores stay
+		// apart in avgJudges and judgeCounts, keyed by judge model.
+		"judges":           judges,
+		"avgJudges":        avgJudges,
+		"judgeCounts":      judgeCount,
 		"promptVariant":    0, // the Fix prompt has no variants
 		"qualityThreshold": 0,
 		// Kept for shape-compatibility with the Pyramidize summaries, which is
@@ -270,20 +302,20 @@ func TestEvalFix(t *testing.T) {
 		"scoredCount":      scored,
 		"errorCount":       len(samples) - scored,
 	}
-	if judgeCount > 0 {
-		summary["avgJudge"] = totalJudge / float64(judgeCount)
-		summary["judgeCount"] = judgeCount
-	}
 	data, _ := json.MarshalIndent(summary, "", "  ")
 	_ = os.WriteFile(filepath.Join(runDir, "summary.json"), data, 0o644)
 
 	t.Logf("\n=== FIX EVAL SUMMARY ===")
 	t.Logf("Provider: %s | Model: %s (resolved: %s) | Thinking: %s | Prompt: %s", provider, requestedModel, answered.Recorded(model), thinkingLabel, promptHash())
-	t.Logf("Judge: %s / %s (resolved: %s) @ temp %s", judge.Provider, judge.Model, judge.ResolvedModel, judge.TemperatureLabel())
+	for _, j := range judges {
+		t.Logf("Judge: %s / %s (resolved: %s) @ temp %s", j.Provider, j.Model, j.ResolvedModel, j.TemperatureLabel())
+	}
 	t.Logf("Samples: %d (split %s, membership %s)", len(samples), split, SplitHash(sampleNames(samples)))
 	t.Logf("Avg deterministic: %.2f (%d of %d samples scored)", totalDet/float64(max(scored, 1)), scored, len(samples))
-	if judgeCount > 0 {
-		t.Logf("Avg judge overall: %.2f (%d samples)", totalJudge/float64(judgeCount), judgeCount)
+	for _, j := range judges {
+		if n := judgeCount[j.Model]; n > 0 {
+			t.Logf("Avg judge %s overall: %.2f (%d samples)", j.Model, avgJudges[j.Model], n)
+		}
 	}
 	t.Logf("Results: %s", runDir)
 }

@@ -124,7 +124,7 @@ func TestEvalShReadsDotEnvTheWayGoDoes(t *testing.T) {
 	if got, want := dryRunLine(t, out), "dry-run pipeline=claude judge=claude keys=ANTHROPIC_API_KEY"; got != want {
 		t.Errorf("got  %q\nwant %q", got, want)
 	}
-	if !strings.Contains(out, "Judge:    claude / <pinned> @ temp 0") {
+	if !strings.Contains(out, "Judges:   claude / claude-haiku-5-5, claude-sonnet-5-5 (pinned) @ temp 0") {
 		t.Errorf("header does not show the API judge at temperature 0:\n%s", out)
 	}
 }

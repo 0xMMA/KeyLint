@@ -28,34 +28,71 @@ func TestTheFixEvalRunsThroughTheCLIByDefault(t *testing.T) {
 	}
 }
 
-// TestTheFixJudgeIsPinnedThroughTheCLI: same instrument as the Pyramidize
-// suite — the CLI, the dated snapshot, and an honest null temperature.
-func TestTheFixJudgeIsPinnedThroughTheCLI(t *testing.T) {
-	cfg := JudgeConfigFromEnv(envFrom(map[string]string{"EVAL_PROVIDER": "openai", "EVAL_MODEL": "gpt-4.1"}))
-	if cfg.Provider != llm.ProviderClaudeCode || cfg.Model != "claude-sonnet-4-5-20250929" {
-		t.Errorf("judge = %s/%s, want claude-code/claude-sonnet-4-5-20250929 — the pipeline must not reach it", cfg.Provider, cfg.Model)
+// TestTheFixJudgesArePinnedThroughTheCLI: same instruments as the Pyramidize
+// suite — two judges through the CLI, full model IDs, and an honest null
+// temperature on each. The pipeline's provider and model reach neither.
+func TestTheFixJudgesArePinnedThroughTheCLI(t *testing.T) {
+	judges, err := JudgesFromEnv(envFrom(map[string]string{"EVAL_PROVIDER": "openai", "EVAL_MODEL": "gpt-4.1"}))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if cfg.Temperature != nil {
-		t.Errorf("temperature = %v, want nil — the CLI cannot pin it", *cfg.Temperature)
+	if len(judges) != 2 || judges[0].Model != "claude-haiku-5-5" || judges[1].Model != "claude-sonnet-5-5" {
+		t.Fatalf("judges = %+v, want claude-haiku-5-5 and claude-sonnet-5-5", judges)
 	}
-	if cfg.TemperatureNote == "" {
-		t.Error("an unpinned temperature carries no note saying why")
-	}
-	data, _ := json.Marshal(cfg)
-	var back map[string]any
-	_ = json.Unmarshal(data, &back)
-	if v, ok := back["temperature"]; !ok || v != nil {
-		t.Errorf("temperature in JSON = %v (present=%v), want null", v, ok)
+	for _, cfg := range judges {
+		if cfg.Provider != llm.ProviderClaudeCode {
+			t.Errorf("%s: provider = %q, want %q", cfg.Model, cfg.Provider, llm.ProviderClaudeCode)
+		}
+		if cfg.Temperature != nil {
+			t.Errorf("%s: temperature = %v, want nil — the CLI cannot pin it", cfg.Model, *cfg.Temperature)
+		}
+		if cfg.TemperatureNote == "" {
+			t.Errorf("%s: an unpinned temperature carries no note saying why", cfg.Model)
+		}
+		data, _ := json.Marshal(cfg)
+		var back map[string]any
+		_ = json.Unmarshal(data, &back)
+		if v, ok := back["temperature"]; !ok || v != nil {
+			t.Errorf("%s: temperature in JSON = %v (present=%v), want null", cfg.Model, v, ok)
+		}
 	}
 }
 
 func TestAnAPIFixJudgeIsPinnedAtZero(t *testing.T) {
-	cfg := JudgeConfigFromEnv(envFrom(map[string]string{"EVAL_JUDGE_PROVIDER": llm.ProviderClaude}))
-	if cfg.Temperature == nil || *cfg.Temperature != 0 {
-		t.Fatalf("temperature = %v, want a pinned 0", cfg.Temperature)
+	judges, err := JudgesFromEnv(envFrom(map[string]string{"EVAL_JUDGE_PROVIDER": llm.ProviderClaude}))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if cfg.TemperatureNote != "" {
-		t.Errorf("a pinned temperature carries a note: %q", cfg.TemperatureNote)
+	for _, cfg := range judges {
+		if cfg.Temperature == nil || *cfg.Temperature != 0 {
+			t.Fatalf("%s: temperature = %v, want a pinned 0", cfg.Model, cfg.Temperature)
+		}
+		if cfg.TemperatureNote != "" {
+			t.Errorf("%s: a pinned temperature carries a note: %q", cfg.Model, cfg.TemperatureNote)
+		}
+	}
+}
+
+// TestTheFixJudgeSetCanBeChosen: EVAL_JUDGES picks the set (a bridge run adds
+// the old Sonnet 4.5 judge), EVAL_JUDGE_MODEL is a set of one, and a set with a
+// hole, a duplicate or both variables is refused.
+func TestTheFixJudgeSetCanBeChosen(t *testing.T) {
+	judges, err := JudgesFromEnv(envFrom(map[string]string{"EVAL_JUDGES": "claude-haiku-5-5,claude-sonnet-5-5, claude-sonnet-4-5-20250929"}))
+	if err != nil || len(judges) != 3 || judges[2].Model != "claude-sonnet-4-5-20250929" {
+		t.Errorf("EVAL_JUDGES: %+v, %v", judges, err)
+	}
+	judges, err = JudgesFromEnv(envFrom(map[string]string{"EVAL_JUDGE_MODEL": "claude-sonnet-4-5-20250929"}))
+	if err != nil || len(judges) != 1 || judges[0].Model != "claude-sonnet-4-5-20250929" {
+		t.Errorf("EVAL_JUDGE_MODEL: %+v, %v", judges, err)
+	}
+	for _, env := range []map[string]string{
+		{"EVAL_JUDGES": "claude-haiku-5-5,"},
+		{"EVAL_JUDGES": "claude-haiku-5-5,claude-haiku-5-5"},
+		{"EVAL_JUDGES": "claude-haiku-5-5", "EVAL_JUDGE_MODEL": "claude-sonnet-5-5"},
+	} {
+		if judges, err := JudgesFromEnv(envFrom(env)); err == nil {
+			t.Errorf("%v was accepted: %+v", env, judges)
+		}
 	}
 }
 

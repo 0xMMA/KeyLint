@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -34,57 +35,95 @@ type JudgeConfig struct {
 	// TemperatureNote says why Temperature is null. Empty when it is pinned.
 	TemperatureNote string `json:"temperatureNote,omitempty"`
 	// ResolvedModel is the model ID that actually answered, filled in after a
-	// run from what the provider reported. For a dated snapshot it should equal
+	// run from what the provider reported. For a full ID it should equal
 	// Model; if it does not, the instrument was not what the config says.
 	ResolvedModel string `json:"resolvedModel,omitempty"`
 }
 
 const (
-	// defaultJudgeProvider and defaultJudgeModel pin the instrument. Changing
+	// defaultJudgeProvider and defaultJudgeModels pin the instrument. Changing
 	// either invalidates every baseline recorded with the old one — which is
-	// why they are constants here rather than a fallback to whatever the
-	// pipeline happens to use.
+	// why they are fixed here rather than a fallback to whatever the pipeline
+	// happens to use.
 	//
 	// The provider is the installed Claude Code CLI since 2026-10: every eval
 	// call goes through the owner's subscription, not an API key. The price is
 	// the temperature pin, which the CLI cannot set — see JudgeConfig. The
 	// API-judged baselines before that date are a different instrument.
-	//
-	// The model is a DATED snapshot on purpose. #53 suspected the March
-	// baseline had drifted under an alias, and an alias is exactly what a
-	// measuring instrument must not be: claude-sonnet-4-6 is what the account
-	// lists, with no dated form behind it, so anything judged by that alias can
-	// change without a commit. claude-sonnet-4-5-20250929 cannot. The CLI takes
-	// the dated ID as well as its aliases, and answers with it (checked
-	// 2026-10-04: modelUsage named claude-sonnet-4-5-20250929).
-	//
-	// The pipeline under test still runs on the alias, because that is what
-	// users get. Only the judge is frozen.
 	defaultJudgeProvider = llm.ProviderClaudeCode
-	defaultJudgeModel    = "claude-sonnet-4-5-20250929"
 	judgeTemperature     = 0.0
 )
+
+// defaultJudgeModels are the judges that score every sample: two since
+// 2026-10-11 (docs/roadmap.md, E3), reported separately and never averaged.
+// A cheap judge and a strong one; whether both earn their place is an open
+// question, and the set may shrink to one.
+//
+// Full model IDs, never aliases. #53 suspected the March baseline had drifted
+// under an alias, and an alias is exactly what a measuring instrument must not
+// be. Haiku 5.5 and Sonnet 5.5 have no dated snapshot behind them — the ID is
+// the pin — so a run also records the ID that answered for each judge
+// (resolvedModel), and the configKey keys on it.
+//
+// The pipeline under test still runs on the alias, because that is what users
+// get. Only the judges are frozen.
+var defaultJudgeModels = []string{"claude-haiku-5-5", "claude-sonnet-5-5"}
 
 // judgeTemperatureNote is recorded wherever the judge's temperature is null.
 const judgeTemperatureNote = "not pinned: the Claude Code CLI has no temperature flag, so the judge samples at the CLI default (and thinks first, as the CLI does by default)"
 
-// JudgeConfigFromEnv resolves the judge's configuration, pinned unless a run
-// deliberately overrides it. An override is recorded in summary.json like
-// everything else, so a run judged by something else says so.
-func JudgeConfigFromEnv() JudgeConfig { return judgeConfigFrom(os.Getenv) }
+// JudgesFromEnv resolves the judge set, pinned unless a run deliberately
+// overrides it. An override is recorded in summary.json like everything else,
+// so a run judged by something else says so.
+func JudgesFromEnv() ([]JudgeConfig, error) { return judgesFrom(os.Getenv) }
 
-func judgeConfigFrom(getenv func(string) string) JudgeConfig {
-	cfg := JudgeConfig{
-		Provider: defaultJudgeProvider,
-		Model:    defaultJudgeModel,
+// judgesFrom reads the set: EVAL_JUDGES (comma-separated model IDs) chooses it
+// — a bridge run adds the old claude-sonnet-4-5-20250929 as a third judge —
+// and EVAL_JUDGE_MODEL, from before the set, names a single judge. All judges
+// share EVAL_JUDGE_PROVIDER. The two model variables together are refused, as
+// are an empty entry and a duplicate: each would record a set that is not the
+// one that ran.
+func judgesFrom(getenv func(string) string) ([]JudgeConfig, error) {
+	models := defaultJudgeModels
+	list := strings.TrimSpace(getenv("EVAL_JUDGES"))
+	single := strings.TrimSpace(getenv("EVAL_JUDGE_MODEL"))
+	switch {
+	case list != "" && single != "":
+		return nil, fmt.Errorf("EVAL_JUDGES and EVAL_JUDGE_MODEL are both set; use EVAL_JUDGES")
+	case list != "":
+		models = nil
+		for _, m := range strings.Split(list, ",") {
+			m = strings.TrimSpace(m)
+			if m == "" {
+				return nil, fmt.Errorf("EVAL_JUDGES %q has an empty entry", list)
+			}
+			if slices.Contains(models, m) {
+				return nil, fmt.Errorf("EVAL_JUDGES names %q twice", m)
+			}
+			models = append(models, m)
+		}
+	case single != "":
+		models = []string{single}
 	}
+	provider := judgeProviderFrom(getenv)
+	judges := make([]JudgeConfig, len(models))
+	for i, m := range models {
+		judges[i] = newJudgeConfig(provider, m)
+	}
+	return judges, nil
+}
+
+// judgeProviderFrom is the provider every judge runs on.
+func judgeProviderFrom(getenv func(string) string) string {
 	if v := strings.TrimSpace(getenv("EVAL_JUDGE_PROVIDER")); v != "" {
-		cfg.Provider = v
+		return v
 	}
-	if v := strings.TrimSpace(getenv("EVAL_JUDGE_MODEL")); v != "" {
-		cfg.Model = v
-	}
-	if llm.SupportsTemperature(cfg.Provider) {
+	return defaultJudgeProvider
+}
+
+func newJudgeConfig(provider, model string) JudgeConfig {
+	cfg := JudgeConfig{Provider: provider, Model: model}
+	if llm.SupportsTemperature(provider) {
 		cfg.Temperature = llm.Temp(judgeTemperature)
 	} else {
 		cfg.TemperatureNote = judgeTemperatureNote

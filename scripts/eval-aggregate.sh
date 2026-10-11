@@ -100,7 +100,15 @@ done
 # as the prompt's. Runs that predate resolvedModel key on the requested model,
 # which for those runs was always a full ID.
 #
-# The judge's temperature is the last field: 0 for the API judge, null for the
+# The judges are a SET since 2026-10-11 (two by default, Haiku 5.5 and Sonnet
+# 5.5; see docs/pyramidize/quality-status.md). Their three key fields — provider,
+# resolved model, temperature — hold one entry per judge, joined with "+" and
+# ordered by resolved model ID, so the order a run listed them in does not
+# matter and a single-judge run keys exactly as it always did. A run with a
+# different judge set (one added, one dropped, the old Sonnet 4.5 bridge judge
+# alongside) is a different instrument and reads "not comparable".
+#
+# The judge's temperature is the twelfth field: 0 for the API judge, null for the
 # Claude Code CLI, which cannot pin one. Provider alone already keeps the two
 # judges apart; the temperature keeps a CLI judge from ever comparing equal to
 # a pinned one, whatever a later run names its provider. Runs that predate the
@@ -108,9 +116,10 @@ done
 #
 # Two more fields close the key, for the same reason: the Claude Code CLI sits
 # between the model and the score whenever a run goes through it.
-#   thinking — whether the pipeline thought first. The CLI thinks by default and
-#     the Fix suite can switch that off; it moved the numbers, so it is part of
-#     the measurement. "n/a" for an API pipeline, where KeyLint does not ask.
+#   thinking — whether the pipeline thought first. The CLI thinks by default
+#     ("on"); on the API Fix asks a fast-tier model not to ("off"), and other
+#     models are left to the provider ("n/a"). It moved the numbers once, so it
+#     is part of the measurement.
 #   claudeCodeVersion — a CLI default moved the numbers once, so its version is
 #     part of the instrument. "none" when no side of the run used the CLI.
 # Runs that predate a field key as "unrecorded" if they went through the CLI
@@ -118,7 +127,10 @@ done
 # they did not (every API-era run), which keeps those comparable with new API
 # runs.
 JQ_ROUND='def r4: (. * 10000 | round) / 10000;
-def usesCLI(c): (c.provider == "claude-code") or ((c.judge.provider // "") == "claude-code");
+def judgesOf(c): if (c.judges|type) == "array" then c.judges elif (c.judge|type) == "object" then [c.judge] else [] end;
+def judgeId(j): j.model;
+def judgeIds(c): judgesOf(c) | map(judgeId(.));
+def usesCLI(c): (c.provider == "claude-code") or any(judgesOf(c)[]; (.provider // "") == "claude-code");
 def thinkingOf(c): if (c.thinking // "") != "" then c.thinking
                    elif c.provider == "claude-code" then "unrecorded" else "n/a" end;
 def cliVersionOf(c): if (c.claudeCodeVersion // "") != "" then c.claudeCodeVersion
@@ -127,12 +139,29 @@ def resolvedOr(r; m): if (r // "") == "" then m else r end;
 def judgeTemp(j): if j == null then "none"
                   elif (j | has("temperature")) then (j.temperature | if . == null then "null" else (. + 0 | tostring) end)
                   else "0" end;
+def judgeField(c; f): (judgesOf(c) | sort_by(resolvedOr(.resolvedModel; (.model // "none"))) | map(f)) as $v
+                    | if ($v|length) == 0 then "none" else ($v | join("+")) end;
 def keyFrom(c): [(c.suite // "pyramidize"), c.provider, resolvedOr(c.resolvedModel; c.model),
-                 (c.judge.provider // "none"), resolvedOr(c.judge.resolvedModel; (c.judge.model // "none")),
+                 judgeField(c; .provider // "none"), judgeField(c; resolvedOr(.resolvedModel; (.model // "none"))),
                  (c.promptVariant|tostring), (c.schemaEnforcement|tostring),
                  (c.qualityThreshold|tostring), (c.sampleCount|tostring),
-                 ((c.checksVersion // 1)|tostring), (c.split // "all"), judgeTemp(c.judge),
+                 ((c.checksVersion // 1)|tostring), (c.split // "all"), judgeField(c; judgeTemp(.)),
                  thinkingOf(c), cliVersionOf(c)] | join("|");
+# One interval per judge, never one across judges: two judges that disagree are
+# information, and their mean would hide which one moved.
+def stats: {mean: ((add / length) | r4), min: (min | r4), max: (max | r4), spread: ((max - min) | r4)};
+def statsOrNull: if length == 0 then null else stats end;
+# A run before the judge set wrote avgJudge/judgeCount for its one judge.
+def judgeAvgs(s): if (s.avgJudges|type) == "object" then s.avgJudges
+                  elif (judgesOf(s)|length) == 1 and s.avgJudge != null then {(judgeId(judgesOf(s)[0])): s.avgJudge}
+                  else {} end;
+def judgeCounts(s): if (s.judgeCounts|type) == "object" then s.judgeCounts
+                    elif (judgesOf(s)|length) == 1 then {(judgeId(judgesOf(s)[0])): (s.judgeCount // 0)}
+                    else {} end;
+# One sample line: {judge: overall}. Before the judge set a line carried .judge.
+def sampleScores(r; ids): if (r.judges|type) == "object" then (r.judges | map_values(.overall))
+                          elif (r.judge|type) == "object" and (ids|length) == 1 then {(ids[0]): r.judge.overall}
+                          else {} end;
 # A baseline written before the suite name joined the key stored eight fields.
 # Upgrading it on READ is what keeps the baselines recorded so far usable;
 # refusing them would have made a key format change quietly discard every
@@ -148,15 +177,17 @@ def upgradeKey(k): (k | split("|")) as $p
                    else k end;
 def baselineKey(b): if (b.config|type) == "object" then keyFrom(b.config) else upgradeKey(b.configKey // "unknown") end;'
 
-PER_SAMPLE=$(cat "${RESULTS[@]}" | jq -s "$JQ_ROUND"'
-    group_by(.name) | map({
+# The judges of the first run name the judge columns; configConsistent below
+# refuses runs whose judge sets differ.
+JUDGE_IDS=$(jq -c "$JQ_ROUND"'judgeIds(.)' "${SUMMARIES[0]}")
+
+PER_SAMPLE=$(cat "${RESULTS[@]}" | jq -s --argjson ids "$JUDGE_IDS" "$JQ_ROUND"'
+    group_by(.name) | map(. as $rows | {
         name: .[0].name,
         runs: length,
         errors: (map(select(.error != null and .error != "")) | length),
-        deterministic: (map(.deterministic.overallScore) | {mean: ((add / length) | r4), min: (min | r4), max: (max | r4), spread: ((max - min) | r4)}),
-        judge: (map(select(.judge != null) | .judge.overall) |
-                if length == 0 then null
-                else {mean: ((add / length) | r4), min: (min | r4), max: (max | r4), spread: ((max - min) | r4)} end),
+        deterministic: (map(.deterministic.overallScore) | stats),
+        judges: ($ids | map(. as $id | {key: $id, value: ([$rows[] | sampleScores(.; $ids)[$id] | select(. != null)] | statsOrNull)}) | from_entries),
         passed: (map(select(.deterministic.allPassed == true)) | length),
         refined: (map(select(.appliedRefinement == true)) | length)
     })')
@@ -180,8 +211,9 @@ done | jq -s "$JQ_ROUND"'{mean: ((add / length) | r4), min: min, max: max, sprea
 
 RUNS_JSON=$(printf '%s\n' "${RUN_DIRS[@]}" | jq -R . | jq -s -c .)
 
-AGGREGATE=$(jq -s --argjson perSample "$PER_SAMPLE" --argjson runs "$RUNS_JSON" --argjson passed "$PASSED" --argjson refined "$REFINED" "$JQ_ROUND"'
-    {
+AGGREGATE=$(jq -s --argjson perSample "$PER_SAMPLE" --argjson runs "$RUNS_JSON" --argjson passed "$PASSED" --argjson refined "$REFINED" --argjson ids "$JUDGE_IDS" "$JQ_ROUND"'
+    . as $all
+    | {
         createdAt: (.[0].timestamp),
         runCount: length,
         runs: $runs,
@@ -193,16 +225,20 @@ AGGREGATE=$(jq -s --argjson perSample "$PER_SAMPLE" --argjson runs "$RUNS_JSON" 
             splitHash: (.[0].splitHash // null),
             gitSHA: .[0].gitSHA,
             provider: .[0].provider,
+            # The ID that answered (runs since 2026-10-08 record it here); the
+            # key uses it.
             model: .[0].model,
-            # What the requested model resolved to; the key uses it. null for
-            # runs that predate the field.
+            modelRequested: (.[0].modelRequested // null),
+            # Only first-generation CLI runs (2026-10-04) wrote model = alias and
+            # the ID here; null for everything else.
             resolvedModel: (if (.[0].resolvedModel // "") == "" then null else .[0].resolvedModel end),
-            # Recorded, not keyed: the CLI is part of the instrument when a run
-            # goes through it, and a comparison reports a version change below.
+            # Keyed (cliVersionOf), and reported next to a verdict: the CLI is
+            # part of the instrument when a run goes through it.
             claudeCodeVersion: (if (.[0].claudeCodeVersion // "") == "" then null else .[0].claudeCodeVersion end),
             thinking: (if (.[0].thinking // "") == "" then null else .[0].thinking end),
             promptVariant: .[0].promptVariant,
-            judge: .[0].judge,
+            # Every judge of the run, each with the ID that answered for it.
+            judges: judgesOf(.[0]),
             schemaEnforcement: .[0].schemaEnforcement,
             qualityThreshold: .[0].qualityThreshold,
             sampleCount: .[0].sampleCount
@@ -215,16 +251,19 @@ AGGREGATE=$(jq -s --argjson perSample "$PER_SAMPLE" --argjson runs "$RUNS_JSON" 
         # promptHash is NOT — see the prelude above for why.
         configKey: keyFrom(.[0]),
         configConsistent: (map(keyFrom(.)) | unique | length == 1),
-        # A judge that failed on some samples leaves a mean over a smaller set.
-        judgeCoverage: {min: (map(.judgeCount // 0) | min), max: (map(.judgeCount // 0) | max), of: (.[0].sampleCount)},
+        # A judge that failed on some samples leaves a mean over a smaller set;
+        # per judge, because one judge failing says nothing about the other.
+        judgeCoverage: ($ids | map(. as $id | {key: $id, value: {
+            min: ([$all[] | judgeCounts(.)[$id] // 0] | min),
+            max: ([$all[] | judgeCounts(.)[$id] // 0] | max),
+            of: ($all[0].sampleCount)}}) | from_entries),
         # Same question for the deterministic half: a run whose API calls failed
         # measured fewer samples than it set out to, and its average describes
         # the ones that answered.
         scoredCoverage: {min: (map(.scoredCount // .sampleCount) | min), max: (map(.scoredCount // .sampleCount) | max), of: (.[0].sampleCount)},
-        deterministic: (map(.avgDeterministic) | {mean: ((add / length) | r4), min: (min | r4), max: (max | r4), spread: ((max - min) | r4)}),
-        judge: (map(select(.avgJudge != null) | .avgJudge) |
-                if length == 0 then null
-                else {mean: ((add / length) | r4), min: (min | r4), max: (max | r4), spread: ((max - min) | r4)} end),
+        deterministic: (map(.avgDeterministic) | stats),
+        # One interval per judge, keyed by the model the run asked for.
+        judges: ($ids | map(. as $id | {key: $id, value: ([$all[] | judgeAvgs(.)[$id] | select(. != null)] | statsOrNull)}) | from_entries),
         samplesPassing: $passed,
         refineCalls: $refined,
         perSample: $perSample
@@ -235,7 +274,7 @@ AGGREGATE=$(jq -s --argjson perSample "$PER_SAMPLE" --argjson runs "$RUNS_JSON" 
 if [[ "$(printf '%s' "$AGGREGATE" | jq -r .configConsistent)" != "true" ]]; then
     echo "These runs do not share a configuration, so their mean would describe nothing:" >&2
     for f in "${SUMMARIES[@]}"; do
-        jq -r '"  \(input_filename): \(.provider)/\(.model) resolved=\(.resolvedModel // "-") judge=\(.judge.model // "none") resolved=\(.judge.resolvedModel // "-") temp=\(.judge.temperature) thinking=\(.thinking // "-") cli=\(.claudeCodeVersion // "-") v\(.promptVariant) schema=\(.schemaEnforcement) samples=\(.sampleCount)"' "$f" >&2
+        jq -r "$JQ_ROUND"'"  \(input_filename): \(.provider)/\(.model) resolved=\(.resolvedModel // "-") judges=\(judgesOf(.) | map("\(.model)->\(.resolvedModel // "-")@\(.temperature)") | join(",")) thinking=\(.thinking // "-") cli=\(.claudeCodeVersion // "-") v\(.promptVariant) schema=\(.schemaEnforcement) samples=\(.sampleCount)"' "$f" >&2
     done
     exit "$EXIT_NOT_COMPARABLE"
 fi
@@ -259,19 +298,35 @@ fi
 # verdict. Believing a one-run delta is the mistake this whole change exists to
 # stop, and the guard must not make it on the reader's behalf.
 VERDICT=$(printf '%s\n' "$AGGREGATE" | jq --slurpfile base "$COMPARE" "$JQ_ROUND"'
+    # Per-judge intervals of a baseline. One written before the judge set has a
+    # single .judge interval, which belongs to its one judge.
+    def baselineJudges(b; nowIds):
+        if (b.judges|type) == "object" then b.judges
+        else (judgeIds(b.config // {}) | if length == 1 then . elif (nowIds|length) == 1 then nowIds else [] end) as $one
+             | if ($one|length) == 1 and (b.judge|type) == "object" then {($one[0]): b.judge} else {} end
+        end;
+    # Lowest judge count per judge, as [id, min] pairs. A baseline from before
+    # the judge set stored one {min, max, of}.
+    def coverageMins(b): if (b.judgeCoverage|type) != "object" then []
+                         elif (b.judgeCoverage|has("of")) then [["the judge", b.judgeCoverage.min]]
+                         else (b.judgeCoverage | to_entries | map([.key, .value.min])) end;
+    # The interval rule, for one metric: does the new range clear the old one?
+    def rangeVerdict(n; w): if n == null or w == null or n.mean == null or w.mean == null then "overlap"
+                            elif n.max < w.min then "regression"
+                            elif n.min > w.max then "improvement"
+                            else "overlap" end;
     . as $now
     | $base[0] as $was
     | baselineKey($was) as $wasKey
-    # Each metric judged on its own: does the new interval clear the old one?
-    | (if $now.deterministic.max < $was.deterministic.min then "regression"
-       elif $now.deterministic.min > $was.deterministic.max then "improvement"
-       else "overlap" end) as $detVerdict
-    | (if ($now.judge.mean == null) or ($was.judge.mean == null) then "overlap"
-       elif $now.judge.max < $was.judge.min then "regression"
-       elif $now.judge.min > $was.judge.max then "improvement"
-       else "overlap" end) as $judgeVerdict
-    | ("deterministic " + $detVerdict) as $detLabel
-    | ("judge " + $judgeVerdict) as $judgeLabel
+    | (judgeIds($now.config)) as $ids
+    | baselineJudges($was; $ids) as $wasJudges
+    # Each metric judged on its own: the deterministic score and every judge.
+    | rangeVerdict($now.deterministic; $was.deterministic) as $detVerdict
+    | ($ids | map({key: ., value: rangeVerdict($now.judges[.]; $wasJudges[.])}) | from_entries) as $judgeVerdicts
+    | ([{label: "deterministic", verdict: $detVerdict}]
+       + ($ids | map({label: ("judge " + .), verdict: $judgeVerdicts[.]}))) as $metrics
+    | ((coverageMins($now) | map(select(.[1] < $now.config.sampleCount)))
+       + (coverageMins($was) | map(select(.[1] < ($was.config.sampleCount // 0))))) as $shortJudges
     | {
         splitMembership: {baseline: ($was.config.splitHash // null), now: ($now.config.splitHash // null),
                           changed: (($was.config.splitHash // null) != ($now.config.splitHash // null))},
@@ -280,13 +335,15 @@ VERDICT=$(printf '%s\n' "$AGGREGATE" | jq --slurpfile base "$COMPARE" "$JQ_ROUND
         claudeCodeVersion: {baseline: ($was.config.claudeCodeVersion // null), now: ($now.config.claudeCodeVersion // null),
                             changed: (($was.config.claudeCodeVersion // null) != ($now.config.claudeCodeVersion // null))},
         baseline: {config: $wasKey, runs: $was.runCount, gitSHA: $was.config.gitSHA,
-                   deterministic: $was.deterministic, judge: $was.judge, samplesPassing: $was.samplesPassing},
+                   deterministic: $was.deterministic, judges: $wasJudges, samplesPassing: $was.samplesPassing},
         now:      {config: $now.configKey, runs: $now.runCount, gitSHA: $now.config.gitSHA,
-                   deterministic: $now.deterministic, judge: $now.judge, samplesPassing: $now.samplesPassing},
+                   deterministic: $now.deterministic, judges: $now.judges, samplesPassing: $now.samplesPassing},
         deterministicVerdict: $detVerdict,
-        judgeVerdict: $judgeVerdict,
+        judgeVerdicts: $judgeVerdicts,
         deterministicDelta: (($now.deterministic.mean - $was.deterministic.mean) | r4),
-        judgeDelta: ((($now.judge.mean // 0) - ($was.judge.mean // 0)) | r4),
+        judgeDeltas: ($ids | map(. as $id | {key: $id, value:
+            (if ($now.judges[$id].mean == null) or ($wasJudges[$id].mean == null) then null
+             else (($now.judges[$id].mean - $wasJudges[$id].mean) | r4) end)}) | from_entries),
         verdict: (
             if $wasKey != $now.configKey then
                 "not comparable: different configuration"
@@ -295,21 +352,23 @@ VERDICT=$(printf '%s\n' "$AGGREGATE" | jq --slurpfile base "$COMPARE" "$JQ_ROUND
             # reader to the wrong place.
             elif ($now.scoredCoverage.min < $now.scoredCoverage.of) or (($was.scoredCoverage.min // $was.config.sampleCount) < ($was.config.sampleCount)) then
                 "not comparable: a run failed to score every sample"
-            elif ($now.judgeCoverage.min < $now.judgeCoverage.of) or (($was.judgeCoverage.min // $was.config.sampleCount) < ($was.config.sampleCount)) then
-                "not comparable: the judge did not score every sample"
+            elif ($shortJudges | length) > 0 then
+                "not comparable: " + ($shortJudges | map(.[0] | if . == "the judge" then . else "judge " + . end) | unique | join(", ")) + " did not score every sample"
             elif ($was.runCount < 2) or ($now.runCount < 2) then
                 "indicative only: one run has no range to compare"
             else
                 # Per metric, because "a regression" without naming which number
-                # moved sends the reader back to the raw runs. A regression in
-                # one metric is still a regression; an improvement is only
-                # claimed when nothing moved the other way.
-                ([($detVerdict | select(. == "regression")), ($judgeVerdict | select(. == "regression"))] | length) as $regressions
-                | ([($detVerdict | select(. == "improvement")), ($judgeVerdict | select(. == "improvement"))] | length) as $improvements
-                | if $regressions > 0 then
-                      "regression: " + ([$detLabel, $judgeLabel] | map(select(test("regression"))) | join(", "))
-                  elif $improvements > 0 and ([$detVerdict, $judgeVerdict] | map(select(. == "regression")) | length) == 0 then
-                      "improvement: " + ([$detLabel, $judgeLabel] | map(select(test("improvement"))) | join(", "))
+                # moved sends the reader back to the raw runs. Any metric
+                # clearly worse is a regression; an improvement is claimed only
+                # when at least one metric is clearly better and none is worse.
+                # The judges are never averaged: one judge clearly worse is a
+                # regression even if the other moved up.
+                ($metrics | map(select(.verdict == "regression"))) as $regressions
+                | ($metrics | map(select(.verdict == "improvement"))) as $improvements
+                | if ($regressions | length) > 0 then
+                      "regression: " + ($regressions | map(.label + " regression") | join(", "))
+                  elif ($improvements | length) > 0 then
+                      "improvement: " + ($improvements | map(.label + " improvement") | join(", "))
                   else
                       "inconclusive: the ranges overlap"
                   end
@@ -342,7 +401,7 @@ fi
 
 case "$(printf '%s' "$VERDICT" | jq -r .verdict)" in
     regression*)
-        echo "Every run of the new code scored below every run of the baseline. Advisory — re-run before believing it." >&2
+        echo "On at least one metric, every run of the new code scored below every run of the baseline. Advisory — re-run before believing it." >&2
         exit "$EXIT_REGRESSION"
         ;;
     "not comparable"*)

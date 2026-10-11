@@ -76,7 +76,7 @@ func evalEnvFromFile(file map[string]string, getenv func(string) string) map[str
 		return getenv(key)
 	}
 	provider, _ := evalTarget(merged)
-	if !evalNeedsAPIKey(provider, judgeConfigFrom(merged).Provider) {
+	if !evalNeedsAPIKey(provider, judgeProviderFrom(merged)) {
 		return set
 	}
 	for key, value := range file {

@@ -3,6 +3,7 @@ package enhance
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"keylint/internal/llm"
@@ -54,9 +55,10 @@ func fixThinkingLabel(provider, model string) string {
 	}
 }
 
-// JudgeConfig pins the instrument, exactly as the Pyramidize eval does — a
-// judge that moves with what it measures reports nothing. Same provider and
-// dated snapshot, so the two suites' judge columns are produced the same way.
+// JudgeConfig is one judge, pinned exactly as the Pyramidize eval pins its
+// judges — a judge that moves with what it measures reports nothing. Same
+// provider and models, so the two suites' judge columns are produced the same
+// way.
 type JudgeConfig struct {
 	Provider string `json:"provider"`
 	Model    string `json:"model"`
@@ -73,30 +75,64 @@ type JudgeConfig struct {
 }
 
 const (
-	// The CLI since 2026-10, for the same reason as the pipeline. It takes the
-	// dated ID and answers with it (checked 2026-10-04 against modelUsage), so
-	// the instrument stays frozen; what it loses is the temperature pin.
+	// The CLI since 2026-10, for the same reason as the pipeline; what the
+	// judges lose there is the temperature pin.
 	defaultJudgeProvider = llm.ProviderClaudeCode
-	defaultJudgeModel    = "claude-sonnet-4-5-20250929"
 	judgeTemperature     = 0.0
 	judgeTemperatureNote = "not pinned: the Claude Code CLI has no temperature flag, so the judge samples at the CLI default (and thinks first, as the CLI does by default)"
 )
 
-// JudgeConfigFromEnv resolves the judge, pinned unless deliberately overridden.
-func JudgeConfigFromEnv(getenv func(string) string) JudgeConfig {
-	cfg := JudgeConfig{Provider: defaultJudgeProvider, Model: defaultJudgeModel}
+// defaultJudgeModels: two judges since 2026-10-11, the same pair as the
+// Pyramidize suite, reported separately and never averaged. Full model IDs —
+// Haiku 5.5 and Sonnet 5.5 have no dated form — and each run records the ID
+// that answered for each judge.
+var defaultJudgeModels = []string{"claude-haiku-5-5", "claude-sonnet-5-5"}
+
+// JudgesFromEnv resolves the judge set, pinned unless deliberately overridden:
+// EVAL_JUDGES (comma-separated model IDs) chooses the set, EVAL_JUDGE_MODEL
+// names a single judge, EVAL_JUDGE_PROVIDER moves all of them. Both model
+// variables together, an empty entry or a duplicate are refused.
+func JudgesFromEnv(getenv func(string) string) ([]JudgeConfig, error) {
+	models := defaultJudgeModels
+	list := strings.TrimSpace(getenv("EVAL_JUDGES"))
+	single := strings.TrimSpace(getenv("EVAL_JUDGE_MODEL"))
+	switch {
+	case list != "" && single != "":
+		return nil, fmt.Errorf("EVAL_JUDGES and EVAL_JUDGE_MODEL are both set; use EVAL_JUDGES")
+	case list != "":
+		models = nil
+		for _, m := range strings.Split(list, ",") {
+			m = strings.TrimSpace(m)
+			if m == "" {
+				return nil, fmt.Errorf("EVAL_JUDGES %q has an empty entry", list)
+			}
+			if slices.Contains(models, m) {
+				return nil, fmt.Errorf("EVAL_JUDGES names %q twice", m)
+			}
+			models = append(models, m)
+		}
+	case single != "":
+		models = []string{single}
+	}
+	provider := judgeProviderFrom(getenv)
+	judges := make([]JudgeConfig, len(models))
+	for i, m := range models {
+		judges[i] = JudgeConfig{Provider: provider, Model: m}
+		if llm.SupportsTemperature(provider) {
+			judges[i].Temperature = llm.Temp(judgeTemperature)
+		} else {
+			judges[i].TemperatureNote = judgeTemperatureNote
+		}
+	}
+	return judges, nil
+}
+
+// judgeProviderFrom is the provider every judge runs on.
+func judgeProviderFrom(getenv func(string) string) string {
 	if v := strings.TrimSpace(getenv("EVAL_JUDGE_PROVIDER")); v != "" {
-		cfg.Provider = v
+		return v
 	}
-	if v := strings.TrimSpace(getenv("EVAL_JUDGE_MODEL")); v != "" {
-		cfg.Model = v
-	}
-	if llm.SupportsTemperature(cfg.Provider) {
-		cfg.Temperature = llm.Temp(judgeTemperature)
-	} else {
-		cfg.TemperatureNote = judgeTemperatureNote
-	}
-	return cfg
+	return defaultJudgeProvider
 }
 
 // TemperatureLabel is the judge's temperature for a log line.
@@ -139,7 +175,7 @@ func evalEnvFromFile(file map[string]string, getenv func(string) string) map[str
 		return getenv(key)
 	}
 	provider, _ := evalTarget(merged)
-	if !evalNeedsAPIKey(provider, JudgeConfigFromEnv(merged).Provider) {
+	if !evalNeedsAPIKey(provider, judgeProviderFrom(merged)) {
 		return set
 	}
 	for key, value := range file {

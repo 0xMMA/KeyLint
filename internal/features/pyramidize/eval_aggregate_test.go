@@ -566,7 +566,8 @@ func TestTheTwoHalvesAreNotComparable(t *testing.T) {
 
 // TestTheKeyNamesTheResolvedModel: a CLI run asks for "sonnet" and the key must
 // carry what answered, not the alias — and the aggregate's config must keep
-// both, plus the judge's honest null temperature.
+// both, plus the judge's honest null temperature. A run from before the judge
+// set wrote a single "judge"; the aggregate lists it as a set of one.
 func TestTheKeyNamesTheResolvedModel(t *testing.T) {
 	root := t.TempDir()
 	runs := []string{
@@ -585,7 +586,11 @@ func TestTheKeyNamesTheResolvedModel(t *testing.T) {
 	if cfg["model"] != "sonnet" || cfg["resolvedModel"] != "claude-sonnet-4-6" {
 		t.Errorf("config model/resolvedModel = %v/%v, want sonnet/claude-sonnet-4-6", cfg["model"], cfg["resolvedModel"])
 	}
-	judge := cfg["judge"].(map[string]any)
+	judges, _ := cfg["judges"].([]any)
+	if len(judges) != 1 {
+		t.Fatalf("config.judges = %v, want the run's one judge", cfg["judges"])
+	}
+	judge := judges[0].(map[string]any)
 	if v, ok := judge["temperature"]; !ok || v != nil {
 		t.Errorf("judge.temperature = %v (present=%v), want null", v, ok)
 	}

@@ -4,10 +4,11 @@ set -euo pipefail
 # Automated evaluation runner for pyramidize quality.
 # Wraps `go test -tags eval` and prints a summary.
 #
-# By default the pipeline AND the judge run through the installed Claude Code
-# CLI (provider claude-code) on the signed-in subscription: no API key is read,
-# and none is needed. --provider claude (and EVAL_JUDGE_PROVIDER=claude for the
-# judge) measure against the API instead, with ANTHROPIC_API_KEY from .env.
+# By default the pipeline AND the two judges (Haiku 5.5 and Sonnet 5.5, each
+# reported separately) run through the installed Claude Code CLI (provider
+# claude-code) on the signed-in subscription: no API key is read, and none is
+# needed. --provider claude (and EVAL_JUDGE_PROVIDER=claude for the judges)
+# measure against the API instead, with ANTHROPIC_API_KEY from .env.
 #
 # Usage:
 #   ./scripts/eval.sh                          # one run of the pyramidize suite
@@ -15,7 +16,9 @@ set -euo pipefail
 #   ./scripts/eval.sh --suite fix --split tune --runs 3   # the 10 tuning samples
 #   ./scripts/eval.sh --suite fix --split holdout --runs 3  # the 5 held back, once
 #   ./scripts/eval.sh --provider claude --model claude-sonnet-4-6   # the API, needs a key
-#   EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --provider claude  # API judge too
+#   EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --provider claude  # API judges too
+#   EVAL_JUDGES=claude-haiku-5-5,claude-sonnet-5-5,claude-sonnet-4-5-20250929 ./scripts/eval.sh --runs 3
+#                                              # bridge run: the old judge as a third
 #   ./scripts/eval.sh --provider openai --model gpt-4o
 #   ./scripts/eval.sh --variant 1              # run with prompt variant v1
 #   ./scripts/eval.sh --schema                 # enforce the JSON schemas (off by default, see schemas.go)
@@ -216,7 +219,12 @@ if uses_api_key "$JUDGE_PROVIDER" || [[ "$JUDGE_PROVIDER" == "ollama" ]]; then
 else
     JUDGE_TEMP="temp unpinned (the CLI has no temperature flag)"
 fi
-echo "Judge:    $JUDGE_PROVIDER / ${EVAL_JUDGE_MODEL:-<pinned>} @ $JUDGE_TEMP"
+# The judge set as the Go side will read it (JudgesFromEnv): EVAL_JUDGES, else
+# EVAL_JUDGE_MODEL as a set of one, else the two pinned judges.
+JUDGES="${EVAL_JUDGES:-$(dotenv_value EVAL_JUDGES)}"
+JUDGE_MODEL="${EVAL_JUDGE_MODEL:-$(dotenv_value EVAL_JUDGE_MODEL)}"
+JUDGES="${JUDGES:-${JUDGE_MODEL:-claude-haiku-5-5,claude-sonnet-5-5 (pinned)}}"
+echo "Judges:   $JUDGE_PROVIDER / ${JUDGES//,/, } @ $JUDGE_TEMP (each reported separately)"
 echo "Runs:     $RUNS"
 echo ""
 
@@ -236,13 +244,14 @@ for (( i = 1; i <= RUNS; i++ )); do
     # already spent on the earlier runs.
     BEFORE=$(ls -d test-data/eval-runs/*/ 2>/dev/null | sort || true)
     set +e
-    # 7200 s covers the worst case the per-call deadlines allow: Fix 15 ×
-    # (120 s fix + 180 s judge) = 4500 s, Pyramidize 13 × (2 × 120 s + 180 s)
-    # = 5460 s with a refine on every sample. A go test timeout panics before
-    # summary.json is written and throws the whole run away — the first CLI
-    # attempt at the Fix baseline lost a run to the old 900 s — so this is a
-    # safety net, not a budget. Typical runs take 12–15 minutes.
-    go test -tags eval "$SUITE_PKG" -v -timeout 7200s 2>&1 | tee /dev/stderr | tail -1
+    # 10800 s covers the worst case the per-call deadlines allow with two
+    # judges: Fix 15 × (120 s fix + 2 × 180 s judge) = 7200 s, Pyramidize
+    # 13 × (2 × 120 s + 2 × 180 s) = 7800 s with a refine on every sample. A go
+    # test timeout panics before summary.json is written and throws the whole
+    # run away — the first CLI attempt at the Fix baseline lost a run to the old
+    # 900 s — so this is a safety net, not a budget. A single-judge run took
+    # 12–15 minutes; each judge adds one CLI call per sample.
+    go test -tags eval "$SUITE_PKG" -v -timeout 10800s 2>&1 | tee /dev/stderr | tail -1
     run_status=${PIPESTATUS[0]}
     set -e
     AFTER=$(ls -d test-data/eval-runs/*/ 2>/dev/null | sort || true)
@@ -295,7 +304,7 @@ if (( WRITE_BASELINE )); then
     trap - EXIT
     echo ""
     echo "=== Baseline written to $OUT_DIR/baseline.json ==="
-    jq '{runCount, config, deterministic, judge, samplesPassing}' "$OUT_DIR/baseline.json"
+    jq '{runCount, config, deterministic, judges, samplesPassing}' "$OUT_DIR/baseline.json"
 fi
 
 if [[ -n "$COMPARE" ]]; then
