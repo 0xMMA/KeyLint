@@ -1,6 +1,6 @@
 # ADR-003 — Prompt v3: the user picks the form, one call writes it
 
-> Status: accepted, not yet measured · Date: 2026-10-11 (addendum on mail history the same day) · Supersedes [ADR-001](adr-001-pipeline-architecture.md) and decisions 2, 3, 5 and 6 of [ADR-002](adr-002-one-shot-vs-pipeline.md) · Issue: #34 · Roadmap: E3 phase 2 (and the phase 4 cleanup it makes possible)
+> Status: accepted, not yet measured · Date: 2026-10-11 (addendum on mail history the same day; addendum on the choice page 2026-10-12) · Supersedes [ADR-001](adr-001-pipeline-architecture.md) and decisions 2, 3, 5 and 6 of [ADR-002](adr-002-one-shot-vs-pipeline.md) · Issue: #34 · Roadmap: E3 phase 2 (and the phase 4 cleanup it makes possible)
 
 ## Decision
 
@@ -20,12 +20,14 @@ The prompt for every form is **v3**: one shared core plus one section per form
 | Core: `<headers>` | Content statements, never process labels; same-level headers MECE |
 | Core: `<fidelity>` | Every fact, name, number, date, request and open question **of the author's own message** appears (addendum); mail history is context only; nothing is added — no conclusions, reasons, or status claims like "no action needed"; what the input leaves open stays open; holds whatever the user chooses |
 | Core: `<voice>` | The default: the language (the author's message's, addendum) and code-switching (none introduced), tone and person; never raise formality on its own; greetings and sign-offs as written |
-| Core: `<user_choices>` | An explicit choice wins over the voice defaults: professional/professional (what the UI always sends) is the default, not a choice; any other style or relationship sets register and formality; additional instructions ("auf Englisch", "formeller") are followed — a choice changes how the text reads, never what it says |
+| Core: `<user_choices>` | The user's own instructions, when there are any (choice page addendum: no style or relationship any more): they are the user's words and win over the voice and form defaults ("auf Englisch" means English, "formeller" raises formality) — a choice changes how the text reads, never what it says |
 | Core: `<style>` | Compact but complete, no filler, nothing the input does not say; the form's shape is fixed — email, memo, wiki and presentation always take their full shape, however short the input; chat is the form for a short result |
 | Form sections | email (subject line `Decision \| Details \| Actions`, greeting, bold headers + bullets, sign-off), **chat (new)**: no subject, no headers, first sentence carries the point, greeting only if the author's message has one, may shorten but keeps every fact and ask; memo (`TO \| FROM \| RE` line, one-sentence summary, bold headers); wiki (`# title`, one-sentence summary, `##` sections); presentation (`# Slide N:` titles that tell the story, slide 1 is the summary) |
 | Output | `{"fullDocument", "language"}` — subject, title and headers live inside the document, where the user sees them |
 
-The style block (`<style_injection>`) is v2's, word for word.
+The style block (`<style_injection>`) was v2's, word for word; since the choice
+page addendum v3 carries only a `<user_instructions>` block, and only when the
+user typed something. v2 keeps its block unchanged.
 
 ### Where v3 comes from
 
@@ -150,9 +152,9 @@ fact in the output is in the input, and nothing else is.
   first, the document part only when it matches nothing (a browser tab names
   its web app there); the longest name wins. The document-part fallback still
   lets a Teams-only preset match an Outlook mail titled "Microsoft Teams
-  rollout"; a preset for Outlook takes precedence over it. `GetDefaultDocType`
-  gives the UI the same answer, so it can show the preselection instead of
-  making it out of sight.
+  rollout"; a preset for Outlook takes precedence over it. `GetSourcePreset`
+  (it replaced `GetDefaultDocType` with the choice page) gives the UI the same
+  answer, so it can show the preselection instead of making it out of sight.
 - **Volunteered quality fields buy nothing.** Schema enforcement is still off by
   default, so a model may still send `qualityScore`/`qualityFlags`. Under v2
   that bought a refine call (ADR-002's `TestTheOneShotPropertyDependsOnPromptCompliance`).
@@ -241,3 +243,72 @@ ran those forms anyway.
   fix v3 on general principles and measure again; v2 stays selectable until then.
 - Samples for another form showing its v3 section misses something the old
   pipeline prompt got right — the old prompts are in the `v4.7.1-beta` tag.
+
+## Addendum — the choice page: the form and the user's instructions, nothing else (Michael, 2026-10-12)
+
+The Pyramidize page became **Text → Form → Result** (roadmap E3 phase 3,
+decided on the mockup the same day). The Form step is five large buttons —
+email, chat, memo, wiki, presentation, keys 1–5 — one field, "Instructions
+(optional)", and "Pyramidize as <form>" (Enter). **There is no tone, style,
+relationship or audience control anywhere in Pyramidize:** the text already
+shows its reader (greeting, @names, mail history), the prompt keeps the
+author's voice by default, and the instructions field covers the rest ("more
+formal", "in English"). The options column went with its per-session provider
+switch and model and effort pickers: provider, model and effort come from
+Settings only, and the Form step names them with a link there.
+
+**In the prompt**, `<user_choices>` shrinks to the user's instructions:
+
+```
+<user_choices>
+<user_instructions> holds the user's own instructions for this text, when they gave any. an explicit choice wins over the voice defaults.
+- without instructions, keep the author's voice as <voice> says.
+- instructions are the user's own words: follow them over the voice defaults and the form's defaults. "auf Englisch" means write in English; "formeller" means raise the formality.
+- a choice changes how the text reads, never what it says: facts, names, numbers, dates and asks stay as in the author's message, and nothing is added.
+</user_choices>
+```
+
+- The "professional/professional is the default, not a choice" line and the
+  style/relationship rule (more formal for authority or public, plainer for
+  casual or close) are gone. So is v3's `<style_injection>`: the system prompt
+  ends with `<user_instructions>` holding the trimmed instructions, and with no
+  block at all when the field is empty. General principles only; nothing
+  tuned to an eval sample.
+  `TestUserChoicesAreTheUsersInstructionsOnly` and
+  `TestInstructionsReachTheV3Prompt` pin it, `TestInstructionsReachTheModel`
+  pins it through the real `Pyramidize`.
+- **v2 is byte-identical.** It still has its style block, and every v2 run now
+  sends it the professional/professional it was measured with
+  (`TestV2IsKeptVerbatim` keeps its hashes and checks what a run sends).
+- `communicationStyle` and `relationshipLevel` left `PyramidizeRequest` and
+  `RefineGlobalRequest` (and the bindings). No settings field ever held them.
+  "Change the whole text" kept "the communication style and relationship
+  level" of a page that no longer has them; it now keeps the document type and
+  the voice of the current canvas.
+- The CLI's `--style` and `--relationship` are accepted and ignored, so a
+  script that passes them keeps running; `--instructions` is the CLI's version
+  of the field.
+- The prompt text changed, so v3's `promptHash` changed: a small control run of
+  v3 email on the current instrument follows (roadmap E3), not part of this
+  change.
+
+**On the page**, what the brief and the mockup settled:
+
+- The shortcut's text skips Text and opens on Form; pasted or typed text starts
+  on Text. Only a shortcut capture makes text "from an app": pasted text, or
+  text emptied and retyped, is not, so it gets no "Remember" box and no Send
+  back.
+- Preselection: the app's remembered form, else email. The card the page
+  preselected for an app carries a tag ("Default", or "Remembered for <app>");
+  pasted text tags none, as in the mockup.
+- "Remember <form> for <app>" is unticked, unticks again on every other pick,
+  and writes the preset when the user runs with it ticked, not on tick. When
+  the picked form already is the app's remembered one, "<Form> is remembered
+  for <app>." with Forget takes its place. `GetSourcePreset` names the app to
+  remember under: the matched preset's own name (so remembering another form
+  updates it and Forget deletes it), else the app segment of the window title
+  ("Outlook" for "Inbox - Outlook"), which is what the matcher searches first.
+- Running again always starts from the original text and adds a result;
+  earlier results stay whole (with their edits) and selectable as version
+  chips, and the history keeps every snapshot. Cancel goes back to Form, and a
+  reply that arrives after a cancel is dropped.

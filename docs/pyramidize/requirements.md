@@ -12,7 +12,7 @@
 |----|---------|-------------|---------|
 | US-01 | knowledge worker | paste an unstructured email draft and get a pyramidally-structured email with an information-dense subject line | recipients can quickly extract key information |
 | US-02 | German/English writer | have my language (or code-switching mix) preserved in the output | I don't need to fix translation artifacts |
-| US-03 | user | select communication style and relationship level | the tone matches my social context — an explicit choice wins over the author's tone, the content never changes |
+| US-03 | user | say in my own words how the text should read ("more formal", "in English") | it reads the way I need — my instruction wins over the author's tone, the content never changes. There is no style, relationship or audience picker (choice page, [ADR-003 addendum](adr-003-prompt-v3.md)) |
 | US-04 | user | pick the document type (email, chat, memo, wiki, presentation) | the output format matches my use case — nothing guesses it for me |
 | US-05 | user | provide custom instructions | I can guide the AI without starting over |
 | US-06 | user | edit the AI output directly on the canvas | I can make manual tweaks without re-running |
@@ -42,7 +42,7 @@
 - Output: `{fullDocument, language}`; subject, title and headers are inside `fullDocument`, the subject/title as its first line where the form has one
 - Fixed shapes: email always has subject line, greeting as written, bold content headers with bullets and sign-off as written — also for three casual sentences; memo, wiki and presentation keep their shapes too. Chat is the form for a short result
 - Information preservation: every fact, name, number, date, request and open question appears; nothing is added (no conclusions, no "no action needed")
-- Voice: by default the author's language, code-switching, tone and person stay; an explicit style, relationship or instruction ("auf Englisch", "formeller") wins over that default — never over the content
+- Voice: by default the author's language, code-switching, tone and person stay; the user's own instruction ("auf Englisch", "formeller") wins over that default — never over the content
 - MECE rule: headers at same level are mutually exclusive and collectively exhaustive
 - Header rule: content headers, NOT process headers
 - Priority rule: decisions → actions → context
@@ -93,5 +93,5 @@ See original spec for: subject/title handling, hover copy, output actions, input
 | Prompt format | One XML-structured prompt: shared core + one section per form, all providers |
 | Canvas model | 3-layer + trace log |
 | Canvas AI | Global rewrite + selection splice |
-| Source app presets | Doc type only (style/relationship always default per session) |
+| Source app presets | Doc type only — remembered from the Form step ("Remember <form> for <app>") or set in Settings › App defaults |
 | Out of scope | .pptx export, streaming output, AWS Bedrock, LangChain, per-feature provider selection |

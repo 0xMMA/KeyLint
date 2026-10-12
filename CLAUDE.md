@@ -34,7 +34,15 @@ cat input.txt | ./bin/KeyLint -fix                     # fix from stdin
 ./bin/KeyLint -pyramidize --provider claude --model claude-sonnet-4-6 -f input.md
 ./bin/KeyLint -pyramidize --variant 2 -f input.md     # the v2 email prompt (email only); 0 = latest = v3
                                                        # variant 1 was removed with the refine pass
+./bin/KeyLint -pyramidize --instructions "more formal" -f input.md
+                                                       # the app's "Instructions (optional)" field: the user's
+                                                       # own words, the only choice besides the form. --style and
+                                                       # --relationship are accepted and IGNORED since the choice
+                                                       # page (no prompt carries them; v2 always gets its measured
+                                                       # professional/professional) — ADR-003 addendum
 ```
+
+**Pyramidize page:** Text → Form → Result. The shortcut's text opens on Form; the Form step offers the five forms (keys 1–5, Enter runs), "Remember <form> for <app>" for captured text, and one field, Instructions. No options column, no provider/model/effort pickers (Settings only), no tone/style/relationship/audience control. Running again adds a result; earlier ones stay selectable. → ADR-003 addendum (2026-10-12).
 
 **Evaluation tests (real model calls — NOT run by default):**
 ```
@@ -150,7 +158,7 @@ KeyLint is a desktop app that fixes/enhances clipboard text via AI (OpenAI, Anth
 
 1. Never mark work complete without running the relevant test suite and seeing it pass.
 2. If the changed behavior has no test, write the test first, then make the change.
-   - **Every bug report and every piece of feedback ships with a guard.** Alongside the fix, ask what test would have caught it, write that test, see it fail on the unfixed code, then fix. That includes things that look like taste ("that scrollbar is ugly"): find the property behind it and assert that (e.g. `e2e/pyramidize-options-fit.spec.ts` — no scrollbar at the default window size). If no reasonable test exists, say so in the PR and why.
+   - **Every bug report and every piece of feedback ships with a guard.** Alongside the fix, ask what test would have caught it, write that test, see it fail on the unfixed code, then fix. That includes things that look like taste ("that scrollbar is ugly"): find the property behind it and assert that (e.g. `e2e/pyramidize-fit.spec.ts` — no scrollbar at the default window size). If no reasonable test exists, say so in the PR and why.
 3. Before handing back, run:
    - `cd frontend && npm test` — must show 0 failures
    - `go test -tags gtk3 ./internal/...` — must pass
