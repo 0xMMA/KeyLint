@@ -131,6 +131,22 @@ func (svc *Service) GetSourceApp() string {
 	return svc.sourceAppName
 }
 
+// beginCall starts a cancellable call and cancels the one still in flight, if
+// any: Pyramidize, RefineGlobal and Splice share one cancel, and a call left
+// running behind a newer one would keep running (and billing) where no Cancel
+// can reach it.
+func (svc *Service) beginCall() (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	svc.mu.Lock()
+	previous := svc.cancelFunc
+	svc.cancelFunc = cancel
+	svc.mu.Unlock()
+	if previous != nil {
+		previous()
+	}
+	return ctx, cancel
+}
+
 // CancelOperation cancels the current in-flight Pyramidize, RefineGlobal, or Splice
 // call. Safe to call when nothing is running (no-op).
 func (svc *Service) CancelOperation() {
@@ -147,10 +163,7 @@ func (svc *Service) CancelOperation() {
 // in exactly one model call (ADR-003). "auto" picks no form by model: it is
 // the app preset for the captured source app, else email.
 func (svc *Service) Pyramidize(req PyramidizeRequest) (PyramidizeResult, error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	svc.mu.Lock()
-	svc.cancelFunc = cancel
-	svc.mu.Unlock()
+	ctx, cancel := svc.beginCall()
 	defer cancel()
 
 	cfg := svc.settings.Get()
@@ -217,30 +230,41 @@ type SourcePreset struct {
 	Remembered bool `json:"remembered"`
 }
 
-// GetSourcePreset tells the choice page which form to preselect for the
-// captured source app, whether that is a remembered preset, and under which
-// name "Remember <form> for <app>" stores one.
-func (svc *Service) GetSourcePreset() SourcePreset {
-	// Split untrimmed: "Draft - " still has its separator.
-	title := svc.GetSourceApp()
+// GetSourcePreset tells the choice page which form to preselect for a
+// captured window title, whether that is a remembered preset, and under which
+// name "Remember <form> for <app>" stores one. The page passes its session's
+// title: the backend's own capture may be newer (a replace the user declined).
+func (svc *Service) GetSourcePreset(title string) SourcePreset {
 	if name, docType, ok := matchPreset(svc.settings.Get().AppPresets, title); ok {
 		return SourcePreset{App: name, DocumentType: docType, Remembered: true}
 	}
-	app, document := splitTitle(title)
-	name := strings.TrimSpace(app)
-	if name == "" {
-		// "Draft - ": nothing after the separator to name the app by.
-		name = strings.TrimSpace(document)
+	return SourcePreset{App: rememberName(title), DocumentType: "email"}
+}
+
+// maxRememberName is the longest name offered for remembering. An app is
+// called "Outlook" or "Microsoft Teams"; anything longer is more likely a
+// document or a subject, which is not stored.
+const maxRememberName = 40
+
+// rememberName is the name a new preset for this title is stored under: the
+// segment the matcher searches first (titleParts), or "" when nothing safe
+// can be stored — a title without a separator (it may be a person's name or a
+// document), a name under three characters (the matcher ignores those), or
+// one longer than maxRememberName.
+func rememberName(title string) string {
+	if len(titleSegments(title)) < 2 {
+		return ""
 	}
-	return SourcePreset{App: name, DocumentType: "email"}
+	name, _ := titleParts(title)
+	if n := utf8.RuneCountInString(name); n < 3 || n > maxRememberName {
+		return ""
+	}
+	return name
 }
 
 // RefineGlobal applies a user instruction to the full canvas document.
 func (svc *Service) RefineGlobal(req RefineGlobalRequest) (RefineGlobalResult, error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	svc.mu.Lock()
-	svc.cancelFunc = cancel
-	svc.mu.Unlock()
+	ctx, cancel := svc.beginCall()
 	defer cancel()
 
 	cfg := svc.settings.Get()
@@ -266,10 +290,7 @@ func (svc *Service) RefineGlobal(req RefineGlobalRequest) (RefineGlobalResult, e
 
 // Splice rewrites a selected section of the canvas according to a user instruction.
 func (svc *Service) Splice(req SpliceRequest) (SpliceResult, error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	svc.mu.Lock()
-	svc.cancelFunc = cancel
-	svc.mu.Unlock()
+	ctx, cancel := svc.beginCall()
 	defer cancel()
 
 	cfg := svc.settings.Get()
@@ -307,12 +328,23 @@ func (svc *Service) GetAppPresets() []AppPreset {
 	return out
 }
 
-// SetAppPreset saves or updates an app preset matched by SourceApp name (case-insensitive).
+// samePresetName reports whether two preset names are one preset: compared
+// trimmed and case-folded, on save, match and delete alike.
+func samePresetName(a, b string) bool {
+	return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b))
+}
+
+// SetAppPreset saves or updates an app preset matched by SourceApp name
+// (trimmed, case-insensitive). The name is stored trimmed.
 func (svc *Service) SetAppPreset(preset AppPreset) error {
+	preset.SourceApp = strings.TrimSpace(preset.SourceApp)
+	if preset.SourceApp == "" {
+		return fmt.Errorf("an app preset needs an app name")
+	}
 	// Through settings.Update, so a save landing meanwhile is not overwritten.
 	return settings.Update(svc.settings, func(cfg *settings.Settings) {
 		for i, p := range cfg.AppPresets {
-			if strings.EqualFold(p.SourceApp, preset.SourceApp) {
+			if samePresetName(p.SourceApp, preset.SourceApp) {
 				cfg.AppPresets[i] = settings.AppPreset{
 					SourceApp:    preset.SourceApp,
 					DocumentType: preset.DocumentType,
@@ -327,12 +359,12 @@ func (svc *Service) SetAppPreset(preset AppPreset) error {
 	})
 }
 
-// DeleteAppPreset removes an app preset by source app name (case-insensitive).
+// DeleteAppPreset removes an app preset by source app name (trimmed, case-insensitive).
 func (svc *Service) DeleteAppPreset(sourceApp string) error {
 	return settings.Update(svc.settings, func(cfg *settings.Settings) {
 		filtered := make([]settings.AppPreset, 0, len(cfg.AppPresets))
 		for _, p := range cfg.AppPresets {
-			if !strings.EqualFold(p.SourceApp, sourceApp) {
+			if !samePresetName(p.SourceApp, sourceApp) {
 				filtered = append(filtered, p)
 			}
 		}
@@ -534,10 +566,10 @@ func presetDocType(presets []settings.AppPreset, sourceApp string) string {
 }
 
 // matchPreset finds the preset presetDocType applies to sourceApp, with the
-// name it is stored under.
+// name it is stored under (trimmed).
 func matchPreset(presets []settings.AppPreset, sourceApp string) (name, docType string, ok bool) {
-	app, document := splitTitle(sourceApp)
-	for _, part := range []string{app, document} {
+	primary, rest := titleParts(sourceApp)
+	for _, part := range []string{primary, rest} {
 		if p, found := bestPreset(presets, part); found {
 			return strings.TrimSpace(p.SourceApp), normalizeDocType(p.DocumentType), true
 		}
@@ -545,22 +577,68 @@ func matchPreset(presets []settings.AppPreset, sourceApp string) (name, docType 
 	return "", "", false
 }
 
-// titleSeparators end the document part of a window title.
-var titleSeparators = []string{" - ", " – ", " — "}
+// titleSeparators split a window title into segments. Windows titles end in
+// the app ("Inbox - Outlook", "Report.docx – Word", "Inbox — Mozilla
+// Firefox"); new Teams separates with a bar ("Chat | Max Mustermann |
+// Microsoft Teams").
+var titleSeparators = []string{" - ", " – ", " — ", " | "}
 
-// splitTitle splits a window title at its last separator into the app segment
-// and the document part. A title without one is all app.
-func splitTitle(title string) (app, document string) {
-	cut, width := -1, 0
+// titleSegments splits a title at every separator, trimmed, empty ones dropped.
+func titleSegments(title string) []string {
+	parts := []string{title}
 	for _, sep := range titleSeparators {
-		if i := strings.LastIndex(title, sep); i > cut {
-			cut, width = i, len(sep)
+		var next []string
+		for _, p := range parts {
+			next = append(next, strings.Split(p, sep)...)
+		}
+		parts = next
+	}
+	var out []string
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
 		}
 	}
-	if cut < 0 {
-		return title, ""
+	return out
+}
+
+// browsers are app segments that name a browser rather than the app the user
+// is in: there the web app is the segment before it ("… - Gmail - Google
+// Chrome"). Kept small on purpose; compared ignoring case and zero-width
+// spaces (Edge writes "Microsoft​ Edge"). A profile segment between the
+// web app and the browser (Edge: "… - Gmail - Work - Microsoft Edge") is not
+// recognised — the roadmap's Windows check covers real titles.
+var browsers = map[string]bool{
+	"google chrome": true, "chromium": true, "microsoft edge": true,
+	"mozilla firefox": true, "firefox": true, "brave": true,
+	"opera": true, "vivaldi": true, "safari": true,
+}
+
+func isBrowser(segment string) bool {
+	plain := strings.Join(strings.Fields(strings.ReplaceAll(segment, "​", "")), " ")
+	return browsers[strings.ToLower(plain)]
+}
+
+// titleParts says where a title names its app. primary is the app segment
+// (the last one), or for a browser the web app before it: it is searched
+// first, and it is what a new preset is stored under (rememberName). rest is
+// searched only when primary matches nothing — for an app, its document part
+// (a Teams-only preset can then still match an Outlook mail titled "Microsoft
+// Teams rollout"); for a browser, only the browser's own name, since another
+// page's title is not the app. A title without a separator is all primary.
+func titleParts(title string) (primary, rest string) {
+	segments := titleSegments(title)
+	switch len(segments) {
+	case 0:
+		return "", ""
+	case 1:
+		return segments[0], ""
 	}
-	return title[cut+width:], title[:cut]
+	last := segments[len(segments)-1]
+	if isBrowser(last) {
+		return segments[len(segments)-2], last
+	}
+	return last, strings.Join(segments[:len(segments)-1], " - ")
 }
 
 // bestPreset is the preset with the longest name found in text, if any.
@@ -604,8 +682,8 @@ func isWordRune(r rune) bool {
 	return r != utf8.RuneError && (unicode.IsLetter(r) || unicode.IsDigit(r))
 }
 
-// pyramidizeEffort is the effort a call sends: the panel's choice for this
-// run, else the provider's Pyramidize effort from settings, or none for a call
+// pyramidizeEffort is the effort a call sends: the request's own for this run
+// (the CLI and the eval may set one; the app sends none), else the provider's Pyramidize effort from settings, or none for a call
 // that must not take it. An override that is no level is ignored, as an
 // unknown level in settings is.
 func pyramidizeEffort(cfg settings.Settings, provider string, opts aiOpts) string {

@@ -51,6 +51,15 @@ func runPyramidizeWith(args []string, stdout io.Writer, stderr io.Writer, svc py
 	if err := initLogger(*logLevel); err != nil {
 		return err
 	}
+	ignored := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "style" || f.Name == "relationship" {
+			ignored = true
+		}
+	})
+	if ignored {
+		fmt.Fprintln(stderr, "note: --style and --relationship are ignored since v3's choice page; say how the text should read with --instructions")
+	}
 
 	inlineText := strings.Join(fs.Args(), " ")
 	text, err := readInput(*filePath, inlineText, stdinIfPiped())

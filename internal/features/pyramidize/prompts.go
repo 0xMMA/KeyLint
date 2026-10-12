@@ -3,6 +3,7 @@ package pyramidize
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // LatestPromptVariant is what a request's PromptVariant 0 means: v3, one
@@ -46,7 +47,8 @@ func buildDocTypePrompt(docType string, variant int, customInstructions, text st
 		return "", "", nil, err
 	}
 	if v == 2 {
-		system, user := buildEmailPromptV2(v2StyleDefault, v2RelationshipDefault, customInstructions, text)
+		// Trimmed as for v3: blank instructions add no line to v2's style block.
+		system, user := buildEmailPromptV2(v2StyleDefault, v2RelationshipDefault, strings.TrimSpace(customInstructions), text)
 		return system, user, documentSchemaV2, nil
 	}
 	system, user, err := buildPromptV3(docType, customInstructions, text)

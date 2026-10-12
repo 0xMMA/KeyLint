@@ -82,6 +82,30 @@ describe('ChoiceStepComponent (the Form step)', () => {
     expect(checked()).toBe('powerpoint');
   });
 
+  it('puts the focus on the checked form as it opens, and moves it with Home, End and the digits', async () => {
+    await fixture.whenStable();
+    expect(document.activeElement).toBe(radios()[0]);
+    press('End', radios()[0]);
+    expect(checked()).toBe('powerpoint');
+    expect(document.activeElement).toBe(radios()[4]);
+    press('Home', radios()[4]);
+    expect(checked()).toBe('email');
+    // A digit moves the focus too: Enter on the focused card runs that card.
+    press('3', radios()[0]);
+    expect(document.activeElement).toBe(radios()[2]);
+    press('Enter', radios()[2]);
+    expect(checked()).toBe('memo');
+    expect(runs).toBe(1);
+  });
+
+  it('leaves Enter during IME composition in the instructions to the IME', () => {
+    const field = q<HTMLInputElement>('custom-instructions')!;
+    press('Enter', field, { isComposing: true });
+    expect(runs).toBe(0);
+    press('Enter', field);
+    expect(runs).toBe(1);
+  });
+
   it('picks a form with 1–5 and runs with Enter', () => {
     press('3');
     expect(checked()).toBe('memo');
@@ -172,6 +196,13 @@ describe('ChoiceStepComponent (the Form step)', () => {
       const box = q('remember-checkbox')!;
       expect(box.textContent?.trim()).toBe('Remember Email for Outlook');
       expect(box.querySelector<HTMLInputElement>('input')!.checked).toBe(false);
+    });
+
+    it('does not run on Enter in the focused Remember box', () => {
+      const input = q('remember-checkbox')!.querySelector<HTMLInputElement>('input')!;
+      input.focus();
+      press('Enter', input);
+      expect(runs).toBe(0);
     });
 
     it('names the picked form on the box, and unticks it when the form changes', () => {

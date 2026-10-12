@@ -389,14 +389,15 @@ export class WailsService implements OnDestroy {
   }
 
   /**
-   * What the choice page shows for the captured source app: the form to
+   * What the choice page shows for a captured window title: the form to
    * preselect (its app preset, else email), whether that is a remembered
-   * preset, and the name "Remember <form> for <app>" stores one under.
+   * preset, and the name "Remember <form> for <app>" stores one under — ''
+   * when nothing safe can be remembered for that title.
    */
-  getSourcePreset(): Promise<SourcePreset> {
+  getSourcePreset(title: string): Promise<SourcePreset> {
     const none: SourcePreset = { app: '', documentType: 'email', remembered: false };
     try {
-      return PyramidizeService.GetSourcePreset().catch(() => none);
+      return PyramidizeService.GetSourcePreset(title).catch(() => none);
     } catch {
       return Promise.resolve(none);
     }

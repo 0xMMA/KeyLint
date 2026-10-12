@@ -45,7 +45,7 @@ import { SettingsSectionComponent } from '../settings-section/settings-section.c
         <div class="row" data-testid="preset-add-row">
           <input klInput class="flex-1" aria-label="App name" placeholder="App name" [(ngModel)]="addDraft.sourceApp" />
           <kl-select class="w-40" ariaLabel="Document type" [options]="docTypeOptions" optionLabel="label" optionValue="value" [(ngModel)]="addDraft.documentType" />
-          <kl-button variant="primary" size="sm" icon="check" iconOnly ariaLabel="Add preset" [disabled]="!addDraft.sourceApp" (click)="saveAdd()" />
+          <kl-button variant="primary" size="sm" icon="check" iconOnly ariaLabel="Add preset" [disabled]="!addDraft.sourceApp.trim()" (click)="saveAdd()" />
           <kl-button size="sm" icon="x" iconOnly ariaLabel="Cancel" (click)="cancelAdd()" />
         </div>
       }
@@ -113,13 +113,16 @@ export class AppPresetsComponent {
 
   async saveEdit(): Promise<void> {
     // Renamed to nothing, the delete below would lose the preset.
-    if (!this.editDraft.sourceApp.trim()) return;
-    const before = this.editing?.sourceApp ?? '';
-    await this.wails.setAppPreset(this.editDraft);
+    // Names are stored trimmed and compared trimmed, ignoring case, as the
+    // backend and the Pyramidize page's Remember do.
+    const draft = { ...this.editDraft, sourceApp: this.editDraft.sourceApp.trim() };
+    if (!draft.sourceApp) return;
+    const before = (this.editing?.sourceApp ?? '').trim();
+    await this.wails.setAppPreset(draft);
     // The backend matches presets by name, so a new name is a new preset: the
-    // old one goes, or both would match. A change of case is the same preset
-    // (the backend ignores case) and was just updated in place.
-    if (before && before.toLowerCase() !== this.editDraft.sourceApp.toLowerCase()) {
+    // old one goes, or both would match. A change of case or padding is the
+    // same preset and was just updated in place.
+    if (before && before.toLowerCase() !== draft.sourceApp.toLowerCase()) {
       await this.wails.deleteAppPreset(before);
     }
     this.syncPresets(await this.wails.getAppPresets());
@@ -143,8 +146,9 @@ export class AppPresetsComponent {
   }
 
   async saveAdd(): Promise<void> {
-    if (!this.addDraft.sourceApp) return;
-    await this.wails.setAppPreset(this.addDraft);
+    const draft = { ...this.addDraft, sourceApp: this.addDraft.sourceApp.trim() };
+    if (!draft.sourceApp) return;
+    await this.wails.setAppPreset(draft);
     this.syncPresets(await this.wails.getAppPresets());
     this.adding = false;
     this.cdr.markForCheck();

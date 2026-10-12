@@ -168,4 +168,21 @@ func TestRunPyramidizeStillAcceptsStyleFlags(t *testing.T) {
 	if capturedReq.Text != "text" {
 		t.Errorf("Text = %q, want %q", capturedReq.Text, "text")
 	}
+	// One line says so, and what to use instead.
+	if lines := strings.Count(stderr.String(), "\n"); lines != 1 ||
+		!strings.Contains(stderr.String(), "ignored") || !strings.Contains(stderr.String(), "--instructions") {
+		t.Errorf("stderr = %q, want one line saying the flags are ignored and naming --instructions", stderr.String())
+	}
+}
+
+// TestRunPyramidizeSaysNothingWithoutStyleFlags: no note when they are not used.
+func TestRunPyramidizeSaysNothingWithoutStyleFlags(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	capturing := &capturingPyramidizer{mock: &mockPyramidizer{result: pyramidize.PyramidizeResult{FullDocument: "out"}}, captured: &pyramidize.PyramidizeRequest{}}
+	if err := runPyramidizeWith([]string{"text"}, &stdout, &stderr, capturing); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want nothing", stderr.String())
+	}
 }

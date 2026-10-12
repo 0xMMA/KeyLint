@@ -43,24 +43,50 @@ const CLI_NOT_INSTALLED_MESSAGE = 'Claude Code CLI not found on this machine.';
 const CLI_NOT_SIGNED_IN_MESSAGE =
   'Claude Code is installed but not signed in. Open a terminal, run `claude`, and sign in.';
 
-/** One Pyramidize result: the form it was written in, and its text as edited since. */
+/** Send back refuses when the backend's window is no longer the result's (PR #130 review). */
+const SOURCE_MOVED_MESSAGE =
+  'The shortcut was used in another window since — copy the text instead.';
+
+/**
+ * One Pyramidize result: the form it was written in, its text as edited
+ * since, and what it was made from — the original text, and the window the
+ * session came from ('' for pasted text). Edits to the Text step later do not
+ * change either.
+ */
 interface ResultVersion {
   id: string;
   docType: string;
   text: string;
+  original: string;
+  sourceApp: string;
+  appName: string;
 }
 
+/** A backend call in flight, and what the working card says meanwhile. */
+interface InFlight {
+  kind: 'pyramidize' | 'edit';
+  label: string;
+}
+
+/** What Retry repeats: a call, given the page that is on screen now. */
+type RetryAction = (page: TextEnhancementComponent) => Promise<void>;
+
 // ── Module-level state (survives navigation; cleared only on full app restart) ──
+//
+// Everything a call writes when it lands lives here, not on the component:
+// the component is destroyed on navigation, and a reply can land on the next
+// one (refreshView repaints whichever page is on screen).
 
 let step: PyramidizeStep = 'intake';
 let originalText = '';
-// The window title the Pyramidize shortcut captured for this session; '' when
-// the text was pasted or typed here. Only a capture sets it: the backend keeps
-// its last capture for the whole run of the app, and pasted text did not come
-// from that window.
+// The window title the Pyramidize shortcut captured when it started this
+// session; '' for a session started by pasting or typing. It belongs to the
+// session, not to the text: editing or emptying the text keeps it, and only a
+// new session (a shortcut replace or a paste reset) changes it. Send back
+// checks it against the backend's current window before pasting.
 let sourceApp = '';
-// What the backend says about that app: the form to preselect, whether it is
-// remembered, and the name to remember it under. null without a capture.
+// What the backend says about that title: the form to preselect, whether it is
+// remembered, and the name to remember it under ('' when nothing safe can be).
 let sourcePreset: SourcePreset | null = null;
 let docType = DEFAULT_FORM;
 let rememberForm = false;
@@ -78,7 +104,23 @@ let wasCancelled = false;
 // Bumped by every run and every cancel: a reply that arrives for an older run
 // (cancelled, or overtaken) is dropped.
 let runSeq = 0;
+let inFlight: InFlight | null = null;
+let errorMessage = '';
+// The step an error belongs to: it shows there and nowhere else.
+let errorStep: PyramidizeStep | null = null;
+// The error the last Send Back reported, '' if none.
+let sendBackError = '';
+let lastRequest: RetryAction | null = null;
+// A note that is not a failure of what the user ran (a preset that could not
+// be written or forgotten).
+let notice = '';
 let bannerDismissed = false; // session-only
+// The page on screen, so a reply landing after a navigation repaints it.
+let view: { refresh(): void } | null = null;
+
+function refreshView(): void {
+  view?.refresh();
+}
 
 /**
  * Starts Pyramidize over. For specs: the state is module-level and outlives
@@ -101,15 +143,55 @@ export function resetPyramidizeSession(): void {
   traceLogOpen = false;
   wasCancelled = false;
   runSeq++;
+  inFlight = null;
+  clearError();
+  notice = '';
   bannerDismissed = false;
 }
 
+/** A new session, from the shortcut or a paste: the text, its source, nothing run yet. */
+function startSession(text: string, app: string, preset: SourcePreset | null): void {
+  runSeq++;
+  inFlight = null;
+  wasCancelled = false;
+  originalText = text;
+  sourceApp = app;
+  sourcePreset = app ? preset : null;
+  // From an app: preselect its remembered form, else email.
+  docType = (app && preset?.documentType) || DEFAULT_FORM;
+  rememberForm = false;
+  instructions = '';
+  results = [];
+  activeResult = -1;
+  traceLog = [];
+  tracedOriginal = '';
+  clearError();
+  notice = '';
+}
+
+function clearError(): void {
+  errorMessage = '';
+  errorStep = null;
+  sendBackError = '';
+  lastRequest = null;
+}
+
+function setError(message: string, at: PyramidizeStep, retry: RetryAction | null): void {
+  errorMessage = message;
+  errorStep = at;
+  lastRequest = retry;
+}
+
+function activeResultVersion(): ResultVersion | undefined {
+  return results[activeResult];
+}
+
 function activeText(): string {
-  return results[activeResult]?.text ?? '';
+  return activeResultVersion()?.text ?? '';
 }
 
 function setActiveText(text: string): void {
-  const r = results[activeResult];
+  const r = activeResultVersion();
   if (r) r.text = text;
 }
 
@@ -128,10 +210,10 @@ function makeId(): string {
   return Math.random().toString(36).slice(2);
 }
 
-function addTrace(label: string, snapshot: string): void {
+function addTrace(label: string, snapshot: string, resultId?: string): void {
   traceLog = [
     ...traceLog,
-    { id: makeId(), label, snapshot, timestamp: new Date() },
+    { id: makeId(), label, snapshot, timestamp: new Date(), resultId },
   ];
 }
 
@@ -174,6 +256,9 @@ function traceOriginal(): void {
   template: `
     <div class="pyramidize-page">
       <section class="canvas-area" cdkScrollable aria-label="Pyramidize">
+        <!-- Mounted from the start, so what a run says is announced when it changes. -->
+        <div class="sr-only" aria-live="polite" data-testid="live-status">{{ isLoading ? stepLabel : '' }}</div>
+
         <div class="pz-stack" [class.pz-stack-fill]="shownStep !== 'choice'">
           <app-step-bar
             [current]="shownStep"
@@ -190,6 +275,10 @@ function traceOriginal(): void {
             </kl-message>
           }
 
+          @if (noticeView) {
+            <kl-message data-testid="preset-notice" severity="warn" closable (closed)="dismissNotice()">{{ noticeView }}</kl-message>
+          }
+
           @switch (shownStep) {
             @case ('intake') {
               <app-intake-step
@@ -201,8 +290,8 @@ function traceOriginal(): void {
             }
             @case ('choice') {
               @if (running === 'pyramidize') {
-                <div class="pz-working" data-testid="step-indicator" aria-live="polite">
-                  <div class="pz-busy-card" role="status">
+                <div class="pz-working" data-testid="step-indicator">
+                  <div class="pz-busy-card">
                     <kl-spinner [size]="20" class="text-primary" />
                     <span class="flex-1 text-sm" data-testid="step-label">{{ stepLabel }}</span>
                     <kl-button #cancelBtn data-testid="cancel-btn" size="sm" (click)="cancelOperation()">Cancel</kl-button>
@@ -211,7 +300,7 @@ function traceOriginal(): void {
               } @else {
                 <app-choice-step
                   [excerpt]="excerptView"
-                  [app]="sourceApp ? sourceAppView : ''"
+                  [app]="rememberAppView"
                   [rememberedDocType]="rememberedDocTypeView"
                   [runOn]="runOnView"
                   [canRun]="canRun"
@@ -226,7 +315,9 @@ function traceOriginal(): void {
                   (editText)="goToStep('intake')"
                   (forget)="forgetPreset()"
                 >
-                  <ng-container *ngTemplateOutlet="errorRow" />
+                  @if (errorStepView === 'choice') {
+                    <ng-container *ngTemplateOutlet="errorRow" />
+                  }
                 </app-choice-step>
               }
             }
@@ -276,7 +367,7 @@ function traceOriginal(): void {
 
                 @if (isLoading) {
                   <div class="pz-busy" data-testid="step-indicator">
-                    <div class="pz-busy-card" role="status">
+                    <div class="pz-busy-card">
                       <kl-spinner [size]="20" class="text-primary" />
                       <span class="flex-1 text-sm" data-testid="step-label">{{ stepLabel }}</span>
                       <kl-button #cancelBtn data-testid="cancel-btn" size="sm" (click)="cancelOperation()">Cancel</kl-button>
@@ -285,7 +376,9 @@ function traceOriginal(): void {
                 }
               </div>
 
-              <ng-container *ngTemplateOutlet="errorRow" />
+              @if (errorStepView === 'result') {
+                <ng-container *ngTemplateOutlet="errorRow" />
+              }
 
               <div class="flex flex-wrap items-center gap-2.5">
                 <label for="pz-global-instruction" class="sr-only">Change the whole text</label>
@@ -315,9 +408,9 @@ function traceOriginal(): void {
                   <kl-button data-testid="copy-markdown-btn" variant="ghost" size="lg" icon="copy"
                     [disabled]="!canvasTextView" (click)="copyAsMarkdown()">Copy Markdown</kl-button>
                 </div>
-                @if (sourceApp) {
+                @if (activeSendBackApp; as app) {
                   <kl-button data-testid="send-back-btn" variant="primary" size="lg" icon="corner-down-left"
-                    [disabled]="!canvasTextView || sendingBack" (click)="sendBack()">{{ 'Send back to ' + sourceAppView }}</kl-button>
+                    [disabled]="!canvasTextView || sendingBack" (click)="sendBack()">{{ 'Send back to ' + app }}</kl-button>
                 }
               </div>
             }
@@ -358,11 +451,14 @@ function traceOriginal(): void {
             <span class="error-text" [klTooltip]="errorMessage" klTooltipPosition="top">{{ errorMessage }}</span>
             @if (errorMessage !== sendBackError) {
               <!-- Not for a Send Back error: the text it points to is on the
-                   clipboard, and copying the error would replace it. -->
+                   clipboard (or was never pasted), and the result's own copy
+                   buttons are right there. -->
               <kl-button data-testid="copy-error-btn" variant="ghost" size="sm" icon="copy" iconOnly
                 ariaLabel="Copy error" klTooltip="Copy error" klTooltipPosition="top" (click)="copyError()" />
             }
-            <kl-button data-testid="retry-btn" size="sm" icon="refresh-cw" (click)="retry()">Retry</kl-button>
+            @if (canRetry) {
+              <kl-button data-testid="retry-btn" size="sm" icon="refresh-cw" (click)="retry()">Retry</kl-button>
+            }
           </div>
         </kl-message>
       }
@@ -427,6 +523,7 @@ function traceOriginal(): void {
     }
   `],
 })
+
 export class TextEnhancementComponent implements OnInit, OnDestroy {
   // ── Component views (mirror module-level state) ──
 
@@ -444,35 +541,61 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   get canvasTextView(): string { return activeText(); }
   set canvasTextView(v: string) { setActiveText(v); }
 
+  /** The picked form. Picking another one drops an error about the last run (and its Retry). */
   get docTypeView(): string { return docType; }
-  set docTypeView(v: string) { docType = v; }
+  set docTypeView(v: string) {
+    if (v !== docType) clearError();
+    docType = v;
+  }
 
   get rememberView(): boolean { return rememberForm; }
   set rememberView(v: boolean) { rememberForm = v; }
 
+  /** The instructions. Changing them drops an error about the last run (and its Retry). */
   get instructionsView(): string { return instructions; }
-  set instructionsView(v: string) { instructions = v; }
+  set instructionsView(v: string) {
+    if (v !== instructions) clearError();
+    instructions = v;
+  }
 
   get traceLogView(): TraceEntry[] { return traceLog; }
   get isPreviewModeView(): boolean { return isPreviewMode; }
   get traceLogOpenView(): boolean { return traceLogOpen; }
   get bannerDismissedView(): boolean { return bannerDismissed; }
+  get noticeView(): string { return notice; }
 
-  /** Whether the text came from an app (the shortcut), not pasted or typed here. */
-  get sourceApp(): string { return sourceApp; }
+  get isLoading(): boolean { return inFlight !== null; }
+  /** What is running: a Pyramidize run (shown on the Form step) or an edit of a result. */
+  get running(): InFlight['kind'] | null { return inFlight?.kind ?? null; }
+  get stepLabel(): string { return inFlight?.label ?? ''; }
 
-  /** The app's name as the page shows it: "Outlook" for "Inbox - Outlook", once the backend said. */
-  get sourceAppView(): string { return sourcePreset?.app || sourceApp; }
+  get errorMessage(): string { return errorMessage; }
+  get sendBackError(): string { return sendBackError; }
+  /** The step the error row shows on, or null. */
+  get errorStepView(): PyramidizeStep | null { return errorMessage ? errorStep : null; }
+  get canRetry(): boolean { return lastRequest !== null; }
 
-  /** The form remembered for the app, or null. */
+  /** The session's app by name, as the page shows it ("Outlook" for "Inbox - Outlook"). */
+  private get sessionAppName(): string { return sourcePreset?.app || sourceApp; }
+
+  /** The name "Remember <form> for <app>" stores under; '' offers no box (pasted text, or nothing safe to remember). */
+  get rememberAppView(): string { return sourceApp ? sourcePreset?.app ?? '' : ''; }
+
+  /** The form remembered for the session's app, or null. */
   get rememberedDocTypeView(): string | null {
-    return sourceApp && sourcePreset?.remembered ? sourcePreset.documentType : null;
+    return this.rememberAppView && sourcePreset?.remembered ? sourcePreset.documentType : null;
   }
 
   /** Where the text came from, for the step bar. */
   get sourceLabelView(): string {
     if (!originalText.trim()) return '';
-    return sourceApp ? `From ${this.sourceAppView}` : 'Pasted into KeyLint';
+    return sourceApp ? `From ${this.sessionAppName}` : 'Pasted into KeyLint';
+  }
+
+  /** The app the shown result can be sent back to; '' when it was made from pasted text. */
+  get activeSendBackApp(): string {
+    const r = activeResultVersion();
+    return r?.sourceApp ? r.appName : '';
   }
 
   /** The first line of the text, for the Form step. */
@@ -527,14 +650,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   /** The provider Settings names, read on every visit. */
   settingsProvider = '';
   private settingsModels: Settings['models'] | null = null;
-  isLoading = false;
-  /** What is running: a Pyramidize run (from the Form step) or an edit of the result. */
-  running: 'pyramidize' | 'edit' | null = null;
-  stepLabel = '';
-  errorMessage = '';
   sendingBack = false;
-  /** The error the last Send Back reported, '' if none. */
-  sendBackError = '';
   apiKeySet = true;
   /** Set on destroy so a late answer does not refresh a dead view. */
   private destroyed = false;
@@ -555,9 +671,6 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   hoverEntry: TraceEntry | null = null;
 
   get activeEntry(): TraceEntry | null { return this.peekEntry ?? this.hoverEntry; }
-
-  // Retry state
-  private lastRequest: (() => Promise<void>) | null = null;
 
   private sub?: Subscription;
 
@@ -612,7 +725,13 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     private readonly host: ElementRef<HTMLElement>,
   ) {}
 
+  /** Repaints this page, unless it is gone: what a call that lands calls (refreshView). */
+  refresh(): void {
+    if (!this.destroyed) this.cdr.detectChanges();
+  }
+
   async ngOnInit(): Promise<void> {
+    view = this;
     // Re-read on every visit: the component is destroyed on navigation, and
     // this is where a provider, model or effort chosen in Settings reaches
     // the line under the form choice.
@@ -625,11 +744,10 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     // can paint first and fill it when it arrives. Waiting here was what made
     // the first paint hang behind a process spawn (#55).
     void this.refreshCredentialsBanner();
-    // A preset added or removed in Settings › App defaults since the last
-    // visit — only while the backend's capture is still this session's.
+    // A preset added or removed in Settings › App defaults since the last visit.
     void this.refreshSourcePreset();
 
-    this.cdr.detectChanges();
+    this.refresh();
 
     this.sub = this.wails.shortcutPyramidize$.subscribe(() => {
       this.wails.takePendingPyramidize();
@@ -647,54 +765,41 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     const clipboardContent = await this.wails.readClipboard();
     const app = await this.wails.getSourceApp();
     // Asked before the confirm, so a declined replace changes nothing below.
-    const preset = await this.wails.getSourcePreset();
+    const preset = app ? await this.wails.getSourcePreset(app) : null;
 
-    if (originalText && !confirm('Replace current session with new clipboard content?')) {
+    if ((originalText || results.length) && !confirm('Replace current session with new clipboard content?')) {
       return;
     }
+    // A run for the old session would go on, billed, where no Cancel reaches it.
+    if (inFlight) void this.svc.cancelOperation();
+    startSession(clipboardContent, app, preset);
+    this.resetView();
+    traceOriginal();
+    step = originalText.trim() ? 'choice' : 'intake';
+    this.refresh();
+  }
 
-    runSeq++;
-    wasCancelled = false;
-    originalText = clipboardContent;
-    sourceApp = app;
-    sourcePreset = app ? preset : null;
-    // A new session from an app: preselect its remembered form, else email.
-    docType = app ? preset.documentType || DEFAULT_FORM : DEFAULT_FORM;
-    rememberForm = false;
-    instructions = '';
-    results = [];
-    activeResult = -1;
-    traceLog = [];
-    tracedOriginal = '';
+  /** What the page shows of an old session: the bubble and a history preview. */
+  private resetView(): void {
     this.peekEntry = null;
     this.hoverEntry = null;
     this.closeSelectionBubble();
-    this.errorMessage = '';
-    this.isLoading = false;
-    this.running = null;
-    traceOriginal();
-    step = originalText.trim() ? 'choice' : 'intake';
-    this.cdr.detectChanges();
+    this.globalInstruction = '';
   }
 
-  /** Refreshes what is remembered for this session's app, if the backend's capture is still its. */
+  /** Refreshes what is remembered for this session's app. */
   private async refreshSourcePreset(): Promise<void> {
-    if (!sourceApp) return;
-    const app = sourceApp;
-    if ((await this.wails.getSourceApp()) !== app) return;
-    const preset = await this.wails.getSourcePreset();
-    if (sourceApp !== app || this.destroyed) return;
+    const title = sourceApp;
+    if (!title) return;
+    const preset = await this.wails.getSourcePreset(title);
+    if (sourceApp !== title) return;
     sourcePreset = preset;
-    this.cdr.detectChanges();
+    this.refresh();
   }
 
+  /** The Text step's edits. They do not change where the session came from. */
   onOriginalChange(value: string): void {
     originalText = value;
-    // Emptied, the text is no longer the one the shortcut brought.
-    if (!value.trim()) {
-      sourceApp = '';
-      sourcePreset = null;
-    }
   }
 
   /**
@@ -732,14 +837,16 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
 
     this.apiKeySet = ok;
     this.credentialsMessage = message;
-    if (!this.destroyed) {
-      this.cdr.detectChanges();
-    }
+    this.refresh();
   }
 
-  /** A step bar click, Edit text, Choose the form, Try another form. Nothing moves while a step runs. */
+  /**
+   * A step bar click, Edit text, Choose the form, Try another form. Nothing
+   * moves while a step runs; an error (and its Retry) stays with its step.
+   */
   goToStep(target: PyramidizeStep): void {
     if (this.isLoading) return;
+    if (target !== step) clearError();
     step = target;
     this.closeSelectionBubble();
     this.peekEntry = null;
@@ -768,6 +875,10 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     bannerDismissed = true;
   }
 
+  dismissNotice(): void {
+    notice = '';
+  }
+
   onCanvasKeydown(event: KeyboardEvent): void {
     if (event.ctrlKey && event.key === 'Enter') {
       event.preventDefault();
@@ -775,12 +886,23 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     }
   }
 
-  /** Paste from clipboard on the Text step: pasted text did not come from an app. */
+  /**
+   * Paste from clipboard on the Text step. Over a session with text or
+   * results it asks first, as the shortcut does, and a yes starts a new
+   * session — pasted, so from no app. Into an empty session it only fills the
+   * text.
+   */
   async pasteFromClipboard(): Promise<void> {
-    originalText = await this.wails.readClipboard();
-    sourceApp = '';
-    sourcePreset = null;
-    this.cdr.detectChanges();
+    const text = await this.wails.readClipboard();
+    if (originalText.trim() || results.length) {
+      if (!confirm('Replace current session with the clipboard content?')) return;
+      if (inFlight) void this.svc.cancelOperation();
+      startSession(text, '', null);
+      this.resetView();
+    } else {
+      originalText = text;
+    }
+    this.refresh();
   }
 
   /**
@@ -793,113 +915,112 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     if (!this.canRun) return;
 
     const form = docType;
+    // Running from here on, before anything is awaited: a double click or a
+    // held Enter starts one run, not two.
+    const seq = ++runSeq;
+    wasCancelled = false;
+    inFlight = { kind: 'pyramidize', label: `Writing the ${formLabel(form).toLowerCase()}…` };
+    clearError();
+    this.refresh();
+
     if (rememberForm && sourceApp && sourcePreset?.app) {
       await this.rememberFormForApp(form);
+      if (seq !== runSeq) return; // cancelled, or a new session, meanwhile
     }
     traceOriginal();
 
-    const req = {
-      text: originalText,
-      documentType: form,
-      customInstructions: instructions.trim(),
-      // Provider, model and effort: whatever Settings say (the backend reads them).
-      provider: '',
-      model: '',
-      effort: '',
-      promptVariant: 0,
-    };
-    const label = `Writing the ${formLabel(form).toLowerCase()}…`;
-
-    const run = async (): Promise<void> => {
-      const seq = ++runSeq;
-      wasCancelled = false;
-      this.errorMessage = '';
-      this.sendBackError = '';
-      this.isLoading = true;
-      this.running = 'pyramidize';
-      this.stepLabel = label;
-      this.cdr.detectChanges();
-      try {
-        const result = await this.svc.pyramidize(req);
-        if (seq !== runSeq) return; // cancelled, or overtaken by a newer run
-        results = [...results, { id: makeId(), docType: form, text: result.fullDocument }];
-        activeResult = results.length - 1;
-        addTrace(`Pyramidized as ${formLabel(form).toLowerCase()}`, result.fullDocument);
-        step = 'result';
-      } catch (e: unknown) {
-        // A failed retry used to clear the error row and show nothing.
-        if (!wasCancelled && seq === runSeq) {
-          this.errorMessage = `Pyramidize failed: ${describeError(e)}`;
-        }
-      } finally {
-        if (seq === runSeq) {
-          this.isLoading = false;
-          this.running = null;
-        }
-        if (!this.destroyed) this.cdr.detectChanges();
+    const made = { original: originalText, sourceApp, appName: this.sessionAppName };
+    try {
+      const result = await this.svc.pyramidize({
+        text: made.original,
+        documentType: form,
+        customInstructions: instructions.trim(),
+        // Provider, model and effort: whatever Settings say (the backend reads them).
+        provider: '',
+        model: '',
+        effort: '',
+        promptVariant: 0,
+      });
+      if (seq !== runSeq) return; // cancelled, or overtaken by a newer run
+      const version: ResultVersion = { id: makeId(), docType: form, text: result.fullDocument, ...made };
+      results = [...results, version];
+      activeResult = results.length - 1;
+      addTrace(`Pyramidized as ${formLabel(form).toLowerCase()}`, version.text, version.id);
+      step = 'result';
+    } catch (e: unknown) {
+      if (!wasCancelled && seq === runSeq) {
+        // Retry runs what is picked now; changing the pick dropped this row anyway.
+        setError(`Pyramidize failed: ${describeError(e)}`, 'choice', page => page.pyramidize());
       }
-    };
-
-    this.lastRequest = run;
-    await run();
+    } finally {
+      if (seq === runSeq) inFlight = null;
+      refreshView();
+    }
   }
 
-  /** Stores `form` as the app's preset, as the ticked box asked; then shows it as remembered. */
+  /** Stores `form` as the app's preset, as the ticked box asked; then asks the backend what is remembered now. */
   private async rememberFormForApp(form: string): Promise<void> {
     const app = sourcePreset!.app;
+    const title = sourceApp;
     rememberForm = false;
     try {
       await this.svc.setAppPreset({ sourceApp: app, documentType: form });
-      sourcePreset = { app, documentType: form, remembered: true };
     } catch (e: unknown) {
-      // The run goes ahead; the box simply shows up again next time, as nothing was remembered.
-      void this.wails.log('warn', `pyramidize: could not remember ${form} for the source app: ${describeError(e)}`);
+      // The run goes ahead; the user hears that nothing was remembered.
+      notice = `Could not remember ${formLabel(form)} for ${app}: ${describeError(e)}`;
+      return;
     }
+    const fresh = await this.wails.getSourcePreset(title);
+    if (sourceApp === title) sourcePreset = fresh;
   }
 
-  /** Forget: removes the app's preset; email is the default again. */
+  /** Forget: removes the app's preset, then asks the backend what is remembered now. */
   async forgetPreset(): Promise<void> {
     const preset = sourcePreset;
-    if (!preset?.remembered) return;
+    const title = sourceApp;
+    if (!preset?.remembered || !title) return;
     try {
       await this.svc.deleteAppPreset(preset.app);
-      sourcePreset = { app: preset.app, documentType: DEFAULT_FORM, remembered: false };
     } catch (e: unknown) {
-      this.errorMessage = `Could not forget the form for ${preset.app}: ${describeError(e)}`;
-      this.lastRequest = () => this.forgetPreset();
+      notice = `Could not forget the form for ${preset.app}: ${describeError(e)}`;
+      this.refresh();
+      return;
     }
-    this.cdr.detectChanges();
+    const fresh = await this.wails.getSourcePreset(title);
+    if (sourceApp === title) sourcePreset = fresh;
+    this.refresh();
   }
 
   async cancelOperation(): Promise<void> {
     wasCancelled = true;
     runSeq++;
+    inFlight = null;
+    this.refresh();
     await this.svc.cancelOperation();
-    this.isLoading = false;
-    this.running = null;
-    this.stepLabel = '';
-    this.cdr.detectChanges();
   }
 
+  /** "Change the whole text" for the result shown. */
   async applyGlobalInstruction(): Promise<void> {
-    if (!this.globalInstruction.trim() || !activeText().trim()) return;
-    if (this.unavailableProviderView) return; // the note explains why (#22)
+    const target = activeResultVersion();
+    if (!target || !this.globalInstruction.trim() || !target.text.trim()) return;
+    await this.refine(target.id, this.globalInstruction);
+  }
 
-    const target = results[activeResult];
-    const instruction = this.globalInstruction;
-    this.lastRequest = () => this.applyGlobalInstruction();
+  /** A whole-text change of one result, against the text that result was made from. */
+  async refine(resultId: string, instruction: string): Promise<void> {
+    const target = results.find(r => r.id === resultId);
+    if (!target || inFlight || this.unavailableProviderView) return; // the note explains why (#22)
+
     const seq = ++runSeq;
-    this.isLoading = true;
-    this.running = 'edit';
-    this.stepLabel = 'Refining…';
-    this.errorMessage = '';
     wasCancelled = false;
-    this.cdr.detectChanges();
+    inFlight = { kind: 'edit', label: 'Refining…' };
+    clearError();
+    this.refresh();
 
     try {
       const result = await this.svc.refineGlobal({
         fullCanvas: target.text,
-        originalText,
+        originalText: target.original,
         instruction,
         documentType: target.docType,
         provider: '',
@@ -907,19 +1028,16 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
         effort: '',
       });
       if (seq !== runSeq) return;
-      addTrace(`Refined: "${instruction.slice(0, 30)}"`, target.text);
+      addTrace(`Refined: "${instruction.slice(0, 30)}"`, target.text, target.id);
       target.text = result.newCanvas;
-      this.globalInstruction = '';
+      if (this.globalInstruction === instruction) this.globalInstruction = '';
     } catch (e: unknown) {
       if (!wasCancelled && seq === runSeq) {
-        this.errorMessage = `Refine failed: ${describeError(e)}`;
+        setError(`Refine failed: ${describeError(e)}`, 'result', page => page.refine(resultId, instruction));
       }
     } finally {
-      if (seq === runSeq) {
-        this.isLoading = false;
-        this.running = null;
-      }
-      if (!this.destroyed) this.cdr.detectChanges();
+      if (seq === runSeq) inFlight = null;
+      refreshView();
     }
   }
 
@@ -932,7 +1050,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     const end = textarea?.selectionEnd ?? 0;
     if (!textarea || !textarea.value.slice(start, end).trim()) {
       this.showSelectionBubble = false;
-      this.cdr.detectChanges();
+      this.refresh();
       return;
     }
 
@@ -944,7 +1062,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     this.bubbleX = clamp(event.clientX - 100, 8, window.innerWidth - BUBBLE_WIDTH - 8);
     this.bubbleY = clamp(event.clientY - 80, 8, window.innerHeight - BUBBLE_HEIGHT - 8);
     this.selectionInstruction = '';
-    this.cdr.detectChanges();
+    this.refresh();
   }
 
   /** Escape or the bubble's close button: back to the text the selection is in. */
@@ -958,36 +1076,39 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     this.selectionInstruction = '';
   }
 
+  /** The selection bubble's Apply, for the result shown. */
   async applySelectionInstruction(): Promise<void> {
     if (!this.selectionInstruction.trim()) return;
-    if (this.unavailableProviderView) return; // the note explains why (#22)
-
-    const target = results[activeResult];
+    const target = activeResultVersion();
     if (!target) return;
     const textarea = this.canvasTextareaRef?.nativeElement;
     const start = textarea ? textarea.selectionStart : this.selectionStart;
     const end = textarea ? textarea.selectionEnd : this.selectionEnd;
     const selectedText = target.text.slice(start, end);
-
-    if (!selectedText.trim()) {
-      this.closeSelectionBubble();
-      return;
-    }
-
     const instruction = this.selectionInstruction;
-    this.lastRequest = () => this.applySelectionInstruction();
     this.closeSelectionBubble();
+    if (!selectedText.trim()) return;
+    await this.splice(target.id, start, selectedText, instruction);
+  }
+
+  /**
+   * Rewrites a passage of one result, against the text it was made from. A
+   * retry finds the passage again if the text moved meanwhile.
+   */
+  async splice(resultId: string, start: number, selectedText: string, instruction: string): Promise<void> {
+    const target = results.find(r => r.id === resultId);
+    if (!target || inFlight || this.unavailableProviderView) return; // the note explains why (#22)
+
     const seq = ++runSeq;
-    this.isLoading = true;
-    this.running = 'edit';
-    this.stepLabel = 'Splicing…';
     wasCancelled = false;
-    this.cdr.detectChanges();
+    inFlight = { kind: 'edit', label: 'Splicing…' };
+    clearError();
+    this.refresh();
 
     try {
       const result = await this.svc.splice({
         fullCanvas: target.text,
-        originalText,
+        originalText: target.original,
         selectedText,
         instruction,
         provider: '',
@@ -995,26 +1116,30 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
         effort: '',
       });
       if (seq !== runSeq) return;
-      const oldCanvas = target.text;
-      addTrace(`Splice: "${instruction.slice(0, 30)}"`, oldCanvas);
-      target.text = oldCanvas.slice(0, start) + result.rewrittenSection + oldCanvas.slice(end);
+      const at = target.text.slice(start, start + selectedText.length) === selectedText
+        ? start : target.text.indexOf(selectedText);
+      if (at < 0) {
+        setError('Splice failed: the selected passage is no longer in the text.', 'result', null);
+        return;
+      }
+      addTrace(`Splice: "${instruction.slice(0, 30)}"`, target.text, target.id);
+      target.text = target.text.slice(0, at) + result.rewrittenSection + target.text.slice(at + selectedText.length);
     } catch (e: unknown) {
       if (!wasCancelled && seq === runSeq) {
-        this.errorMessage = `Splice failed: ${describeError(e)}`;
+        setError(`Splice failed: ${describeError(e)}`, 'result',
+          page => page.splice(resultId, start, selectedText, instruction));
       }
     } finally {
-      if (seq === runSeq) {
-        this.isLoading = false;
-        this.running = null;
-      }
-      if (!this.destroyed) this.cdr.detectChanges();
+      if (seq === runSeq) inFlight = null;
+      refreshView();
     }
   }
 
   addCheckpoint(): void {
-    if (activeText()) {
-      addTrace('Checkpoint', activeText());
-      this.cdr.detectChanges();
+    const target = activeResultVersion();
+    if (target?.text) {
+      addTrace('Checkpoint', target.text, target.id);
+      this.refresh();
     }
   }
 
@@ -1023,35 +1148,43 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     this.closeSelectionBubble();
     this.peekEntry = entry;
     this.hoverEntry = null;
-    this.cdr.detectChanges();
+    this.refresh();
   }
 
   hoverTrace(entry: TraceEntry): void {
     if (!this.peekEntry && !this.restoringFocus) {
       this.hoverEntry = entry;
-      this.cdr.detectChanges();
+      this.refresh();
     }
   }
 
   clearHoverTrace(): void {
     this.hoverEntry = null;
-    this.cdr.detectChanges();
+    this.refresh();
   }
 
   closePeek(): void {
     const id = this.peekEntry?.id;
     this.peekEntry = null;
     this.hoverEntry = null;
-    this.cdr.detectChanges();
+    this.refresh();
     this.focusEntry(id);
   }
 
-  /** Puts a snapshot into the result shown, saving what was there to the history first. */
+  /**
+   * Puts a snapshot back into the result it was taken of — showing that
+   * result — after saving what was there to the history. A snapshot of the
+   * original text belongs to no result and goes into the one shown.
+   */
   revertTo(entry: TraceEntry): void {
-    addTrace(`Reverted to: ${entry.label}`, activeText());
-    setActiveText(entry.snapshot);
+    const own = entry.resultId ? results.find(r => r.id === entry.resultId) : undefined;
+    const target = own ?? activeResultVersion();
+    if (!target) return;
+    activeResult = results.indexOf(target);
+    addTrace(`Reverted to: ${entry.label}`, target.text, target.id);
+    target.text = entry.snapshot;
     this.peekEntry = null;
-    this.cdr.detectChanges();
+    this.refresh();
     this.focusEntry(entry.id);
   }
 
@@ -1077,37 +1210,48 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   }
 
   async copyError(): Promise<void> {
-    await this.wails.writeClipboard(this.errorMessage);
+    await this.wails.writeClipboard(errorMessage);
   }
 
+  /**
+   * Sends the shown result back to the window its session came from — only
+   * while the backend's captured window still is that one. A shortcut used in
+   * another window since (a replace the user declined) moved the backend's
+   * target; pasting there would put the text into the wrong window.
+   */
   async sendBack(): Promise<void> {
-    if (this.sendingBack) return;
-    this.lastRequest = () => this.sendBack();
+    const target = activeResultVersion();
+    if (!target?.sourceApp || this.sendingBack) return;
     this.sendingBack = true;
-    this.errorMessage = '';
-    this.sendBackError = '';
-    this.cdr.detectChanges();
+    clearError();
+    this.refresh();
     try {
-      await this.svc.sendBack(activeText());
+      if ((await this.wails.getSourceApp()) !== target.sourceApp) {
+        setError(SOURCE_MOVED_MESSAGE, 'result', null);
+        sendBackError = SOURCE_MOVED_MESSAGE;
+        return;
+      }
+      await this.svc.sendBack(target.text);
     } catch (e: unknown) {
       // The backend's message says whether the text is on the clipboard and
       // what to do next.
-      this.sendBackError = describeError(e);
-      this.errorMessage = this.sendBackError;
+      const message = describeError(e);
+      setError(message, 'result', page => page.sendBack());
+      sendBackError = message;
     } finally {
       this.sendingBack = false;
-      this.cdr.detectChanges();
+      this.refresh();
     }
   }
 
   async retry(): Promise<void> {
-    if (this.lastRequest) {
-      await this.lastRequest();
-    }
+    const action = lastRequest;
+    if (action) await action(this);
   }
 
   ngOnDestroy(): void {
     this.destroyed = true;
     this.sub?.unsubscribe();
+    if (view === this) view = null;
   }
 }

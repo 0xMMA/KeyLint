@@ -34,7 +34,7 @@ export function CaptureSourceApp() {
 }
 
 /**
- * DeleteAppPreset removes an app preset by source app name (case-insensitive).
+ * DeleteAppPreset removes an app preset by source app name (trimmed, case-insensitive).
  * @param {string} sourceApp
  * @returns {$CancellablePromise<void>}
  */
@@ -62,13 +62,15 @@ export function GetSourceApp() {
 }
 
 /**
- * GetSourcePreset tells the choice page which form to preselect for the
- * captured source app, whether that is a remembered preset, and under which
- * name "Remember <form> for <app>" stores one.
+ * GetSourcePreset tells the choice page which form to preselect for a
+ * captured window title, whether that is a remembered preset, and under which
+ * name "Remember <form> for <app>" stores one. The page passes its session's
+ * title: the backend's own capture may be newer (a replace the user declined).
+ * @param {string} title
  * @returns {$CancellablePromise<$models.SourcePreset>}
  */
-export function GetSourcePreset() {
-    return $Call.ByID(4278213683).then(/** @type {($result: any) => any} */(($result) => {
+export function GetSourcePreset(title) {
+    return $Call.ByID(4278213683, title).then(/** @type {($result: any) => any} */(($result) => {
         return $$createType2($result);
     }));
 }
@@ -113,7 +115,8 @@ export function SendBack(text) {
 }
 
 /**
- * SetAppPreset saves or updates an app preset matched by SourceApp name (case-insensitive).
+ * SetAppPreset saves or updates an app preset matched by SourceApp name
+ * (trimmed, case-insensitive). The name is stored trimmed.
  * @param {$models.AppPreset} preset
  * @returns {$CancellablePromise<void>}
  */

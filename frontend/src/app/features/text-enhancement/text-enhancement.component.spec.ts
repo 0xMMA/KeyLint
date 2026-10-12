@@ -193,8 +193,13 @@ describe('TextEnhancementComponent (Pyramidize: Text → Form → Result)', () =
     await settle();
     expect(svcMock.setAppPreset).not.toHaveBeenCalled();
 
+    // What the backend says after the write: asked again, not assumed.
+    wailsMock.getSourcePreset.mockResolvedValue({ app: 'Outlook', documentType: 'memo', remembered: true });
+    const asked = wailsMock.getSourcePreset.mock.calls.length;
     await run();
+    expect(wailsMock.getSourcePreset.mock.calls.length).toBe(asked + 1);
     expect(svcMock.setAppPreset).toHaveBeenCalledExactlyOnceWith({ sourceApp: 'Outlook', documentType: 'memo' });
+    expect(wailsMock.getSourcePreset).toHaveBeenLastCalledWith('Inbox - Outlook');
 
     button('try-another-form-btn').click();
     await settle();
@@ -212,9 +217,13 @@ describe('TextEnhancementComponent (Pyramidize: Text → Form → Result)', () =
 
   it('forgets the remembered form with Forget', async () => {
     await viaShortcut(ORIGINAL, 'general | Acme - Microsoft Teams', { app: 'Teams', documentType: 'chat', remembered: true });
+    wailsMock.getSourcePreset.mockResolvedValue({ app: 'Teams', documentType: 'email', remembered: false });
+    const asked = wailsMock.getSourcePreset.mock.calls.length;
     button('forget-preset-btn').click();
     await settle();
     expect(svcMock.deleteAppPreset).toHaveBeenCalledExactlyOnceWith('Teams');
+    expect(wailsMock.getSourcePreset.mock.calls.length).toBe(asked + 1);
+    expect(wailsMock.getSourcePreset).toHaveBeenLastCalledWith('general | Acme - Microsoft Teams');
     expect(q('remembered-note')).toBeNull();
     expect(q('remember-checkbox')!.textContent!.trim()).toBe('Remember Chat for Teams');
     expect(radio('email').querySelector('.pz-form-tag')!.textContent!.trim()).toBe('Default');
@@ -229,10 +238,11 @@ describe('TextEnhancementComponent (Pyramidize: Text → Form → Result)', () =
     expect(q('send-back-btn')).toBeNull();
   });
 
-  it('treats text pasted over a captured one as pasted', async () => {
+  it('treats text pasted over a captured one as pasted, once the replace is confirmed', async () => {
     await viaShortcut();
     button('edit-text-btn').click();
     await settle();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
     wailsMock.readClipboard.mockResolvedValue('other text');
     button('paste-from-clipboard-btn').click();
     await settle();
@@ -614,6 +624,217 @@ describe('TextEnhancementComponent (Pyramidize: Text → Form → Result)', () =
       expect(button('send-back-btn').disabled).toBe(false);
       expect(svcMock.sendBack).toHaveBeenCalledTimes(1);
     });
+  });
+
+  // ── PR #130 review round ──
+
+  it('does not send back into another window after a declined replace (review 1)', async () => {
+    await viaShortcut();
+    await run();
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    await viaShortcut('slack text', 'general - Acme - Slack', { app: 'Slack', documentType: 'chat', remembered: true });
+    expect(button('send-back-btn').textContent).toContain('Send back to Outlook');
+
+    button('send-back-btn').click();
+    await settle();
+    expect(svcMock.sendBack).not.toHaveBeenCalled();
+    expect(q('error-row')!.textContent).toContain('The shortcut was used in another window since');
+    expect(q('copy-markdown-btn')).not.toBeNull();
+  });
+
+  it('starts one run for a double click, even while it remembers the form first (review 2)', async () => {
+    await viaShortcut();
+    q('remember-checkbox')!.querySelector<HTMLInputElement>('input')!.click();
+    await settle();
+    const btn = button('pyramidize-btn');
+    btn.click();
+    btn.click();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await settle();
+    expect(svcMock.pyramidize).toHaveBeenCalledTimes(1);
+    expect(svcMock.setAppPreset).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers no Remember box when nothing can be remembered for the app (review 3)', async () => {
+    await viaShortcut(ORIGINAL, 'Max Mustermann', { app: '', documentType: 'email', remembered: false });
+    expect(q('remember-checkbox')).toBeNull();
+  });
+
+  it('says so when the form could not be remembered, and still runs (review nit)', async () => {
+    await viaShortcut();
+    svcMock.setAppPreset.mockRejectedValueOnce(new Error('settings.json is locked'));
+    q('remember-checkbox')!.querySelector<HTMLInputElement>('input')!.click();
+    await settle();
+    await run();
+    expect(svcMock.pyramidize).toHaveBeenCalledTimes(1);
+    expect(q('preset-notice')!.textContent).toContain('Could not remember Email for Outlook');
+  });
+
+  it('shows the run still working after leaving and coming back, and its result when it lands (review 4)', async () => {
+    let finish!: (v: unknown) => void;
+    svcMock.pyramidize.mockReturnValueOnce(new Promise(r => (finish = r)));
+    await typeText();
+    button('pyramidize-btn').click();
+    await settle();
+    fixture.destroy();
+
+    await mount();
+    expect(q('step-label')!.textContent!.trim()).toBe('Writing the email…');
+    expect(q('cancel-btn')).not.toBeNull();
+    expect(q('pyramidize-btn')).toBeNull();
+
+    finish({ documentType: 'EMAIL', language: 'en', fullDocument: 'Landed after return' });
+    await settle();
+    expect(currentStep()).toBe('step-result');
+    expect(q<HTMLTextAreaElement>('canvas-textarea')!.value).toBe('Landed after return');
+  });
+
+  it('clears an error row when the step, the form or the instructions change (review 5)', async () => {
+    svcMock.pyramidize.mockRejectedValue(new Error('API failure'));
+    await typeText();
+    await run();
+    expect(q('error-row')).not.toBeNull();
+    button('edit-text-btn').click();
+    await settle();
+    button('choose-form-btn').click();
+    await settle();
+    expect(q('error-row')).toBeNull();
+
+    await run();
+    expect(q('error-row')).not.toBeNull();
+    await press('2');
+    expect(q('error-row')).toBeNull();
+
+    await run();
+    const field = q<HTMLInputElement>('custom-instructions')!;
+    field.value = 'shorter';
+    field.dispatchEvent(new Event('input'));
+    await settle();
+    expect(q('error-row')).toBeNull();
+  });
+
+  it('never shows a failed whole-text change on the Form step (review 5)', async () => {
+    await typeText();
+    await run();
+    svcMock.refineGlobal.mockRejectedValueOnce(new Error('refine broke'));
+    component.globalInstruction = 'shorter';
+    await component.applyGlobalInstruction();
+    await settle();
+    expect(q('error-row')!.textContent).toContain('Refine failed');
+    button('try-another-form-btn').click();
+    await settle();
+    expect(q('error-row')).toBeNull();
+  });
+
+  it('reverts a snapshot into the version it came from, and shows that version (review 9)', async () => {
+    await typeText();
+    await run();
+    button('try-another-form-btn').click();
+    await settle();
+    await press('2');
+    await run();
+    expect(q('result-title')!.textContent!.trim()).toBe('Chat');
+    button('trace-log-toggle').click();
+    await settle();
+    const emailEntry = Array.from(el.querySelectorAll<HTMLButtonElement>('[data-testid="trace-entry"]'))
+      .find(e => e.textContent!.includes('Pyramidized as email'))!;
+    emailEntry.click();
+    await settle();
+    button('trace-revert-btn').click();
+    await settle();
+    expect(q('result-title')!.textContent!.trim()).toBe('Email');
+    expect(q<HTMLTextAreaElement>('canvas-textarea')!.value).toBe('A email result');
+    Array.from(el.querySelectorAll<HTMLButtonElement>('[data-testid="result-version"]'))[1].click();
+    await settle();
+    expect(q<HTMLTextAreaElement>('canvas-textarea')!.value).toBe('A chat result');
+  });
+
+  it('announces the working step in a live region that is there before it starts (review 10)', async () => {
+    let finish!: (v: unknown) => void;
+    svcMock.pyramidize.mockReturnValueOnce(new Promise(r => (finish = r)));
+    await typeText();
+    const live = q('live-status')!;
+    expect(live.getAttribute('aria-live')).toBe('polite');
+    expect(live.textContent!.trim()).toBe('');
+    button('pyramidize-btn').click();
+    await settle();
+    expect(q('live-status')).toBe(live);
+    expect(live.textContent!.trim()).toBe('Writing the email…');
+    finish({ documentType: 'EMAIL', language: 'en', fullDocument: 'x' });
+    await settle();
+  });
+
+  it('changes a result against the text it was made from, not the Text step\'s current one (review 11)', async () => {
+    await typeText();
+    await run();
+    button('step-intake').click();
+    await settle();
+    const area = q<HTMLTextAreaElement>('original-textarea')!;
+    area.value = 'A different text';
+    area.dispatchEvent(new Event('input'));
+    await settle();
+    button('step-result').click();
+    await settle();
+    component.globalInstruction = 'shorter';
+    await component.applyGlobalInstruction();
+    expect(svcMock.refineGlobal.mock.calls[0][0].originalText).toBe(ORIGINAL);
+  });
+
+  it('keeps the session\'s app when the text is emptied and retyped, and Send back for its results (review 11, N4)', async () => {
+    await viaShortcut();
+    await run();
+    button('step-intake').click();
+    await settle();
+    const area = q<HTMLTextAreaElement>('original-textarea')!;
+    area.value = '';
+    area.dispatchEvent(new Event('input'));
+    await settle();
+    area.value = 'Retyped';
+    area.dispatchEvent(new Event('input'));
+    await settle();
+    button('choose-form-btn').click();
+    await settle();
+    expect(q('remember-checkbox')).not.toBeNull();
+    button('step-result').click();
+    await settle();
+    button('send-back-btn').click();
+    await settle();
+    expect(svcMock.sendBack).toHaveBeenCalledWith('A email result');
+  });
+
+  it('cancels the run in flight when a shortcut replaces the session (N1)', async () => {
+    let finish!: (v: unknown) => void;
+    svcMock.pyramidize.mockReturnValueOnce(new Promise(r => (finish = r)));
+    await typeText();
+    button('pyramidize-btn').click();
+    await settle();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await viaShortcut('new text');
+    expect(svcMock.cancelOperation).toHaveBeenCalled();
+    finish({ documentType: 'EMAIL', language: 'en', fullDocument: 'late' });
+    await settle();
+    expect(currentStep()).toBe('step-choice');
+    expect(button('step-result').disabled).toBe(true);
+  });
+
+  it('asks before pasting over a session, and starts a new one on yes (N2)', async () => {
+    await typeText();
+    await run();
+    button('step-intake').click();
+    await settle();
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    wailsMock.readClipboard.mockResolvedValue('pasted');
+    button('paste-from-clipboard-btn').click();
+    await settle();
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(q<HTMLTextAreaElement>('original-textarea')!.value).toBe(ORIGINAL);
+
+    confirmSpy.mockReturnValue(true);
+    button('paste-from-clipboard-btn').click();
+    await settle();
+    expect(q<HTMLTextAreaElement>('original-textarea')!.value).toBe('pasted');
+    expect(button('step-result').disabled).toBe(true);
+    expect(traceLabels()).toEqual([]);
   });
 
   // ── The shortcut while a session is open, and navigation ──

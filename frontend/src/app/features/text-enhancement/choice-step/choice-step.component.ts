@@ -1,4 +1,4 @@
-import { Component, ElementRef, computed, inject, input, model, output } from '@angular/core';
+import { Component, ElementRef, afterNextRender, computed, inject, input, model, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ButtonComponent, CheckboxComponent, IconComponent, InputDirective, MessageComponent } from '../../../shared/ui';
@@ -85,7 +85,7 @@ import { FORMS, formLabel, DEFAULT_FORM, type PyramidizeForm } from '../forms';
           autocomplete="off"
           placeholder="e.g. more formal · in English · for the whole department"
           [(ngModel)]="instructions"
-          (keydown.enter)="$event.preventDefault(); runIfPossible()"
+          (keydown.enter)="onInstructionsEnter($event)"
         />
       </div>
 
@@ -178,6 +178,19 @@ export class ChoiceStepComponent {
 
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
+  constructor() {
+    // Where the keyboard starts on this step: the form that is checked.
+    afterNextRender(() => this.focusCard(this.docType()));
+  }
+
+  /** Enter in the field runs — unless an IME is composing, whose Enter commits the text. */
+  protected onInstructionsEnter(event: Event): void {
+    const key = event as KeyboardEvent;
+    if (key.isComposing || key.keyCode === 229) return;
+    key.preventDefault();
+    this.runIfPossible();
+  }
+
   /** The small tag on the card the page preselected from the app: never for pasted text. */
   protected tagFor(form: PyramidizeForm): string | null {
     if (!this.app()) return null;
@@ -195,13 +208,17 @@ export class ChoiceStepComponent {
     if (this.canRun()) this.run.emit();
   }
 
-  /** The radio group's own keys: the arrows move the choice and the focus with it. */
+  /** The radio group's own keys: arrows, Home and End move the choice and the focus with it. */
   protected onGroupKeydown(event: KeyboardEvent): void {
-    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
-    if (!step) return;
-    event.preventDefault();
     const index = FORMS.findIndex(f => f.value === this.docType());
-    const next = FORMS[(index + step + FORMS.length) % FORMS.length];
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+    let target: number;
+    if (step) target = (index + step + FORMS.length) % FORMS.length;
+    else if (event.key === 'Home') target = 0;
+    else if (event.key === 'End') target = FORMS.length - 1;
+    else return;
+    event.preventDefault();
+    const next = FORMS[target];
     this.pick(next);
     this.focusCard(next.value);
   }
@@ -209,8 +226,8 @@ export class ChoiceStepComponent {
   /**
    * 1–5 pick a form and Enter runs, from anywhere on the page while this step
    * is shown. A digit typed into a text field stays text; Enter on a button
-   * or a link stays that button's (Edit text, Forget, a nav link), except on
-   * a form card, where it picks the card and runs.
+   * or a link stays that button's (Edit text, Forget, a nav link), and the
+   * Remember box takes none; on a form card it picks the card and runs.
    */
   protected onDocumentKeydown(event: KeyboardEvent): void {
     if (event.defaultPrevented || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
@@ -218,10 +235,15 @@ export class ChoiceStepComponent {
     if (/^[1-5]$/.test(event.key)) {
       if (isTextEntry(target)) return;
       event.preventDefault();
-      this.pick(FORMS[Number(event.key) - 1]);
+      const form = FORMS[Number(event.key) - 1];
+      this.pick(form);
+      // With the focus: Enter on the focused card runs that card.
+      if (!target?.closest('input[type="checkbox"]')) this.focusCard(form.value);
       return;
     }
     if (event.key !== 'Enter' || isTextEntry(target)) return;
+    // The Remember box: Enter there is no request to run.
+    if (target?.closest('input[type="checkbox"], kl-checkbox')) return;
     const card = target?.closest<HTMLElement>('[role="radio"][data-form]');
     if (card && this.host.nativeElement.contains(card)) {
       event.preventDefault();
