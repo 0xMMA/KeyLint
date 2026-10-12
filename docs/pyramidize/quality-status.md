@@ -1,10 +1,10 @@
 # Pyramidize Output Quality — Status & Open Issues
 
-> Last updated: 2026-10-11
+> Last updated: 2026-10-12
 
 > The Fix prompt has its own suite and baseline: [`docs/fix/quality-status.md`](../fix/quality-status.md).
 
-> **Prompt v3 is the default since 2026-10-11 ([ADR-003](adr-003-prompt-v3.md)) and is not measured yet.** Every baseline below is v2 email (or older); a run with no `--variant` now measures v3, and `promptVariant` in `summary.json` says which. v2 stays selectable with `--variant 2`; variant 1 and the refine pass are gone, so `appliedRefinement` is always false from here on.
+> **Prompt v3 is the default since 2026-10-11 ([ADR-003](adr-003-prompt-v3.md)).** Its reference is the baseline of 2026-10-12 (below), the first run on the current instrument (mail history is context, `checksVersion` 2, `judgePromptHash`). Every older baseline was scored by a previous instrument and reads "not comparable" against a new run. v2 stays selectable with `--variant 2`; variant 1 and the refine pass are gone, so `appliedRefinement` is always false from here on.
 
 ---
 
@@ -12,10 +12,77 @@
 
 - **CLI mode:** `-fix` and `-pyramidize` commands dispatch headlessly from `main.go`
 - **Eval framework:** Deterministic checks + LLM-as-judge, build-tagged (`//go:build eval`)
-- **Test data:** 13 anonymized German business email samples in `test-data/pyramidal-emails/` (one mixes German and English heavily — code-switching the prompts preserve on purpose)
+- **Test data:** 13 anonymized German business email samples in `test-data/pyramidal-emails/` (one mixes German and English heavily — code-switching the prompts preserve on purpose); mail history in a sample is marked `<!-- history -->` … `<!-- /history -->` (format: `eval_samples.go`)
 - **Results:** Logged to `test-data/eval-runs/<timestamp>/` with `summary.json`, `results.jsonl`, `samples/`
 - **Run:** `./scripts/eval.sh --runs 3` — pipeline and judges through the installed Claude Code CLI (since 2026-10-04; two judges since 2026-10-11)
 - **Requires:** a signed-in Claude Code CLI (`claude auth status`), no API key. Against the API instead: `EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --provider claude --runs 3` with `ANTHROPIC_API_KEY` in `.env`. That is a different instrument from the API era's too (two judges, resolved IDs, judges unpinned on 5.5): **the API-era baselines below are not comparable with any run of this instrument**, whichever route it takes.
+
+---
+
+## Eval Scores — baseline of 2026-10-12 (prompt v3, the current reference)
+
+Three runs of prompt v3 (email form, `promptHash` `p1-21668d0c1f756770`) on the
+instrument of the mail-history change: `sonnet` → `claude-sonnet-5-5` through
+the CLI (2.1.296), both judges, 13 samples, full coverage in every run,
+`checksVersion` 2, `judgePromptHash` `j1-fda30fd7bd94a7fa`, gitSHA `4d7751d`.
+`test-data/eval-baselines/2026-10-12T01-03-13/baseline.json`.
+
+| Metric | Mean | Range |
+|---|:---:|:---:|
+| Deterministic | 0.9039 | 0.9000–0.9081 |
+| Judge Haiku 5.5 | 0.8536 | 0.8523–0.8546 |
+| Judge Sonnet 5.5 | 0.8087 | 0.8054–0.8115 |
+| Samples passing | 10.3 | 10–11 |
+
+Nothing older compares with it: the checks, the judge prompt and the prompt
+all changed. Read the numbers as the starting point, not as a move.
+
+- **The rule holds.** `no_history_reproduction` scored 1.0 in all six runs of
+  the two samples with history: no 8-word window of a quoted mail reached the
+  output. `email-dataquality-reply-to-feedback`, which appended a recap of the
+  quoted mails under the old rule (judges 0.64 and 0.61), now answers without
+  one: deterministic 0.98, Haiku 0.82, Sonnet 0.75 (means of three runs).
+  `email-diagnose-update`: 0.90, 0.86, 0.89.
+- **Weakest samples, deterministically:** `email-passwort erhalten` (0.76,
+  `no_hallucination` 0.31–0.50, while both judges give it 0.86–0.90) and
+  `email-meeting-request` (0.83, `info_coverage` 0.60–0.63) — the same term
+  checks the "Deterministic Check Limitations" section below describes.
+- **No v2 run on this instrument.** v3 replaced v2 by the old instrument's
+  comparison; a v2 rerun (another 117 calls) is needed only if that comparison
+  is to be repeated on the new instrument.
+
+---
+
+## Instrument change — 2026-10-11: mail history is context
+
+**Mail history in the input is context, never part of the output** (owner
+decision, [ADR-003 addendum](adr-003-prompt-v3.md)). The prompt changed with it,
+and so did the instrument, so that a reply which answers without restating the
+mails it answers is not scored down:
+
+- **Samples mark their history** with `<!-- history -->` … `<!-- /history -->`
+  lines in the raw input (format in `internal/features/pyramidize/eval_samples.go`):
+  `email-diagnose-update` and `email-dataquality-reply-to-feedback`, the only two
+  of the 13 that carry quoted or forwarded mails. The markers are removed
+  before the input reaches Pyramidize or a judge.
+- **`info_coverage` counts key terms of the author's own message only**;
+  `no_hallucination` still reads the whole input, so a fact the reply takes
+  from the history is not counted as invented, but its ratio leaves out output
+  terms the history holds — pasted history used to dilute it and raise the
+  score. **`no_history_reproduction`** (samples with history only) fails an
+  output sharing 12+ consecutive words with the history or 10 %+ of its 8-word
+  windows; its score is 1 minus that share. **`checksVersion` 2** (1 was never
+  recorded; the aggregate reads a missing field as 1). A near-miss marker
+  (`<!--history-->`, other case, inline, outside the fence) is refused, not
+  ignored.
+- **The judges are told** that history is context, that the candidate must not
+  reproduce it, and that leaving it out is no completeness flaw. Their prompt,
+  user-message template, schema and output limit are recorded as one
+  **`judgePromptHash`** in `summary.json` and the baseline, and it
+  is the last field of the `configKey` (runs before it key as `unrecorded`).
+- **Every baseline below reads "not comparable"** against a run on this
+  instrument, both 2026-10-11 references included. New v2 and v3 runs are
+  pending.
 
 ---
 
@@ -87,7 +154,9 @@ worse.** Two things to read alongside it:
   are context: they move to the end, they do not drop out" doing what it says.
   `email-diagnose-update`, where v2 dropped needed thread history, goes the
   other way (deterministic 0.70 → 0.93, judges level). How a reply should treat
-  the mails it quotes is a product question, open for the next iteration.
+  the mails it quotes was a product question — **answered the same day:
+  history is context, never output** (see "Instrument change — mail history"
+  above). This comparison was scored by the old instrument.
 
 ## Eval Scores — baseline of 2026-10-11 (two judges, the reference for v3)
 

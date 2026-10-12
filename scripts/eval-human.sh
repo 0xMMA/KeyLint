@@ -36,23 +36,36 @@ SAMPLES_DIR="${RUN_DIR}/samples"
 mkdir -p "$SAMPLES_DIR"
 
 RESULTS_FILE="${RUN_DIR}/results.jsonl"
-TESTDATA_DIR="test-data/pyramidal-emails"
 
 CLI_FLAGS=""
 [[ -n "$PROVIDER" ]] && CLI_FLAGS="$CLI_FLAGS --provider $PROVIDER"
 [[ -n "$MODEL" ]]    && CLI_FLAGS="$CLI_FLAGS --model $MODEL"
 
+# Every sample's raw input and accepted output, parsed by the eval's own Go
+# parser (internal/features/pyramidize/eval_samples.go) into $1/<name>.raw and
+# $1/<name>.accepted. $1 must be absolute. The raw input is byte for byte what
+# the eval sends: as the user would select it, the history markers removed —
+# they only tell the eval where the mail history is and must never reach the
+# model. No model is called.
+dump_samples() {
+    KEYLINT_SAMPLE_DUMP="$1" go test -tags eval,gtk3 -count=1 -run '^TestDumpEvalSamples$' \
+        ./internal/features/pyramidize/ >/dev/null
+}
+
+DUMP_DIR=$(mktemp -d)
+trap 'rm -rf "$DUMP_DIR"' EXIT
+dump_samples "$DUMP_DIR"
+
 TOTAL=0
 SCORED=0
 SCORE_SUM=0
 
-for file in "$TESTDATA_DIR"/*.md; do
+for RAW_FILE in "$DUMP_DIR"/*.raw; do
     TOTAL=$((TOTAL + 1))
-    NAME=$(basename "$file" .md)
+    NAME=$(basename "$RAW_FILE" .raw)
 
-    # Parse raw input and baseline from the test-data file.
-    RAW=$(sed -n '/^# Raw Input$/,/^# User accepted output$/{ /^# /d; p; }' "$file" | sed '/^```/d')
-    BASELINE=$(sed -n '/^# User accepted output$/,$ { /^# /d; p; }' "$file" | sed '/^```/d')
+    RAW=$(cat "$RAW_FILE")
+    BASELINE=$(cat "$DUMP_DIR/${NAME}.accepted")
 
     # Run pyramidize CLI.
     echo ""
@@ -60,11 +73,8 @@ for file in "$TESTDATA_DIR"/*.md; do
     echo "  Sample ${TOTAL}: ${NAME}"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-    # Write just the raw input to a temp file (strip markdown markers).
-    TMPFILE=$(mktemp)
-    echo "$RAW" > "$TMPFILE"
-    OUTPUT=$(./bin/KeyLint -pyramidize -type email $CLI_FLAGS -f "$TMPFILE" 2>/dev/null || echo "[ERROR: pyramidize failed]")
-    rm -f "$TMPFILE"
+    # The dumped file itself, so the CLI reads exactly what the eval sends.
+    OUTPUT=$(./bin/KeyLint -pyramidize -type email $CLI_FLAGS -f "$RAW_FILE" 2>/dev/null || echo "[ERROR: pyramidize failed]")
 
     # Save the generated output.
     echo "$OUTPUT" > "${SAMPLES_DIR}/${NAME}.md"

@@ -7,6 +7,7 @@ Wir haben uns entschieden, eine minimalistische Diagnostics-Funktion über ein R
 Mfg
 Michael
 
+<!-- history -->
 ---- Mail historie: 
  **Betreff:** Notwendigkeit von Logs aus der DataBridge Extension
  
@@ -16,6 +17,7 @@ Die Schwierigkeit dabei: Die relevanten Logs landen offenbar nicht im Backend, s
 Daher unsere Bitte: Gibt es eine Möglichkeit, in irgendeiner Form (z. B. durch Weiterleitung ins Backend) Logs aus der Web-App/Extension zu erhalten, die in Tableau Desktop läuft? Ohne diese Einsicht bleiben uns die Hände gebunden, was die Fehlersuche betrifft.
 Danke euch und viele Grüße
 Leo
+<!-- /history -->
 ```
 
 # user accpted output

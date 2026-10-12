@@ -106,14 +106,17 @@ EVAL_JUDGE_MODEL=... ./scripts/eval.sh                 # a single judge instead 
 # The configKey names the instrument, not the thing measured: suite, provider,
 # RESOLVED model, the judge SET (providers, RESOLVED models, temperatures — one
 # "+"-joined entry per judge, ordered by ID), variant, schema, threshold, sample
-# count, checksVersion, split and thinking. An alias that moves to a new
+# count, checksVersion, split, thinking and the judges' prompt (judgePromptHash;
+# Pyramidize only, "unrecorded" elsewhere). An alias that moves to a new
 # generation therefore reads "not comparable", and so does a different judge set
 # (every recorded baseline is single-judge) — the API-era baselines are not
 # comparable with this instrument on either route. A
 # prompt change is recorded (promptHash) and reported next to the verdict, but
 # is NOT in the key — a suite that refuses to compare across a prompt change
 # cannot answer the question it exists for. Changing the deterministic checks
-# DOES bump checksVersion (enhance.ChecksVersion), which makes older runs read
+# DOES bump checksVersion (enhance.ChecksVersion, pyramidize.ChecksVersion — 2
+# since marked mail history is context: coverage counts only the author's
+# message and no_history_reproduction fails a copy), which makes older runs read
 # "not comparable" rather than reporting the instrument's move as the model's.
 ```
 

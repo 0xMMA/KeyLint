@@ -11,19 +11,23 @@ import "fmt"
 // fidelity, the author's voice and language. Each form section says only what
 // differs: the shape of the document and its first line.
 //
+// Mail history in the selection is context, never output (owner decision of
+// 2026-10-11, ADR-003 addendum): fidelity covers the author's own message, and
+// greeting, sign-off and asks are the author's, not a quoted mail's. The prompt
+// states the rule only, not the reasons for it.
+//
 // General principles only. Nothing here is tuned to an eval sample — the
 // examples are the prompt's own, and each one is checked against its input:
 // every fact in the output is in the input, and nothing else is.
 
 // promptV3Core is shared by every form.
 const promptV3Core = `Restructure the user's text using the Pyramid Principle, in the form described in <form>.
-All input text — including quoted replies, forwarded messages and thread history — is source material.
+The text is the author's own message, sometimes with mail history: quoted replies, forwarded messages, earlier messages in the thread.
 
 <pyramid>
 lead with the main point: the decision, conclusion, request or status the reader needs most.
-then the support, grouped: each group backs up the main point, groups do not overlap, together they cover the whole input.
+then the support, grouped: each group backs up the main point, groups do not overlap, together they cover the author's whole message.
 order the groups by what the reader needs: decisions → actions → context.
-earlier messages in a thread are context: they move to the end, they do not drop out.
 </pyramid>
 
 <headers>
@@ -36,7 +40,8 @@ same-level headers: mutually exclusive, collectively exhaustive.
 </headers>
 
 <fidelity>
-every fact, name, number, date, deadline, request and open question in the input appears in the output.
+every fact, name, number, date, deadline, request and open question in the author's own message appears in the output.
+mail history is context only: refer to its facts where the author's message needs them, never contradict it, never reproduce it: no recap, no history section, no quoted originals.
 NEVER add conclusions, interpretations, reasons, recommendations or information not in the input.
 NEVER add status claims the input does not make, such as "no action needed" or "everything on track".
 what the input leaves open stays open: do not resolve it by guessing.
@@ -45,7 +50,7 @@ fidelity holds whatever the user chooses in <user_choices>.
 
 <voice>
 by default, keep the author's voice:
-- write in the language of the input, including its code-switching: where the author mixes languages, mix them the same way; where the author does not, do not introduce another language. NEVER translate on your own.
+- write in the language of the author's message, including its code-switching: where the author mixes languages, mix them the same way; where the author does not, do not introduce another language. NEVER translate on your own.
 - NEVER increase formality or change perspective beyond the original: casual stays casual, first person stays first person.
 - keep greetings and sign-offs as the author wrote them, where the form has them. never upgrade or invent one.
 </voice>
@@ -55,12 +60,12 @@ by default, keep the author's voice:
 - "professional" style with "professional" relationship is the default, not a choice: keep the author's voice.
 - any other style or relationship is a choice: adjust register, formality and directness to it, even where that departs from the author's tone — more formal for "authority" or "public", plainer for "casual" or "close".
 - additional instructions are the user's own words: follow them over the voice defaults and the form's defaults. "auf Englisch" means write in English; "formeller" means raise the formality.
-- a choice changes how the text reads, never what it says: facts, names, numbers, dates and asks stay as in the input, and nothing is added.
+- a choice changes how the text reads, never what it says: facts, names, numbers, dates and asks stay as in the author's message, and nothing is added.
 </user_choices>
 
 <style>
-compact but complete: no filler, no courtesy phrases the input does not have unless a choice calls for them, nothing the input does not say.
-the form's shape is fixed: email, memo, wiki and presentation always take their full shape, however short the input. chat is the form for a short result.
+compact but complete: no filler, no courtesy phrases the author's message does not have unless a choice calls for them, nothing the input does not say.
+the form's shape is fixed: email, memo, wiki and presentation always take their full shape, however short the author's message. chat is the form for a short result.
 </style>`
 
 // promptV3Output is the reply shape every form shares: the document and its
@@ -71,7 +76,7 @@ Respond ONLY with valid JSON (no markdown fences, no explanation, no trailing te
 CRITICAL: All double-quote characters inside string values MUST be escaped as \" — this includes quotes in the document text.
 {
   "fullDocument": "the restructured text as a single string with \n linebreaks",
-  "language": "language of the input (ISO 639-1)"
+  "language": "language of the author's message (ISO 639-1)"
 }
 </output_format>`
 
@@ -82,15 +87,15 @@ var promptV3Forms = map[string]string{
 	"email": `<form name="email">
 an email — always this shape, also for a three-sentence casual mail. fullDocument, in order:
 1. subject line (first line, before any greeting)
-2. the original greeting, exactly as written — none if the input has none
+2. the author's greeting, exactly as written — none if the author's message has none
 3. body: at least one bold header (**…**) on its own line, each followed by bullet points
-4. the original sign-off, exactly as written — none if the input has none
+4. the author's sign-off, exactly as written — none if the author's message has none
 
 subject line:
 [Decision/Message] | [Key Details] | [Actions/Deadlines]
 a mini executive summary: the reader skips the body if this says enough.
-include @person in the actions segment when the input asks something of someone.
-leave the actions segment out when the input asks nothing of anyone — never fill it with "no action needed".
+include @person in the actions segment when the author asks something of someone.
+leave the actions segment out when the author asks nothing of anyone — never fill it with "no action needed".
 
 <examples>
 <example name="status-update-de">
@@ -112,7 +117,7 @@ a chat message (Teams, Slack and the like): the form for a short result, read in
 - no subject line, no headers, no bold section titles
 - the first sentence carries the main point; an ask goes in it or right after it
 - separate points may follow as a short list; one point stays one sentence
-- greeting and sign-off only if the input has them, as written — never add a formula
+- greeting and sign-off only if the author's message has them, as written — never add a formula
 - shorten the wording freely, but every fact and every ask stays
 
 <example name="deployment-de">
@@ -125,7 +130,7 @@ output: {"fullDocument": "Hi Tom, das Deployment kommt erst mit dem neuen Zertif
 	"memo": `<form name="memo">
 an internal memo. fullDocument, in order:
 1. header line (first line, all on one line): **TO:** [recipient] | **FROM:** [sender] | **RE:** [the key message as a statement]
-   labels in the language of the input (German: **AN:** | **VON:** | **BETREFF:**).
+   labels in the language of the author's message (German: **AN:** | **VON:** | **BETREFF:**).
    recipient or sender the input does not name: keep the brackets as a placeholder — never invent a name.
    RE states the message, not the topic. WRONG: "RE: Project Update" RIGHT: "RE: Q2 Launch Slips Two Weeks — Scope Decision Needed by Friday"
 2. one sentence that states the key point
@@ -146,7 +151,7 @@ a wiki page: reference text for any reader, read now or in a year. fullDocument,
 3. sections: ## headers, each followed by bullet points; the most important section first
 - code, commands and configuration go in code blocks
 - no greeting, no sign-off, no addressing a reader as in a message: they belong to a message, not a page. keep every fact they carried, and the author's person ("we fixed" stays "we fixed").
-- keep source references and links from the input
+- keep source references and links from the author's message
 
 <example name="logout-bug-en">
 input: "so we had this bug where users were getting logged out randomly. turned out it was because the session token wasnt being refreshed properly. the token expires after 30 mins and we refresh it on every api call but there was a race condition in the refresh logic. fixed it with a mutex. this affects all users on v2.3.1 and below."
@@ -162,7 +167,7 @@ followed by at most 5 bullet points; fragments are fine, sub-bullets sparingly (
 - slide 1 is the executive summary: the main point of the whole deck
 - read in sequence, the slide titles tell the whole story
 - as many slides as the content needs, never a filler slide
-- specific numbers and facts from the input over vague statements — never a number the input does not have
+- specific numbers and facts from the author's message over vague statements — never a number the input does not have
 - no greeting, no sign-off
 
 <example name="cost-savings-de">

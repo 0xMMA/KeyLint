@@ -402,7 +402,7 @@ func TestARunRecordedBeforeTheSuiteFieldStillKeys(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}
-	const want = "pyramidize|claude|claude-sonnet-4-6|claude|claude-sonnet-4-5-20250929|2|false|0.65|2|1|all|0|n/a"
+	const want = "pyramidize|claude|claude-sonnet-4-6|claude|claude-sonnet-4-5-20250929|2|false|0.65|2|1|all|0|n/a|unrecorded"
 	if got["configKey"] != want {
 		t.Errorf("configKey = %v\nwant       %v", got["configKey"], want)
 	}
@@ -454,15 +454,16 @@ func downgradeKey(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 	parts := strings.Split(doc["configKey"].(string), "|")
-	if len(parts) != 13 {
-		t.Fatalf("configKey has %d fields, expected the current 13: %v", len(parts), doc["configKey"])
+	if len(parts) != 14 {
+		t.Fatalf("configKey has %d fields, expected the current 14: %v", len(parts), doc["configKey"])
 	}
-	doc["configKey"] = strings.Join(parts[1:len(parts)-4], "|")
+	doc["configKey"] = strings.Join(parts[1:len(parts)-5], "|")
 	cfg := doc["config"].(map[string]any)
 	delete(cfg, "suite")
 	delete(cfg, "promptHash")
 	delete(cfg, "checksVersion")
 	delete(cfg, "split")
+	delete(cfg, "judgePromptHash")
 
 	out, _ := json.Marshal(doc)
 	if err := os.WriteFile(path, out, 0o644); err != nil {
@@ -578,7 +579,7 @@ func TestTheKeyNamesTheResolvedModel(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}
-	const want = "pyramidize|claude-code|claude-sonnet-4-6|claude-code|claude-sonnet-4-5-20250929|2|false|0.65|2|1|all|null|on"
+	const want = "pyramidize|claude-code|claude-sonnet-4-6|claude-code|claude-sonnet-4-5-20250929|2|false|0.65|2|1|all|null|on|unrecorded"
 	if got["configKey"] != want {
 		t.Errorf("configKey = %v\nwant       %v", got["configKey"], want)
 	}
@@ -735,7 +736,7 @@ func TestAJudgeTemperatureWrittenAsAFloatKeysAsZero(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 — 0.0 and 0 are the same pin", code)
 	}
-	if key, _ := got["configKey"].(string); !strings.HasSuffix(key, "|0|n/a") {
+	if key, _ := got["configKey"].(string); !strings.HasSuffix(key, "|0|n/a|unrecorded") {
 		t.Errorf("configKey = %v, want the judge temperature to key as 0", key)
 	}
 }
@@ -818,7 +819,10 @@ func TestAFirstGenerationCLIBaselineIsUnrecordedNotNone(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d", code)
 	}
-	if key, _ := got["configKey"].(string); !strings.HasSuffix(key, "|unrecorded") {
+	// Thinking is the thirteenth field; the fourteenth, the judge prompt hash,
+	// reads "unrecorded" for these runs too and must not pass for it.
+	key, _ := got["configKey"].(string)
+	if parts := strings.Split(key, "|"); len(parts) != 14 || parts[12] != "unrecorded" {
 		t.Errorf("configKey = %v, want unrecorded thinking", key)
 	}
 }

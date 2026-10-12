@@ -2,9 +2,12 @@ package pyramidize
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -163,16 +166,41 @@ You will receive three texts:
 2. BASELINE — a previous restructuring of the same input (for reference)
 3. CANDIDATE — a new restructuring to evaluate
 
+Mail history in the RAW INPUT (quoted replies, forwarded mails, earlier messages in the thread) is context for the author's own message. The CANDIDATE must not reproduce it; it may refer to facts from it. Leaving the history out is not a completeness flaw.
+
 Score the CANDIDATE on these dimensions (0.0 to 1.0):
 
 - pyramidStructure: Does it follow the Pyramid Principle? Main message first, then supporting details grouped logically. For emails: subject line contains the key message, action items, and stakeholders.
 - clarity: Is the text clear, well-organized, and easy to scan? Are headers meaningful?
-- completeness: Does it preserve ALL information from the raw input? No facts dropped.
-- tonePreservation: Does it match the tone and formality of the original? Does it preserve the original language (no unwanted translation)?
+- completeness: Does it preserve ALL information from the author's own message? No facts dropped.
+- tonePreservation: Does it match the tone and formality of the original? Does it keep the language of the author's message (no unwanted translation)?
 - overall: Your holistic assessment of quality (not just an average of above).
 
 Respond with ONLY a JSON object:
 {"pyramidStructure":0.0,"clarity":0.0,"completeness":0.0,"tonePreservation":0.0,"overall":0.0,"rationale":"Brief explanation"}`
+
+// judgeUserTemplate wraps the three texts the judge reads, in a fixed order:
+// raw input, baseline, candidate.
+const judgeUserTemplate = "<raw_input>\n%s\n</raw_input>\n\n<baseline>\n%s\n</baseline>\n\n<candidate>\n%s\n</candidate>"
+
+// judgePromptHash names the judge instrument apart from its model: the system
+// prompt, the user-message template, the schema and the output limit.
+// summary.json records it and scripts/eval-aggregate.sh keys on it, so runs
+// scored under different wording read "not comparable". Hashed, not
+// versioned, so no edit can slip through unbumped.
+func judgePromptHash() string {
+	return judgeInstrumentHash(judgeSystemPrompt, judgeUserTemplate, judgeSchema, judgeMaxTokens)
+}
+
+// judgeInstrumentHash hashes the parts, each length-prefixed so that no two
+// different sets of parts can run together into the same bytes.
+func judgeInstrumentHash(system, template string, schema []byte, maxTokens int) string {
+	h := sha256.New()
+	for _, part := range []string{system, template, string(schema), strconv.Itoa(maxTokens)} {
+		fmt.Fprintf(h, "%d:%s;", len(part), part)
+	}
+	return "j1-" + hex.EncodeToString(h.Sum(nil)[:8])
+}
 
 // judgeMaxTokens is the judge's own output limit. It equals what the judge
 // sent while it borrowed the pipeline's limit (4096), and it is its own
@@ -201,8 +229,7 @@ func (svc *Service) runJudge(settingsSvc *settings.Service, judge JudgeConfig, r
 	// Fixed order, every time: the judge reads three texts, and reordering them
 	// between runs would change the scores for reasons that have nothing to do
 	// with the pipeline.
-	userMessage := fmt.Sprintf("<raw_input>\n%s\n</raw_input>\n\n<baseline>\n%s\n</baseline>\n\n<candidate>\n%s\n</candidate>",
-		rawInput, baseline, candidate)
+	userMessage := fmt.Sprintf(judgeUserTemplate, rawInput, baseline, candidate)
 
 	// Resolve API key upfront so callAISync has no keyring dependency.
 	apiKey := ""

@@ -2,6 +2,7 @@ package pyramidize
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -315,5 +316,74 @@ func TestTheCLIJudgeSendsNoTemperature(t *testing.T) {
 	}
 	if rec.client.gotRequest.Model != judge.Model {
 		t.Errorf("model = %q, want the pinned snapshot", rec.client.gotRequest.Model)
+	}
+}
+
+// TestTheJudgeTreatsMailHistoryAsContext: since 2026-10-11 the output never
+// reproduces the mail history in the input (ADR-003, addendum). A judge that
+// still counted the history toward completeness would score the intended reply
+// down — the v3 run of reply-to-feedback was scored down for the opposite.
+func TestTheJudgeTreatsMailHistoryAsContext(t *testing.T) {
+	for _, rule := range []string{
+		"Mail history in the RAW INPUT",
+		"is context",
+		"must not reproduce it",
+		"Leaving the history out is not a completeness flaw",
+		"the author's own message",
+	} {
+		if !strings.Contains(judgeSystemPrompt, rule) {
+			t.Errorf("the judge prompt lacks %q", rule)
+		}
+	}
+	if !strings.Contains(judgeSystemPrompt, "the language of the author's message") || strings.Contains(judgeSystemPrompt, "the original language") {
+		t.Error("tonePreservation takes the language from the whole input, quoted mails included")
+	}
+	if strings.Contains(judgeSystemPrompt, "Does it preserve ALL information from the raw input?") {
+		t.Error("completeness still asks for everything in the raw input, history included")
+	}
+}
+
+// TestTheRecordedJudgePromptHashIsWhatWasSent: summary.json keys the judge
+// instrument by hash (scripts/eval-aggregate.sh), so a change to it reads "not
+// comparable". The hash covers everything the judge is sent besides the three
+// texts — system prompt, the user-message template, schema and output limit —
+// and has to describe what the judge actually received, not a copy of it.
+func TestTheRecordedJudgePromptHashIsWhatWasSent(t *testing.T) {
+	svc, rec := newTestService()
+	rec.client.reply = `{"pyramidStructure":0.8,"clarity":0.8,"completeness":0.8,"tonePreservation":0.8,"overall":0.8,"rationale":"ok"}`
+	settingsSvc := settings.NewServiceFrom(settings.Default(), func(string) string { return "key" })
+	if _, err := svc.runJudge(settingsSvc, testJudge(t), "raw", "baseline", "candidate"); err != nil {
+		t.Fatalf("runJudge: %v", err)
+	}
+	got := rec.client.gotRequest
+	if got.User != fmt.Sprintf(judgeUserTemplate, "raw", "baseline", "candidate") {
+		t.Errorf("the judge's user message is not judgeUserTemplate filled in: %q", got.User)
+	}
+	want := judgeInstrumentHash(got.System, judgeUserTemplate, got.JSONSchema, got.MaxTokens)
+	if judgePromptHash() != want {
+		t.Errorf("judgePromptHash() = %q, the request the judge received hashes to %q", judgePromptHash(), want)
+	}
+	if !strings.HasPrefix(want, "j1-") {
+		t.Errorf("hash %q lacks the j1- prefix", want)
+	}
+	if instrumentSummary()["judgePromptHash"] != want {
+		t.Errorf("summary.json records judgePromptHash %v, want %q", instrumentSummary()["judgePromptHash"], want)
+	}
+}
+
+// TestEveryPartOfTheJudgeInstrumentMovesTheHash: rewording the template the
+// three texts are wrapped in, or changing the schema or the output limit, is a
+// different instrument as much as rewording the system prompt.
+func TestEveryPartOfTheJudgeInstrumentMovesTheHash(t *testing.T) {
+	base := judgeInstrumentHash(judgeSystemPrompt, judgeUserTemplate, judgeSchema, judgeMaxTokens)
+	for name, h := range map[string]string{
+		"system prompt": judgeInstrumentHash(judgeSystemPrompt+" ", judgeUserTemplate, judgeSchema, judgeMaxTokens),
+		"template":      judgeInstrumentHash(judgeSystemPrompt, strings.Replace(judgeUserTemplate, "<candidate>", "<new>", 1), judgeSchema, judgeMaxTokens),
+		"schema":        judgeInstrumentHash(judgeSystemPrompt, judgeUserTemplate, json.RawMessage(`{}`), judgeMaxTokens),
+		"max tokens":    judgeInstrumentHash(judgeSystemPrompt, judgeUserTemplate, judgeSchema, judgeMaxTokens+1),
+	} {
+		if h == base {
+			t.Errorf("changing the %s leaves the hash at %s", name, base)
+		}
 	}
 }
