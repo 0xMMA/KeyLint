@@ -138,7 +138,7 @@ func TestMailHistoryIsContextNeverOutput(t *testing.T) {
 		}
 	}
 	for part, phrase := range map[string]string{
-		promptV3Core:                "asks stay as in the author's message",
+		promptV3Core:                "keeps the author's facts, names, numbers, dates and asks as written",
 		promptV3Output:              "language of the author's message (ISO 639-1)",
 		promptV3Forms["memo"]:       "labels in the language of the author's message",
 		promptV3Forms["wiki"]:       "keep source references and links from the author's message",
@@ -162,16 +162,15 @@ func TestMailHistoryIsContextNeverOutput(t *testing.T) {
 }
 
 // TestAnExplicitChoiceWinsOverTheVoiceDefaults pins Michael's decision of
-// 2026-10-11: without a choice the author's language, code-switching and tone
+// 2026-10-11: without instructions the author's language, code-switching and tone
 // stay; an instruction the user gave wins over them; content never changes.
 func TestAnExplicitChoiceWinsOverTheVoiceDefaults(t *testing.T) {
 	for _, rule := range []string{
 		"by default, keep the author's voice",
 		"NEVER translate on your own",
-		"an explicit choice wins over the voice defaults",
+		"they win over the voice defaults and the form's defaults",
 		`"auf Englisch" means write in English`,
 		`"formeller" means raise the formality`,
-		"a choice changes how the text reads, never what it says",
 		"fidelity holds whatever the user chooses",
 	} {
 		if !strings.Contains(promptV3Core, rule) {
@@ -209,7 +208,6 @@ func TestUserChoicesAreTheUsersInstructionsOnly(t *testing.T) {
 		"over the voice defaults and the form's defaults",
 		`"auf englisch" means write in english`,
 		`"formeller" means raise the formality`,
-		"a choice changes how the text reads, never what it says",
 	} {
 		if !strings.Contains(section, rule) {
 			t.Errorf("<user_choices> lacks %q", rule)
@@ -223,6 +221,37 @@ func TestUserChoicesAreTheUsersInstructionsOnly(t *testing.T) {
 					t.Errorf("the %s prompt still carries %q", form, gone)
 				}
 			}
+		}
+	}
+}
+
+// TestInstructionsMayAddWhatTheUserStates pins Michael's decision of
+// 2026-10-13: what the user explicitly writes in the instructions ("mention
+// I'm away Friday") goes into the text, where it belongs in the pyramid. The
+// model still adds nothing on its own, and the author's facts stay as written.
+func TestInstructionsMayAddWhatTheUserStates(t *testing.T) {
+	section := userChoices(t)
+	for _, rule := range []string{
+		"content the user states in their instructions is added, placed where it belongs in the pyramid",
+		"everything else keeps the author's facts, names, numbers, dates and asks as written, and nothing else is added",
+	} {
+		if !strings.Contains(section, rule) {
+			t.Errorf("<user_choices> lacks %q", rule)
+		}
+	}
+	for _, gone := range []string{"never what it says", "and nothing is added", "an explicit choice"} {
+		if strings.Contains(section, gone) {
+			t.Errorf("<user_choices> still says %q", gone)
+		}
+	}
+	// <fidelity>'s never-add lines leave room for exactly that, and no more.
+	for _, rule := range []string{
+		"information not in the input or the user's instructions",
+		"status claims that neither the input nor the user's instructions make",
+		"only content the user's instructions state is added",
+	} {
+		if !strings.Contains(promptV3Core, rule) {
+			t.Errorf("the v3 core lacks %q", rule)
 		}
 	}
 }
