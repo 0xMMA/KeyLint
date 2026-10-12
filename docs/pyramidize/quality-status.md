@@ -1,10 +1,10 @@
 # Pyramidize Output Quality — Status & Open Issues
 
-> Last updated: 2026-10-12
+> Last updated: 2026-10-13
 
 > The Fix prompt has its own suite and baseline: [`docs/fix/quality-status.md`](../fix/quality-status.md).
 
-> **Prompt v3 is the default since 2026-10-11 ([ADR-003](adr-003-prompt-v3.md)).** Its reference is the baseline of 2026-10-12 (below), the first run on the current instrument (mail history is context, `checksVersion` 2, `judgePromptHash`). Every older baseline was scored by a previous instrument and reads "not comparable" against a new run. v2 stays selectable with `--variant 2`; variant 1 and the refine pass are gone, so `appliedRefinement` is always false from here on.
+> **Prompt v3 is the default since 2026-10-11 ([ADR-003](adr-003-prompt-v3.md)).** Its reference is the baseline of 2026-10-13 (below, the choice-page prompt); the baseline of 2026-10-12 was the first run on the current instrument (mail history is context, `checksVersion` 2, `judgePromptHash`). Every older baseline was scored by a previous instrument and reads "not comparable" against a new run. v2 stays selectable with `--variant 2`; variant 1 and the refine pass are gone, so `appliedRefinement` is always false from here on.
 
 ---
 
@@ -16,6 +16,36 @@
 - **Results:** Logged to `test-data/eval-runs/<timestamp>/` with `summary.json`, `results.jsonl`, `samples/`
 - **Run:** `./scripts/eval.sh --runs 3` — pipeline and judges through the installed Claude Code CLI (since 2026-10-04; two judges since 2026-10-11)
 - **Requires:** a signed-in Claude Code CLI (`claude auth status`), no API key. Against the API instead: `EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --provider claude --runs 3` with `ANTHROPIC_API_KEY` in `.env`. That is a different instrument from the API era's too (two judges, resolved IDs, judges unpinned on 5.5): **the API-era baselines below are not comparable with any run of this instrument**, whichever route it takes.
+
+---
+
+## Eval Scores — baseline of 2026-10-13 (choice-page prompt, the current reference)
+
+Control run after E3 phase 3 changed the v3 prompt: `<user_choices>` holds
+only the user's instructions (no style or relationship), and instructions may
+add content the user states (`<fidelity>` and `<style>` allow it). Same
+instrument as 2026-10-12 (`checksVersion` 2, `judgePromptHash`
+`j1-fda30fd7bd94a7fa`, CLI 2.1.296), `promptHash` `p1-b42c33b84682302a`,
+gitSHA `52f19d8`, three runs, 13 samples, full coverage.
+`test-data/eval-baselines/2026-10-13T00-36-32/baseline.json`.
+
+| Metric | 2026-10-12 | 2026-10-13 | `--compare` |
+|---|:---:|:---:|---|
+| Deterministic | 0.9039 (0.9000–0.9081) | 0.9013 (0.8974–0.9054) | overlap |
+| Judge Haiku 5.5 | 0.8536 (0.8523–0.8546) | 0.8544 (0.8492–0.8577) | overlap |
+| Judge Sonnet 5.5 | 0.8087 (0.8054–0.8115) | **0.8272** (0.8223–0.8354) | **improvement**, ranges disjoint |
+| Samples passing | 10.3 (10–11) | 10 (9–11) | — |
+
+**Verdict: improvement (Sonnet judge), nothing worse.** No regression from
+dropping style and relationship. Read it with two limits:
+
+- **The new instructions rule is not exercised.** No sample carries
+  instructions, so every run took the "without instructions, keep the
+  author's voice" path; what moved is the wording around it (the removed
+  style block among it). Whether "content the user states is added" works is
+  untested by this suite.
+- `no_history_reproduction` stayed 1.0 in all six runs of the two samples
+  with history.
 
 ---
 

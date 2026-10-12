@@ -1,6 +1,9 @@
 package pyramidize
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Prompt v3 (ADR-003): one shared core plus one section per form. The user
 // picks the form; one call writes it. There is no self-QA block and no
@@ -42,10 +45,10 @@ same-level headers: mutually exclusive, collectively exhaustive.
 <fidelity>
 every fact, name, number, date, deadline, request and open question in the author's own message appears in the output.
 mail history is context only: refer to its facts where the author's message needs them, never contradict it, never reproduce it: no recap, no history section, no quoted originals.
-NEVER add conclusions, interpretations, reasons, recommendations or information not in the input.
-NEVER add status claims the input does not make, such as "no action needed" or "everything on track".
+NEVER add conclusions, interpretations, reasons, recommendations or information not in the input or the user's instructions.
+NEVER add status claims that neither the input nor the user's instructions make, such as "no action needed" or "everything on track".
 what the input leaves open stays open: do not resolve it by guessing.
-fidelity holds whatever the user chooses in <user_choices>.
+fidelity holds whatever the user chooses in <user_choices>: only content the user's instructions state is added.
 </fidelity>
 
 <voice>
@@ -56,15 +59,14 @@ by default, keep the author's voice:
 </voice>
 
 <user_choices>
-<style_injection> carries the user's choices: communication style, relationship level and additional instructions. an explicit choice wins over the voice defaults.
-- "professional" style with "professional" relationship is the default, not a choice: keep the author's voice.
-- any other style or relationship is a choice: adjust register, formality and directness to it, even where that departs from the author's tone — more formal for "authority" or "public", plainer for "casual" or "close".
-- additional instructions are the user's own words: follow them over the voice defaults and the form's defaults. "auf Englisch" means write in English; "formeller" means raise the formality.
-- a choice changes how the text reads, never what it says: facts, names, numbers, dates and asks stay as in the author's message, and nothing is added.
+<user_instructions> holds the user's own instructions for this text, when they gave any. they win over the voice defaults and the form's defaults.
+- without instructions, keep the author's voice as <voice> says.
+- instructions are the user's own words: follow them. "auf Englisch" means write in English; "formeller" means raise the formality.
+- content the user states in their instructions is added, placed where it belongs in the pyramid. everything else keeps the author's facts, names, numbers, dates and asks as written, and nothing else is added.
 </user_choices>
 
 <style>
-compact but complete: no filler, no courtesy phrases the author's message does not have unless a choice calls for them, nothing the input does not say.
+compact but complete: no filler, no courtesy phrases the author's message does not have unless the user's instructions call for them, nothing the input or the user's instructions do not say.
 the form's shape is fixed: email, memo, wiki and presentation always take their full shape, however short the author's message. chat is the form for a short result.
 </style>`
 
@@ -179,26 +181,21 @@ output: {"fullDocument": "# Slide 1: AWS-Migration spart 120.000 €/Jahr – Da
 }
 
 // buildPromptV3 assembles the v3 system prompt for one form: the shared core,
-// that form's section, the output format and the user's style. docType must be
-// a valid form (see isValidDocType); the caller resolves "auto" first.
-func buildPromptV3(docType, style, relationship, customInstructions, inputText string) (systemPrompt, userMessage string, err error) {
+// that form's section, the output format and the user's instructions, if any.
+// docType must be a valid form (see isValidDocType); the caller resolves
+// "auto" first.
+//
+// The user's only choices are the form and their own instructions (choice
+// page, roadmap E3 phase 3): no communication style or relationship reaches
+// v3. v2 keeps its own style block (prompts_email_v2.go).
+func buildPromptV3(docType, customInstructions, inputText string) (systemPrompt, userMessage string, err error) {
 	form, ok := promptV3Forms[docType]
 	if !ok {
 		return "", "", fmt.Errorf("prompt v3 has no section for document type %q", docType)
 	}
-	systemPrompt = promptV3Core + "\n\n" + form + "\n\n" + promptV3Output + "\n\n" +
-		styleInjection(style, relationship, customInstructions)
-	return systemPrompt, inputText, nil
-}
-
-// styleInjection is the user's style block, the same for v2 and v3: v2's was
-// measured, so v3 keeps its wording.
-func styleInjection(style, relationship, customInstructions string) string {
-	s := fmt.Sprintf(`<style_injection>
-Communication style: %s
-Relationship level: %s`, style, relationship)
-	if customInstructions != "" {
-		s += fmt.Sprintf("\nAdditional instructions: %s", customInstructions)
+	systemPrompt = promptV3Core + "\n\n" + form + "\n\n" + promptV3Output
+	if instructions := strings.TrimSpace(customInstructions); instructions != "" {
+		systemPrompt += "\n\n<user_instructions>\n" + instructions + "\n</user_instructions>"
 	}
-	return s + "\n</style_injection>"
+	return systemPrompt, inputText, nil
 }

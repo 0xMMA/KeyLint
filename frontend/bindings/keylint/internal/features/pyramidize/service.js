@@ -34,7 +34,7 @@ export function CaptureSourceApp() {
 }
 
 /**
- * DeleteAppPreset removes an app preset by source app name (case-insensitive).
+ * DeleteAppPreset removes an app preset by source app name (trimmed, case-insensitive).
  * @param {string} sourceApp
  * @returns {$CancellablePromise<void>}
  */
@@ -53,22 +53,26 @@ export function GetAppPresets() {
 }
 
 /**
- * GetDefaultDocType is the form Pyramidize preselects for the captured source
- * app: its app preset, else email. It is what "auto" would write, so the UI
- * shows the choice instead of making it out of sight.
- * @returns {$CancellablePromise<string>}
- */
-export function GetDefaultDocType() {
-    return $Call.ByID(2219838788);
-}
-
-/**
  * GetSourceApp returns the captured source app name so the frontend can display
  * the detection indicator and look up a saved app preset.
  * @returns {$CancellablePromise<string>}
  */
 export function GetSourceApp() {
     return $Call.ByID(985173551);
+}
+
+/**
+ * GetSourcePreset tells the choice page which form to preselect for a
+ * captured window title, whether that is a remembered preset, and under which
+ * name "Remember <form> for <app>" stores one. The page passes its session's
+ * title: the backend's own capture may be newer (a replace the user declined).
+ * @param {string} title
+ * @returns {$CancellablePromise<$models.SourcePreset>}
+ */
+export function GetSourcePreset(title) {
+    return $Call.ByID(4278213683, title).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType2($result);
+    }));
 }
 
 /**
@@ -80,7 +84,7 @@ export function GetSourceApp() {
  */
 export function Pyramidize(req) {
     return $Call.ByID(1267468009, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType2($result);
+        return $$createType3($result);
     }));
 }
 
@@ -91,7 +95,7 @@ export function Pyramidize(req) {
  */
 export function RefineGlobal(req) {
     return $Call.ByID(296035873, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType3($result);
+        return $$createType4($result);
     }));
 }
 
@@ -111,7 +115,8 @@ export function SendBack(text) {
 }
 
 /**
- * SetAppPreset saves or updates an app preset matched by SourceApp name (case-insensitive).
+ * SetAppPreset saves or updates an app preset matched by SourceApp name
+ * (trimmed, case-insensitive). The name is stored trimmed.
  * @param {$models.AppPreset} preset
  * @returns {$CancellablePromise<void>}
  */
@@ -126,13 +131,14 @@ export function SetAppPreset(preset) {
  */
 export function Splice(req) {
     return $Call.ByID(2632758783, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType4($result);
+        return $$createType5($result);
     }));
 }
 
 // Private type creation functions
 const $$createType0 = $models.AppPreset.createFrom;
 const $$createType1 = $Create.Array($$createType0);
-const $$createType2 = $models.PyramidizeResult.createFrom;
-const $$createType3 = $models.RefineGlobalResult.createFrom;
-const $$createType4 = $models.SpliceResult.createFrom;
+const $$createType2 = $models.SourcePreset.createFrom;
+const $$createType3 = $models.PyramidizeResult.createFrom;
+const $$createType4 = $models.RefineGlobalResult.createFrom;
+const $$createType5 = $models.SpliceResult.createFrom;

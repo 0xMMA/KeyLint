@@ -15,20 +15,25 @@ async function configured(page: Page): Promise<void> {
   }));
 }
 
+/** Narrow enough that the gallery's tab row and its History button do not fit side by side. */
+const GALLERY_SQUEEZED_WIDTH = 640;
+
 test.describe('UI primitives in the browser', () => {
   test('a select’s <label for> focuses the select without opening it', async ({ page }) => {
+    // Hosted on Settings › General: Pyramidize, its old host, has no select
+    // since the choice page (roadmap E3 phase 3).
     await configured(page);
-    await page.goto('/enhance');
-    await expect(page.getByTestId('model-select')).toContainText('KeyLint default');
+    await page.goto('/settings');
+    await expect(page.locator('#log-level')).toBeVisible();
 
-    await page.locator('label[for="pz-provider"]').click();
-    await expect(page.locator('#pz-provider')).toBeFocused();
-    await expect(page.locator('#pz-provider')).toHaveAttribute('aria-expanded', 'false');
+    await page.locator('label[for="log-level"]').click();
+    await expect(page.locator('#log-level')).toBeFocused();
+    await expect(page.locator('#log-level')).toHaveAttribute('aria-expanded', 'false');
     await expect(page.getByRole('listbox')).toHaveCount(0);
 
     // The trigger itself still opens, and the list is named after the label.
-    await page.locator('#pz-provider').click();
-    await expect(page.getByRole('listbox', { name: 'Provider' })).toBeVisible();
+    await page.locator('#log-level').click();
+    await expect(page.getByRole('listbox', { name: 'Log level' })).toBeVisible();
   });
 
   test('the tab row scrolls sideways on a narrow window instead of wrapping', async ({ page }) => {
@@ -85,12 +90,15 @@ test.describe('UI primitives in the browser', () => {
     // button made reveal() scroll back and forth for ever (NG0103 ~60/s).
     const ng0103: string[] = [];
     page.on('console', (m) => { if (m.text().includes('NG0103')) ng0103.push(m.text()); });
-    await page.setViewportSize({ width: 700, height: 800 });
+    // Hosted on the UI gallery: Pyramidize, where it was found, has no tabs
+    // since the choice page (roadmap E3 phase 3). The gallery's row carries
+    // the same History button at its end.
+    await page.setViewportSize({ width: GALLERY_SQUEEZED_WIDTH, height: 800 });
     await configured(page);
-    await page.goto('/enhance');
-    await page.getByRole('tab', { name: 'Editor' }).click();
+    await page.goto('/dev-tools/ui');
+    await page.getByRole('tab', { name: 'AI providers' }).click();
     // Attached, not visible: before the fix the row was 0px wide.
-    const list = page.getByRole('tablist', { name: 'Text' });
+    const list = page.getByRole('tablist', { name: 'Gallery tabs' });
     await expect(list).toBeAttached();
 
     const work = await list.evaluate(async (el) => {
@@ -112,7 +120,7 @@ test.describe('UI primitives in the browser', () => {
     expect(work.scrolls, 'the row is at rest').toBeLessThanOrEqual(1);
     expect(work.classFlips, 'the fades are at rest').toBeLessThanOrEqual(1);
     expect(ng0103).toEqual([]);
-    expect(work.fits, 'both tabs fully visible').toBe(true);
+    expect(work.fits, 'every tab fully visible').toBe(true);
     expect(work.onDivider, 'the tabs stay on the divider').toBe(true);
     expect(work.endAbove, 'the History row moved above the tabs').toBe(true);
   });
@@ -120,8 +128,8 @@ test.describe('UI primitives in the browser', () => {
   test('on a wide window the end content sits beside the tabs', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await configured(page);
-    await page.goto('/enhance');
-    const list = page.getByRole('tablist', { name: 'Text' });
+    await page.goto('/dev-tools/ui');
+    const list = page.getByRole('tablist', { name: 'Gallery tabs' });
     await expect(list).toBeVisible();
     const sameLine = await list.evaluate((el) => {
       const row = el.getBoundingClientRect();
@@ -173,22 +181,5 @@ test.describe('UI primitives in the browser', () => {
     expect(below, 'the trigger is out of view now').toBe(true);
     await expect(page.getByRole('listbox')).toHaveCount(0);
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
-  });
-
-  test('an open select in the Pyramidize options column follows that column’s scroll', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 520 });
-    await configured(page);
-    await page.goto('/enhance');
-    await page.locator('#pz-provider').click();
-    await expect(page.getByRole('listbox', { name: 'Provider' })).toBeVisible();
-    expect(await detachment(page, '#pz-provider')).toBe(0);
-    const moved = await page.locator('app-pyramidize-options').evaluate((el) => {
-      el.scrollBy(0, 30);
-      return el.scrollTop;
-    });
-    expect(moved, 'the column did scroll').toBeGreaterThan(20);
-    // Give a stale panel the frames it would need to move, then measure.
-    await page.waitForTimeout(150);
-    await expect.poll(() => detachment(page, '#pz-provider')).toBe(0);
   });
 });

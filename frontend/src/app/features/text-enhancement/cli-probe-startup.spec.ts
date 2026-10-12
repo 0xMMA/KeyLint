@@ -1,15 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { TextEnhancementComponent, resetPyramidizeProviderSession } from './text-enhancement.component';
+import { TextEnhancementComponent, resetPyramidizeSession } from './text-enhancement.component';
 import { TextEnhancementService } from './text-enhancement.service';
 import { WailsService } from '../../core/wails.service';
 import { createWailsMock, defaultSettings } from '../../../testing/wails-mock';
 
-// Needs claude-code, the only provider that probes the CLI. The selected
-// provider is module-level and survives between tests, so each test resets it
-// with resetPyramidizeProviderSession(); from a fresh session ngOnInit follows
-// the settings mock, which names claude-code.
+// Needs claude-code, the only provider that probes the CLI. The page follows
+// Settings, so the settings mock below is what puts it on the CLI. The session
+// is module-level and survives between tests: each test resets it.
 
 function makeEnhancementServiceMock() {
   return {
@@ -24,7 +23,7 @@ function makeEnhancementServiceMock() {
 //
 // Angular does not delay rendering for an async ngOnInit, so the template
 // painted either way — what the await actually held up was everything after it:
-// the model list, the quality threshold, and the hotkey subscription. With that
+// the hotkey subscription, among others. With that
 // provider selected and a slow CLI, the page was on screen but inert.
 //
 // So this asserts the startup that follows the probe, not the paint. An earlier
@@ -34,15 +33,13 @@ describe('TextEnhancementComponent — startup does not wait on the CLI probe', 
   let wailsMock: ReturnType<typeof createWailsMock>;
 
   beforeEach(() => {
-    // The provider choice is module-level and shared across spec files
-    // (isolate: false). From a fresh session the page follows Settings, so
-    // the settings mock below is what puts it on the CLI.
-    resetPyramidizeProviderSession();
+    // The session is module-level and shared across spec files (isolate: false).
+    resetPyramidizeSession();
     wailsMock = createWailsMock();
     wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, active_provider: 'claude-code' });
   });
 
-  afterEach(() => resetPyramidizeProviderSession());
+  afterEach(() => resetPyramidizeSession());
 
   it('finishes starting up while the probe is still running', async () => {
     // A probe that never answers. Anything sequenced behind it never happens.
@@ -73,7 +70,6 @@ describe('TextEnhancementComponent — startup does not wait on the CLI probe', 
     // The work sequenced after the probe in ngOnInit. These are what a hanging
     // CLI used to swallow.
     expect(wailsMock.takePendingPyramidize, 'startup stopped at the probe').toHaveBeenCalled();
-    expect(wailsMock.listModels, 'the model list never loaded').toHaveBeenCalled();
 
     release({ installed: true, path: '/usr/bin/claude', version: '1.0', loggedIn: true });
     await fixture.whenStable();

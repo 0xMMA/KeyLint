@@ -3,6 +3,7 @@ package pyramidize
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // LatestPromptVariant is what a request's PromptVariant 0 means: v3, one
@@ -38,16 +39,19 @@ func resolvePromptVariant(docType string, variant int) (int, error) {
 
 // buildDocTypePrompt returns the prompt and the reply schema for one run.
 // docType must already be resolved to a form (see resolveDocType).
-func buildDocTypePrompt(docType string, variant int, style, relationship, customInstructions, text string) (systemPrompt, userMessage string, schema json.RawMessage, err error) {
+//
+// customInstructions are the user's own words, the one choice besides the form.
+func buildDocTypePrompt(docType string, variant int, customInstructions, text string) (systemPrompt, userMessage string, schema json.RawMessage, err error) {
 	v, err := resolvePromptVariant(docType, variant)
 	if err != nil {
 		return "", "", nil, err
 	}
 	if v == 2 {
-		system, user := buildEmailPromptV2(style, relationship, customInstructions, text)
+		// Trimmed as for v3: blank instructions add no line to v2's style block.
+		system, user := buildEmailPromptV2(v2StyleDefault, v2RelationshipDefault, strings.TrimSpace(customInstructions), text)
 		return system, user, documentSchemaV2, nil
 	}
-	system, user, err := buildPromptV3(docType, style, relationship, customInstructions, text)
+	system, user, err := buildPromptV3(docType, customInstructions, text)
 	if err != nil {
 		return "", "", nil, err
 	}

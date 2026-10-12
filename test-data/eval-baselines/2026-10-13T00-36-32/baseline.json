@@ -1,0 +1,447 @@
+{
+  "createdAt": "2026-10-13T00-24-14",
+  "runCount": 3,
+  "runs": [
+    "test-data/eval-runs/2026-10-13T00-24-14/",
+    "test-data/eval-runs/2026-10-13T00-28-20/",
+    "test-data/eval-runs/2026-10-13T00-32-22/"
+  ],
+  "config": {
+    "suite": "pyramidize",
+    "promptHash": "p1-b42c33b84682302a",
+    "checksVersion": 2,
+    "judgePromptHash": "j1-fda30fd7bd94a7fa",
+    "split": "all",
+    "splitHash": null,
+    "gitSHA": "52f19d8",
+    "provider": "claude-code",
+    "model": "claude-sonnet-5-5",
+    "modelRequested": "sonnet",
+    "resolvedModel": null,
+    "claudeCodeVersion": "2.1.296",
+    "thinking": "on",
+    "promptVariant": 3,
+    "judges": [
+      {
+        "provider": "claude-code",
+        "model": "claude-haiku-5-5",
+        "temperature": null,
+        "temperatureNote": "not pinned: the Claude Code CLI has no temperature flag, so the judge samples at the CLI default (and thinks first, as the CLI does by default)",
+        "resolvedModel": "claude-haiku-5-5"
+      },
+      {
+        "provider": "claude-code",
+        "model": "claude-sonnet-5-5",
+        "temperature": null,
+        "temperatureNote": "not pinned: the Claude Code CLI has no temperature flag, so the judge samples at the CLI default (and thinks first, as the CLI does by default)",
+        "resolvedModel": "claude-sonnet-5-5"
+      }
+    ],
+    "schemaEnforcement": false,
+    "qualityThreshold": 0.65,
+    "sampleCount": 13
+  },
+  "configKey": "pyramidize|claude-code|claude-sonnet-5-5|claude-code+claude-code|claude-haiku-5-5+claude-sonnet-5-5|3|false|0.65|13|2|all|null+null|on|j1-fda30fd7bd94a7fa",
+  "configConsistent": true,
+  "judgeCoverage": {
+    "claude-haiku-5-5": {
+      "min": 13,
+      "max": 13,
+      "of": 13
+    },
+    "claude-sonnet-5-5": {
+      "min": 13,
+      "max": 13,
+      "of": 13
+    }
+  },
+  "scoredCoverage": {
+    "min": 13,
+    "max": 13,
+    "of": 13
+  },
+  "deterministic": {
+    "mean": 0.9013,
+    "min": 0.8974,
+    "max": 0.9054,
+    "spread": 0.0081
+  },
+  "judges": {
+    "claude-haiku-5-5": {
+      "mean": 0.8544,
+      "min": 0.8492,
+      "max": 0.8577,
+      "spread": 0.0085
+    },
+    "claude-sonnet-5-5": {
+      "mean": 0.8272,
+      "min": 0.8223,
+      "max": 0.8354,
+      "spread": 0.0131
+    }
+  },
+  "samplesPassing": {
+    "mean": 10,
+    "min": 9,
+    "max": 11,
+    "spread": 2
+  },
+  "refineCalls": {
+    "mean": 0,
+    "min": 0,
+    "max": 0
+  },
+  "perSample": [
+    {
+      "name": "email-adverity-field-structuring",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9404,
+        "min": 0.9167,
+        "max": 0.9545,
+        "spread": 0.0379
+      },
+      "judges": {
+        "claude-haiku-5-5": {
+          "mean": 0.6667,
+          "min": 0.6,
+          "max": 0.75,
+          "spread": 0.15
+        },
+        "claude-sonnet-5-5": {
+          "mean": 0.7167,
+          "min": 0.62,
+          "max": 0.78,
+          "spread": 0.16
+        }
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "email-airbyte-escalation",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9412,
+        "min": 0.9323,
+        "max": 0.9487,
+        "spread": 0.0163
+      },
+      "judges": {
+        "claude-haiku-5-5": {
+          "mean": 0.8567,
+          "min": 0.85,
+          "max": 0.87,
+          "spread": 0.02
+        },
+        "claude-sonnet-5-5": {
+          "mean": 0.8333,
+          "min": 0.78,
+          "max": 0.87,
+          "spread": 0.09
+        }
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "email-answer-info-update",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.898,
+        "min": 0.8719,
+        "max": 0.9225,
+        "spread": 0.0506
+      },
+      "judges": {
+        "claude-haiku-5-5": {
+          "mean": 0.8667,
+          "min": 0.86,
+          "max": 0.87,
+          "spread": 0.01
+        },
+        "claude-sonnet-5-5": {
+          "mean": 0.7633,
+          "min": 0.75,
+          "max": 0.78,
+          "spread": 0.03
+        }
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "email-dataquality",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9658,
+        "min": 0.9548,
+        "max": 0.977,
+        "spread": 0.0222
+      },
+      "judges": {
+        "claude-haiku-5-5": {
+          "mean": 0.85,
+          "min": 0.85,
+          "max": 0.85,
+          "spread": 0
+        },
+        "claude-sonnet-5-5": {
+          "mean": 0.79,
+          "min": 0.76,
+          "max": 0.83,
+          "spread": 0.07
+        }
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "email-dataquality-followup",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9695,
+        "min": 0.963,
+        "max": 0.9818,
+        "spread": 0.0189
+      },
+      "judges": {
+        "claude-haiku-5-5": {
+          "mean": 0.9067,
+          "min": 0.9,
+          "max": 0.92,
+          "spread": 0.02
+        },
+        "claude-sonnet-5-5": {
+          "mean": 0.8467,
+          "min": 0.82,
+          "max": 0.87,
+          "spread": 0.05
+        }
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "email-dataquality-reply-to-feedback",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9821,
+        "min": 0.9464,
+        "max": 1,
+        "spread": 0.0536
+      },
+      "judges": {
+        "claude-haiku-5-5": {
+          "mean": 0.86,
+          "min": 0.85,
+          "max": 0.87,
+          "spread": 0.02
+        },
+        "claude-sonnet-5-5": {
+          "mean": 0.8067,
+          "min": 0.78,
+          "max": 0.82,
+          "spread": 0.04
+        }
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "email-diagnose-update",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.897,
+        "min": 0.8696,
+        "max": 0.9286,
+        "spread": 0.059
+      },
+      "judges": {
+        "claude-haiku-5-5": {
+          "mean": 0.8733,
+          "min": 0.85,
+          "max": 0.9,
+          "spread": 0.05
+        },
+        "claude-sonnet-5-5": {
+          "mean": 0.8933,
+          "min": 0.88,
+          "max": 0.9,
+          "spread": 0.02
+        }
+      },
+      "passed": 2,
+      "refined": 0
+    },
+    {
+      "name": "email-kpi-request",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9022,
+        "min": 0.8944,
+        "max": 0.9153,
+        "spread": 0.0209
+      },
+      "judges": {
+        "claude-haiku-5-5": {
+          "mean": 0.8933,
+          "min": 0.88,
+          "max": 0.9,
+          "spread": 0.02
+        },
+        "claude-sonnet-5-5": {
+          "mean": 0.8967,
+          "min": 0.88,
+          "max": 0.91,
+          "spread": 0.03
+        }
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "email-meeting-request",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.8314,
+        "min": 0.8022,
+        "max": 0.8545,
+        "spread": 0.0523
+      },
+      "judges": {
+        "claude-haiku-5-5": {
+          "mean": 0.8533,
+          "min": 0.82,
+          "max": 0.88,
+          "spread": 0.06
+        },
+        "claude-sonnet-5-5": {
+          "mean": 0.8,
+          "min": 0.78,
+          "max": 0.82,
+          "spread": 0.04
+        }
+      },
+      "passed": 0,
+      "refined": 0
+    },
+    {
+      "name": "email-onboarding-erfolgreich",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.8767,
+        "min": 0.8526,
+        "max": 0.8959,
+        "spread": 0.0434
+      },
+      "judges": {
+        "claude-haiku-5-5": {
+          "mean": 0.9,
+          "min": 0.88,
+          "max": 0.92,
+          "spread": 0.04
+        },
+        "claude-sonnet-5-5": {
+          "mean": 0.8767,
+          "min": 0.87,
+          "max": 0.88,
+          "spread": 0.01
+        }
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "email-passwort erhalten",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.79,
+        "min": 0.7857,
+        "max": 0.7985,
+        "spread": 0.0128
+      },
+      "judges": {
+        "claude-haiku-5-5": {
+          "mean": 0.86,
+          "min": 0.85,
+          "max": 0.87,
+          "spread": 0.02
+        },
+        "claude-sonnet-5-5": {
+          "mean": 0.8067,
+          "min": 0.78,
+          "max": 0.82,
+          "spread": 0.04
+        }
+      },
+      "passed": 0,
+      "refined": 0
+    },
+    {
+      "name": "email-project-status",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.9221,
+        "min": 0.9033,
+        "max": 0.9386,
+        "spread": 0.0352
+      },
+      "judges": {
+        "claude-haiku-5-5": {
+          "mean": 0.8567,
+          "min": 0.85,
+          "max": 0.87,
+          "spread": 0.02
+        },
+        "claude-sonnet-5-5": {
+          "mean": 0.8467,
+          "min": 0.83,
+          "max": 0.86,
+          "spread": 0.03
+        }
+      },
+      "passed": 3,
+      "refined": 0
+    },
+    {
+      "name": "email-software-deployment",
+      "runs": 3,
+      "errors": 0,
+      "deterministic": {
+        "mean": 0.801,
+        "min": 0.766,
+        "max": 0.8398,
+        "spread": 0.0738
+      },
+      "judges": {
+        "claude-haiku-5-5": {
+          "mean": 0.8633,
+          "min": 0.8,
+          "max": 0.92,
+          "spread": 0.12
+        },
+        "claude-sonnet-5-5": {
+          "mean": 0.8767,
+          "min": 0.85,
+          "max": 0.9,
+          "spread": 0.05
+        }
+      },
+      "passed": 1,
+      "refined": 0
+    }
+  ]
+}

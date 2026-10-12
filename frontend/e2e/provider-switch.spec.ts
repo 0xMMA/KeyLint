@@ -60,7 +60,10 @@ test.describe('Settings — provider in use', () => {
     await installFakeBackend(page, state);
 
     await page.goto('/enhance');
-    await expect(page.getByTestId('provider-select')).toContainText('Anthropic API');
+    // Provider, model and effort come from Settings; the Form step names them.
+    await page.getByTestId('original-textarea').fill('some text');
+    await page.getByTestId('choose-form-btn').getByRole('button').click();
+    await expect(page.getByTestId('run-settings')).toContainText('Anthropic API');
 
     await page.locator('a[routerLink="/settings"], a[href="/settings"]').first().click();
     await page.getByRole('tab', { name: 'AI providers' }).click();
@@ -69,8 +72,8 @@ test.describe('Settings — provider in use', () => {
     await expect.poll(() => state.saves.at(-1)?.['active_provider']).toBe('claude-code');
 
     await page.locator('a[routerLink="/enhance"], a[href="/enhance"]').first().click();
-    await expect(page.getByTestId('provider-select')).toContainText('Claude Code (installed CLI)');
-    await expect(page.getByTestId('provider-session-override')).toHaveCount(0);
+    await expect(page.getByTestId('run-settings')).toContainText('Claude Code (installed CLI)');
+    await expect(page.getByTestId('run-settings')).not.toContainText('Anthropic API');
   });
 
   test('a switch the backend refuses leaves the marker where it was', async ({ page }) => {

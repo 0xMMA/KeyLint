@@ -37,7 +37,7 @@ func TestEveryFormHasASection(t *testing.T) {
 func TestV3PromptsAreTheCorePlusTheirForm(t *testing.T) {
 	for _, form := range forms {
 		t.Run(form, func(t *testing.T) {
-			system, user, err := buildPromptV3(form, "casual", "close", "keep it short", "the input")
+			system, user, err := buildPromptV3(form, "keep it short", "the input")
 			if err != nil {
 				t.Fatalf("buildPromptV3: %v", err)
 			}
@@ -54,10 +54,8 @@ func TestV3PromptsAreTheCorePlusTheirForm(t *testing.T) {
 					t.Errorf("the %s prompt carries the %s section too", form, other)
 				}
 			}
-			for _, want := range []string{"Communication style: casual", "Relationship level: close", "Additional instructions: keep it short"} {
-				if !strings.Contains(system, want) {
-					t.Errorf("the %s prompt lacks the user's style: %q", form, want)
-				}
+			if !strings.Contains(system, "<user_instructions>\nkeep it short\n</user_instructions>") {
+				t.Errorf("the %s prompt lacks the user's instructions", form)
 			}
 		})
 	}
@@ -126,7 +124,7 @@ func TestMailHistoryIsContextNeverOutput(t *testing.T) {
 	// <fidelity>'s "information not in the input" stays: referring to the
 	// history is allowed.
 	for _, form := range forms {
-		system, _, _ := buildPromptV3(form, "professional", "professional", "", "x")
+		system, _, _ := buildPromptV3(form, "", "x")
 		for _, gone := range []string{
 			"asks stay as in the input",
 			"courtesy phrases the input does not have",
@@ -140,7 +138,7 @@ func TestMailHistoryIsContextNeverOutput(t *testing.T) {
 		}
 	}
 	for part, phrase := range map[string]string{
-		promptV3Core:                "asks stay as in the author's message",
+		promptV3Core:                "keeps the author's facts, names, numbers, dates and asks as written",
 		promptV3Output:              "language of the author's message (ISO 639-1)",
 		promptV3Forms["memo"]:       "labels in the language of the author's message",
 		promptV3Forms["wiki"]:       "keep source references and links from the author's message",
@@ -164,23 +162,123 @@ func TestMailHistoryIsContextNeverOutput(t *testing.T) {
 }
 
 // TestAnExplicitChoiceWinsOverTheVoiceDefaults pins Michael's decision of
-// 2026-10-11: without a choice the author's language, code-switching and tone
-// stay; a style, relationship or instruction the user chose wins over them;
-// content never changes. The UI always sends professional/professional, so
-// that pair must read as the default, not as a choice.
+// 2026-10-11: without instructions the author's language, code-switching and tone
+// stay; an instruction the user gave wins over them; content never changes.
 func TestAnExplicitChoiceWinsOverTheVoiceDefaults(t *testing.T) {
 	for _, rule := range []string{
 		"by default, keep the author's voice",
 		"NEVER translate on your own",
-		"an explicit choice wins over the voice defaults",
-		`"professional" style with "professional" relationship is the default, not a choice`,
+		"they win over the voice defaults and the form's defaults",
 		`"auf Englisch" means write in English`,
 		`"formeller" means raise the formality`,
-		"a choice changes how the text reads, never what it says",
 		"fidelity holds whatever the user chooses",
 	} {
 		if !strings.Contains(promptV3Core, rule) {
 			t.Errorf("the v3 core lacks %q", rule)
+		}
+	}
+}
+
+// userChoices is the core's <user_choices> section.
+func userChoices(t *testing.T) string {
+	t.Helper()
+	// The opening tag on a line of its own: <fidelity> names the section too.
+	_, rest, ok := strings.Cut(promptV3Core, "\n<user_choices>\n")
+	section, _, closed := strings.Cut(rest, "\n</user_choices>")
+	if !ok || !closed {
+		t.Fatal("the v3 core has no <user_choices> section")
+	}
+	return section
+}
+
+// TestUserChoicesAreTheUsersInstructionsOnly pins the choice page decision of
+// 2026-10-12 (roadmap E3, ADR-003 addendum): the form is the user's only pick
+// besides their own instructions. There is no style, relationship, tone or
+// audience control any more, so <user_choices> speaks of instructions only,
+// and no prompt carries a style or relationship value.
+func TestUserChoicesAreTheUsersInstructionsOnly(t *testing.T) {
+	section := strings.ToLower(userChoices(t))
+	for _, gone := range []string{"style", "relationship", "professional", "authority", "public", "casual", "close", "audience", "tone"} {
+		if regexp.MustCompile(`\b` + gone + `\b`).MatchString(section) {
+			t.Errorf("<user_choices> still mentions %q", gone)
+		}
+	}
+	for _, rule := range []string{
+		"the user's own words",
+		"over the voice defaults and the form's defaults",
+		`"auf englisch" means write in english`,
+		`"formeller" means raise the formality`,
+	} {
+		if !strings.Contains(section, rule) {
+			t.Errorf("<user_choices> lacks %q", rule)
+		}
+	}
+	for _, form := range forms {
+		for _, instructions := range []string{"", "auf Englisch"} {
+			system, _, _ := buildPromptV3(form, instructions, "x")
+			for _, gone := range []string{"<style_injection>", "Communication style", "Relationship level"} {
+				if strings.Contains(system, gone) {
+					t.Errorf("the %s prompt still carries %q", form, gone)
+				}
+			}
+		}
+	}
+}
+
+// TestInstructionsMayAddWhatTheUserStates pins Michael's decision of
+// 2026-10-13: what the user explicitly writes in the instructions ("mention
+// I'm away Friday") goes into the text, where it belongs in the pyramid. The
+// model still adds nothing on its own, and the author's facts stay as written.
+func TestInstructionsMayAddWhatTheUserStates(t *testing.T) {
+	section := userChoices(t)
+	for _, rule := range []string{
+		"content the user states in their instructions is added, placed where it belongs in the pyramid",
+		"everything else keeps the author's facts, names, numbers, dates and asks as written, and nothing else is added",
+	} {
+		if !strings.Contains(section, rule) {
+			t.Errorf("<user_choices> lacks %q", rule)
+		}
+	}
+	for _, gone := range []string{"never what it says", "and nothing is added", "an explicit choice"} {
+		if strings.Contains(section, gone) {
+			t.Errorf("<user_choices> still says %q", gone)
+		}
+	}
+	// <fidelity>'s never-add lines leave room for exactly that, and no more.
+	for _, rule := range []string{
+		"information not in the input or the user's instructions",
+		"status claims that neither the input nor the user's instructions make",
+		"only content the user's instructions state is added",
+		"nothing the input or the user's instructions do not say",
+	} {
+		if !strings.Contains(promptV3Core, rule) {
+			t.Errorf("the v3 core lacks %q", rule)
+		}
+	}
+	// <style> must not forbid what <user_choices> allows.
+	if strings.Contains(promptV3Core, "nothing the input does not say") {
+		t.Error(`<style> still says "nothing the input does not say", which forbids what the user's instructions add`)
+	}
+}
+
+// TestInstructionsReachTheV3Prompt: what the user types under "Instructions"
+// is in the prompt, in the block <user_choices> names, and a prompt without
+// instructions carries no empty block.
+func TestInstructionsReachTheV3Prompt(t *testing.T) {
+	for _, form := range forms {
+		system, user, _ := buildPromptV3(form, "  for the whole department  ", "the text")
+		if !strings.Contains(system, "<user_instructions>\nfor the whole department\n</user_instructions>") {
+			t.Errorf("the %s prompt lacks the instructions block", form)
+		}
+		if user != "the text" {
+			t.Errorf("the %s user message = %q, want the text", form, user)
+		}
+		if strings.Contains(user, "department") {
+			t.Errorf("the %s instructions leaked into the user message", form)
+		}
+		bare, _, _ := buildPromptV3(form, "  ", "the text")
+		if strings.Contains(bare, "<user_instructions>\n") {
+			t.Errorf("the %s prompt carries an instructions block without instructions", form)
 		}
 	}
 }
@@ -193,7 +291,7 @@ func TestAnExplicitChoiceWinsOverTheVoiceDefaults(t *testing.T) {
 func TestFixedFormsKeepTheirShape(t *testing.T) {
 	for _, contradiction := range []string{"as much structure as the content needs", "a short message gets a short result", "short input makes a short"} {
 		for form := range promptV3Forms {
-			system, _, _ := buildPromptV3(form, "professional", "professional", "", "x")
+			system, _, _ := buildPromptV3(form, "", "x")
 			if strings.Contains(system, contradiction) {
 				t.Errorf("the %s prompt says %q", form, contradiction)
 			}
@@ -232,7 +330,7 @@ func TestExamplesKeepTheAuthorsPerson(t *testing.T) {
 // result (ADR-002 decision 6).
 func TestV3AsksForNoQualityFields(t *testing.T) {
 	for _, form := range forms {
-		system, _, _ := buildPromptV3(form, "professional", "professional", "", "x")
+		system, _, _ := buildPromptV3(form, "", "x")
 		for _, marker := range []string{"qualityScore", "qualityFlags", "self_evaluation", "headers\":"} {
 			if strings.Contains(system, marker) {
 				t.Errorf("the %s prompt mentions %q", form, marker)
@@ -300,13 +398,20 @@ func TestV2IsKeptVerbatim(t *testing.T) {
 		{"professional", "professional", "", "e0613093c5e862f9f93deaf3caf0133e7200a53711d768dade509d438953eb04"},
 		{"casual", "close", "keep it short", "411c0a10ac34e4725f55e9fe85b9f80c80808c03aa9c332b9f9c554f6760ae78"},
 	} {
-		system, user, _, err := buildDocTypePrompt("email", 2, tc.style, tc.relationship, tc.custom, "draft")
-		if err != nil {
-			t.Fatalf("buildDocTypePrompt: %v", err)
-		}
+		system, user := buildEmailPromptV2(tc.style, tc.relationship, tc.custom, "draft")
 		sum := sha256.Sum256([]byte(system))
 		if got := hex.EncodeToString(sum[:]); got != tc.want || user != "draft" {
 			t.Errorf("v2's prompt for %s/%s changed (sha256 %s); the measured baseline no longer describes it", tc.style, tc.relationship, got)
 		}
+	}
+	// What a run sends v2 since the choice page: no style or relationship to
+	// pass on, so v2 gets the professional/professional it was measured with.
+	system, user, _, err := buildDocTypePrompt("email", 2, "", "draft")
+	if err != nil {
+		t.Fatalf("buildDocTypePrompt: %v", err)
+	}
+	sum := sha256.Sum256([]byte(system))
+	if got := hex.EncodeToString(sum[:]); got != "e0613093c5e862f9f93deaf3caf0133e7200a53711d768dade509d438953eb04" || user != "draft" {
+		t.Errorf("a v2 run no longer sends the measured professional/professional prompt (sha256 %s)", got)
 	}
 }

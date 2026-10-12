@@ -1,6 +1,8 @@
 import { test, expect, Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fakeState, installFakeBackend } from './support/fake-backend';
+import { fakePyramidize, installFakePyramidize } from './support/fake-pyramidize';
 
 const SCREENSHOT_DIR = path.join(__dirname, 'screenshots');
 
@@ -152,10 +154,15 @@ test.describe('Dark mode — visual verification', () => {
 
   // With .app-dark on <body>, PrimeNG's :root component tokens stayed light, and
   // a disabled input came out slate-200 on the near-black page (#28). The
-  // Pyramidize instruction input is disabled until the canvas has text.
+  // Pyramidize instruction input is disabled while the result is empty.
   test('a disabled input keeps a dark surface', async ({ page }) => {
+    await installFakeBackend(page, fakeState({ activeProvider: 'claude', keys: { claude: 'keyring' } }));
+    await installFakePyramidize(page, fakePyramidize({ fullDocument: 'A result' }));
     await page.goto('/enhance');
-    await page.waitForLoadState('networkidle');
+    await page.getByTestId('original-textarea').fill('some text');
+    await page.getByTestId('choose-form-btn').getByRole('button').click();
+    await page.getByTestId('pyramidize-btn').getByRole('button').click();
+    await page.getByTestId('canvas-textarea').fill('');
 
     const input = page.locator('[data-testid="global-instruction-input"]');
     await expect(input).toBeDisabled();
@@ -174,13 +181,13 @@ test.describe('Dark mode — visual verification', () => {
   });
 
   // Same root cause as above: PrimeNG's dropdown panel background was a :root
-  // alias of the overlay token and used to resolve to white. Pyramidize's
-  // selects are kl-select now (E11), whose panel takes the raised token.
+  // alias of the overlay token and used to resolve to white. Every select is
+  // kl-select now (E11), whose panel takes the raised token.
   test('an open select panel is dark', async ({ page }) => {
-    await page.goto('/enhance');
+    await page.goto('/settings');
     await page.waitForLoadState('networkidle');
 
-    await page.locator('[data-testid="provider-select"]').click();
+    await page.getByTestId('log-level-section').getByRole('combobox').click();
     const panel = page.getByRole('listbox');
     await expect(panel).toBeVisible();
     const bg = await panel.evaluate((el) => getComputedStyle(el).backgroundColor);

@@ -200,13 +200,11 @@ func TestEvalPyramidize(t *testing.T) {
 	for _, sample := range samples {
 		t.Run(sample.Name, func(t *testing.T) {
 			result, err := svc.Pyramidize(PyramidizeRequest{
-				Text:               sample.RawInput,
-				DocumentType:       "email",
-				CommunicationStyle: "professional",
-				RelationshipLevel:  "professional",
-				Provider:           provider,
-				Model:              model,
-				PromptVariant:      variant,
+				Text:          sample.RawInput,
+				DocumentType:  "email",
+				Provider:      provider,
+				Model:         model,
+				PromptVariant: variant,
 			})
 
 			sr := sampleResult{Name: sample.Name}

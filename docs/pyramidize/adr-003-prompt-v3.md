@@ -1,6 +1,6 @@
 # ADR-003 — Prompt v3: the user picks the form, one call writes it
 
-> Status: accepted, not yet measured · Date: 2026-10-11 (addendum on mail history the same day) · Supersedes [ADR-001](adr-001-pipeline-architecture.md) and decisions 2, 3, 5 and 6 of [ADR-002](adr-002-one-shot-vs-pipeline.md) · Issue: #34 · Roadmap: E3 phase 2 (and the phase 4 cleanup it makes possible)
+> Status: accepted, not yet measured · Date: 2026-10-11 (addendum on mail history the same day; addendum on the choice page 2026-10-12) · Supersedes [ADR-001](adr-001-pipeline-architecture.md) and decisions 2, 3, 5 and 6 of [ADR-002](adr-002-one-shot-vs-pipeline.md) · Issue: #34 · Roadmap: E3 phase 2 (and the phase 4 cleanup it makes possible)
 
 ## Decision
 
@@ -18,14 +18,16 @@ The prompt for every form is **v3**: one shared core plus one section per form
 |---|---|
 | Core: `<pyramid>` | Main point first, then grouped support; decisions → actions → context. (The first version also said "thread history moves to the end, it does not drop out" — replaced, see the addendum.) |
 | Core: `<headers>` | Content statements, never process labels; same-level headers MECE |
-| Core: `<fidelity>` | Every fact, name, number, date, request and open question **of the author's own message** appears (addendum); mail history is context only; nothing is added — no conclusions, reasons, or status claims like "no action needed"; what the input leaves open stays open; holds whatever the user chooses |
+| Core: `<fidelity>` | Every fact, name, number, date, request and open question **of the author's own message** appears (addendum); mail history is context only; nothing is added beyond what the user's instructions state (2026-10-13) — no conclusions, reasons, or status claims like "no action needed"; what the input leaves open stays open; holds whatever the user chooses |
 | Core: `<voice>` | The default: the language (the author's message's, addendum) and code-switching (none introduced), tone and person; never raise formality on its own; greetings and sign-offs as written |
-| Core: `<user_choices>` | An explicit choice wins over the voice defaults: professional/professional (what the UI always sends) is the default, not a choice; any other style or relationship sets register and formality; additional instructions ("auf Englisch", "formeller") are followed — a choice changes how the text reads, never what it says |
-| Core: `<style>` | Compact but complete, no filler, nothing the input does not say; the form's shape is fixed — email, memo, wiki and presentation always take their full shape, however short the input; chat is the form for a short result |
+| Core: `<user_choices>` | The user's own instructions, when there are any (choice page addendum: no style or relationship any more): they are the user's words and win over the voice and form defaults ("auf Englisch" means English, "formeller" raises formality); content they state is added where it belongs, nothing else is (2026-10-13) |
+| Core: `<style>` | Compact but complete, no filler, nothing the input or the user's instructions do not say; the form's shape is fixed — email, memo, wiki and presentation always take their full shape, however short the input; chat is the form for a short result |
 | Form sections | email (subject line `Decision \| Details \| Actions`, greeting, bold headers + bullets, sign-off), **chat (new)**: no subject, no headers, first sentence carries the point, greeting only if the author's message has one, may shorten but keeps every fact and ask; memo (`TO \| FROM \| RE` line, one-sentence summary, bold headers); wiki (`# title`, one-sentence summary, `##` sections); presentation (`# Slide N:` titles that tell the story, slide 1 is the summary) |
 | Output | `{"fullDocument", "language"}` — subject, title and headers live inside the document, where the user sees them |
 
-The style block (`<style_injection>`) is v2's, word for word.
+The style block (`<style_injection>`) was v2's, word for word; since the choice
+page addendum v3 carries only a `<user_instructions>` block, and only when the
+user typed something. v2 keeps its block unchanged.
 
 ### Where v3 comes from
 
@@ -150,9 +152,9 @@ fact in the output is in the input, and nothing else is.
   first, the document part only when it matches nothing (a browser tab names
   its web app there); the longest name wins. The document-part fallback still
   lets a Teams-only preset match an Outlook mail titled "Microsoft Teams
-  rollout"; a preset for Outlook takes precedence over it. `GetDefaultDocType`
-  gives the UI the same answer, so it can show the preselection instead of
-  making it out of sight.
+  rollout"; a preset for Outlook takes precedence over it. `GetSourcePreset`
+  (it replaced `GetDefaultDocType` with the choice page) gives the UI the same
+  answer, so it can show the preselection instead of making it out of sight.
 - **Volunteered quality fields buy nothing.** Schema enforcement is still off by
   default, so a model may still send `qualityScore`/`qualityFlags`. Under v2
   that bought a refine call (ADR-002's `TestTheOneShotPropertyDependsOnPromptCompliance`).
@@ -241,3 +243,130 @@ ran those forms anyway.
   fix v3 on general principles and measure again; v2 stays selectable until then.
 - Samples for another form showing its v3 section misses something the old
   pipeline prompt got right — the old prompts are in the `v4.7.1-beta` tag.
+
+## Addendum — the choice page: the form and the user's instructions, nothing else (Michael, 2026-10-12)
+
+The Pyramidize page became **Text → Form → Result** (roadmap E3 phase 3,
+decided on the mockup the same day). The Form step is five large buttons —
+email, chat, memo, wiki, presentation, keys 1–5 — one field, "Instructions
+(optional)", and "Pyramidize as <form>" (Enter). **There is no tone, style,
+relationship or audience control anywhere in Pyramidize:** the text already
+shows its reader (greeting, @names, mail history), the prompt keeps the
+author's voice by default, and the instructions field covers the rest ("more
+formal", "in English"). The options column went with its per-session provider
+switch and model and effort pickers: provider, model and effort come from
+Settings only, and the Form step names them with a link there.
+
+**In the prompt**, `<user_choices>` shrinks to the user's instructions. As
+amended by Michael's decision of 2026-10-13 (below):
+
+```
+<user_choices>
+<user_instructions> holds the user's own instructions for this text, when they gave any. they win over the voice defaults and the form's defaults.
+- without instructions, keep the author's voice as <voice> says.
+- instructions are the user's own words: follow them. "auf Englisch" means write in English; "formeller" means raise the formality.
+- content the user states in their instructions is added, placed where it belongs in the pyramid. everything else keeps the author's facts, names, numbers, dates and asks as written, and nothing else is added.
+</user_choices>
+```
+
+- The "professional/professional is the default, not a choice" line and the
+  style/relationship rule (more formal for authority or public, plainer for
+  casual or close) are gone. So is v3's `<style_injection>`: the system prompt
+  ends with `<user_instructions>` holding the trimmed instructions, and with no
+  block at all when the field is empty. General principles only; nothing
+  tuned to an eval sample.
+  `TestUserChoicesAreTheUsersInstructionsOnly` and
+  `TestInstructionsReachTheV3Prompt` pin it, `TestInstructionsReachTheModel`
+  pins it through the real `Pyramidize`.
+- **v2 is byte-identical.** It still has its style block, and every v2 run now
+  sends it the professional/professional it was measured with
+  (`TestV2IsKeptVerbatim` keeps its hashes and checks what a run sends).
+- `communicationStyle` and `relationshipLevel` left `PyramidizeRequest` and
+  `RefineGlobalRequest` (and the bindings). No settings field ever held them.
+  "Change the whole text" kept "the communication style and relationship
+  level" of a page that no longer has them; it now keeps the document type and
+  the voice of the current canvas.
+- The CLI's `--style` and `--relationship` are accepted and ignored, so a
+  script that passes them keeps running; `--instructions` is the CLI's version
+  of the field.
+- The prompt text changed, so v3's `promptHash` changed: a small control run of
+  v3 email on the current instrument follows (roadmap E3), not part of this
+  change.
+
+**On the page**, what the brief and the mockup settled:
+
+- The shortcut's text skips Text and opens on Form; pasted or typed text starts
+  on Text. Only a shortcut capture makes text "from an app": pasted text, or
+  text emptied and retyped, is not, so it gets no "Remember" box and no Send
+  back.
+- Preselection: the app's remembered form, else email. The card the page
+  preselected for an app carries a tag ("Default", or "Remembered for <app>");
+  pasted text tags none, as in the mockup.
+- "Remember <form> for <app>" is unticked, unticks again on every other pick,
+  and writes the preset when the user runs with it ticked, not on tick. When
+  the picked form already is the app's remembered one, "<Form> is remembered
+  for <app>." with Forget takes its place. `GetSourcePreset` names the app to
+  remember under: the matched preset's own name (so remembering another form
+  updates it and Forget deletes it), else the app segment of the window title
+  ("Outlook" for "Inbox - Outlook"), which is what the matcher searches first.
+- Running again always starts from the original text and adds a result;
+  earlier results stay whole (with their edits) and selectable as version
+  chips, and the history keeps every snapshot. Cancel goes back to Form, and a
+  reply that arrives after a cancel is dropped.
+
+### Instructions may add content (Michael, 2026-10-13)
+
+What the user writes explicitly in the Instructions field ("mention I'm away
+Friday") goes into the text, placed where it belongs in the pyramid; the model
+still invents nothing on its own, and the author's facts, names, numbers,
+dates and asks stay as written. In the prompt: `<user_choices>` as quoted
+above (the first version said "a choice changes how the text reads, never what
+it says … and nothing is added"), and `<fidelity>`'s never-add lines leave room
+for exactly that — "information not in the input or the user's instructions",
+"status claims that neither the input nor the user's instructions make",
+"fidelity holds whatever the user chooses in <user_choices>: only content the
+user's instructions state is added". `<style>` no longer speaks of "a choice"
+for courtesy phrases but of the user's instructions.
+`TestInstructionsMayAddWhatTheUserStates` pins it. v2 is byte-identical. The
+v3 email control run happens after this change (roadmap E3 phase 3).
+
+### Review round (PR #130)
+
+- **Which name an app is remembered under** follows real Windows titles. A
+  title is split at " - ", " – ", " — " and " | " (new Teams: "Chat | Max
+  Mustermann | Microsoft Teams"); the app is the last segment, and where that
+  is a browser (Chrome, Chromium, Edge, Firefox, Brave, Opera, Vivaldi, Safari
+  — a short list, compared ignoring case and Edge's zero-width space) the web
+  app before it ("… - Gmail - Google Chrome" → "Gmail"). That segment is what
+  the matcher searches first and what Remember stores, so the two agree;
+  after it the matcher searches the document part of an app's title, but in a
+  browser only the browser's name, never another page's title. No Remember
+  box where nothing safe can be stored: a title without a separator (it may
+  be a person or a document), a name under three characters (the matcher
+  ignores those) or over 40 (more likely a subject than an app). Not
+  recognised: a browser profile segment between web app and browser (Edge's
+  "… - Gmail - Work - Microsoft Edge"); the roadmap's Windows check stays open.
+  `GetSourcePreset` now takes the session's title, so it answers for the
+  session even when the backend's capture is newer.
+- **Preset names compare trimmed and case-folded** on save, match and delete
+  (Go, and Settings › App defaults trims too); the page asks the backend
+  again after Remember and Forget instead of assuming.
+- **One call at a time:** a new Pyramidize, RefineGlobal or Splice cancels
+  the one still in flight (they share one cancel); the page marks a run
+  before it awaits anything, so a double click or held Enter starts one; a
+  shortcut or paste that replaces the session cancels a run in flight.
+- **The source app belongs to the session**, not to the text: set when the
+  shortcut starts a session, cleared only by a new one (a shortcut replace or
+  a paste replace, which now asks too). Each result keeps the original and
+  the source it was made from: whole-text changes and splices use that
+  original, and Send back stays offered for it — but only pastes while the
+  backend's captured window still is the session's ("The shortcut was used in
+  another window since — copy the text instead" otherwise).
+- A run in flight, its label, errors and Retry live with the session, so
+  leaving and coming back shows the working card, and the result when it
+  lands. An error shows on its own step and clears on a step, form or
+  instructions change; Retry of a run uses what is picked now.
+- Reverting a history snapshot writes it into the version it was taken of,
+  and shows that version.
+- CLI: passing `--style` or `--relationship` prints one line on stderr that
+  they are ignored and that `--instructions` is the way.

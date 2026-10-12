@@ -84,6 +84,32 @@ describe('AppPresetsComponent', () => {
     expect(fixture.componentInstance.settings()!.app_presets).toEqual([{ sourceApp: 'Slack', documentType: 'email' }]);
   });
 
+  // PR #130 review: a padded name was stored padded, so the choice page's
+  // Remember (trimmed) added a second preset and Forget deleted neither.
+  it('adds a padded name trimmed, and nothing for a blank one', async () => {
+    await render([]);
+    await click(q('preset-add-btn'));
+    const input = q('preset-add-row')!.querySelector('input')!;
+    const add = () => Array.from(q('preset-add-row')!.querySelectorAll('button')).find(b => b.getAttribute('aria-label') === 'Add preset')!;
+    input.value = '   ';
+    input.dispatchEvent(new Event('input'));
+    await settle();
+    expect(add().disabled).toBe(true);
+
+    input.value = '  Slack  ';
+    input.dispatchEvent(new Event('input'));
+    await settle();
+    await click(q('preset-add-row'), 'Add preset');
+    expect(wails.setAppPreset).toHaveBeenCalledWith({ sourceApp: 'Slack', documentType: 'email' });
+  });
+
+  it('keeps one preset when a rename only adds padding', async () => {
+    await render([{ sourceApp: 'Slack', documentType: 'chat' }]);
+    await rename('Slack', ' Slack ');
+    expect(wails.deleteAppPreset).not.toHaveBeenCalled();
+    expect(stored).toEqual([{ sourceApp: 'Slack', documentType: 'chat' }]);
+  });
+
   it('will not add a preset without an app name', async () => {
     await render([]);
     await click(q('preset-add-btn'));

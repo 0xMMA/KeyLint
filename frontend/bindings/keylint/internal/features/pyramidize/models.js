@@ -69,25 +69,13 @@ export class PyramidizeRequest {
              */
             this["documentType"] = "";
         }
-        if (!("communicationStyle" in $$source)) {
-            /**
-             * "professional"|"casual"|"concise"|"detailed"|"persuasive"|"neutral"|"diplomatic"|"direct"
-             * @member
-             * @type {string}
-             */
-            this["communicationStyle"] = "";
-        }
-        if (!("relationshipLevel" in $$source)) {
-            /**
-             * "close"|"professional"|"authority"|"public"
-             * @member
-             * @type {string}
-             */
-            this["relationshipLevel"] = "";
-        }
         if (!("customInstructions" in $$source)) {
             /**
-             * optional, not persisted
+             * CustomInstructions are the user's own words ("more formal", "in
+             * English"), optional and not persisted: with the form, the only choice
+             * the user makes. Communication style and relationship level went with
+             * the options column (roadmap E3 phase 3); v2 runs on the
+             * professional/professional it was measured with.
              * @member
              * @type {string}
              */
@@ -228,20 +216,6 @@ export class RefineGlobalRequest {
              */
             this["documentType"] = "";
         }
-        if (!("communicationStyle" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["communicationStyle"] = "";
-        }
-        if (!("relationshipLevel" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["relationshipLevel"] = "";
-        }
         if (!("provider" in $$source)) {
             /**
              * @member
@@ -307,6 +281,59 @@ export class RefineGlobalResult {
     static createFrom($$source = {}) {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new RefineGlobalResult(/** @type {Partial<RefineGlobalResult>} */($$parsedSource));
+    }
+}
+
+/**
+ * SourcePreset is what the choice page shows about the captured source app.
+ */
+export class SourcePreset {
+    /**
+     * Creates a new SourcePreset instance.
+     * @param {Partial<SourcePreset>} [$$source = {}] - The source object to create the SourcePreset.
+     */
+    constructor($$source = {}) {
+        if (!("app" in $$source)) {
+            /**
+             * App is the name a form is remembered under: the matched preset's own
+             * name, else the app segment of the window title ("Outlook" for "Inbox -
+             * Outlook"), which is what presetDocType searches first. "" when nothing
+             * was captured.
+             * @member
+             * @type {string}
+             */
+            this["app"] = "";
+        }
+        if (!("documentType" in $$source)) {
+            /**
+             * DocumentType is the form to preselect: the matched preset's, else email
+             * — what "auto" would write, so the UI shows the choice instead of making
+             * it out of sight.
+             * @member
+             * @type {string}
+             */
+            this["documentType"] = "";
+        }
+        if (!("remembered" in $$source)) {
+            /**
+             * Remembered is whether a preset matched; App is then its name.
+             * @member
+             * @type {boolean}
+             */
+            this["remembered"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SourcePreset instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {SourcePreset}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SourcePreset(/** @type {Partial<SourcePreset>} */($$parsedSource));
     }
 }
 
