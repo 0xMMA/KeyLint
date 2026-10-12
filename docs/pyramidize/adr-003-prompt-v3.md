@@ -18,9 +18,9 @@ The prompt for every form is **v3**: one shared core plus one section per form
 |---|---|
 | Core: `<pyramid>` | Main point first, then grouped support; decisions → actions → context. (The first version also said "thread history moves to the end, it does not drop out" — replaced, see the addendum.) |
 | Core: `<headers>` | Content statements, never process labels; same-level headers MECE |
-| Core: `<fidelity>` | Every fact, name, number, date, request and open question **of the author's own message** appears (addendum); mail history is context only; nothing is added — no conclusions, reasons, or status claims like "no action needed"; what the input leaves open stays open; holds whatever the user chooses |
+| Core: `<fidelity>` | Every fact, name, number, date, request and open question **of the author's own message** appears (addendum); mail history is context only; nothing is added beyond what the user's instructions state (2026-10-13) — no conclusions, reasons, or status claims like "no action needed"; what the input leaves open stays open; holds whatever the user chooses |
 | Core: `<voice>` | The default: the language (the author's message's, addendum) and code-switching (none introduced), tone and person; never raise formality on its own; greetings and sign-offs as written |
-| Core: `<user_choices>` | The user's own instructions, when there are any (choice page addendum: no style or relationship any more): they are the user's words and win over the voice and form defaults ("auf Englisch" means English, "formeller" raises formality) — a choice changes how the text reads, never what it says |
+| Core: `<user_choices>` | The user's own instructions, when there are any (choice page addendum: no style or relationship any more): they are the user's words and win over the voice and form defaults ("auf Englisch" means English, "formeller" raises formality); content they state is added where it belongs, nothing else is (2026-10-13) |
 | Core: `<style>` | Compact but complete, no filler, nothing the input does not say; the form's shape is fixed — email, memo, wiki and presentation always take their full shape, however short the input; chat is the form for a short result |
 | Form sections | email (subject line `Decision \| Details \| Actions`, greeting, bold headers + bullets, sign-off), **chat (new)**: no subject, no headers, first sentence carries the point, greeting only if the author's message has one, may shorten but keeps every fact and ask; memo (`TO \| FROM \| RE` line, one-sentence summary, bold headers); wiki (`# title`, one-sentence summary, `##` sections); presentation (`# Slide N:` titles that tell the story, slide 1 is the summary) |
 | Output | `{"fullDocument", "language"}` — subject, title and headers live inside the document, where the user sees them |
@@ -257,14 +257,15 @@ formal", "in English"). The options column went with its per-session provider
 switch and model and effort pickers: provider, model and effort come from
 Settings only, and the Form step names them with a link there.
 
-**In the prompt**, `<user_choices>` shrinks to the user's instructions:
+**In the prompt**, `<user_choices>` shrinks to the user's instructions. As
+amended by Michael's decision of 2026-10-13 (below):
 
 ```
 <user_choices>
-<user_instructions> holds the user's own instructions for this text, when they gave any. an explicit choice wins over the voice defaults.
+<user_instructions> holds the user's own instructions for this text, when they gave any. they win over the voice defaults and the form's defaults.
 - without instructions, keep the author's voice as <voice> says.
-- instructions are the user's own words: follow them over the voice defaults and the form's defaults. "auf Englisch" means write in English; "formeller" means raise the formality.
-- a choice changes how the text reads, never what it says: facts, names, numbers, dates and asks stay as in the author's message, and nothing is added.
+- instructions are the user's own words: follow them. "auf Englisch" means write in English; "formeller" means raise the formality.
+- content the user states in their instructions is added, placed where it belongs in the pyramid. everything else keeps the author's facts, names, numbers, dates and asks as written, and nothing else is added.
 </user_choices>
 ```
 
@@ -312,3 +313,60 @@ Settings only, and the Form step names them with a link there.
   earlier results stay whole (with their edits) and selectable as version
   chips, and the history keeps every snapshot. Cancel goes back to Form, and a
   reply that arrives after a cancel is dropped.
+
+### Instructions may add content (Michael, 2026-10-13)
+
+What the user writes explicitly in the Instructions field ("mention I'm away
+Friday") goes into the text, placed where it belongs in the pyramid; the model
+still invents nothing on its own, and the author's facts, names, numbers,
+dates and asks stay as written. In the prompt: `<user_choices>` as quoted
+above (the first version said "a choice changes how the text reads, never what
+it says … and nothing is added"), and `<fidelity>`'s never-add lines leave room
+for exactly that — "information not in the input or the user's instructions",
+"status claims that neither the input nor the user's instructions make",
+"fidelity holds whatever the user chooses in <user_choices>: only content the
+user's instructions state is added". `<style>` no longer speaks of "a choice"
+for courtesy phrases but of the user's instructions.
+`TestInstructionsMayAddWhatTheUserStates` pins it. v2 is byte-identical. The
+v3 email control run happens after this change (roadmap E3 phase 3).
+
+### Review round (PR #130)
+
+- **Which name an app is remembered under** follows real Windows titles. A
+  title is split at " - ", " – ", " — " and " | " (new Teams: "Chat | Max
+  Mustermann | Microsoft Teams"); the app is the last segment, and where that
+  is a browser (Chrome, Chromium, Edge, Firefox, Brave, Opera, Vivaldi, Safari
+  — a short list, compared ignoring case and Edge's zero-width space) the web
+  app before it ("… - Gmail - Google Chrome" → "Gmail"). That segment is what
+  the matcher searches first and what Remember stores, so the two agree;
+  after it the matcher searches the document part of an app's title, but in a
+  browser only the browser's name, never another page's title. No Remember
+  box where nothing safe can be stored: a title without a separator (it may
+  be a person or a document), a name under three characters (the matcher
+  ignores those) or over 40 (more likely a subject than an app). Not
+  recognised: a browser profile segment between web app and browser (Edge's
+  "… - Gmail - Work - Microsoft Edge"); the roadmap's Windows check stays open.
+  `GetSourcePreset` now takes the session's title, so it answers for the
+  session even when the backend's capture is newer.
+- **Preset names compare trimmed and case-folded** on save, match and delete
+  (Go, and Settings › App defaults trims too); the page asks the backend
+  again after Remember and Forget instead of assuming.
+- **One call at a time:** a new Pyramidize, RefineGlobal or Splice cancels
+  the one still in flight (they share one cancel); the page marks a run
+  before it awaits anything, so a double click or held Enter starts one; a
+  shortcut or paste that replaces the session cancels a run in flight.
+- **The source app belongs to the session**, not to the text: set when the
+  shortcut starts a session, cleared only by a new one (a shortcut replace or
+  a paste replace, which now asks too). Each result keeps the original and
+  the source it was made from: whole-text changes and splices use that
+  original, and Send back stays offered for it — but only pastes while the
+  backend's captured window still is the session's ("The shortcut was used in
+  another window since — copy the text instead" otherwise).
+- A run in flight, its label, errors and Retry live with the session, so
+  leaving and coming back shows the working card, and the result when it
+  lands. An error shows on its own step and clears on a step, form or
+  instructions change; Retry of a run uses what is picked now.
+- Reverting a history snapshot writes it into the version it was taken of,
+  and shows that version.
+- CLI: passing `--style` or `--relationship` prints one line on stderr that
+  they are ignored and that `--instructions` is the way.

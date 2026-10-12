@@ -38,11 +38,13 @@ cat input.txt | ./bin/KeyLint -fix                     # fix from stdin
                                                        # the app's "Instructions (optional)" field: the user's
                                                        # own words, the only choice besides the form. --style and
                                                        # --relationship are accepted and IGNORED since the choice
-                                                       # page (no prompt carries them; v2 always gets its measured
-                                                       # professional/professional) — ADR-003 addendum
+                                                       # page (one stderr line says so; no prompt carries them, v2
+                                                       # always gets its measured professional/professional).
+                                                       # Content the instructions state is added where it belongs
+                                                       # (owner decision 2026-10-13) — ADR-003 addendum
 ```
 
-**Pyramidize page:** Text → Form → Result. The shortcut's text opens on Form; the Form step offers the five forms (keys 1–5, Enter runs), "Remember <form> for <app>" for captured text, and one field, Instructions. No options column, no provider/model/effort pickers (Settings only), no tone/style/relationship/audience control. Running again adds a result; earlier ones stay selectable. → ADR-003 addendum (2026-10-12).
+**Pyramidize page:** Text → Form → Result. The shortcut's text opens on Form; the Form step offers the five forms (keys 1–5, Enter runs), "Remember <form> for <app>" for captured text, and one field, Instructions. No options column, no provider/model/effort pickers (Settings only), no tone/style/relationship/audience control. Running again adds a result; earlier ones stay selectable, each with its own original and source. The source app belongs to the session (set by the shortcut, cleared only by a new session); Send back refuses when the shortcut was used in another window since. → ADR-003 addendum (2026-10-12, review round).
 
 **Evaluation tests (real model calls — NOT run by default):**
 ```
