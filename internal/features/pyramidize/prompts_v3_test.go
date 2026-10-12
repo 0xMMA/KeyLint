@@ -249,10 +249,15 @@ func TestInstructionsMayAddWhatTheUserStates(t *testing.T) {
 		"information not in the input or the user's instructions",
 		"status claims that neither the input nor the user's instructions make",
 		"only content the user's instructions state is added",
+		"nothing the input or the user's instructions do not say",
 	} {
 		if !strings.Contains(promptV3Core, rule) {
 			t.Errorf("the v3 core lacks %q", rule)
 		}
+	}
+	// <style> must not forbid what <user_choices> allows.
+	if strings.Contains(promptV3Core, "nothing the input does not say") {
+		t.Error(`<style> still says "nothing the input does not say", which forbids what the user's instructions add`)
 	}
 }
 

@@ -66,7 +66,7 @@ by default, keep the author's voice:
 </user_choices>
 
 <style>
-compact but complete: no filler, no courtesy phrases the author's message does not have unless the user's instructions call for them, nothing the input does not say.
+compact but complete: no filler, no courtesy phrases the author's message does not have unless the user's instructions call for them, nothing the input or the user's instructions do not say.
 the form's shape is fixed: email, memo, wiki and presentation always take their full shape, however short the author's message. chat is the form for a short result.
 </style>`
 
