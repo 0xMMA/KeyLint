@@ -159,8 +159,8 @@ func TestAutoFollowsTheAppPresetElseEmail(t *testing.T) {
 			if !strings.Contains(counter.requests[0].System, promptV3Forms[form]) {
 				t.Errorf("the system prompt is not the %s form's", form)
 			}
-			if got := svc.GetDefaultDocType(); got != form {
-				t.Errorf("GetDefaultDocType = %q, want %q — the UI preselects what auto would write", got, form)
+			if got := svc.GetSourcePreset().DocumentType; got != form {
+				t.Errorf("GetSourcePreset().DocumentType = %q, want %q — the UI preselects what auto would write", got, form)
 			}
 		})
 	}
@@ -325,5 +325,101 @@ func TestErrorsDoNotCarryTheReply(t *testing.T) {
 	}
 	if _, err := svc.Splice(SpliceRequest{FullCanvas: "c", OriginalText: secret, SelectedText: "c", Instruction: "i", Provider: "claude"}); err == nil || strings.Contains(err.Error(), secret) {
 		t.Errorf("Splice error = %v, want one without the reply", err)
+	}
+}
+
+// TestInstructionsReachTheModel: the choice page's one field goes out with the
+// run — in v3's instructions block, and in v2's style block next to the
+// professional/professional it was measured with. Nothing else of the user's
+// is a choice any more.
+func TestInstructionsReachTheModel(t *testing.T) {
+	counter, _ := pyramidizeWithCounter(t, replyV3, PyramidizeRequest{
+		Text: "draft", DocumentType: "memo", CustomInstructions: "in English, please",
+	})
+	if !strings.Contains(counter.requests[0].System, "<user_instructions>\nin English, please\n</user_instructions>") {
+		t.Error("v3: the instructions did not reach the system prompt")
+	}
+	if counter.requests[0].User != "draft" {
+		t.Errorf("v3: user message = %q, want the text alone", counter.requests[0].User)
+	}
+
+	counter, _ = pyramidizeWithCounter(t, replyV3, PyramidizeRequest{
+		Text: "draft", DocumentType: "email", PromptVariant: 2, CustomInstructions: "in English, please",
+	})
+	want := "Communication style: professional\nRelationship level: professional\nAdditional instructions: in English, please"
+	if !strings.Contains(counter.requests[0].System, want) {
+		t.Errorf("v2: the style block lacks %q", want)
+	}
+}
+
+// TestSourcePresetNamesWhatTheChoicePageShows: the choice page preselects the
+// form, tags it "Remembered for <app>", offers "Remember <form> for <app>" and
+// Forget. So it needs the form, whether a preset matched, and the name a new
+// preset is stored under — the matched preset's own name (so remembering
+// another form updates it, and Forget deletes it), else the app segment of
+// the window title, which presetDocType searches first.
+func TestSourcePresetNamesWhatTheChoicePageShows(t *testing.T) {
+	presets := []settings.AppPreset{
+		{SourceApp: "Slack", DocumentType: "chat"},
+		{SourceApp: "Gmail", DocumentType: "memo"},
+	}
+	tests := []struct {
+		name  string
+		title string
+		want  SourcePreset
+	}{
+		{"nothing captured", "", SourcePreset{App: "", DocumentType: "email", Remembered: false}},
+		{"no preset: the app segment", "Inbox - Outlook", SourcePreset{App: "Outlook", DocumentType: "email", Remembered: false}},
+		{"en dash", "Report.docx – Word", SourcePreset{App: "Word", DocumentType: "email", Remembered: false}},
+		{"a title without a separator", "Notepad", SourcePreset{App: "Notepad", DocumentType: "email", Remembered: false}},
+		{"a title ending in a separator names its document part", "Draft - ", SourcePreset{App: "Draft", DocumentType: "email", Remembered: false}},
+		{"a preset: its own name", "general | Acme - SLACK", SourcePreset{App: "Slack", DocumentType: "chat", Remembered: true}},
+		{"a preset found in the document part", "Inbox - Gmail - Google Chrome", SourcePreset{App: "Gmail", DocumentType: "memo", Remembered: true}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := settings.Default()
+			cfg.AppPresets = presets
+			svc, _ := newCountingService(cfg, replyV3)
+			svc.sourceAppName = tc.title
+			if got := svc.GetSourcePreset(); got != tc.want {
+				t.Errorf("GetSourcePreset() = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRememberingUnderTheSourceNameMatchesNextTime: what the choice page
+// stores under GetSourcePreset().App is found again for the next capture from
+// the same app, with another document in its title.
+func TestRememberingUnderTheSourceNameMatchesNextTime(t *testing.T) {
+	svc, _ := newCountingService(settings.Default(), replyV3)
+	svc.sourceAppName = "Inbox - Outlook"
+	app := svc.GetSourcePreset().App
+	if err := svc.SetAppPreset(AppPreset{SourceApp: app, DocumentType: "chat"}); err != nil {
+		t.Fatalf("SetAppPreset: %v", err)
+	}
+	svc.sourceAppName = "Re: Budget Q3 - Message (HTML) - Outlook"
+	if got := svc.GetSourcePreset(); got != (SourcePreset{App: "Outlook", DocumentType: "chat", Remembered: true}) {
+		t.Errorf("next capture: GetSourcePreset() = %+v, want chat remembered for Outlook", got)
+	}
+}
+
+// TestRefineCarriesNoStyleOrRelationship: "Change the whole text" kept the
+// style and relationship of a page that no longer has them; it keeps the
+// form and the canvas's own voice instead.
+func TestRefineCarriesNoStyleOrRelationship(t *testing.T) {
+	svc, counter := newCountingService(settings.Default(), `{"newCanvas":"c2"}`)
+	if _, err := svc.RefineGlobal(RefineGlobalRequest{FullCanvas: "c", OriginalText: "o", Instruction: "shorter", DocumentType: "chat", Provider: "claude"}); err != nil {
+		t.Fatalf("RefineGlobal: %v", err)
+	}
+	system := strings.ToLower(counter.requests[0].System)
+	for _, gone := range []string{"communication style", "relationship level"} {
+		if strings.Contains(system, gone) {
+			t.Errorf("the refine prompt still names %q", gone)
+		}
+	}
+	if !strings.Contains(system, "document type (chat)") {
+		t.Error("the refine prompt no longer keeps the document type")
 	}
 }

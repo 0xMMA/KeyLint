@@ -159,7 +159,7 @@ func (svc *Service) Pyramidize(req PyramidizeRequest) (PyramidizeResult, error) 
 		return PyramidizeResult{}, err
 	}
 	systemPrompt, userMessage, schema, err := buildDocTypePrompt(docType, req.PromptVariant,
-		req.CommunicationStyle, req.RelationshipLevel, req.CustomInstructions, req.Text)
+		req.CustomInstructions, req.Text)
 	if err != nil {
 		return PyramidizeResult{}, err
 	}
@@ -202,11 +202,37 @@ func unreadableReply(step, raw string, err error) error {
 	return fmt.Errorf("%s: the model's reply could not be read", step)
 }
 
-// GetDefaultDocType is the form Pyramidize preselects for the captured source
-// app: its app preset, else email. It is what "auto" would write, so the UI
-// shows the choice instead of making it out of sight.
-func (svc *Service) GetDefaultDocType() string {
-	return presetDocType(svc.settings.Get().AppPresets, svc.GetSourceApp())
+// SourcePreset is what the choice page shows about the captured source app.
+type SourcePreset struct {
+	// App is the name a form is remembered under: the matched preset's own
+	// name, else the app segment of the window title ("Outlook" for "Inbox -
+	// Outlook"), which is what presetDocType searches first. "" when nothing
+	// was captured.
+	App string `json:"app"`
+	// DocumentType is the form to preselect: the matched preset's, else email
+	// — what "auto" would write, so the UI shows the choice instead of making
+	// it out of sight.
+	DocumentType string `json:"documentType"`
+	// Remembered is whether a preset matched; App is then its name.
+	Remembered bool `json:"remembered"`
+}
+
+// GetSourcePreset tells the choice page which form to preselect for the
+// captured source app, whether that is a remembered preset, and under which
+// name "Remember <form> for <app>" stores one.
+func (svc *Service) GetSourcePreset() SourcePreset {
+	// Split untrimmed: "Draft - " still has its separator.
+	title := svc.GetSourceApp()
+	if name, docType, ok := matchPreset(svc.settings.Get().AppPresets, title); ok {
+		return SourcePreset{App: name, DocumentType: docType, Remembered: true}
+	}
+	app, document := splitTitle(title)
+	name := strings.TrimSpace(app)
+	if name == "" {
+		// "Draft - ": nothing after the separator to name the app by.
+		name = strings.TrimSpace(document)
+	}
+	return SourcePreset{App: name, DocumentType: "email"}
 }
 
 // RefineGlobal applies a user instruction to the full canvas document.
@@ -220,8 +246,7 @@ func (svc *Service) RefineGlobal(req RefineGlobalRequest) (RefineGlobalResult, e
 	cfg := svc.settings.Get()
 	opts := aiOpts{provider: req.Provider, model: req.Model, effort: req.Effort}
 	systemPrompt, userMessage := buildGlobalRefinePrompt(
-		req.FullCanvas, req.OriginalText, req.Instruction,
-		req.DocumentType, req.CommunicationStyle, req.RelationshipLevel,
+		req.FullCanvas, req.OriginalText, req.Instruction, req.DocumentType,
 	)
 
 	raw, err := svc.callAIWithContext(ctx, cfg, opts, systemPrompt, userMessage, canvasSchema)
@@ -502,13 +527,22 @@ func resolveDocType(requested string, presets []settings.AppPreset, sourceApp st
 // "Outlook Web" beats "Outlook". A preset naming no form (a hand-edited
 // settings file) is skipped rather than trusted.
 func presetDocType(presets []settings.AppPreset, sourceApp string) string {
-	app, document := splitTitle(sourceApp)
-	for _, part := range []string{app, document} {
-		if docType, ok := bestPreset(presets, part); ok {
-			return docType
-		}
+	if _, docType, ok := matchPreset(presets, sourceApp); ok {
+		return docType
 	}
 	return "email"
+}
+
+// matchPreset finds the preset presetDocType applies to sourceApp, with the
+// name it is stored under.
+func matchPreset(presets []settings.AppPreset, sourceApp string) (name, docType string, ok bool) {
+	app, document := splitTitle(sourceApp)
+	for _, part := range []string{app, document} {
+		if p, found := bestPreset(presets, part); found {
+			return strings.TrimSpace(p.SourceApp), normalizeDocType(p.DocumentType), true
+		}
+	}
+	return "", "", false
 }
 
 // titleSeparators end the document part of a window title.
@@ -529,10 +563,11 @@ func splitTitle(title string) (app, document string) {
 	return title[cut+width:], title[:cut]
 }
 
-// bestPreset is the form of the longest preset name found in text, if any.
-func bestPreset(presets []settings.AppPreset, text string) (string, bool) {
+// bestPreset is the preset with the longest name found in text, if any.
+func bestPreset(presets []settings.AppPreset, text string) (settings.AppPreset, bool) {
 	text = strings.ToLower(text)
-	best, bestLen := "", 0
+	var best settings.AppPreset
+	bestLen := 0
 	for _, p := range presets {
 		name := strings.ToLower(strings.TrimSpace(p.SourceApp))
 		docType := normalizeDocType(p.DocumentType)
@@ -540,7 +575,7 @@ func bestPreset(presets []settings.AppPreset, text string) (string, bool) {
 			continue
 		}
 		if len(name) > bestLen {
-			best, bestLen = docType, len(name)
+			best, bestLen = p, len(name)
 		}
 	}
 	return best, bestLen > 0

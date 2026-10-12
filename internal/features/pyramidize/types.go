@@ -2,15 +2,18 @@ package pyramidize
 
 // PyramidizeRequest is the RPC request for the main Pyramidize call.
 type PyramidizeRequest struct {
-	Text               string `json:"text"`
-	DocumentType       string `json:"documentType"`       // "email"|"chat"|"memo"|"wiki"|"powerpoint" ("presentation" too); "auto"/"" = the app preset, else email
-	CommunicationStyle string `json:"communicationStyle"` // "professional"|"casual"|"concise"|"detailed"|"persuasive"|"neutral"|"diplomatic"|"direct"
-	RelationshipLevel  string `json:"relationshipLevel"`  // "close"|"professional"|"authority"|"public"
-	CustomInstructions string `json:"customInstructions"` // optional, not persisted
-	Provider           string `json:"provider"`           // optional override: "claude"|"openai"|"ollama" — falls back to settings.ActiveProvider
-	Model              string `json:"model"`              // optional override, e.g. "claude-sonnet-4-6" — falls back to provider default
-	Effort             string `json:"effort"`             // optional override: "" follows settings, EffortNone sends none, else a level (llm.Effort*)
-	PromptVariant      int    `json:"promptVariant"`      // 0 = latest (v3, every form); 2 = the v2 email prompt, email only
+	Text         string `json:"text"`
+	DocumentType string `json:"documentType"` // "email"|"chat"|"memo"|"wiki"|"powerpoint" ("presentation" too); "auto"/"" = the app preset, else email
+	// CustomInstructions are the user's own words ("more formal", "in
+	// English"), optional and not persisted: with the form, the only choice
+	// the user makes. Communication style and relationship level went with
+	// the options column (roadmap E3 phase 3); v2 runs on the
+	// professional/professional it was measured with.
+	CustomInstructions string `json:"customInstructions"`
+	Provider           string `json:"provider"`      // optional override: "claude"|"openai"|"ollama" — falls back to settings.ActiveProvider
+	Model              string `json:"model"`         // optional override, e.g. "claude-sonnet-4-6" — falls back to provider default
+	Effort             string `json:"effort"`        // optional override: "" follows settings, EffortNone sends none, else a level (llm.Effort*)
+	PromptVariant      int    `json:"promptVariant"` // 0 = latest (v3, every form); 2 = the v2 email prompt, email only
 }
 
 // EffortNone, as a request's Effort, sends no effort for that run even when
@@ -32,15 +35,13 @@ type PyramidizeResult struct {
 
 // RefineGlobalRequest is the RPC request for a full-canvas AI revision.
 type RefineGlobalRequest struct {
-	FullCanvas         string `json:"fullCanvas"`
-	OriginalText       string `json:"originalText"`
-	Instruction        string `json:"instruction"`
-	DocumentType       string `json:"documentType"`
-	CommunicationStyle string `json:"communicationStyle"`
-	RelationshipLevel  string `json:"relationshipLevel"`
-	Provider           string `json:"provider"`
-	Model              string `json:"model"`
-	Effort             string `json:"effort"` // see PyramidizeRequest.Effort
+	FullCanvas   string `json:"fullCanvas"`
+	OriginalText string `json:"originalText"`
+	Instruction  string `json:"instruction"`
+	DocumentType string `json:"documentType"`
+	Provider     string `json:"provider"`
+	Model        string `json:"model"`
+	Effort       string `json:"effort"` // see PyramidizeRequest.Effort
 }
 
 // RefineGlobalResult is the RPC response for a full-canvas AI revision.

@@ -38,16 +38,18 @@ func resolvePromptVariant(docType string, variant int) (int, error) {
 
 // buildDocTypePrompt returns the prompt and the reply schema for one run.
 // docType must already be resolved to a form (see resolveDocType).
-func buildDocTypePrompt(docType string, variant int, style, relationship, customInstructions, text string) (systemPrompt, userMessage string, schema json.RawMessage, err error) {
+//
+// customInstructions are the user's own words, the one choice besides the form.
+func buildDocTypePrompt(docType string, variant int, customInstructions, text string) (systemPrompt, userMessage string, schema json.RawMessage, err error) {
 	v, err := resolvePromptVariant(docType, variant)
 	if err != nil {
 		return "", "", nil, err
 	}
 	if v == 2 {
-		system, user := buildEmailPromptV2(style, relationship, customInstructions, text)
+		system, user := buildEmailPromptV2(v2StyleDefault, v2RelationshipDefault, customInstructions, text)
 		return system, user, documentSchemaV2, nil
 	}
-	system, user, err := buildPromptV3(docType, style, relationship, customInstructions, text)
+	system, user, err := buildPromptV3(docType, customInstructions, text)
 	if err != nil {
 		return "", "", nil, err
 	}

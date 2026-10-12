@@ -1,8 +1,10 @@
 /**
  * Pyramidize layout tests — run in real Chromium, no API calls.
  *
- * These catch CSS layout regressions (flex height, tab visibility, overflow)
- * that jsdom/Vitest cannot detect because jsdom does not apply stylesheets.
+ * These catch CSS layout regressions (flex height, overflow, clipped
+ * controls) that jsdom/Vitest cannot detect because jsdom does not apply
+ * stylesheets. The Result step needs a result, so the Pyramidize service is
+ * faked (support/fake-pyramidize.ts).
  *
  * Convention: assert rendered dimensions with getBoundingClientRect() and
  * getComputedStyle() rather than snapshotting pixels — snapshots are brittle
@@ -10,17 +12,26 @@
  */
 
 import { test, expect, Page } from '@playwright/test';
+import { fakeState, installFakeBackend } from './support/fake-backend';
+import { fakePyramidize, installFakePyramidize } from './support/fake-pyramidize';
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+const DOCUMENT = 'Subject | Details | Actions\n\nHi,\n\n**Main point**\n- One\n- Two\n\nBest';
 
 async function gotoEnhance(page: Page): Promise<void> {
+  await installFakeBackend(page, fakeState({ activeProvider: 'claude', keys: { claude: 'keyring' } }));
+  await installFakePyramidize(page, fakePyramidize({ fullDocument: DOCUMENT }));
   await page.goto('/enhance');
+  await expect(page.getByTestId('original-textarea')).toBeVisible();
   await page.waitForLoadState('networkidle');
-  // Wait for the component's initial RPC calls (getSourceApp, loadSettings…) to settle.
-  await page.waitForTimeout(300);
 }
 
-/** Returns getBoundingClientRect() for a selector. */
+async function toResult(page: Page): Promise<void> {
+  await page.getByTestId('original-textarea').fill('hi, two things about the numbers');
+  await page.getByTestId('choose-form-btn').getByRole('button').click();
+  await page.getByTestId('pyramidize-btn').getByRole('button').click();
+  await expect(page.getByTestId('canvas-textarea')).toHaveValue(DOCUMENT);
+}
+
 async function rect(page: Page, selector: string) {
   return page.locator(selector).evaluate((el) => {
     const r = el.getBoundingClientRect();
@@ -28,139 +39,56 @@ async function rect(page: Page, selector: string) {
   });
 }
 
-/** Returns getComputedStyle property. */
-async function style(page: Page, selector: string, prop: string): Promise<string> {
-  return page.locator(selector).evaluate(
-    (el, p) => getComputedStyle(el).getPropertyValue(p),
-    prop,
-  );
-}
-
-// ── Tab switching ─────────────────────────────────────────────────────────────
-
-test.describe('Pyramidize — tab switching', () => {
-  test('only the active tab panel is visible', async ({ page }) => {
+test.describe('Pyramidize — the text sheets fill the available space', () => {
+  test('the Text step\'s sheet is tall, and stays inside the viewport with its buttons', async ({ page }) => {
     await gotoEnhance(page);
-
-    // Original tab is active by default.
-    const originalPanel = page.locator('[role="tabpanel"][data-value="original"]');
-    const canvasPanel   = page.locator('[role="tabpanel"][data-value="canvas"]');
-
-    await expect(originalPanel).toBeVisible();
-
-    // The inactive canvas panel must not be visible.
-    await expect(canvasPanel).toBeHidden();
-
-    // Switch to canvas tab.
-    await page.getByRole('tab', { name: 'Editor' }).click();
-
-    await expect(canvasPanel).toBeVisible();
-    await expect(originalPanel).toBeHidden();
-  });
-
-  test('both panels are never simultaneously visible', async ({ page }) => {
-    await gotoEnhance(page);
-
-    // toHaveCount retries where count() samples once — see
-    // router-leave-settings.spec.ts for the failure that taught us.
-    const panels = page.locator('[role="tabpanel"]');
-    await expect(panels).toHaveCount(2);
-
-    // Measure how many panels have height > 0 on the initial render.
-    const heights = await panels.evaluateAll((els) =>
-      els.map((el) => el.getBoundingClientRect().height),
-    );
-    const visible = heights.filter((h) => h > 0);
-    expect(visible.length).toBe(1);
-
-    // Switch tab, re-check.
-    await page.getByRole('tab', { name: 'Editor' }).click();
-    const heights2 = await panels.evaluateAll((els) =>
-      els.map((el) => el.getBoundingClientRect().height),
-    );
-    const visible2 = heights2.filter((h) => h > 0);
-    expect(visible2.length).toBe(1);
-  });
-});
-
-// ── Textarea height ───────────────────────────────────────────────────────────
-
-test.describe('Pyramidize — textarea fills available space', () => {
-  test('original textarea is taller than 200px', async ({ page }) => {
-    await gotoEnhance(page);
-
-    const r = await rect(page, '[data-testid="original-textarea"]');
-    expect(r.height).toBeGreaterThan(200);
-  });
-
-  test('canvas textarea is taller than 200px after switching to canvas tab', async ({ page }) => {
-    await gotoEnhance(page);
-    await page.getByRole('tab', { name: 'Editor' }).click();
-
-    const r = await rect(page, '[data-testid="canvas-textarea"]');
-    expect(r.height).toBeGreaterThan(200);
-  });
-
-  test('textareas do not overflow below the viewport', async ({ page }) => {
-    await gotoEnhance(page);
-
     const viewportHeight = page.viewportSize()!.height;
     const r = await rect(page, '[data-testid="original-textarea"]');
-    expect(r.bottom).toBeLessThanOrEqual(viewportHeight + 1); // +1px tolerance
+    expect(r.height).toBeGreaterThan(200);
+    const go = await rect(page, '[data-testid="choose-form-btn"]');
+    expect(go.bottom).toBeLessThanOrEqual(viewportHeight + 1);
   });
-});
 
-// ── Bottom controls always visible ───────────────────────────────────────────
-
-test.describe('Pyramidize — bottom controls are not clipped', () => {
-  test('global instruction input is visible and within viewport', async ({ page }) => {
+  test('the result\'s sheet is tall, and the controls under it are not clipped', async ({ page }) => {
     await gotoEnhance(page);
-
+    await toResult(page);
     const viewportHeight = page.viewportSize()!.height;
-    const r = await rect(page, '[data-testid="global-instruction-input"]');
-
-    expect(r.height).toBeGreaterThan(0);
-    expect(r.bottom).toBeLessThanOrEqual(viewportHeight + 1);
+    expect((await rect(page, '[data-testid="canvas-textarea"]')).height).toBeGreaterThan(200);
+    for (const id of ['global-instruction-input', 'copy-markdown-btn', 'copy-rich-text-btn']) {
+      const r = await rect(page, `[data-testid="${id}"]`);
+      expect(r.height, id).toBeGreaterThan(0);
+      expect(r.bottom, id).toBeLessThanOrEqual(viewportHeight + 1);
+    }
   });
 
-  test('Copy Markdown button is visible and within viewport', async ({ page }) => {
+  test('the preview has a real height and does not overflow the viewport', async ({ page }) => {
     await gotoEnhance(page);
-
-    const viewportHeight = page.viewportSize()!.height;
-    const r = await rect(page, '[data-testid="copy-markdown-btn"]');
-
-    expect(r.height).toBeGreaterThan(0);
-    expect(r.bottom).toBeLessThanOrEqual(viewportHeight + 1);
-  });
-});
-
-// ── Left panel controls ───────────────────────────────────────────────────────
-
-test.describe('Pyramidize — left panel', () => {
-  test('provider and model selectors are visible', async ({ page }) => {
-    await gotoEnhance(page);
-
-    await expect(page.locator('[data-testid="provider-select"]')).toBeVisible();
-    await expect(page.locator('[data-testid="model-select"]')).toBeVisible();
-  });
-
-  test('doc-type selector is visible', async ({ page }) => {
-    await gotoEnhance(page);
-    await expect(page.locator('[data-testid="doc-type-select"]')).toBeVisible();
-  });
-
-  test('pyramidize button is visible', async ({ page }) => {
-    await gotoEnhance(page);
-    await expect(page.locator('[data-testid="pyramidize-btn"]')).toBeVisible();
+    await toResult(page);
+    await page.getByTestId('segment-preview').click();
+    const previewEl = page.getByTestId('canvas-preview');
+    await expect(previewEl).toBeVisible();
+    const r = await rect(page, '[data-testid="canvas-preview"]');
+    expect(r.height).toBeGreaterThan(100);
+    expect(r.bottom).toBeLessThanOrEqual(page.viewportSize()!.height + 1);
   });
 });
 
-// ── Trace log panel ───────────────────────────────────────────────────────────
-
-test.describe('Pyramidize — trace log panel', () => {
-  test('the history starts closed, opens from the tab bar and closes again', async ({ page }) => {
+test.describe('Pyramidize — the form choice', () => {
+  test('lays the five forms out in one row at the default width', async ({ page }) => {
+    await page.setViewportSize({ width: 1264, height: 740 });
     await gotoEnhance(page);
+    await page.getByTestId('original-textarea').fill('some text');
+    await page.getByTestId('choose-form-btn').getByRole('button').click();
+    const tops = await page.getByRole('radio').evaluateAll(els => els.map(el => Math.round(el.getBoundingClientRect().top)));
+    expect(tops).toHaveLength(5);
+    expect(new Set(tops).size, 'the forms wrapped').toBe(1);
+  });
+});
 
+test.describe('Pyramidize — history column', () => {
+  test('starts closed, opens from the result\'s tools, and closes again', async ({ page }) => {
+    await gotoEnhance(page);
+    await toResult(page);
     const panel = page.locator('[data-testid="trace-log-panel"]');
     await expect(panel).toHaveCount(0);
 
@@ -175,8 +103,6 @@ test.describe('Pyramidize — trace log panel', () => {
     await expect(panel).toHaveCount(0);
   });
 });
-
-// ── Sidebar collapse ─────────────────────────────────────────────────────────
 
 test.describe('Shell — sidebar collapse', () => {
   test('sidebar collapses to icon-only strip on button click', async ({ page }) => {
@@ -193,32 +119,10 @@ test.describe('Shell — sidebar collapse', () => {
     const collapsedWidth = await sidebar.evaluate((el) => el.getBoundingClientRect().width);
     expect(collapsedWidth).toBeLessThan(70); // collapsed to ~48px
 
-    // Expand again.
     await page.locator('.collapse-btn').click();
     await page.waitForTimeout(300);
 
     const expandedWidth = await sidebar.evaluate((el) => el.getBoundingClientRect().width);
     expect(expandedWidth).toBeGreaterThan(100);
-  });
-});
-
-// ── Canvas preview mode ───────────────────────────────────────────────────────
-
-test.describe('Pyramidize — canvas preview mode', () => {
-  test('preview div has meaningful height and does not overflow viewport', async ({ page }) => {
-    await gotoEnhance(page);
-
-    // Switch to canvas tab and click Preview.
-    await page.getByRole('tab', { name: 'Editor' }).click();
-    await page.getByTestId('segment-preview').click();
-
-    const viewportHeight = page.viewportSize()!.height;
-    const previewEl = page.getByTestId('canvas-preview');
-
-    await expect(previewEl).toBeVisible();
-
-    const r = await rect(page, '[data-testid="canvas-preview"]');
-    expect(r.height).toBeGreaterThan(100);
-    expect(r.bottom).toBeLessThanOrEqual(viewportHeight + 1);
   });
 });

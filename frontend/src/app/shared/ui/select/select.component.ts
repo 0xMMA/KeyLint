@@ -34,7 +34,7 @@ type Option = unknown;
  * The open list follows its trigger when the page scrolls and closes once
  * the trigger has scrolled out of its container's view. That needs the
  * container to be known to the CDK: the app's scroll containers carry
- * `cdkScrollable` (the shell's main area, the Pyramidize options column);
+ * `cdkScrollable` (the shell's main area, the Pyramidize page's scroll area);
  * a new scrolling container that can hold a select needs it too.
  *
  * Options are any objects. `optionLabel` names the field that is the option's

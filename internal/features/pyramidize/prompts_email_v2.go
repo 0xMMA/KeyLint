@@ -1,5 +1,7 @@
 package pyramidize
 
+import "fmt"
+
 // emailSystemBaseV2 is a leaner, more direct email prompt.
 // No selfQA — the model produces {fullDocument, headers, language} only.
 // Quality is evaluated externally by deterministic checks and LLM-as-judge.
@@ -63,4 +65,21 @@ output: {"fullDocument": "Q1 Review Moved to Monday 2pm | Numbers Due Sunday, Sl
 // Kept verbatim as the baseline v3 email is measured against (ADR-003).
 func buildEmailPromptV2(style, relationship, customInstructions, inputText string) (systemPrompt, userMessage string) {
 	return emailSystemBaseV2 + "\n\n" + styleInjection(style, relationship, customInstructions), inputText
+}
+
+// v2StyleDefaults are the style and relationship v2 was measured with, and
+// what every v2 run sends since the choice page has neither control
+// (roadmap E3 phase 3). v2 stays byte-identical: TestV2IsKeptVerbatim.
+const v2StyleDefault, v2RelationshipDefault = "professional", "professional"
+
+// styleInjection is v2's style block, word for word as measured. v3 has its
+// own instructions block (buildPromptV3).
+func styleInjection(style, relationship, customInstructions string) string {
+	s := fmt.Sprintf(`<style_injection>
+Communication style: %s
+Relationship level: %s`, style, relationship)
+	if customInstructions != "" {
+		s += fmt.Sprintf("\nAdditional instructions: %s", customInstructions)
+	}
+	return s + "\n</style_injection>"
 }

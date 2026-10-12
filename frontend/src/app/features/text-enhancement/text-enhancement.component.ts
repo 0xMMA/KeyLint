@@ -1,40 +1,36 @@
 import { Component, OnInit, OnDestroy, ChangeDetectorRef, ElementRef, ViewChild, ChangeDetectionStrategy } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { CdkScrollable } from '@angular/cdk/scrolling';
 import { Subscription } from 'rxjs';
-import { WailsService } from '../../core/wails.service';
-import { noteForModelSource } from '../../core/model-source';
+import { WailsService, type Settings, type SourcePreset } from '../../core/wails.service';
 import { describeError } from '../../core/error-message';
-import { DOCUMENT_TYPE_OPTIONS, unavailableProviderName } from '../../core/constants';
+import { unavailableProviderName } from '../../core/constants';
 import {
   ButtonComponent, InputDirective, MessageComponent, SegmentedComponent, SpinnerComponent,
-  TabComponent, TabPanelComponent, TabsComponent, TooltipDirective, type SegmentOption,
+  TooltipDirective, type SegmentOption,
 } from '../../shared/ui';
 import { TextEnhancementService } from './text-enhancement.service';
 import { MarkdownPipe } from './markdown.pipe';
 import { type TraceEntry } from './trace-entry';
-import { OptionsPanelComponent } from './options-panel/options-panel.component';
 import { TraceLogComponent } from './trace-log/trace-log.component';
 import { TracePeekComponent } from './trace-peek/trace-peek.component';
 import { SelectionBubbleComponent } from './selection-bubble/selection-bubble.component';
-import { EFFORT_OPTIONS, effortNote, type EffortOption } from '../settings/model-options';
+import { StepBarComponent, type PyramidizeStep } from './step-bar/step-bar.component';
+import { IntakeStepComponent } from './intake-step/intake-step.component';
+import { ChoiceStepComponent } from './choice-step/choice-step.component';
+import { ResultHeaderComponent } from './result-header/result-header.component';
+import { DEFAULT_FORM, formLabel } from './forms';
+import { EFFORT_OPTIONS, effectiveModel, effortNote, modelName } from '../settings/model-options';
 
-// ── Module-level state (survives navigation; cleared only on full app restart) ──
-
-// Same names as Settings › AI Providers, so "Settings uses X" below reads as
-// the same X the user sees there.
-const PROVIDER_OPTIONS = [
-  { label: 'Anthropic API', value: 'claude' },
-  { label: 'Claude Code (installed CLI)', value: 'claude-code' },
-  { label: 'OpenAI', value: 'openai' },
-  { label: 'Ollama (local)', value: 'ollama' },
-];
-
-/** Lets a user say "use what Settings says" without knowing the model name. */
-const DEFAULT_MODEL_OPTION = { id: '', label: 'KeyLint default' };
-
-/** A request effort that sends none, whatever Settings say: pyramidize.EffortNone in Go. */
-const EFFORT_NONE = 'none';
+// Same names as Settings › AI Providers, so the line under the form choice
+// names the provider the user sees there.
+const PROVIDER_LABELS: Readonly<Record<string, string>> = {
+  claude: 'Anthropic API',
+  'claude-code': 'Claude Code (installed CLI)',
+  openai: 'OpenAI',
+  ollama: 'Ollama (local)',
+};
 
 /** Providers that need no credential at all. */
 const KEYLESS_PROVIDERS = new Set(['ollama']);
@@ -47,57 +43,82 @@ const CLI_NOT_INSTALLED_MESSAGE = 'Claude Code CLI not found on this machine.';
 const CLI_NOT_SIGNED_IN_MESSAGE =
   'Claude Code is installed but not signed in. Open a terminal, run `claude`, and sign in.';
 
+/** One Pyramidize result: the form it was written in, and its text as edited since. */
+interface ResultVersion {
+  id: string;
+  docType: string;
+  text: string;
+}
+
+// ── Module-level state (survives navigation; cleared only on full app restart) ──
+
+let step: PyramidizeStep = 'intake';
 let originalText = '';
-let pyramidizedText = '';   // snapshot of the most recent Pyramidize result
-let canvasText = '';         // live working surface
-let sourceApp = '';          // captured source app name (from hotkey)
-// The user's pick; a shortcut capture preselects the app preset (or email).
-let docType = 'email';
-let commStyle = 'professional';
-let relLevel = 'professional';
+// The window title the Pyramidize shortcut captured for this session; '' when
+// the text was pasted or typed here. Only a capture sets it: the backend keeps
+// its last capture for the whole run of the app, and pasted text did not come
+// from that window.
+let sourceApp = '';
+// What the backend says about that app: the form to preselect, whether it is
+// remembered, and the name to remember it under. null without a capture.
+let sourcePreset: SourcePreset | null = null;
+let docType = DEFAULT_FORM;
+let rememberForm = false;
+let instructions = '';
+// Every result of the session, oldest first. Going back to the form choice and
+// running again adds one; none is ever replaced.
+let results: ResultVersion[] = [];
+let activeResult = -1;
 let traceLog: TraceEntry[] = [];
-let activeTab: 'original' | 'canvas' = 'original';
+// The original text the history last took a snapshot of.
+let tracedOriginal = '';
 let isPreviewMode = false;
 let traceLogOpen = false;
 let wasCancelled = false;
+// Bumped by every run and every cancel: a reply that arrives for an older run
+// (cancelled, or overtaken) is dropped.
+let runSeq = 0;
 let bannerDismissed = false; // session-only
-// Empty until ngOnInit reads the active provider from settings. Initialising
-// it to a provider here made that branch unreachable, so the panel always
-// opened on Claude whatever the user had configured.
-let selectedProvider = '';
-// Whether the user picked a provider in this panel this session, other than
-// the one Settings names. Without such a pick the panel follows Settings on
-// every visit, so a switch made there is not ignored until a restart.
-let providerPickedThisSession = false;
-// What Settings named when that pick was made. A pick made because Settings
-// named a provider that cannot work (a saved AWS Bedrock) is no override of a
-// choice; it only stands until Settings names something usable.
-let pickedWhileSettingsWas = '';
 
 /**
- * Puts the provider choice back to "follow Settings". For specs: the state is
- * module-level and outlives every fixture, and the test runner shares modules
- * between spec files (see .claude/rules/testing.md).
+ * Starts Pyramidize over. For specs: the state is module-level and outlives
+ * every fixture, and the test runner shares modules between spec files (see
+ * .claude/rules/testing.md).
  */
-export function resetPyramidizeProviderSession(): void {
-  selectedProvider = '';
-  selectedModel = '';
-  selectedEffort = '';
-  providerPickedThisSession = false;
-  pickedWhileSettingsWas = '';
+export function resetPyramidizeSession(): void {
+  step = 'intake';
+  originalText = '';
+  sourceApp = '';
+  sourcePreset = null;
+  docType = DEFAULT_FORM;
+  rememberForm = false;
+  instructions = '';
+  results = [];
+  activeResult = -1;
+  traceLog = [];
+  tracedOriginal = '';
+  isPreviewMode = false;
+  traceLogOpen = false;
+  wasCancelled = false;
+  runSeq++;
+  bannerDismissed = false;
 }
-// Empty means "whatever settings say for this provider" — the backend resolves it.
-let selectedModel = '';
-// The same for effort: a session override, never written to settings. Empty
-// follows Settings' Pyramidize effort for the provider; EFFORT_NONE sends none.
-let selectedEffort = '';
 
-/** The step label while Pyramidize runs: one call, so one step (ADR-003). */
-const STRUCTURING = 'Structuring…';
+function activeText(): string {
+  return results[activeResult]?.text ?? '';
+}
+
+function setActiveText(text: string): void {
+  const r = results[activeResult];
+  if (r) r.text = text;
+}
 
 /** Room the selection bubble needs, to keep it inside the window. */
 const BUBBLE_WIDTH = 340;
 const BUBBLE_HEIGHT = 48;
+
+/** How much of the text the Form step quotes. */
+const EXCERPT_LENGTH = 90;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(value, Math.max(min, max)));
@@ -114,191 +135,197 @@ function addTrace(label: string, snapshot: string): void {
   ];
 }
 
+/** A snapshot of the original text, once per version of it the user ran or brought in. */
+function traceOriginal(): void {
+  if (originalText.trim() && originalText !== tracedOriginal) {
+    addTrace('Original', originalText);
+    tracedOriginal = originalText;
+  }
+}
+
 /**
- * Pyramidize (docs/ui/design.md, mockup "Pyramidize"): the options column on
- * the left, the text on a sheet in the middle (Editor and Original tabs), and
- * the history column on the right when it is open.
+ * Pyramidize (roadmap E3 phase 3, the "Pyramidize v3 flow" mockup): Text →
+ * Form → Result, with a step bar over them. The shortcut brings its text along
+ * and opens on Form; without one the page opens on Text.
  *
- * This component owns the session — state, backend calls, shortcuts; the
- * options column, the history list, the snapshot preview and the selection
- * bubble are presentational children.
+ * Provider, model and effort come from Settings only; the Form step says
+ * which, with a link there. The only choices here are the form and the user's
+ * own instructions.
+ *
+ * Going back to Form and running again always starts from the original text
+ * and adds a result; earlier results stay whole and selectable, and the
+ * history keeps every snapshot.
+ *
+ * This component owns the session — state, backend calls, the editor; the
+ * steps, the history list, the snapshot preview and the selection bubble are
+ * presentational children.
  */
 @Component({
   selector: 'app-text-enhancement',
   standalone: true,
   imports: [
-    FormsModule,
-    ButtonComponent, InputDirective, MessageComponent, SegmentedComponent, SpinnerComponent,
-    TabsComponent, TabComponent, TabPanelComponent, TooltipDirective,
-    OptionsPanelComponent, TraceLogComponent, TracePeekComponent, SelectionBubbleComponent,
+    FormsModule, NgTemplateOutlet, CdkScrollable,
+    ButtonComponent, InputDirective, MessageComponent, SegmentedComponent, SpinnerComponent, TooltipDirective,
+    StepBarComponent, IntakeStepComponent, ChoiceStepComponent, ResultHeaderComponent,
+    TraceLogComponent, TracePeekComponent, SelectionBubbleComponent,
     MarkdownPipe,
   ],
   changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <div class="pyramidize-page">
+      <section class="canvas-area" cdkScrollable aria-label="Pyramidize">
+        <div class="pz-stack" [class.pz-stack-fill]="shownStep !== 'choice'">
+          <app-step-bar
+            [current]="shownStep"
+            [canChoose]="!!originalTextView.trim()"
+            [canSeeResult]="resultFormsView.length > 0"
+            [disabled]="isLoading"
+            [source]="sourceLabelView"
+            (go)="goToStep($event)"
+          />
 
-      <app-pyramidize-options
-        [providerOptions]="providerOptions"
-        [provider]="providerView"
-        (providerPicked)="providerView = $event; onProviderChange()"
-        [sessionOverrideOf]="sessionOverrideOf"
-        [settingsProviderUnusable]="settingsProviderUnusable"
-        [unavailableProvider]="unavailableProviderView"
-        (followSettings)="followSettingsProvider()"
-        [modelOptions]="currentModelOptions"
-        [(model)]="modelView"
-        [modelListNote]="modelListNote"
-        [effortOptions]="effortOptions"
-        [(effort)]="effortView"
-        [effortNote]="effortNoteView"
-        [docTypeOptions]="docTypeOptions"
-        [(docType)]="docTypeView"
-        [commStyleOptions]="commStyleOptions"
-        [(commStyle)]="commStyleView"
-        [relLevelOptions]="relLevelOptions"
-        [(relLevel)]="relLevelView"
-        [(customInstructions)]="customInstructions"
-        [canPyramidize]="canPyramidize"
-        [loading]="isLoading"
-        [hasResult]="!!canvasTextView.trim()"
-        (pyramidize)="pyramidize()"
-        [showBanner]="!bannerDismissedView && !apiKeySet"
-        [bannerMessage]="credentialsMessage"
-        (dismissBanner)="dismissBanner()"
-      />
-
-      <!-- ── Editor ── -->
-      <section class="canvas-area" aria-label="Editor">
-        <div class="pz-stack">
-          <div class="pz-editor">
-            <kl-tabs class="pz-tabs" ariaLabel="Text" [value]="activeTabView" (valueChange)="onTabChange($event)"
-              [attr.inert]="isLoading ? '' : null">
-              <kl-tab value="canvas" data-testid="tab-canvas">Editor</kl-tab>
-              <kl-tab value="original" data-testid="tab-original">Original</kl-tab>
-              <div klTabsEnd class="flex flex-wrap items-center justify-end gap-2 py-1">
-                @if (activeTabView === 'canvas') {
-                  <kl-segmented data-testid="canvas-mode" ariaLabel="Editor view" [options]="canvasModes"
-                    [value]="isPreviewModeView ? 'preview' : 'edit'" (valueChange)="setPreviewMode($event === 'preview')" />
-                }
-                <kl-button #historyToggle data-testid="trace-log-toggle" size="sm" icon="rotate-ccw-clock"
-                  [variant]="traceLogOpenView ? 'quiet' : 'ghost'" [pressed]="traceLogOpenView"
-                  (click)="toggleTraceLog()">{{ historyLabel }}</kl-button>
-              </div>
-
-              <kl-tab-panel value="canvas" class="pz-panel">
-                @if (isPreviewModeView) {
-                  <div class="pz-sheet canvas-preview" data-testid="canvas-preview" [innerHTML]="canvasTextView | markdown"></div>
-                } @else {
-                  <div class="canvas-edit-wrapper" (mouseup)="onCanvasMouseUp($event)">
-                    <textarea
-                      #canvasTextarea
-                      data-testid="canvas-textarea"
-                      class="pz-sheet"
-                      aria-label="Pyramidized text"
-                      [(ngModel)]="canvasTextView"
-                      (ngModelChange)="onCanvasChange($event)"
-                      placeholder="The pyramidized text appears here, ready to edit."
-                      (keydown)="onCanvasKeydown($event)"
-                    ></textarea>
-                  </div>
-                }
-                @if (showSelectionBubble && !isPreviewModeView) {
-                  <app-selection-bubble
-                    [style.top.px]="bubbleY"
-                    [style.left.px]="bubbleX"
-                    [(instruction)]="selectionInstruction"
-                    [disabled]="!!unavailableProviderView"
-                    (apply)="applySelectionInstruction()"
-                    (closed)="dismissSelectionBubble()"
-                  />
-                }
-              </kl-tab-panel>
-
-              <kl-tab-panel value="original" class="pz-panel">
-                @if (!originalTextView) {
-                  <div class="pz-empty">
-                    <p class="m-0 text-muted">Paste or type the text you want to pyramidize.</p>
-                    <kl-button data-testid="paste-from-clipboard-btn" icon="clipboard" (click)="pasteFromClipboard()">
-                      Paste from clipboard
-                    </kl-button>
-                  </div>
-                }
-                <textarea
-                  #originalTextarea
-                  data-testid="original-textarea"
-                  class="pz-sheet"
-                  aria-label="Original text"
-                  [(ngModel)]="originalTextView"
-                  (ngModelChange)="onOriginalChange($event)"
-                  (keydown)="onOriginalKeydown($event)"
-                ></textarea>
-              </kl-tab-panel>
-            </kl-tabs>
-
-            @if (isLoading) {
-              <div class="pz-busy" data-testid="step-indicator">
-                <div class="pz-busy-card" role="status">
-                  <kl-spinner [size]="20" class="text-primary" />
-                  <span class="flex-1 text-sm" data-testid="step-label">{{ stepLabel }}</span>
-                  <kl-button #cancelBtn data-testid="cancel-btn" size="sm" (click)="cancelOperation()">Cancel</kl-button>
-                </div>
-              </div>
-            }
-          </div>
-
-          @if (errorMessage) {
-            <kl-message data-testid="error-row" severity="error">
-              <div class="flex items-center gap-2">
-                <span class="error-text" [klTooltip]="errorMessage" klTooltipPosition="top">{{ errorMessage }}</span>
-                @if (errorMessage !== sendBackError) {
-                  <!-- Not for a Send Back error: the text it points to is on the
-                       clipboard, and copying the error would replace it. -->
-                  <kl-button data-testid="copy-error-btn" variant="ghost" size="sm" icon="copy" iconOnly
-                    ariaLabel="Copy error" klTooltip="Copy error" klTooltipPosition="top" (click)="copyError()" />
-                }
-                <kl-button data-testid="retry-btn" size="sm" icon="refresh-cw" (click)="retry()">Retry</kl-button>
-              </div>
+          @if (!bannerDismissedView && !apiKeySet) {
+            <kl-message data-testid="api-key-banner" severity="warn" closable (closed)="dismissBanner()">
+              <span data-testid="api-key-banner-message">{{ credentialsMessage }}</span>
             </kl-message>
           }
 
-          <div class="flex flex-wrap items-center gap-2.5">
-            <label for="pz-global-instruction" class="sr-only">Change the whole text</label>
-            <input
-              #instructionInput
-              klInput
-              id="pz-global-instruction"
-              data-testid="global-instruction-input"
-              class="w-auto min-w-0 flex-[1_1_260px]"
-              [(ngModel)]="globalInstruction"
-              placeholder="Change the whole text, e.g. make it shorter"
-              [disabled]="!canvasTextView.trim() || isLoading"
-              (keydown.control.enter)="applyGlobalInstruction()"
-            />
-            <kl-button
-              data-testid="apply-instruction-btn"
-              size="lg"
-              [variant]="globalInstruction.trim() && !unavailableProviderView ? 'primary' : 'quiet'"
-              [disabled]="!globalInstruction.trim() || !canvasTextView.trim() || isLoading || !!unavailableProviderView"
-              (click)="applyGlobalInstruction()"
-            >Apply<span klButtonEnd><kbd>Ctrl</kbd> <kbd>Enter</kbd></span></kl-button>
-          </div>
-
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <div class="flex flex-wrap gap-2">
-              <kl-button data-testid="copy-rich-text-btn" size="lg" icon="file-text"
-                [disabled]="!canvasTextView" (click)="copyAsRichText()">Copy as rich text</kl-button>
-              <kl-button data-testid="copy-markdown-btn" variant="ghost" size="lg" icon="copy"
-                [disabled]="!canvasTextView" (click)="copyAsMarkdown()">Copy Markdown</kl-button>
-            </div>
-            @if (sourceAppView) {
-              <kl-button data-testid="send-back-btn" variant="primary" size="lg" icon="corner-down-left"
-                [disabled]="!canvasTextView || sendingBack" (click)="sendBack()">{{ 'Send back to ' + sourceAppView }}</kl-button>
+          @switch (shownStep) {
+            @case ('intake') {
+              <app-intake-step
+                [text]="originalTextView"
+                (textChange)="onOriginalChange($event)"
+                (paste)="pasteFromClipboard()"
+                (next)="goToStep('choice')"
+              />
             }
-          </div>
+            @case ('choice') {
+              @if (running === 'pyramidize') {
+                <div class="pz-working" data-testid="step-indicator" aria-live="polite">
+                  <div class="pz-busy-card" role="status">
+                    <kl-spinner [size]="20" class="text-primary" />
+                    <span class="flex-1 text-sm" data-testid="step-label">{{ stepLabel }}</span>
+                    <kl-button #cancelBtn data-testid="cancel-btn" size="sm" (click)="cancelOperation()">Cancel</kl-button>
+                  </div>
+                </div>
+              } @else {
+                <app-choice-step
+                  [excerpt]="excerptView"
+                  [app]="sourceApp ? sourceAppView : ''"
+                  [rememberedDocType]="rememberedDocTypeView"
+                  [runOn]="runOnView"
+                  [canRun]="canRun"
+                  [unavailableProvider]="unavailableProviderView"
+                  [docType]="docTypeView"
+                  (docTypeChange)="docTypeView = $event"
+                  [remember]="rememberView"
+                  (rememberChange)="rememberView = $event"
+                  [instructions]="instructionsView"
+                  (instructionsChange)="instructionsView = $event"
+                  (run)="pyramidize()"
+                  (editText)="goToStep('intake')"
+                  (forget)="forgetPreset()"
+                >
+                  <ng-container *ngTemplateOutlet="errorRow" />
+                </app-choice-step>
+              }
+            }
+            @case ('result') {
+              <app-result-header
+                [forms]="resultFormsView"
+                [active]="activeResultView"
+                (picked)="showResult($event)"
+                (back)="goToStep('choice')"
+              >
+                <div resultTools class="flex flex-wrap items-center gap-2" [attr.inert]="isLoading ? '' : null">
+                  <kl-segmented data-testid="canvas-mode" ariaLabel="Editor view" [options]="canvasModes"
+                    [value]="isPreviewModeView ? 'preview' : 'edit'" (valueChange)="setPreviewMode($event === 'preview')" />
+                  <kl-button #historyToggle data-testid="trace-log-toggle" size="sm" icon="rotate-ccw-clock"
+                    [variant]="traceLogOpenView ? 'quiet' : 'ghost'" [pressed]="traceLogOpenView"
+                    (click)="toggleTraceLog()">{{ historyLabel }}</kl-button>
+                </div>
+              </app-result-header>
+
+              <div class="pz-editor">
+                <div class="pz-panel" [attr.inert]="isLoading ? '' : null">
+                  @if (isPreviewModeView) {
+                    <div class="pz-sheet canvas-preview" data-testid="canvas-preview" [innerHTML]="canvasTextView | markdown"></div>
+                  } @else {
+                    <div class="canvas-edit-wrapper" (mouseup)="onCanvasMouseUp($event)">
+                      <textarea
+                        #canvasTextarea
+                        data-testid="canvas-textarea"
+                        class="pz-sheet"
+                        aria-label="Pyramidized text"
+                        [(ngModel)]="canvasTextView"
+                        (keydown)="onCanvasKeydown($event)"
+                      ></textarea>
+                    </div>
+                  }
+                  @if (showSelectionBubble && !isPreviewModeView) {
+                    <app-selection-bubble
+                      [style.top.px]="bubbleY"
+                      [style.left.px]="bubbleX"
+                      [(instruction)]="selectionInstruction"
+                      [disabled]="!!unavailableProviderView"
+                      (apply)="applySelectionInstruction()"
+                      (closed)="dismissSelectionBubble()"
+                    />
+                  }
+                </div>
+
+                @if (isLoading) {
+                  <div class="pz-busy" data-testid="step-indicator">
+                    <div class="pz-busy-card" role="status">
+                      <kl-spinner [size]="20" class="text-primary" />
+                      <span class="flex-1 text-sm" data-testid="step-label">{{ stepLabel }}</span>
+                      <kl-button #cancelBtn data-testid="cancel-btn" size="sm" (click)="cancelOperation()">Cancel</kl-button>
+                    </div>
+                  </div>
+                }
+              </div>
+
+              <ng-container *ngTemplateOutlet="errorRow" />
+
+              <div class="flex flex-wrap items-center gap-2.5">
+                <label for="pz-global-instruction" class="sr-only">Change the whole text</label>
+                <input
+                  klInput
+                  id="pz-global-instruction"
+                  data-testid="global-instruction-input"
+                  class="w-auto min-w-0 flex-[1_1_260px]"
+                  [(ngModel)]="globalInstruction"
+                  placeholder="Change the whole text, e.g. make it shorter"
+                  [disabled]="!canvasTextView.trim() || isLoading"
+                  (keydown.control.enter)="applyGlobalInstruction()"
+                />
+                <kl-button
+                  data-testid="apply-instruction-btn"
+                  size="lg"
+                  [variant]="globalInstruction.trim() && !unavailableProviderView ? 'primary' : 'quiet'"
+                  [disabled]="!globalInstruction.trim() || !canvasTextView.trim() || isLoading || !!unavailableProviderView"
+                  (click)="applyGlobalInstruction()"
+                >Apply<span klButtonEnd><kbd>Ctrl</kbd> <kbd>Enter</kbd></span></kl-button>
+              </div>
+
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="flex flex-wrap gap-2">
+                  <kl-button data-testid="copy-rich-text-btn" size="lg" icon="file-text"
+                    [disabled]="!canvasTextView" (click)="copyAsRichText()">Copy as rich text</kl-button>
+                  <kl-button data-testid="copy-markdown-btn" variant="ghost" size="lg" icon="copy"
+                    [disabled]="!canvasTextView" (click)="copyAsMarkdown()">Copy Markdown</kl-button>
+                </div>
+                @if (sourceApp) {
+                  <kl-button data-testid="send-back-btn" variant="primary" size="lg" icon="corner-down-left"
+                    [disabled]="!canvasTextView || sendingBack" (click)="sendBack()">{{ 'Send back to ' + sourceAppView }}</kl-button>
+                }
+              </div>
+            }
+          }
         </div>
 
         <!-- A history snapshot over the editor (UX-06) -->
-        @if (!isLoading && activeEntry; as entry) {
+        @if (shownStep === 'result' && !isLoading && activeEntry; as entry) {
           <app-trace-peek
             data-testid="trace-peek-overlay"
             [entry]="entry"
@@ -309,7 +336,7 @@ function addTrace(label: string, snapshot: string): void {
         }
       </section>
 
-      @if (traceLogOpenView) {
+      @if (shownStep === 'result' && traceLogOpenView) {
         <app-trace-log
           data-testid="trace-log-panel"
           [attr.inert]="isLoading ? '' : null"
@@ -323,26 +350,44 @@ function addTrace(label: string, snapshot: string): void {
         />
       }
     </div>
+
+    <ng-template #errorRow>
+      @if (errorMessage) {
+        <kl-message data-testid="error-row" severity="error">
+          <div class="flex items-center gap-2">
+            <span class="error-text" [klTooltip]="errorMessage" klTooltipPosition="top">{{ errorMessage }}</span>
+            @if (errorMessage !== sendBackError) {
+              <!-- Not for a Send Back error: the text it points to is on the
+                   clipboard, and copying the error would replace it. -->
+              <kl-button data-testid="copy-error-btn" variant="ghost" size="sm" icon="copy" iconOnly
+                ariaLabel="Copy error" klTooltip="Copy error" klTooltipPosition="top" (click)="copyError()" />
+            }
+            <kl-button data-testid="retry-btn" size="sm" icon="refresh-cw" (click)="retry()">Retry</kl-button>
+          </div>
+        </kl-message>
+      }
+    </ng-template>
   `,
   styles: [`
     :host { display: block; height: 100%; }
     .pyramidize-page { display: flex; height: 100%; overflow: hidden; }
 
-    .canvas-area { position: relative; flex: 1; min-width: 0; display: flex; padding: 12px 28px 24px; overflow: hidden; }
-    .pz-stack { flex: 1; min-width: 0; max-width: 880px; display: flex; flex-direction: column; gap: 16px; }
-    .pz-editor { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
-    .pz-tabs { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 16px; }
-    /* Only the active panel: the inactive one keeps kl-tab-panel's display: none. */
-    .pz-panel:not([hidden]) { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    /* The steps scroll here in a window too small for them; at the default
+       window size none does: e2e/pyramidize-fit.spec.ts. */
+    .canvas-area { position: relative; flex: 1; min-width: 0; display: flex; padding: 24px 36px 24px; overflow-y: auto; }
+    .pz-stack { flex: 1; min-width: 0; max-width: 920px; display: flex; flex-direction: column; gap: 20px; }
+    /* Text and Result fill the height: their sheet takes what is left. */
+    .pz-stack-fill { min-height: 0; }
+    .pz-editor { position: relative; flex: 1; min-height: 160px; display: flex; flex-direction: column; }
+    .pz-panel { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
     .canvas-edit-wrapper { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
     /* The user's text, on a sheet (design.md: Literata 15.5/1.7). */
     .pz-sheet {
-      flex: 1; min-height: 0; width: 100%; margin: 0; padding: 28px 36px; resize: none; overflow-y: auto;
+      flex: 1; min-height: 0; width: 100%; margin: 0; padding: 24px 32px; resize: none; overflow-y: auto;
       font-family: var(--kl-font-text); font-size: 15.5px; line-height: 1.7; color: var(--kl-text-sheet);
       background: var(--kl-sheet); border: 1px solid var(--kl-line); border-radius: var(--kl-radius-sheet);
     }
-    .pz-sheet::placeholder { color: var(--kl-muted); opacity: 1; font-family: var(--kl-font-ui); font-size: 14px; }
     .pz-sheet:focus { outline: none; border-color: var(--kl-line-control); }
     .pz-sheet:focus-visible { outline: 2px solid var(--kl-focus); outline-offset: 2px; }
     .canvas-preview { overflow-wrap: anywhere; }
@@ -364,13 +409,7 @@ function addTrace(label: string, snapshot: string): void {
       background: var(--kl-raised); border-radius: var(--kl-radius-sm);
     }
 
-    .pz-empty {
-      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1;
-      display: flex; flex-direction: column; align-items: center; gap: 12px; font-size: 14px;
-      text-align: center; pointer-events: none;
-    }
-    .pz-empty kl-button { pointer-events: auto; }
-
+    .pz-working { display: flex; flex: 1; align-items: center; justify-content: center; min-height: 420px; }
     .pz-busy {
       position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center;
       background: color-mix(in srgb, var(--kl-ground), transparent 25%); border-radius: var(--kl-radius-sheet);
@@ -390,113 +429,117 @@ function addTrace(label: string, snapshot: string): void {
 })
 export class TextEnhancementComponent implements OnInit, OnDestroy {
   // ── Component views (mirror module-level state) ──
+
+  /** The step on screen: Result only while there is one, Form only while there is text. */
+  get shownStep(): PyramidizeStep {
+    if (step === 'result' && results.length) return 'result';
+    if (step !== 'intake' && originalText.trim()) return 'choice';
+    return 'intake';
+  }
+
   get originalTextView(): string { return originalText; }
   set originalTextView(v: string) { originalText = v; }
 
-  get canvasTextView(): string { return canvasText; }
-  set canvasTextView(v: string) { canvasText = v; }
+  /** The result shown; '' while there is none. */
+  get canvasTextView(): string { return activeText(); }
+  set canvasTextView(v: string) { setActiveText(v); }
 
   get docTypeView(): string { return docType; }
   set docTypeView(v: string) { docType = v; }
 
-  get commStyleView(): string { return commStyle; }
-  set commStyleView(v: string) { commStyle = v; }
+  get rememberView(): boolean { return rememberForm; }
+  set rememberView(v: boolean) { rememberForm = v; }
 
-  get relLevelView(): string { return relLevel; }
-  set relLevelView(v: string) { relLevel = v; }
+  get instructionsView(): string { return instructions; }
+  set instructionsView(v: string) { instructions = v; }
 
   get traceLogView(): TraceEntry[] { return traceLog; }
-
-  get activeTabView(): string { return activeTab; }
-
   get isPreviewModeView(): boolean { return isPreviewMode; }
-
   get traceLogOpenView(): boolean { return traceLogOpen; }
-
-  get sourceAppView(): string { return sourceApp; }
-
   get bannerDismissedView(): boolean { return bannerDismissed; }
 
-  get providerView(): string { return selectedProvider; }
-  /**
-   * Settings' provider label while this session's pick differs from it, else
-   * null. A pick that silently differed from the marker on Settings › AI
-   * Providers is the confusion that page exists to remove.
-   */
-  get sessionOverrideOf(): string | null {
-    if (!this.pickDiffersFromSettings || unavailableProviderName(this.settingsProvider)) return null;
-    return PROVIDER_OPTIONS.find(p => p.value === this.settingsProvider)?.label ?? this.settingsProvider;
+  /** Whether the text came from an app (the shortcut), not pasted or typed here. */
+  get sourceApp(): string { return sourceApp; }
+
+  /** The app's name as the page shows it: "Outlook" for "Inbox - Outlook", once the backend said. */
+  get sourceAppView(): string { return sourcePreset?.app || sourceApp; }
+
+  /** The form remembered for the app, or null. */
+  get rememberedDocTypeView(): string | null {
+    return sourceApp && sourcePreset?.remembered ? sourcePreset.documentType : null;
   }
 
-  /**
-   * The name of the unusable provider Settings names, while the user is on
-   * another one because of it. Not an override, so no link back: going back
-   * would land on a provider that cannot run.
-   */
-  get settingsProviderUnusable(): string | null {
-    return this.pickDiffersFromSettings ? unavailableProviderName(this.settingsProvider) : null;
+  /** Where the text came from, for the step bar. */
+  get sourceLabelView(): string {
+    if (!originalText.trim()) return '';
+    return sourceApp ? `From ${this.sourceAppView}` : 'Pasted into KeyLint';
   }
 
-  private get pickDiffersFromSettings(): boolean {
-    return providerPickedThisSession && !!this.settingsProvider && selectedProvider !== this.settingsProvider;
+  /** The first line of the text, for the Form step. */
+  get excerptView(): string {
+    const line = originalText.split('\n').map(l => l.trim()).find(l => l) ?? '';
+    return line.length > EXCERPT_LENGTH ? `${line.slice(0, EXCERPT_LENGTH).trimEnd()}…` : line;
   }
-  /** Name of a provider settings still names but nothing can use yet (#22). */
-  get unavailableProviderView(): string | null { return unavailableProviderName(selectedProvider); }
-  set providerView(v: string) { selectedProvider = v; }
 
-  get modelView(): string { return selectedModel; }
-  set modelView(v: string) { selectedModel = v; }
-
-  get effortView(): string { return selectedEffort; }
-  set effortView(v: string) { selectedEffort = v; }
-
-  /**
-   * Settings' levels (EFFORT_OPTIONS), led by what an untouched picker does:
-   * follow Settings' Pyramidize effort for this provider. Where Settings names
-   * a level, "Model default" is offered too, to send none for this session.
-   */
-  get effortOptions(): readonly EffortOption[] {
-    // Kept while Settings' level is the same: a new array on every check
-    // would be a changed binding each time (NG0100).
-    const stored = this.settingsEffortFor(selectedProvider);
-    if (this.effortOptionsCache?.stored !== stored) {
-      const levels = EFFORT_OPTIONS.filter(o => o.value !== '');
-      const name = EFFORT_OPTIONS.find(o => o.value === stored)?.label ?? stored;
-      const options = stored
-        ? [{ value: '', label: `Settings: ${name}` }, { value: EFFORT_NONE, label: 'Model default' }, ...levels]
-        : [{ value: '', label: 'Model default' }, ...levels];
-      this.effortOptionsCache = { stored, options };
+  /** Each result's form, oldest first. Kept while the results are: a new array on every check would be NG0100. */
+  get resultFormsView(): readonly string[] {
+    if (this.formsCache?.of !== results) {
+      this.formsCache = { of: results, forms: results.map(r => r.docType) };
     }
-    return this.effortOptionsCache.options;
+    return this.formsCache.forms;
   }
-  private effortOptionsCache: { stored: string; options: readonly EffortOption[] } | null = null;
+  private formsCache: { of: ResultVersion[]; forms: readonly string[] } | null = null;
 
-  /** What effort does on the provider in use; null hides the picker. */
-  get effortNoteView(): string | null {
-    return unavailableProviderName(selectedProvider) ? null : effortNote(selectedProvider);
+  get activeResultView(): number { return activeResult; }
+
+  /** Name of a provider Settings names but nothing can use yet (#22). */
+  get unavailableProviderView(): string | null { return unavailableProviderName(this.settingsProvider); }
+
+  /** "<model> · <provider> · effort <level>", all from Settings. */
+  get runOnView(): string {
+    const provider = this.settingsProvider;
+    if (!provider) return '';
+    const providerLabel = PROVIDER_LABELS[provider] ?? unavailableProviderName(provider) ?? provider;
+    if (unavailableProviderName(provider)) return providerLabel;
+    const stored = this.settingsModels?.[provider];
+    const parts = [modelName(effectiveModel(provider, 'pyramidize', stored?.pyramidize), []), providerLabel].filter(Boolean);
+    // Only where the provider does something with effort (not Ollama).
+    if (effortNote(provider)) {
+      const level = stored?.pyramidize_effort ?? '';
+      const label = EFFORT_OPTIONS.find(o => o.value === level)?.label.toLowerCase() ?? level;
+      parts.push(level ? `effort ${label}` : 'default effort');
+    }
+    return parts.join(' · ');
+  }
+
+  /** Whether "Pyramidize as …" (and its Enter) can run now. */
+  get canRun(): boolean {
+    return !!originalText.trim() && !this.isLoading && !this.unavailableProviderView;
+  }
+
+  /** The history toggle's label, with how many snapshots there are. */
+  get historyLabel(): string {
+    const n = traceLog.length;
+    return n === 0 ? 'History' : `History, ${n} ${n === 1 ? 'step' : 'steps'}`;
   }
 
   // ── Component-local state ──
   /** The provider Settings names, read on every visit. */
   settingsProvider = '';
-  /** Settings' Pyramidize effort per provider, read on every visit with the provider. */
-  private settingsEfforts: Record<string, string> = {};
-
-  private settingsEffortFor(provider: string): string {
-    return this.settingsEfforts[provider] ?? '';
-  }
+  private settingsModels: Settings['models'] | null = null;
   isLoading = false;
+  /** What is running: a Pyramidize run (from the Form step) or an edit of the result. */
+  running: 'pyramidize' | 'edit' | null = null;
   stepLabel = '';
   errorMessage = '';
   sendingBack = false;
   /** The error the last Send Back reported, '' if none. */
   sendBackError = '';
   apiKeySet = true;
-  /** Set on destroy so a late model list does not refresh a dead view. */
+  /** Set on destroy so a late answer does not refresh a dead view. */
   private destroyed = false;
   /** What the banner says — the reason depends on the provider. */
   credentialsMessage = MISSING_KEY_MESSAGE;
-  customInstructions = '';
   globalInstruction = '';
 
   // Selection bubble
@@ -519,13 +562,12 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   private sub?: Subscription;
 
   @ViewChild('canvasTextarea') canvasTextareaRef?: ElementRef<HTMLTextAreaElement>;
-  @ViewChild('originalTextarea') private originalTextareaRef?: ElementRef<HTMLTextAreaElement>;
   @ViewChild('historyToggle', { read: ElementRef }) historyToggleRef?: ElementRef<HTMLElement>;
 
   /**
-   * While a step runs the tabs are inert, which drops the focus of a textarea
-   * that started it (Ctrl+Enter); Cancel takes it. When the step ends, a focus
-   * left nowhere goes back to the text.
+   * While a step runs, what started it is gone (the Form step) or inert (the
+   * editor), which drops its focus; Cancel takes it. When the step ends, a
+   * focus left nowhere goes to the result.
    */
   @ViewChild('cancelBtn', { read: ElementRef })
   private set cancelBtn(ref: ElementRef<HTMLElement> | undefined) {
@@ -534,10 +576,9 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
       const active = document.activeElement;
       const lost = !active || active === document.body;
       if (ref) {
-        if (lost || this.host.nativeElement.querySelector('kl-tabs')?.contains(active)) this.focusIn(ref);
+        if (lost || this.host.nativeElement.querySelector('.pz-editor')?.contains(active)) this.focusIn(ref);
       } else if (lost) {
-        const text = activeTab === 'canvas' ? this.canvasTextareaRef : this.originalTextareaRef;
-        text?.nativeElement.focus();
+        this.canvasTextareaRef?.nativeElement.focus();
       }
     });
   }
@@ -559,104 +600,34 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   }
   private restoringFocus = false;
 
-  readonly providerOptions = PROVIDER_OPTIONS;
-
   readonly canvasModes: readonly SegmentOption[] = [
     { value: 'edit', label: 'Edit' },
     { value: 'preview', label: 'Preview' },
-  ];
-
-  /** Whether the Pyramidize button (and its Ctrl+Enter) can run now. */
-  get canPyramidize(): boolean {
-    return !!originalText.trim() && !this.isLoading && !this.unavailableProviderView;
-  }
-
-  /** The history toggle's label, with how many snapshots there are. */
-  get historyLabel(): string {
-    const n = traceLog.length;
-    return n === 0 ? 'History' : `History, ${n} ${n === 1 ? 'step' : 'steps'}`;
-  }
-
-  /** The provider's models, with a leading entry for the configured default. */
-  modelOptions: Array<{ id: string; label: string }> = [DEFAULT_MODEL_OPTION];
-  /** Why this list is what it is, or "" when it needs no explaining. */
-  modelListNote = '';
-
-  get currentModelOptions(): Array<{ id: string; label: string }> {
-    return this.modelOptions;
-  }
-
-
-  readonly docTypeOptions = DOCUMENT_TYPE_OPTIONS;
-
-  readonly commStyleOptions = [
-    { label: 'Professional', value: 'professional' },
-    { label: 'Casual', value: 'casual' },
-    { label: 'Concise', value: 'concise' },
-    { label: 'Detailed', value: 'detailed' },
-    { label: 'Persuasive', value: 'persuasive' },
-    { label: 'Neutral', value: 'neutral' },
-    { label: 'Diplomatic', value: 'diplomatic' },
-    { label: 'Direct', value: 'direct' },
-  ];
-
-  readonly relLevelOptions = [
-    { label: 'Professional', value: 'professional' },
-    { label: 'Close', value: 'close' },
-    { label: 'Authority', value: 'authority' },
-    { label: 'Public', value: 'public' },
   ];
 
   constructor(
     private readonly wails: WailsService,
     private readonly svc: TextEnhancementService,
     private readonly cdr: ChangeDetectorRef,
-    private readonly router: Router,
     private readonly host: ElementRef<HTMLElement>,
   ) {}
 
   async ngOnInit(): Promise<void> {
-    sourceApp = await this.wails.getSourceApp();
+    // Re-read on every visit: the component is destroyed on navigation, and
+    // this is where a provider, model or effort chosen in Settings reaches
+    // the line under the form choice.
     const settings = await this.wails.loadSettings();
-
-    // Follow Settings unless the user picked another provider here this
-    // session. Re-read on every visit: the component is destroyed on
-    // navigation, and the backend never emits settings:changed, so this is
-    // where a switch made in Settings reaches this panel.
     this.settingsProvider = settings.active_provider ?? '';
-    this.settingsEfforts = Object.fromEntries(
-      Object.entries(settings.models ?? {}).map(([provider, m]) => [provider, m?.pyramidize_effort ?? '']));
-    if (providerPickedThisSession) {
-      const caughtUp = selectedProvider === this.settingsProvider;
-      const forcedPickOutlived = !!unavailableProviderName(pickedWhileSettingsWas)
-        && this.settingsProvider !== pickedWhileSettingsWas;
-      // An override ends once Settings agrees with it, so the next switch made
-      // there is followed again; a forced pick ends once Settings names
-      // something else, because it was never the user's preference.
-      if (caughtUp || forcedPickOutlived) {
-        providerPickedThisSession = false;
-      }
-    }
-    if (!providerPickedThisSession && this.settingsProvider && selectedProvider !== this.settingsProvider) {
-      selectedProvider = this.settingsProvider;
-      // Empty means "whatever Settings says for this provider".
-      selectedModel = '';
-      selectedEffort = '';
-    }
-    // "none" ("Model default" while Settings names a level) is only offered
-    // while Settings has one; once Settings is back on the model's default it
-    // means the same as following Settings, and would otherwise match no option.
-    if (selectedEffort === 'none' && !this.settingsEffortFor(selectedProvider)) {
-      selectedEffort = '';
-    }
+    this.settingsModels = settings.models ?? null;
 
     // Not awaited: for the claude-code provider this probes the CLI, which
     // spawns processes — and the page has a banner slot for the answer, so it
     // can paint first and fill it when it arrives. Waiting here was what made
     // the first paint hang behind a process spawn (#55).
     void this.refreshCredentialsBanner();
-    // Same reasoning: the page has nothing to show from the model list yet.
-    void this.loadModelOptions();
+    // A preset added or removed in Settings › App defaults since the last
+    // visit — only while the backend's capture is still this session's.
+    void this.refreshSourcePreset();
 
     this.cdr.detectChanges();
 
@@ -671,107 +642,83 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     }
   }
 
-  /** Starts a session from the text the Pyramidize shortcut copied. */
+  /** Starts a session from the text the Pyramidize shortcut copied: it opens on Form. */
   private async loadShortcutClipboard(): Promise<void> {
     const clipboardContent = await this.wails.readClipboard();
-    sourceApp = await this.wails.getSourceApp();
+    const app = await this.wails.getSourceApp();
     // Asked before the confirm, so a declined replace changes nothing below.
-    const presetDocType = await this.wails.getDefaultDocType();
+    const preset = await this.wails.getSourcePreset();
 
     if (originalText && !confirm('Replace current session with new clipboard content?')) {
       return;
     }
 
+    runSeq++;
     wasCancelled = false;
     originalText = clipboardContent;
-    // A new session from an app: preselect its preset, else email.
-    docType = presetDocType;
-    pyramidizedText = '';
-    canvasText = '';
+    sourceApp = app;
+    sourcePreset = app ? preset : null;
+    // A new session from an app: preselect its remembered form, else email.
+    docType = app ? preset.documentType || DEFAULT_FORM : DEFAULT_FORM;
+    rememberForm = false;
+    instructions = '';
+    results = [];
+    activeResult = -1;
     traceLog = [];
+    tracedOriginal = '';
     this.peekEntry = null;
     this.hoverEntry = null;
-    activeTab = 'original';
+    this.closeSelectionBubble();
     this.errorMessage = '';
+    this.isLoading = false;
+    this.running = null;
+    traceOriginal();
+    step = originalText.trim() ? 'choice' : 'intake';
+    this.cdr.detectChanges();
+  }
 
-    if (originalText.trim()) {
-      addTrace('Original', originalText);
-    }
+  /** Refreshes what is remembered for this session's app, if the backend's capture is still its. */
+  private async refreshSourcePreset(): Promise<void> {
+    if (!sourceApp) return;
+    const app = sourceApp;
+    if ((await this.wails.getSourceApp()) !== app) return;
+    const preset = await this.wails.getSourcePreset();
+    if (sourceApp !== app || this.destroyed) return;
+    sourcePreset = preset;
     this.cdr.detectChanges();
   }
 
   onOriginalChange(value: string): void {
     originalText = value;
-  }
-
-  onCanvasChange(value: string): void {
-    canvasText = value;
-  }
-
-  async onProviderChange(): Promise<void> {
-    // Picking Settings' own provider is no override; anything else is one.
-    providerPickedThisSession = selectedProvider !== this.settingsProvider;
-    pickedWhileSettingsWas = this.settingsProvider;
-    // Back to "whatever settings say": a model from the previous provider would
-    // not exist on this one, and its effort was chosen for that model.
-    selectedModel = '';
-    selectedEffort = '';
-    await this.loadModelOptions();
-    // The "no API key" banner belongs to the provider, so re-evaluate it here.
-    await this.refreshCredentialsBanner();
-    this.cdr.detectChanges();
-  }
-
-  /** Drops this session's pick and goes back to the provider Settings names. */
-  async followSettingsProvider(): Promise<void> {
-    selectedProvider = this.settingsProvider;
-    await this.onProviderChange();
-  }
-
-  /** Loads the current provider's models; the list is shared with Settings. */
-  private async loadModelOptions(): Promise<void> {
-    const provider = selectedProvider;
-    if (unavailableProviderName(provider)) {
-      // Nothing to list, and asking would only produce "could not be reached".
-      this.modelOptions = [DEFAULT_MODEL_OPTION];
-      this.modelListNote = '';
-      return;
-    }
-    const list = await this.wails.listModels(provider);
-    if (provider !== selectedProvider) return;
-    this.modelOptions = [DEFAULT_MODEL_OPTION, ...(list.models ?? [])];
-    this.modelListNote = noteForModelSource(list.source, provider, (list.models?.length ?? 0) > 0);
-    if (!this.destroyed) {
-      this.cdr.detectChanges();
+    // Emptied, the text is no longer the one the shortcut brought.
+    if (!value.trim()) {
+      sourceApp = '';
+      sourcePreset = null;
     }
   }
 
   /**
-   * Refreshes the banner for the provider selected right now.
+   * Refreshes the banner for the provider Settings names.
    *
    * Ollama carries no credential, so asking the keyring about it would always
    * answer "not set" and show a banner the user cannot act on. The Claude Code
    * CLI does have a usable answer — installed and signed in — and each of its
    * two failures needs its own wording.
    *
-   * Deliberately one async function rather than a helper pair: the claude-code
-   * branch can take a while, so a quick second switch may finish first and a
-   * stale answer must not overwrite the current one — hence the provider check
-   * before the assignment below.
-   *
-   * ngOnInit no longer awaits this, so it ends with its own change detection;
+   * ngOnInit does not await this, so it ends with its own change detection;
    * the app is zoneless and nothing else would repaint the banner.
    */
   private async refreshCredentialsBanner(): Promise<void> {
-    const provider = selectedProvider;
+    const provider = this.settingsProvider;
     let ok: boolean;
     let message = MISSING_KEY_MESSAGE;
 
-    if (provider === 'claude-code') {
+    if (!provider) {
+      ok = true;
+    } else if (provider === 'claude-code') {
       // A failed RPC must not throw out of a call nobody awaits. An unanswerable
       // probe means "cannot tell", which is better shown as the banner than as
-      // an unhandled rejection. The Go side caches the answer, so this is cheap
-      // on every switch after the first.
+      // an unhandled rejection. The Go side caches the answer.
       const status = await this.wails.getClaudeCodeStatus().catch(() => null);
       ok = !!status?.installed && !!status.loggedIn;
       message = status?.installed ? CLI_NOT_SIGNED_IN_MESSAGE : CLI_NOT_INSTALLED_MESSAGE;
@@ -783,20 +730,29 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
       ok = keyStatus.is_set;
     }
 
-    // A newer switch already answered; this result is stale.
-    if (provider !== selectedProvider) return;
     this.apiKeySet = ok;
     this.credentialsMessage = message;
-    // The app is zoneless, and ngOnInit no longer awaits this — so without an
-    // explicit refresh the banner's state changes and nothing repaints. Same
-    // reason loadModelOptions ends this way.
     if (!this.destroyed) {
       this.cdr.detectChanges();
     }
   }
 
-  onTabChange(value: unknown): void {
-    activeTab = value as 'original' | 'canvas';
+  /** A step bar click, Edit text, Choose the form, Try another form. Nothing moves while a step runs. */
+  goToStep(target: PyramidizeStep): void {
+    if (this.isLoading) return;
+    step = target;
+    this.closeSelectionBubble();
+    this.peekEntry = null;
+    this.hoverEntry = null;
+  }
+
+  /** A version chip: shows that result; the others stay as they are. */
+  showResult(index: number): void {
+    if (index < 0 || index >= results.length || this.isLoading) return;
+    activeResult = index;
+    this.closeSelectionBubble();
+    this.peekEntry = null;
+    this.hoverEntry = null;
   }
 
   setPreviewMode(preview: boolean): void {
@@ -812,13 +768,6 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     bannerDismissed = true;
   }
 
-  onOriginalKeydown(event: KeyboardEvent): void {
-    if (event.ctrlKey && event.key === 'Enter') {
-      event.preventDefault();
-      void this.pyramidize();
-    }
-  }
-
   onCanvasKeydown(event: KeyboardEvent): void {
     if (event.ctrlKey && event.key === 'Enter') {
       event.preventDefault();
@@ -826,101 +775,122 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     }
   }
 
+  /** Paste from clipboard on the Text step: pasted text did not come from an app. */
   async pasteFromClipboard(): Promise<void> {
-    const text = await this.wails.readClipboard();
-    originalText = text;
-    if (originalText.trim()) {
-      addTrace('Original', originalText);
-    }
+    originalText = await this.wails.readClipboard();
+    sourceApp = '';
+    sourcePreset = null;
     this.cdr.detectChanges();
   }
 
+  /**
+   * "Pyramidize as <form>": one call from the original text, in the picked
+   * form, with the user's instructions. The result is added to the session's
+   * results, never written over an earlier one. A ticked "Remember" box
+   * stores the form for the app first.
+   */
   async pyramidize(): Promise<void> {
-    if (!originalText.trim() || unavailableProviderName(selectedProvider)) return;
+    if (!this.canRun) return;
 
-    if (canvasText.trim()) {
-      if (!confirm('Re-pyramidize? The current editor content will be saved to the history.')) {
-        return;
-      }
-      addTrace('Editor (saved)', canvasText);
+    const form = docType;
+    if (rememberForm && sourceApp && sourcePreset?.app) {
+      await this.rememberFormForApp(form);
     }
-
-    wasCancelled = false;
-    this.errorMessage = '';
-    this.isLoading = true;
-    this.stepLabel = STRUCTURING;
-    this.cdr.detectChanges();
+    traceOriginal();
 
     const req = {
       text: originalText,
-      documentType: docType,
-      communicationStyle: commStyle,
-      relationshipLevel: relLevel,
-      customInstructions: this.customInstructions,
-      provider: selectedProvider,
-      model: selectedModel,
-      effort: selectedEffort,
+      documentType: form,
+      customInstructions: instructions.trim(),
+      // Provider, model and effort: whatever Settings say (the backend reads them).
+      provider: '',
+      model: '',
+      effort: '',
       promptVariant: 0,
     };
+    const label = `Writing the ${formLabel(form).toLowerCase()}…`;
 
-    const doCall = async (): Promise<void> => {
-      this.stepLabel = STRUCTURING;
-      this.cdr.detectChanges();
-
-      const result = await this.svc.pyramidize(req);
-
-      pyramidizedText = result.fullDocument;
-      canvasText = result.fullDocument;
-
-      addTrace('Pyramidized', canvasText);
-      activeTab = 'canvas';
-    };
-
-    this.lastRequest = async () => {
-      this.isLoading = true;
+    const run = async (): Promise<void> => {
+      const seq = ++runSeq;
+      wasCancelled = false;
       this.errorMessage = '';
-      this.stepLabel = STRUCTURING;
+      this.sendBackError = '';
+      this.isLoading = true;
+      this.running = 'pyramidize';
+      this.stepLabel = label;
       this.cdr.detectChanges();
       try {
-        await doCall();
+        const result = await this.svc.pyramidize(req);
+        if (seq !== runSeq) return; // cancelled, or overtaken by a newer run
+        results = [...results, { id: makeId(), docType: form, text: result.fullDocument }];
+        activeResult = results.length - 1;
+        addTrace(`Pyramidized as ${formLabel(form).toLowerCase()}`, result.fullDocument);
+        step = 'result';
       } catch (e: unknown) {
         // A failed retry used to clear the error row and show nothing.
-        if (!wasCancelled) {
+        if (!wasCancelled && seq === runSeq) {
           this.errorMessage = `Pyramidize failed: ${describeError(e)}`;
         }
       } finally {
-        this.isLoading = false;
-        this.cdr.detectChanges();
+        if (seq === runSeq) {
+          this.isLoading = false;
+          this.running = null;
+        }
+        if (!this.destroyed) this.cdr.detectChanges();
       }
     };
 
+    this.lastRequest = run;
+    await run();
+  }
+
+  /** Stores `form` as the app's preset, as the ticked box asked; then shows it as remembered. */
+  private async rememberFormForApp(form: string): Promise<void> {
+    const app = sourcePreset!.app;
+    rememberForm = false;
     try {
-      await doCall();
+      await this.svc.setAppPreset({ sourceApp: app, documentType: form });
+      sourcePreset = { app, documentType: form, remembered: true };
     } catch (e: unknown) {
-      if (!wasCancelled) {
-        this.errorMessage = `Pyramidize failed: ${describeError(e)}`;
-      }
-    } finally {
-      this.isLoading = false;
-      this.cdr.detectChanges();
+      // The run goes ahead; the box simply shows up again next time, as nothing was remembered.
+      void this.wails.log('warn', `pyramidize: could not remember ${form} for the source app: ${describeError(e)}`);
     }
+  }
+
+  /** Forget: removes the app's preset; email is the default again. */
+  async forgetPreset(): Promise<void> {
+    const preset = sourcePreset;
+    if (!preset?.remembered) return;
+    try {
+      await this.svc.deleteAppPreset(preset.app);
+      sourcePreset = { app: preset.app, documentType: DEFAULT_FORM, remembered: false };
+    } catch (e: unknown) {
+      this.errorMessage = `Could not forget the form for ${preset.app}: ${describeError(e)}`;
+      this.lastRequest = () => this.forgetPreset();
+    }
+    this.cdr.detectChanges();
   }
 
   async cancelOperation(): Promise<void> {
     wasCancelled = true;
+    runSeq++;
     await this.svc.cancelOperation();
     this.isLoading = false;
+    this.running = null;
     this.stepLabel = '';
     this.cdr.detectChanges();
   }
 
   async applyGlobalInstruction(): Promise<void> {
-    if (!this.globalInstruction.trim() || !canvasText.trim()) return;
-    if (unavailableProviderName(selectedProvider)) return; // the note explains why (#22)
+    if (!this.globalInstruction.trim() || !activeText().trim()) return;
+    if (this.unavailableProviderView) return; // the note explains why (#22)
 
+    const target = results[activeResult];
     const instruction = this.globalInstruction;
     this.lastRequest = () => this.applyGlobalInstruction();
+    const seq = ++runSeq;
     this.isLoading = true;
+    this.running = 'edit';
     this.stepLabel = 'Refining…';
     this.errorMessage = '';
     wasCancelled = false;
@@ -928,26 +898,28 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
 
     try {
       const result = await this.svc.refineGlobal({
-        fullCanvas: canvasText,
+        fullCanvas: target.text,
         originalText,
         instruction,
-        documentType: docType,
-        communicationStyle: commStyle,
-        relationshipLevel: relLevel,
-        provider: selectedProvider,
-        model: selectedModel,
-        effort: selectedEffort,
+        documentType: target.docType,
+        provider: '',
+        model: '',
+        effort: '',
       });
-      addTrace(`Refined: "${instruction.slice(0, 30)}"`, canvasText);
-      canvasText = result.newCanvas;
+      if (seq !== runSeq) return;
+      addTrace(`Refined: "${instruction.slice(0, 30)}"`, target.text);
+      target.text = result.newCanvas;
       this.globalInstruction = '';
     } catch (e: unknown) {
-      if (!wasCancelled) {
+      if (!wasCancelled && seq === runSeq) {
         this.errorMessage = `Refine failed: ${describeError(e)}`;
       }
     } finally {
-      this.isLoading = false;
-      this.cdr.detectChanges();
+      if (seq === runSeq) {
+        this.isLoading = false;
+        this.running = null;
+      }
+      if (!this.destroyed) this.cdr.detectChanges();
     }
   }
 
@@ -988,12 +960,14 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
 
   async applySelectionInstruction(): Promise<void> {
     if (!this.selectionInstruction.trim()) return;
-    if (unavailableProviderName(selectedProvider)) return; // the note explains why (#22)
+    if (this.unavailableProviderView) return; // the note explains why (#22)
 
+    const target = results[activeResult];
+    if (!target) return;
     const textarea = this.canvasTextareaRef?.nativeElement;
     const start = textarea ? textarea.selectionStart : this.selectionStart;
     const end = textarea ? textarea.selectionEnd : this.selectionEnd;
-    const selectedText = canvasText.slice(start, end);
+    const selectedText = target.text.slice(start, end);
 
     if (!selectedText.trim()) {
       this.closeSelectionBubble();
@@ -1003,39 +977,43 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     const instruction = this.selectionInstruction;
     this.lastRequest = () => this.applySelectionInstruction();
     this.closeSelectionBubble();
+    const seq = ++runSeq;
     this.isLoading = true;
+    this.running = 'edit';
     this.stepLabel = 'Splicing…';
     wasCancelled = false;
     this.cdr.detectChanges();
 
     try {
       const result = await this.svc.splice({
-        fullCanvas: canvasText,
+        fullCanvas: target.text,
         originalText,
         selectedText,
         instruction,
-        provider: selectedProvider,
-        model: selectedModel,
-        effort: selectedEffort,
+        provider: '',
+        model: '',
+        effort: '',
       });
-      const before = canvasText.slice(0, start);
-      const after = canvasText.slice(end);
-      const oldCanvas = canvasText;
+      if (seq !== runSeq) return;
+      const oldCanvas = target.text;
       addTrace(`Splice: "${instruction.slice(0, 30)}"`, oldCanvas);
-      canvasText = before + result.rewrittenSection + after;
+      target.text = oldCanvas.slice(0, start) + result.rewrittenSection + oldCanvas.slice(end);
     } catch (e: unknown) {
-      if (!wasCancelled) {
+      if (!wasCancelled && seq === runSeq) {
         this.errorMessage = `Splice failed: ${describeError(e)}`;
       }
     } finally {
-      this.isLoading = false;
-      this.cdr.detectChanges();
+      if (seq === runSeq) {
+        this.isLoading = false;
+        this.running = null;
+      }
+      if (!this.destroyed) this.cdr.detectChanges();
     }
   }
 
   addCheckpoint(): void {
-    if (canvasText) {
-      addTrace('Checkpoint', canvasText);
+    if (activeText()) {
+      addTrace('Checkpoint', activeText());
       this.cdr.detectChanges();
     }
   }
@@ -1068,23 +1046,22 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     this.focusEntry(id);
   }
 
+  /** Puts a snapshot into the result shown, saving what was there to the history first. */
   revertTo(entry: TraceEntry): void {
-    addTrace(`Reverted to: ${entry.label}`, canvasText);
-    canvasText = entry.snapshot;
+    addTrace(`Reverted to: ${entry.label}`, activeText());
+    setActiveText(entry.snapshot);
     this.peekEntry = null;
-    activeTab = 'canvas';
     this.cdr.detectChanges();
     this.focusEntry(entry.id);
   }
 
   async copyAsMarkdown(): Promise<void> {
-    await this.wails.writeClipboard(canvasText);
+    await this.wails.writeClipboard(activeText());
   }
 
   async copyAsRichText(): Promise<void> {
-    const pipe = new MarkdownPipe();
-    const html = pipe.transform(canvasText);
-    const plain = canvasText;
+    const plain = activeText();
+    const html = new MarkdownPipe().transform(plain);
     try {
       // Native Clipboard API required here for HTML MIME type support
       // (WailsService.writeClipboard only handles plain text)
@@ -1111,7 +1088,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     this.sendBackError = '';
     this.cdr.detectChanges();
     try {
-      await this.svc.sendBack(canvasText);
+      await this.svc.sendBack(activeText());
     } catch (e: unknown) {
       // The backend's message says whether the text is on the clipboard and
       // what to do next.

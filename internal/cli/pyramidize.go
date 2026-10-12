@@ -36,8 +36,12 @@ func runPyramidizeWith(args []string, stdout io.Writer, stderr io.Writer, svc py
 	jsonOut := fs.Bool("json", false, "Output full result as JSON")
 	provider := fs.String("provider", "", "AI provider override: claude|claude-code|openai|ollama")
 	model := fs.String("model", "", "Model override (e.g. claude-sonnet-4-6)")
-	style := fs.String("style", "professional", "Communication style")
-	relationship := fs.String("relationship", "professional", "Relationship level")
+	instructions := fs.String("instructions", "", "Your own instructions for this text, e.g. \"more formal\" or \"in English\" (the app's Instructions field)")
+	// Accepted and ignored since the choice page (roadmap E3 phase 3): no
+	// prompt carries a style or relationship any more, and a script that
+	// passes them should keep running rather than fail on an unknown flag.
+	fs.String("style", "", "Ignored since v3's choice page (no prompt carries a style); kept so old scripts still run")
+	fs.String("relationship", "", "Ignored since v3's choice page (no prompt carries a relationship); kept so old scripts still run")
 	variant := fs.Int("variant", 0, "Prompt variant (0=latest=v3, 2=v2 email prompt, email only)")
 	logLevel := addLogFlag(fs)
 
@@ -57,8 +61,7 @@ func runPyramidizeWith(args []string, stdout io.Writer, stderr io.Writer, svc py
 	req := pyramidize.PyramidizeRequest{
 		Text:               text,
 		DocumentType:       *docType,
-		CommunicationStyle: *style,
-		RelationshipLevel:  *relationship,
+		CustomInstructions: *instructions,
 		Provider:           *provider,
 		Model:              *model,
 		PromptVariant:      *variant,

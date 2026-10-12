@@ -139,3 +139,33 @@ func TestRunPyramidizePassesChatThrough(t *testing.T) {
 		t.Fatalf("documentType = %q, want chat", capturedReq.DocumentType)
 	}
 }
+
+// TestRunPyramidizeInstructions: --instructions is the CLI's version of the
+// choice page's one field, and reaches the request as it does from the app.
+func TestRunPyramidizeInstructions(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	var capturedReq pyramidize.PyramidizeRequest
+	capturing := &capturingPyramidizer{mock: &mockPyramidizer{result: pyramidize.PyramidizeResult{FullDocument: "out"}}, captured: &capturedReq}
+	if err := runPyramidizeWith([]string{"--instructions", "in English", "text"}, &stdout, &stderr, capturing); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedReq.CustomInstructions != "in English" {
+		t.Errorf("CustomInstructions = %q, want %q", capturedReq.CustomInstructions, "in English")
+	}
+}
+
+// TestRunPyramidizeStillAcceptsStyleFlags: --style and --relationship do
+// nothing since the choice page (no prompt carries them), but a script that
+// passes them must keep running rather than fail on an unknown flag.
+func TestRunPyramidizeStillAcceptsStyleFlags(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	var capturedReq pyramidize.PyramidizeRequest
+	capturing := &capturingPyramidizer{mock: &mockPyramidizer{result: pyramidize.PyramidizeResult{FullDocument: "out"}}, captured: &capturedReq}
+	err := runPyramidizeWith([]string{"--style", "casual", "--relationship", "close", "text"}, &stdout, &stderr, capturing)
+	if err != nil {
+		t.Fatalf("old flags were refused: %v", err)
+	}
+	if capturedReq.Text != "text" {
+		t.Errorf("Text = %q, want %q", capturedReq.Text, "text")
+	}
+}

@@ -126,7 +126,7 @@ export function createWailsMock() {
     sendBack: vi.fn().mockResolvedValue(undefined),
     getSourceApp: vi.fn().mockResolvedValue(''),
     getAppPresets: vi.fn().mockResolvedValue([]),
-    getDefaultDocType: vi.fn().mockResolvedValue('email'),
+    getSourcePreset: vi.fn().mockResolvedValue({ app: '', documentType: 'email', remembered: false }),
     setAppPreset: vi.fn().mockResolvedValue(undefined),
     deleteAppPreset: vi.fn().mockResolvedValue(undefined),
   };

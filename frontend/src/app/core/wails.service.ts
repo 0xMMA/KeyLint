@@ -14,13 +14,13 @@ import * as PyramidizeService from '../../../bindings/keylint/internal/features/
 import { Settings, KeyStatus } from '../../../bindings/keylint/internal/features/settings/models.js';
 import { UpdateInfo, InstallResult } from '../../../bindings/keylint/internal/features/updater/models.js';
 import type { BuildIdentity, DevBuild, DevChannel } from '../../../bindings/keylint/internal/features/updater/models.js';
-import type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset } from '../../../bindings/keylint/internal/features/pyramidize/models.js';
+import type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset, SourcePreset } from '../../../bindings/keylint/internal/features/pyramidize/models.js';
 import type { ClaudeCodeStatus, ModelList, ModelInfo } from '../../../bindings/keylint/internal/llm/models.js';
 import type { Notice as SilentFixNotice } from '../../../bindings/keylint/internal/features/silentfix/models.js';
 
 export type { Settings, KeyStatus, UpdateInfo, InstallResult, ClaudeCodeStatus, ModelList, ModelInfo };
 export type { BuildIdentity, DevBuild, DevChannel };
-export type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset };
+export type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset, SourcePreset };
 export type { SilentFixNotice };
 
 
@@ -388,12 +388,17 @@ export class WailsService implements OnDestroy {
     }
   }
 
-  /** The form to preselect for the captured source app: its app preset, else email. */
-  getDefaultDocType(): Promise<string> {
+  /**
+   * What the choice page shows for the captured source app: the form to
+   * preselect (its app preset, else email), whether that is a remembered
+   * preset, and the name "Remember <form> for <app>" stores one under.
+   */
+  getSourcePreset(): Promise<SourcePreset> {
+    const none: SourcePreset = { app: '', documentType: 'email', remembered: false };
     try {
-      return PyramidizeService.GetDefaultDocType().catch(() => 'email');
+      return PyramidizeService.GetSourcePreset().catch(() => none);
     } catch {
-      return Promise.resolve('email');
+      return Promise.resolve(none);
     }
   }
 

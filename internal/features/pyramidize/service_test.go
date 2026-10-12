@@ -269,7 +269,7 @@ func TestUnmarshalRobustRepairs(t *testing.T) {
 func TestBuildDocTypePromptDispatch(t *testing.T) {
 	for _, dt := range []string{"email", "chat", "wiki", "memo", "powerpoint"} {
 		t.Run(dt, func(t *testing.T) {
-			sys, user, schema, err := buildDocTypePrompt(dt, 0, "professional", "professional", "", "some text")
+			sys, user, schema, err := buildDocTypePrompt(dt, 0, "", "some text")
 			if err != nil {
 				t.Fatalf("buildDocTypePrompt: %v", err)
 			}
@@ -281,7 +281,7 @@ func TestBuildDocTypePromptDispatch(t *testing.T) {
 			}
 		})
 	}
-	if _, _, _, err := buildDocTypePrompt("auto", 0, "", "", "", "x"); err == nil {
+	if _, _, _, err := buildDocTypePrompt("auto", 0, "", "x"); err == nil {
 		t.Error("an unresolved document type reached the prompt builder without an error")
 	}
 }
