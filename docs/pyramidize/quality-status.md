@@ -1,6 +1,6 @@
 # Pyramidize Output Quality — Status
 
-> Last updated: 2026-10-14
+> Last updated: 2026-10-15
 
 > The Fix prompt has its own suite and baseline: [`docs/fix/quality-status.md`](../fix/quality-status.md).
 
@@ -11,7 +11,7 @@ about measuring still holds.
 
 ---
 
-## Where it stands (2026-10-14)
+## Where it stands (2026-10-15)
 
 **What ships: prompt v3 ([ADR-003](adr-003-prompt-v3.md)).** The user picks the
 form (email, chat, memo, wiki, presentation) and one model call writes it. There
@@ -22,25 +22,29 @@ nothing on its own (owner decision 2026-10-13). Mail history in the input is
 context, never output (2026-10-11). v2 stays selectable with `--variant 2`: email
 only, byte-identical, always `professional`/`professional`. The prompt on `main`
 (77b7bd8) is the one measured below: nothing under `internal/features/pyramidize/`
-changed between the baseline's commit and the merge.
+changed between the baseline's commit and the merge. #132 has changed it
+since (the reply names its language first). Its control run of 2026-10-15
+found nothing worse than this reference (History). The reference stays
+2026-10-13 because the per-sample analysis below is built on it.
 
 **What is measured: the email form, and only it.** The suite has 13 anonymised
 German business emails. Two of them carry mail history; one mixes German and
 English heavily, a code-switch the prompts keep on purpose.
 
-**English input: broken, found 2026-10-14, fix in review (#132): the reply
-names its language first.** The suite above could not see it, because all its samples are
-German. English notes for the website's demo came back in German in 6 of 7
-calls on v3, and in 3 of 3 on v2 (Sonnet 5.5 through the CLI): whole replies,
-or English bullets under German subject and headers. The reply named its
-language only after the document, and the prompt's own examples and wording
-are partly German. With #132 the reply names its language first: the author's, unless the
-user's instructions ask for another. `<voice>` says that the prompt's own
-languages tell nothing. On the same notes 0 of 6 came back in German, and a
-German sample stayed German. Those are diagnostic calls on one input, not
-recorded as a run and not a `--runs 3` measurement. The measurement is
-`TestEvalLanguage` (see How it is measured). Whether the change moved the
-German suite is checked against the reference baseline below.
+**English input: fixed with #132 (found 2026-10-14, measured 2026-10-15).**
+The suite above could not see it, because all its samples are German. English
+notes for the website's demo came back in German in 6 of 7 calls on v3, and in
+3 of 3 on v2 (Sonnet 5.5 through the CLI): whole replies, or English bullets
+under German subject and headers. The reply named its language only after the
+document, and the prompt's own examples and wording are partly German. With
+#132 the reply names its language first: the author's, unless the user's
+instructions ask for another. `<voice>` says that the prompt's own languages
+tell nothing. `TestEvalLanguage` (see How it is measured) then put 27 of 27
+replies in the language they should be. The samples are the five forms in
+English, German email and chat, a German mail with an English greeting and
+sign-off, and a German mail whose instructions ask for English. Each ran
+three times, on gitSHA `c134d53` with CLI 2.1.300. The German suite did not
+get worse (control run of 2026-10-15 under History).
 
 ### Reference baseline: 2026-10-13
 
@@ -278,6 +282,27 @@ it started. Present tense in a section below describes the time it was
 written: "current reference", "the shipped default", "still open" and
 "pending" all mean *then*. Where that has since become false in a way that
 misleads, a note in brackets says so. What holds now is the part above.
+
+### Eval Scores — control run of 2026-10-15 (language first, #132)
+
+Control run after #132 reordered the reply (`language` before `fullDocument`)
+and added one `<voice>` line. Same instrument as 2026-10-13 (`checksVersion` 2,
+`judgePromptHash` `j1-fda30fd7bd94a7fa`), `promptHash` `p1-b17f9af30df7d35a`,
+CLI 2.1.300 (was 2.1.296), gitSHA `c134d53`, three runs, 13 samples, full
+coverage. `test-data/eval-baselines/2026-10-15T00-21-34/baseline.json`.
+
+| Metric | 2026-10-13 | 2026-10-15 | `--compare` |
+|---|:---:|:---:|---|
+| Deterministic | 0.9013 (0.8974–0.9054) | 0.9028 (0.8932–0.9120) | overlap |
+| Judge Haiku 5.5 | 0.8544 (0.8492–0.8577) | **0.8618** (0.8600–0.8646) | **improvement**, ranges disjoint |
+| Judge Sonnet 5.5 | 0.8272 (0.8223–0.8354) | 0.8185 (0.8077–0.8331) | overlap |
+| Samples passing | 10 (9–11) | 11 (11–11) | — |
+
+**Verdict: nothing worse.** The language fix did not cost the German suite
+anything. The prompt and the CLI both changed between the two sides, so the
+Haiku judge's move cannot be credited to either one. The Sonnet judge's mean
+is 0.009 lower, inside overlapping ranges. The run folders were kept locally
+this time (`test-data/eval-runs/2026-10-15T*`, gitignored).
 
 ### Eval Scores — baseline of 2026-10-13 (choice-page prompt)
 
