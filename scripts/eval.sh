@@ -169,9 +169,11 @@ if [[ -n "$COMPARE" && ! -f "$COMPARE" ]]; then
     exit 3
 fi
 
+# One test per suite: a package holds other eval tests too (TestEvalLanguage),
+# which a run would otherwise pay for and leave a second run directory from.
 case "$SUITE" in
-    pyramidize) SUITE_PKG=./internal/features/pyramidize/ ;;
-    fix)        SUITE_PKG=./internal/features/enhance/ ;;
+    pyramidize) SUITE_PKG=./internal/features/pyramidize/; SUITE_TEST='^TestEvalPyramidize$' ;;
+    fix)        SUITE_PKG=./internal/features/enhance/;    SUITE_TEST='^TestEvalFix$' ;;
     *)          echo "--suite takes 'pyramidize' or 'fix'" >&2; exit 3 ;;
 esac
 
@@ -212,6 +214,7 @@ if [[ "$SUITE" == "fix" ]]; then
 fi
 
 echo "=== KeyLint Eval: $SUITE ==="
+echo "Test:     $SUITE_TEST"
 echo "Provider: $PIPELINE_PROVIDER"
 echo "Model:    ${EVAL_MODEL:-<provider default>} (the resolved ID is recorded in summary.json)"
 if [[ "$SUITE" != "fix" ]]; then
@@ -261,7 +264,7 @@ for (( i = 1; i <= RUNS; i++ )); do
     # run away — the first CLI attempt at the Fix baseline lost a run to the old
     # 900 s — so this is a safety net, not a budget. A single-judge run took
     # 12–15 minutes; each judge adds one CLI call per sample.
-    go test -tags eval "$SUITE_PKG" -v -timeout 10800s 2>&1 | tee /dev/stderr | tail -1
+    go test -tags eval "$SUITE_PKG" -run "$SUITE_TEST" -v -timeout 10800s 2>&1 | tee /dev/stderr | tail -1
     run_status=${PIPESTATUS[0]}
     set -e
     AFTER=$(ls -d test-data/eval-runs/*/ 2>/dev/null | sort || true)

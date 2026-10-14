@@ -63,10 +63,10 @@ func enforcedSchema(schema json.RawMessage) json.RawMessage {
 var documentSchemaV3 = json.RawMessage(`{
   "type": "object",
   "properties": {
-    "fullDocument": {"type": "string"},
-    "language": {"type": "string"}
+    "language": {"type": "string"},
+    "fullDocument": {"type": "string"}
   },
-  "required": ["fullDocument", "language"],
+  "required": ["language", "fullDocument"],
   "additionalProperties": false
 }`)
 

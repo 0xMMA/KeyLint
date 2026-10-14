@@ -64,8 +64,13 @@ cat input.txt | ./bin/KeyLint -fix                     # fix from stdin
 # are loaded only when one of the two is an API provider.
 # Uses //go:build eval tag — never included in normal `go test` runs.
 # Results are logged to test-data/eval-runs/<timestamp>/ with summary.json.
-go test -tags eval ./internal/features/pyramidize/ -v -timeout 10800s
-EVAL_PROVIDER=claude go test -tags eval ./internal/features/pyramidize/ -v -timeout 10800s  # API pipeline, CLI judges
+go test -tags eval ./internal/features/pyramidize/ -run '^TestEvalPyramidize$' -v -timeout 10800s
+EVAL_PROVIDER=claude go test -tags eval ./internal/features/pyramidize/ -run '^TestEvalPyramidize$' -v -timeout 10800s  # API pipeline, CLI judges
+go test -tags eval,gtk3 ./internal/features/pyramidize/ -run TestEvalLanguage -v -timeout 1800s
+                                                       # is the reply in the author's language? 8 samples (English
+                                                       # in all five forms, German, a German mail with an English
+                                                       # greeting) × EVAL_RUNS (default 3) = 24 calls, no judge.
+                                                       # eval.sh runs only its suite's test (-run), never this one
 EVAL_SPLIT=tune go test -tags eval ./internal/features/enhance/ -run 'TestEvalFix/^interpunktion$' -v   # smoke: one tune sample = 3 CLI calls
 EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 go test -tags eval ...
 ./scripts/eval.sh                                      # one run of the pyramidize suite
@@ -109,8 +114,9 @@ EVAL_JUDGE_MODEL=... ./scripts/eval.sh                 # a single judge instead 
 # environment only, so ~/.config/KeyLint/settings.json and the OS keyring cannot
 # move a number; the CLI is spawned without credential, model-remapping,
 # thinking-budget or output-cap env vars, with --setting-sources "", in an empty
-# KeyLint-owned working directory and with auto-memory off (#127). Whether
-# user-level instructions (~/.claude/CLAUDE.md) still reach it is not verified.
+# KeyLint-owned working directory and with auto-memory off (#127). User-level
+# instructions (~/.claude/CLAUDE.md) did not reach it in one diagnostic call on
+# 2026-10-14 (indicative, quality-status.md).
 # The judges are pinned to full model IDs; the pipeline is not, because users
 # get the alias.
 # The configKey names the instrument, not the thing measured: suite, provider,

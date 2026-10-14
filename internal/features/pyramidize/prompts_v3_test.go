@@ -380,6 +380,38 @@ func TestV3ExamplesAreValidReplies(t *testing.T) {
 	}
 }
 
+// TestV3NamesTheLanguageBeforeTheDocument: the reply states its language
+// first, so the model settles it before it writes a word of the document.
+// With fullDocument first, English notes came back in German in 6 of 7
+// calls on 2026-10-14 (v2: 3 of 3), the language named only afterwards; with
+// language first, 0 of 6 (testdata/language, TestEvalLanguage). The prompt's
+// own examples are in German and English, and the core says that tells
+// nothing about the language to write in.
+func TestV3NamesTheLanguageBeforeTheDocument(t *testing.T) {
+	lang, doc := strings.Index(promptV3Output, `"language"`), strings.Index(promptV3Output, `"fullDocument"`)
+	if lang < 0 || doc < 0 || lang > doc {
+		t.Errorf("the output format names fullDocument before language:\n%s", promptV3Output)
+	}
+	if !strings.Contains(promptV3Output, "decided first: the document is written in it") {
+		t.Error("the output format does not say the language is decided first")
+	}
+	if !strings.Contains(promptV3Core, "the language comes from the author's message alone") {
+		t.Error("<voice> does not say the instructions' and examples' languages tell nothing")
+	}
+	for _, form := range forms {
+		for _, m := range exampleOutput.FindAllStringSubmatch(promptV3Forms[form], -1) {
+			if !strings.HasPrefix(m[1], `{"language": `) {
+				t.Errorf("a %s example reply does not start with its language: %.60s…", form, m[1])
+			}
+		}
+	}
+	// A provider that follows the schema writes the properties in its order.
+	schema := string(documentSchemaV3)
+	if strings.Index(schema, `"language"`) > strings.Index(schema, `"fullDocument"`) {
+		t.Errorf("documentSchemaV3 lists fullDocument before language:\n%s", schema)
+	}
+}
+
 func keys(m map[string]any) []string {
 	var out []string
 	for k := range m {

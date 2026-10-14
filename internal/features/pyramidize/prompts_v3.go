@@ -54,6 +54,7 @@ fidelity holds whatever the user chooses in <user_choices>: only content the use
 <voice>
 by default, keep the author's voice:
 - write in the language of the author's message, including its code-switching: where the author mixes languages, mix them the same way; where the author does not, do not introduce another language. NEVER translate on your own.
+- the language comes from the author's message alone. these instructions and their examples are written in more than one language; that says nothing about the language you write in.
 - NEVER increase formality or change perspective beyond the original: casual stays casual, first person stays first person.
 - keep greetings and sign-offs as the author wrote them, where the form has them. never upgrade or invent one.
 </voice>
@@ -77,8 +78,8 @@ const promptV3Output = `<output_format>
 Respond ONLY with valid JSON (no markdown fences, no explanation, no trailing text).
 CRITICAL: All double-quote characters inside string values MUST be escaped as \" — this includes quotes in the document text.
 {
-  "fullDocument": "the restructured text as a single string with \n linebreaks",
-  "language": "language of the author's message (ISO 639-1)"
+  "language": "language of the author's message (ISO 639-1), decided first: the document is written in it",
+  "fullDocument": "the restructured text as a single string with \n linebreaks"
 }
 </output_format>`
 
@@ -103,13 +104,13 @@ leave the actions segment out when the author asks nothing of anyone — never f
 <example name="status-update-de">
 input: "Hallo Hans, kurze Info: der Build von gestern Abend ist fehlgeschlagen wegen eines Fehlers im CarService. Ich hab das gefixed und einen neuen Build gestartet. Geht ca. eine Stunde. Das Release für morgen steht trotzdem, wir müssen nicht verschieben."
 
-output: {"fullDocument": "Build-Fehler behoben, Release morgen wie geplant | CarService gefixt, neuer Build läuft (~1h)\n\nHallo Hans,\n\n**Release morgen nicht gefährdet**\n- Build gestern Abend wegen CarService-Fehler fehlgeschlagen\n- Fehler behoben, neuer Build läuft (~1 Stunde)\n- Kein Verschieben nötig", "language": "de"}
+output: {"language": "de", "fullDocument": "Build-Fehler behoben, Release morgen wie geplant | CarService gefixt, neuer Build läuft (~1h)\n\nHallo Hans,\n\n**Release morgen nicht gefährdet**\n- Build gestern Abend wegen CarService-Fehler fehlgeschlagen\n- Fehler behoben, neuer Build läuft (~1 Stunde)\n- Kein Verschieben nötig"}
 </example>
 
 <example name="scheduling-change-en">
 input: "hey team, just wanted to update everyone that the Q1 review meeting that was scheduled for next friday has been moved to the following monday at 2pm because the CFO has a conflict. please make sure you have your numbers ready by sunday night so we have time to review. Sarah and Tom need to send me their slides by thursday."
 
-output: {"fullDocument": "Q1 Review Moved to Monday 2pm | Numbers Due Sunday Night | @Sarah @Tom Slides by Thursday\n\nhey team,\n\n**Q1 Review Moved to the Following Monday, 2pm**\n- Was scheduled for next Friday\n- Reason: the CFO has a conflict\n\n**Numbers Due Sunday Night, Slides Due Thursday**\n- All: have your numbers ready, so we have time to review\n- @Sarah, @Tom: send me your slides", "language": "en"}
+output: {"language": "en", "fullDocument": "Q1 Review Moved to Monday 2pm | Numbers Due Sunday Night | @Sarah @Tom Slides by Thursday\n\nhey team,\n\n**Q1 Review Moved to the Following Monday, 2pm**\n- Was scheduled for next Friday\n- Reason: the CFO has a conflict\n\n**Numbers Due Sunday Night, Slides Due Thursday**\n- All: have your numbers ready, so we have time to review\n- @Sarah, @Tom: send me your slides"}
 </example>
 </examples>
 </form>`,
@@ -125,7 +126,7 @@ a chat message (Teams, Slack and the like): the form for a short result, read in
 <example name="deployment-de">
 input: "Hi Tom, kurzes Update zum Deployment: hat gestern Abend nicht geklappt, weil das Zertifikat abgelaufen war. Hab ein neues beantragt, sollte bis morgen Mittag da sein. Danach deploye ich direkt. Kannst du bis dahin den Kunden informieren? Danke!"
 
-output: {"fullDocument": "Hi Tom, das Deployment kommt erst mit dem neuen Zertifikat (sollte bis morgen Mittag da sein) – kannst du bis dahin den Kunden informieren?\n\nGestern Abend ist es gescheitert, weil das Zertifikat abgelaufen war. Das neue ist beantragt, danach deploye ich direkt.\n\nDanke!", "language": "de"}
+output: {"language": "de", "fullDocument": "Hi Tom, das Deployment kommt erst mit dem neuen Zertifikat (sollte bis morgen Mittag da sein) – kannst du bis dahin den Kunden informieren?\n\nGestern Abend ist es gescheitert, weil das Zertifikat abgelaufen war. Das neue ist beantragt, danach deploye ich direkt.\n\nDanke!"}
 </example>
 </form>`,
 
@@ -142,7 +143,7 @@ no greeting, no sign-off: a memo has neither.
 <example name="api-switch-en">
 input: "Need to tell the team that we're switching from REST to GraphQL for the new client portal. The decision was made because of performance issues with the current approach - we're making too many round trips. Timeline is 6 weeks starting next monday. Jake and Priya will lead the migration. Everyone else needs to attend a kickoff meeting on friday."
 
-output: {"fullDocument": "**TO:** Team | **FROM:** [sender] | **RE:** We're Switching the Client Portal From REST to GraphQL — Kickoff Friday, Start Monday\n\nWe're switching the new client portal from REST to GraphQL over six weeks from next Monday, because we're making too many round trips.\n\n**Jake and Priya Lead the Migration, Starting Next Monday**\n- Duration: 6 weeks\n- Lead: Jake and Priya\n\n**Everyone Else Attends the Kickoff on Friday**\n- All team members not leading the migration\n\n**Too Many Round Trips Drive the Switch**\n- Performance issues with the current approach\n- Cause: we're making too many round trips", "language": "en"}
+output: {"language": "en", "fullDocument": "**TO:** Team | **FROM:** [sender] | **RE:** We're Switching the Client Portal From REST to GraphQL — Kickoff Friday, Start Monday\n\nWe're switching the new client portal from REST to GraphQL over six weeks from next Monday, because we're making too many round trips.\n\n**Jake and Priya Lead the Migration, Starting Next Monday**\n- Duration: 6 weeks\n- Lead: Jake and Priya\n\n**Everyone Else Attends the Kickoff on Friday**\n- All team members not leading the migration\n\n**Too Many Round Trips Drive the Switch**\n- Performance issues with the current approach\n- Cause: we're making too many round trips"}
 </example>
 </form>`,
 
@@ -158,7 +159,7 @@ a wiki page: reference text for any reader, read now or in a year. fullDocument,
 <example name="logout-bug-en">
 input: "so we had this bug where users were getting logged out randomly. turned out it was because the session token wasnt being refreshed properly. the token expires after 30 mins and we refresh it on every api call but there was a race condition in the refresh logic. fixed it with a mutex. this affects all users on v2.3.1 and below."
 
-output: {"fullDocument": "# Race Condition in Session Token Refresh Logged Users Out at Random (v2.3.1 and Below)\n\nWe fixed random logouts, caused by a race condition in the session token refresh, with a mutex.\n\n## A Mutex Fixes the Race Condition in the Refresh Logic\n- The session token was not refreshed properly\n- Cause: a race condition in the refresh logic\n- We fixed it with a mutex\n\n## All Users on v2.3.1 and Below Are Affected\n- Symptom: users get logged out at random\n\n## The Token Expires After 30 Minutes and Is Refreshed on Every API Call\n- Expiry: 30 minutes\n- We refresh it on every API call", "language": "en"}
+output: {"language": "en", "fullDocument": "# Race Condition in Session Token Refresh Logged Users Out at Random (v2.3.1 and Below)\n\nWe fixed random logouts, caused by a race condition in the session token refresh, with a mutex.\n\n## A Mutex Fixes the Race Condition in the Refresh Logic\n- The session token was not refreshed properly\n- Cause: a race condition in the refresh logic\n- We fixed it with a mutex\n\n## All Users on v2.3.1 and Below Are Affected\n- Symptom: users get logged out at random\n\n## The Token Expires After 30 Minutes and Is Refreshed on Every API Call\n- Expiry: 30 minutes\n- We refresh it on every API call"}
 </example>
 </form>`,
 
@@ -175,7 +176,7 @@ followed by at most 5 bullet points; fragments are fine, sub-bullets sparingly (
 <example name="cost-savings-de">
 input: "Präsentation für das Management: Wir haben die Serverkosten um 40% gesenkt durch Migration zu AWS. Das hat 3 Monate gedauert. Wir haben dabei keine Ausfallzeiten gehabt. Die Einsparung beträgt 120.000€ pro Jahr. Im nächsten Schritt wollen wir auch die Datenbank migrieren, das würde nochmal 60.000€ sparen."
 
-output: {"fullDocument": "# Slide 1: AWS-Migration spart 120.000 €/Jahr – Datenbank-Migration brächte weitere 60.000 €\n\n- Serverkosten um 40 % gesenkt\n- Einsparung: 120.000 € pro Jahr\n- Nächster Schritt: Datenbank migrieren, weitere 60.000 € Einsparung\n\n# Slide 2: Migration in 3 Monaten ohne Ausfallzeit\n\n- Dauer: 3 Monate\n- Keine Ausfallzeiten\n\n# Slide 3: Datenbank-Migration als nächster Schritt – weitere 60.000 €\n\n- Geplant: auch die Datenbank migrieren\n- Zusätzliche Einsparung: 60.000 €", "language": "de"}
+output: {"language": "de", "fullDocument": "# Slide 1: AWS-Migration spart 120.000 €/Jahr – Datenbank-Migration brächte weitere 60.000 €\n\n- Serverkosten um 40 % gesenkt\n- Einsparung: 120.000 € pro Jahr\n- Nächster Schritt: Datenbank migrieren, weitere 60.000 € Einsparung\n\n# Slide 2: Migration in 3 Monaten ohne Ausfallzeit\n\n- Dauer: 3 Monate\n- Keine Ausfallzeiten\n\n# Slide 3: Datenbank-Migration als nächster Schritt – weitere 60.000 €\n\n- Geplant: auch die Datenbank migrieren\n- Zusätzliche Einsparung: 60.000 €"}
 </example>
 </form>`,
 }

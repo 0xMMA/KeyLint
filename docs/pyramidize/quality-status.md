@@ -28,6 +28,19 @@ changed between the baseline's commit and the merge.
 German business emails. Two of them carry mail history; one mixes German and
 English heavily, a code-switch the prompts keep on purpose.
 
+**English input: broken, found 2026-10-14, fixed by naming the language
+first.** The suite above could not see it, because all its samples are
+German. English notes for the website's demo came back in German in 6 of 7
+calls on v3, and in 3 of 3 on v2 (Sonnet 5.5 through the CLI): whole replies,
+or English bullets under German subject and headers. The reply named its
+language only after the document, and the prompt's own examples and wording
+are partly German. Now the reply names its language first, and `<voice>` says
+that the languages of the instructions and examples tell nothing. On the same
+notes 0 of 6 came back in German, and a German sample stayed German. Those are
+diagnostic calls, not a `--runs 3` measurement. The measurement is
+`TestEvalLanguage` (see How it is measured). Whether the change moved the
+German suite is checked against the reference baseline below.
+
 ### Reference baseline: 2026-10-13
 
 `test-data/eval-baselines/2026-10-13T00-36-32/baseline.json`. Three runs, full
@@ -137,9 +150,12 @@ in brackets. A sample passes a run when every deterministic check passes.
   without it.
 - **v2 on the current instrument.** v2 has not been rerun. v3 replaced it on the
   old instrument's comparison (2026-10-11, in History below).
-- **Isolation, one gap.** Every CLI call runs in an empty directory with
-  auto-memory off (#127). Whether user-level instructions
-  (`~/.claude/CLAUDE.md`) still reach the CLI is not verified.
+- **Isolation.** Every CLI call runs in an empty directory with auto-memory
+  off (#127). User-level instructions (`~/.claude/CLAUDE.md`) seem not to reach
+  it. One diagnostic call on 2026-10-14 checked this, with KeyLint's flags and
+  working directory, Haiku and CLI 2.1.299. It found no instruction in its
+  context. Its 651 input tokens also leave no room for the 2 KB file. That is
+  one call on one machine, so it is indicative only.
 
 ### Deterministic check limitations
 
@@ -189,8 +205,8 @@ pin.
 
 ### Next
 
-Items 1, 3 and 4 are on the [roadmap](../roadmap.md) (E3); item 2 is a
-proposal. Only item 1 waits on something outside the repo.
+Items 1, 3 and 5 are on the [roadmap](../roadmap.md) (E3); items 2 and 4
+are proposals. Only item 1 waits on something outside the repo.
 
 1. **The other forms.** First the owner's real samples for chat, memo, wiki
    and presentation. Then a harness that runs those forms, and per-form
@@ -199,7 +215,11 @@ proposal. Only item 1 waits on something outside the repo.
 2. **Samples that carry instructions.** One or two, including one that states
    content, so the 2026-10-13 rule is exercised. Proposed, not decided.
 3. **Schema enforcement on and off for v3.**
-4. **Instrument follow-ups.**
+4. **English in the main suite.** `checkLanguage` could join the
+   deterministic checks once the suite has English samples. That bumps
+   `checksVersion`, so it waits for the next instrument change. Proposed, not
+   decided.
+5. **Instrument follow-ups.**
    - The Fix judge should record its own prompt hash. `judgePromptHash` is
      Pyramidize-only, so Fix keys as `unrecorded`.
    - Optionally, give the judges the marked history split.
@@ -220,6 +240,15 @@ threshold" (ADR-003) argues against it.
   `no_hallucination` (the whole input, with a ratio over output terms the
   history does not hold). Samples with history also get
   `no_history_reproduction`. These checks are `checksVersion` 2.
+- **Language:** `TestEvalLanguage` is a separate test, and `eval.sh` does not
+  run it. It covers 8 samples written for it: English in all five forms, German
+  email and chat, and a German mail with an English greeting. Each sample runs
+  3 times, which makes 24 pipeline calls and no judge. `checkLanguage` compares
+  the language of each line, counted by German and English function words,
+  with the author's message. It is not part of `checksVersion`.
+
+      go test -tags eval,gtk3 ./internal/features/pyramidize/ -run TestEvalLanguage -v -timeout 1800s
+
 - **Judges:** `claude-haiku-5-5` and `claude-sonnet-5-5`, both through the
   Claude Code CLI. Their prompt, template, schema and output limit are keyed as
   `judgePromptHash`.
