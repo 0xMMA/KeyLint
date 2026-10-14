@@ -139,7 +139,7 @@ func TestMailHistoryIsContextNeverOutput(t *testing.T) {
 	}
 	for part, phrase := range map[string]string{
 		promptV3Core:                "keeps the author's facts, names, numbers, dates and asks as written",
-		promptV3Output:              "language of the author's message (ISO 639-1)",
+		promptV3Output:              "the author's message's, unless <user_instructions> ask for another",
 		promptV3Forms["memo"]:       "labels in the language of the author's message",
 		promptV3Forms["wiki"]:       "keep source references and links from the author's message",
 		promptV3Forms["powerpoint"]: "specific numbers and facts from the author's message",
@@ -383,20 +383,26 @@ func TestV3ExamplesAreValidReplies(t *testing.T) {
 // TestV3NamesTheLanguageBeforeTheDocument: the reply states its language
 // first, so the model settles it before it writes a word of the document.
 // With fullDocument first, English notes came back in German in 6 of 7
-// calls on 2026-10-14 (v2: 3 of 3), the language named only afterwards; with
-// language first, 0 of 6 (testdata/language, TestEvalLanguage). The prompt's
-// own examples are in German and English, and the core says that tells
-// nothing about the language to write in.
+// diagnostic calls on 2026-10-14 (v2: 3 of 3; testdata/language holds some of
+// those replies); with language first, 0 of 6 on the same notes. Those calls
+// were not recorded as a run: TestEvalLanguage is the measurement. The
+// prompt's own examples are in German and English, and the core says that
+// tells nothing about the language to write in. The user's instructions may
+// still ask for another language ("in English" is the UI's own example), so
+// the field names the language written in, not the author's.
 func TestV3NamesTheLanguageBeforeTheDocument(t *testing.T) {
 	lang, doc := strings.Index(promptV3Output, `"language"`), strings.Index(promptV3Output, `"fullDocument"`)
 	if lang < 0 || doc < 0 || lang > doc {
 		t.Errorf("the output format names fullDocument before language:\n%s", promptV3Output)
 	}
-	if !strings.Contains(promptV3Output, "decided first: the document is written in it") {
+	if !strings.Contains(promptV3Output, "the language you write the document in (ISO 639-1), decided first") {
 		t.Error("the output format does not say the language is decided first")
 	}
-	if !strings.Contains(promptV3Core, "the language comes from the author's message alone") {
-		t.Error("<voice> does not say the instructions' and examples' languages tell nothing")
+	if !strings.Contains(promptV3Output, "unless <user_instructions> ask for another") {
+		t.Error("the output format pins the author's language over the user's instructions (\"in English\")")
+	}
+	if !strings.Contains(promptV3Core, "the language comes from the author's message, never from this prompt") {
+		t.Error("<voice> does not say the prompt's own languages tell nothing")
 	}
 	for _, form := range forms {
 		for _, m := range exampleOutput.FindAllStringSubmatch(promptV3Forms[form], -1) {
@@ -405,7 +411,10 @@ func TestV3NamesTheLanguageBeforeTheDocument(t *testing.T) {
 			}
 		}
 	}
-	// A provider that follows the schema writes the properties in its order.
+	// The schema lists language first too. Only the Claude Code CLI receives
+	// it in this order (json.Compact): the API SDKs get it as a map
+	// (llm.schemaObject) and sort its keys, so with schema enforcement on
+	// (off by default) the API order is fullDocument first again.
 	schema := string(documentSchemaV3)
 	if strings.Index(schema, `"language"`) > strings.Index(schema, `"fullDocument"`) {
 		t.Errorf("documentSchemaV3 lists fullDocument before language:\n%s", schema)

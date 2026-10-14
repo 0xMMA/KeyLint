@@ -28,16 +28,17 @@ changed between the baseline's commit and the merge.
 German business emails. Two of them carry mail history; one mixes German and
 English heavily, a code-switch the prompts keep on purpose.
 
-**English input: broken, found 2026-10-14, fixed by naming the language
-first.** The suite above could not see it, because all its samples are
+**English input: broken, found 2026-10-14, fix in review (#132): the reply
+names its language first.** The suite above could not see it, because all its samples are
 German. English notes for the website's demo came back in German in 6 of 7
 calls on v3, and in 3 of 3 on v2 (Sonnet 5.5 through the CLI): whole replies,
 or English bullets under German subject and headers. The reply named its
 language only after the document, and the prompt's own examples and wording
-are partly German. Now the reply names its language first, and `<voice>` says
-that the languages of the instructions and examples tell nothing. On the same
-notes 0 of 6 came back in German, and a German sample stayed German. Those are
-diagnostic calls, not a `--runs 3` measurement. The measurement is
+are partly German. With #132 the reply names its language first: the author's, unless the
+user's instructions ask for another. `<voice>` says that the prompt's own
+languages tell nothing. On the same notes 0 of 6 came back in German, and a
+German sample stayed German. Those are diagnostic calls on one input, not
+recorded as a run and not a `--runs 3` measurement. The measurement is
 `TestEvalLanguage` (see How it is measured). Whether the change moved the
 German suite is checked against the reference baseline below.
 
@@ -153,9 +154,9 @@ in brackets. A sample passes a run when every deterministic check passes.
 - **Isolation.** Every CLI call runs in an empty directory with auto-memory
   off (#127). User-level instructions (`~/.claude/CLAUDE.md`) seem not to reach
   it. One diagnostic call on 2026-10-14 checked this, with KeyLint's flags and
-  working directory, Haiku and CLI 2.1.299. It found no instruction in its
-  context. Its 651 input tokens also leave no room for the 2 KB file. That is
-  one call on one machine, so it is indicative only.
+  working directory, Haiku and CLI 2.1.299. Asked to quote any instruction in
+  its context about language or about the owner, it found none. That is one
+  call on one machine, so it is indicative only.
 
 ### Deterministic check limitations
 
@@ -241,13 +242,20 @@ threshold" (ADR-003) argues against it.
   history does not hold). Samples with history also get
   `no_history_reproduction`. These checks are `checksVersion` 2.
 - **Language:** `TestEvalLanguage` is a separate test, and `eval.sh` does not
-  run it. It covers 8 samples written for it: English in all five forms, German
-  email and chat, and a German mail with an English greeting. Each sample runs
-  3 times, which makes 24 pipeline calls and no judge. `checkLanguage` compares
-  the language of each line, counted by German and English function words,
-  with the author's message. It is not part of `checksVersion`.
+  run it. It covers 9 samples written for it:
+  - English in all five forms;
+  - German email and chat;
+  - a German mail with an English greeting;
+  - a German mail whose instructions ask for English.
 
-      go test -tags eval,gtk3 ./internal/features/pyramidize/ -run TestEvalLanguage -v -timeout 1800s
+  Each sample runs 3 times, which makes 27 pipeline calls and no judge. A
+  `summary.json` records the model that answered, the git SHA and the
+  `promptHash`. `checkLanguage` gives each line one vote, by German and English
+  function words, and compares the result with the author's message (or with
+  the asked-for language). It also holds the first line to the author's
+  language. It is not part of `checksVersion`.
+
+      go test -tags eval,gtk3 ./internal/features/pyramidize/ -run TestEvalLanguage -v -timeout 3600s
 
 - **Judges:** `claude-haiku-5-5` and `claude-sonnet-5-5`, both through the
   Claude Code CLI. Their prompt, template, schema and output limit are keyed as

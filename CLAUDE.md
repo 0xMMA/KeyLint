@@ -66,10 +66,11 @@ cat input.txt | ./bin/KeyLint -fix                     # fix from stdin
 # Results are logged to test-data/eval-runs/<timestamp>/ with summary.json.
 go test -tags eval ./internal/features/pyramidize/ -run '^TestEvalPyramidize$' -v -timeout 10800s
 EVAL_PROVIDER=claude go test -tags eval ./internal/features/pyramidize/ -run '^TestEvalPyramidize$' -v -timeout 10800s  # API pipeline, CLI judges
-go test -tags eval,gtk3 ./internal/features/pyramidize/ -run TestEvalLanguage -v -timeout 1800s
-                                                       # is the reply in the author's language? 8 samples (English
+go test -tags eval,gtk3 ./internal/features/pyramidize/ -run TestEvalLanguage -v -timeout 3600s
+                                                       # is the reply in the language it should be? 9 samples (English
                                                        # in all five forms, German, a German mail with an English
-                                                       # greeting) × EVAL_RUNS (default 3) = 24 calls, no judge.
+                                                       # greeting, German asked "in English") × EVAL_RUNS (default 3)
+                                                       # = 27 calls, no judge; summary.json in eval-runs/<ts>-language.
                                                        # eval.sh runs only its suite's test (-run), never this one
 EVAL_SPLIT=tune go test -tags eval ./internal/features/enhance/ -run 'TestEvalFix/^interpunktion$' -v   # smoke: one tune sample = 3 CLI calls
 EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 go test -tags eval ...

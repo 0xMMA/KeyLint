@@ -380,30 +380,43 @@ and Pyramidize returned German in 6 of 7 calls on v3. v2 did the same in 3 of
 had German subject and headers over English bullets. The main suite could not
 see it: its 13 samples are German.
 
-One diagnostic call ruled out the user's own `~/.claude/CLAUDE.md`, which is
-written in German. That left the prompt. Its reply named the language only
-after the document. Its `<headers>` examples and the `<user_choices>` examples
-are German, and so are some of the form examples.
+One diagnostic call (indicative only) found none of the user's own
+`~/.claude/CLAUDE.md` in the CLI's context, although that file is written in
+German. That points at the prompt. Its reply named the language only after the
+document. Its `<headers>` examples and the `<user_choices>` examples are
+German, and so are some of the form examples.
 
 **The fix:**
-- **Language first.** The reply's language is now its first field, "decided
-  first: the document is written in it". This applies to the output format,
-  every example and `documentSchemaV3`.
+- **Language first.** The reply's first field is now the language it is
+  written in, "decided first: the author's message's, unless
+  <user_instructions> ask for another". This applies to the output format,
+  every example and `documentSchemaV3`. The instructions may ask for another
+  language: the UI's own placeholder suggests "in English". So the field
+  names the language the document is written in, not the author's.
 - **A new line in `<voice>`.** It says the language comes from the author's
-  message alone, and that the languages of the instructions and examples tell
-  nothing.
+  message, never from the prompt. The prompt's instructions and examples are
+  written in more than one language, and that tells nothing.
 
 Both are general principles, not tuned to any sample. On the same notes, 0 of
-6 calls came back in German, and a German eval sample stayed German.
+6 diagnostic calls came back in German, and a German eval sample stayed German.
+These calls were not recorded as a run.
 
 **The guards:**
-- `TestV3NamesTheLanguageBeforeTheDocument` pins the order.
-- `TestEvalLanguage` measures it, with 8 samples in all five forms, English and
-  German.
-- `checkLanguage` gives each line one vote, counted by function words. Its
-  fixtures are the replies from that day. It passes every accepted output in
-  the main suite, including `email-software-deployment`, a German mail with a
-  pasted English README section.
+- `TestV3NamesTheLanguageBeforeTheDocument` pins the order and the
+  instructions clause.
+- `TestEvalLanguage` measures it, with 9 samples:
+  - English in all five forms;
+  - German email and chat;
+  - a German mail with an English greeting;
+  - a German mail whose instructions ask for English.
+- `checkLanguage` gives each line one vote, counted by function words, and
+  holds the first line to the author's language. Its fixtures are the replies
+  from that day. It passes every accepted output in the main suite, including
+  `email-software-deployment`, a German mail with a pasted English README
+  section.
+
+The schema order reaches only the Claude Code CLI. The API SDKs sort the keys
+of the schema map. Schema enforcement is off by default.
 
 v2 stays byte-identical, and so it keeps the fault. It is a comparison baseline
 only.

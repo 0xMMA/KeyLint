@@ -59,7 +59,9 @@ func enforcedSchema(schema json.RawMessage) json.RawMessage {
 // schema, or ignore it.
 
 // documentSchemaV3 matches documentResult: the v3 prompt asks for the
-// document and its language, nothing else (ADR-003).
+// document and its language, nothing else (ADR-003), language first (ADR-003
+// addendum of 2026-10-14). Only the Claude Code CLI receives this order: the
+// API SDKs get the schema as a map (llm.schemaObject) and sort its keys.
 var documentSchemaV3 = json.RawMessage(`{
   "type": "object",
   "properties": {

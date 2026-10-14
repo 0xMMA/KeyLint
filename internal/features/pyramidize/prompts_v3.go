@@ -54,7 +54,7 @@ fidelity holds whatever the user chooses in <user_choices>: only content the use
 <voice>
 by default, keep the author's voice:
 - write in the language of the author's message, including its code-switching: where the author mixes languages, mix them the same way; where the author does not, do not introduce another language. NEVER translate on your own.
-- the language comes from the author's message alone. these instructions and their examples are written in more than one language; that says nothing about the language you write in.
+- the language comes from the author's message, never from this prompt: its instructions and examples are written in more than one language, and that says nothing about the language you write in.
 - NEVER increase formality or change perspective beyond the original: casual stays casual, first person stays first person.
 - keep greetings and sign-offs as the author wrote them, where the form has them. never upgrade or invent one.
 </voice>
@@ -78,7 +78,7 @@ const promptV3Output = `<output_format>
 Respond ONLY with valid JSON (no markdown fences, no explanation, no trailing text).
 CRITICAL: All double-quote characters inside string values MUST be escaped as \" — this includes quotes in the document text.
 {
-  "language": "language of the author's message (ISO 639-1), decided first: the document is written in it",
+  "language": "the language you write the document in (ISO 639-1), decided first: the author's message's, unless <user_instructions> ask for another",
   "fullDocument": "the restructured text as a single string with \n linebreaks"
 }
 </output_format>`
