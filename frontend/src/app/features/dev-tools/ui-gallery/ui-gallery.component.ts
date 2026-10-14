@@ -56,7 +56,7 @@ const LISTED: ModelOption[] = [
       <section>
         <h2>Messages</h2>
         <div class="stack">
-          <kl-message severity="info" text="Pyramidize uses OpenAI for this session. Settings still names Claude Code." />
+          <kl-message severity="info" text="An info message: one line of context, nothing to do." />
           <kl-message severity="success" text="Fixed and copied to the clipboard." />
           <kl-message severity="warn" title="Fix took too long" closable>
             The hotkey fix ran out of time. Your text is unchanged on the clipboard.
@@ -123,7 +123,7 @@ const LISTED: ModelOption[] = [
 
       <section>
         <h2>Card</h2>
-        <kl-card heading="Claude Code" subheading="KeyLint sends your text here. Pyramidize can pick another provider for one session.">
+        <kl-card heading="Claude Code" subheading="KeyLint sends your text here, for Fix and for Pyramidize.">
           <div class="row"><kl-tag severity="primary" icon="check">In use</kl-tag></div>
         </kl-card>
       </section>

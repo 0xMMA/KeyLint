@@ -1,7 +1,8 @@
 /**
  * Wording for where a model picker's list came from.
  *
- * Shared by Settings and the Pyramidize panel so the two cannot tell a user
+ * Settings' wording for every provider (the Pyramidize page has no model
+ * picker since its choice page), kept in one place so a user is never told
  * different stories about the same provider. The source values are the ones
  * `internal/llm/models.go` sets.
  */

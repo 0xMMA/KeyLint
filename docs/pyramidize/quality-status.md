@@ -1,25 +1,248 @@
-# Pyramidize Output Quality — Status & Open Issues
+# Pyramidize Output Quality — Status
 
-> Last updated: 2026-10-13
+> Last updated: 2026-10-14
 
 > The Fix prompt has its own suite and baseline: [`docs/fix/quality-status.md`](../fix/quality-status.md).
 
-> **Prompt v3 is the default since 2026-10-11 ([ADR-003](adr-003-prompt-v3.md)).** Its reference is the baseline of 2026-10-13 (below, the choice-page prompt); the baseline of 2026-10-12 was the first run on the current instrument (mail history is context, `checksVersion` 2, `judgePromptHash`). Every older baseline was scored by a previous instrument and reads "not comparable" against a new run. v2 stays selectable with `--variant 2`; variant 1 and the refine pass are gone, so `appliedRefinement` is always false from here on.
+The first part is where Pyramidize stands today. Everything under
+[History](#history) is the record of how it got there, newest first. It stays
+because ADRs and PRs quote its numbers, and because most of what it learned
+about measuring still holds.
 
 ---
 
-## Eval Infrastructure
+## Where it stands (2026-10-14)
 
-- **CLI mode:** `-fix` and `-pyramidize` commands dispatch headlessly from `main.go`
-- **Eval framework:** Deterministic checks + LLM-as-judge, build-tagged (`//go:build eval`)
-- **Test data:** 13 anonymized German business email samples in `test-data/pyramidal-emails/` (one mixes German and English heavily — code-switching the prompts preserve on purpose); mail history in a sample is marked `<!-- history -->` … `<!-- /history -->` (format: `eval_samples.go`)
-- **Results:** Logged to `test-data/eval-runs/<timestamp>/` with `summary.json`, `results.jsonl`, `samples/`
-- **Run:** `./scripts/eval.sh --runs 3` — pipeline and judges through the installed Claude Code CLI (since 2026-10-04; two judges since 2026-10-11)
-- **Requires:** a signed-in Claude Code CLI (`claude auth status`), no API key. Against the API instead: `EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --provider claude --runs 3` with `ANTHROPIC_API_KEY` in `.env`. That is a different instrument from the API era's too (two judges, resolved IDs, judges unpinned on 5.5): **the API-era baselines below are not comparable with any run of this instrument**, whichever route it takes.
+**What ships: prompt v3 ([ADR-003](adr-003-prompt-v3.md)).** The user picks the
+form (email, chat, memo, wiki, presentation) and one model call writes it. There
+is no detect call, no self-QA, no refine pass and no quality threshold. The only
+other input is the optional instructions field. Instructions win over the voice
+defaults, and content they state is added where it belongs; the model adds
+nothing on its own (owner decision 2026-10-13). Mail history in the input is
+context, never output (2026-10-11). v2 stays selectable with `--variant 2`: email
+only, byte-identical, always `professional`/`professional`. The prompt on `main`
+(77b7bd8) is the one measured below: nothing under `internal/features/pyramidize/`
+changed between the baseline's commit and the merge.
+
+**What is measured: the email form, and only it.** The suite has 13 anonymised
+German business emails. Two of them carry mail history; one mixes German and
+English heavily, a code-switch the prompts keep on purpose.
+
+### Reference baseline: 2026-10-13
+
+`test-data/eval-baselines/2026-10-13T00-36-32/baseline.json`. Three runs, full
+coverage (13 of 13 for each judge in every run).
+
+| Metric | Mean | Range |
+|---|:---:|:---:|
+| Deterministic | 0.9013 | 0.8974–0.9054 |
+| Judge Haiku 5.5 | 0.8544 | 0.8492–0.8577 |
+| Judge Sonnet 5.5 | 0.8272 | 0.8223–0.8354 |
+| Samples passing (all deterministic checks) | 10 | 9–11 |
+
+The configuration:
+- Pipeline: `claude-code` / `sonnet` → `claude-sonnet-5-5`, thinking on.
+- Prompt: v3 email, `promptHash` `p1-b42c33b84682302a`. Schema enforcement off.
+- Scoring: `checksVersion` 2, `judgePromptHash` `j1-fda30fd7bd94a7fa`.
+- Run: CLI 2.1.296, gitSHA `52f19d8`.
+- Threshold: 0.65 is recorded but acts on nothing since v3.
+
+Measure a change against it with:
+
+    ./scripts/eval.sh --runs 3 --compare test-data/eval-baselines/2026-10-13T00-36-32/baseline.json
+
+That is 117 calls on the subscription: 13 samples × (one pipeline call + two
+judge calls) × 3 runs. Each run took about four minutes on 2026-10-13.
+
+### Per sample (2026-10-13)
+
+Sorted by deterministic score. Mean over three runs, with the deterministic range
+in brackets. A sample passes a run when every deterministic check passes.
+
+| Sample | Deterministic | Haiku 5.5 | Sonnet 5.5 | Passes |
+|---|:---:|:---:|:---:|:---:|
+| email-passwort erhalten | 0.79 (0.79–0.80) | 0.86 | 0.81 | 0 of 3 |
+| email-software-deployment | 0.80 (0.77–0.84) | 0.86 | 0.88 | 1 of 3 |
+| email-meeting-request | 0.83 (0.80–0.85) | 0.85 | 0.80 | 0 of 3 |
+| email-onboarding-erfolgreich | 0.88 (0.85–0.90) | 0.90 | 0.88 | 3 of 3 |
+| email-diagnose-update *(history)* | 0.90 (0.87–0.93) | 0.87 | 0.89 | 2 of 3 |
+| email-answer-info-update | 0.90 (0.87–0.92) | 0.87 | 0.76 | 3 of 3 |
+| email-kpi-request | 0.90 (0.89–0.92) | 0.89 | 0.90 | 3 of 3 |
+| email-project-status | 0.92 (0.90–0.94) | 0.86 | 0.85 | 3 of 3 |
+| email-adverity-field-structuring | 0.94 (0.92–0.95) | 0.67 | 0.72 | 3 of 3 |
+| email-airbyte-escalation | 0.94 (0.93–0.95) | 0.86 | 0.83 | 3 of 3 |
+| email-dataquality | 0.97 (0.95–0.98) | 0.85 | 0.79 | 3 of 3 |
+| email-dataquality-followup | 0.97 (0.96–0.98) | 0.91 | 0.85 | 3 of 3 |
+| email-dataquality-reply-to-feedback *(history)* | 0.98 (0.95–1.00) | 0.86 | 0.81 | 3 of 3 |
+
+### Where it is weak
+
+- **Two samples fail every run, while the judges score them normally**
+  (0.80–0.86). Which check fails them on 2026-10-13 is not known (see the next
+  point). On 2026-10-12, the last time per-check numbers were read, it was the
+  term checks:
+  - `email-passwort erhalten`: `no_hallucination` was at 0.31–0.50.
+  - `email-meeting-request`: `info_coverage` was at 0.60–0.63. Its input is
+    casual spoken German with many informal capitalised words.
+
+  If that still holds, these are the check limits listed below more than
+  writing faults.
+- **Two more pass only some runs.** `email-software-deployment` passes 1 of 3,
+  with the widest deterministic range (0.77–0.84). `email-diagnose-update`
+  passes 2 of 3. Which check fails is not known. The run folders of the
+  2026-10-12 and 2026-10-13 baselines lived in worktrees that have since been
+  removed, so only the committed aggregates are left.
+- **The judges' lowest sample passes every check.**
+  `email-adverity-field-structuring` scores 0.94 deterministically, but Haiku
+  gives it 0.67 and Sonnet 0.72. It also has the widest judge spread
+  (0.60–0.75 and 0.62–0.78). Sonnet has scored it 0.64–0.72 on every
+  two-judge baseline. Haiku moves more. It gave 0.74 and 0.77 on 2026-10-11,
+  and 0.85 (0.82–0.87) on 2026-10-12, also on v3. The drop to 0.67 is the
+  largest per-sample move between the last two baselines. Why the
+  judges mark it down has not been examined on v3.
+- **Other per-sample moves from 2026-10-12 to 2026-10-13** with disjoint ranges
+  (indicative only: three runs per sample):
+  - `email-passwort erhalten` went down with both judges (Haiku 0.90 → 0.86,
+    Sonnet 0.86 → 0.81).
+  - `email-answer-info-update` went up with Sonnet (0.67 → 0.76).
+- **The judges disagree per sample, not only in level.** Sonnet sits 0.027
+  below Haiku overall. On `email-answer-info-update` it sits 0.10 below, with
+  disjoint ranges (0.75–0.78 against 0.86–0.87). On `email-kpi-request` they
+  agree (0.90 and 0.89). That is why they are reported separately and never
+  averaged.
+- `no_history_reproduction` scored 1.0 in all six runs of the two history
+  samples, on both 2026-10-12 and 2026-10-13: no reply copied the mails it
+  answers.
+
+### What the numbers do not cover
+
+- **Chat, memo, wiki and presentation.** Their v3 sections ship unmeasured.
+  Measuring them needs three things:
+  - Samples. They are meant to be real anonymised texts from the owner, and
+    there are none yet.
+  - A harness that runs other forms. Today it sends every sample as email and
+    reads only `pyramidal-emails/`.
+  - Per-form deterministic checks. `structure` wants a subject and a header, so
+    every chat output would fail it today. That change bumps `checksVersion`
+    (roadmap E3 phase 1).
+
+  The old pipeline for comparison is in the `v4.7.1-beta` tag.
+- **Instructions.** No sample carries any, so every run takes the "keep the
+  author's voice" path. Whether "content the user states is added" works, and
+  whether instructions ever make the model add more than they state, is
+  untested.
+- **The model question on v3.** Sonnet 5.5 is the only pipeline model measured.
+  Opus 5.5, and maybe Haiku 5.5, are still to run.
+- **Schema enforcement on v3.** It stays off until v3 is measured with and
+  without it.
+- **v2 on the current instrument.** v2 has not been rerun. v3 replaced it on the
+  old instrument's comparison (2026-10-11, in History below).
+- **Isolation, one gap.** Every CLI call runs in an empty directory with
+  auto-memory off (#127). Whether user-level instructions
+  (`~/.claude/CLAUDE.md`) still reach the CLI is not verified.
+
+### Deterministic check limitations
+
+These still hold, and they probably explain most of the failing samples above:
+
+- `info_coverage` extracts capitalised words, which is noisy for German, where
+  every noun is capitalised. Casual input suffers most.
+- `no_hallucination` cannot tell restructuring vocabulary from an invented
+  claim. The business-vocabulary exclusion list softens that but does not solve
+  it.
+- There is no semantic similarity. That would need an NLP model; see
+  [research-nlp-langchain.md](research-nlp-langchain.md).
+- `structure` is email-shaped: it wants a subject line and a header. That is
+  right for email, but not for the other forms (see above).
+
+The judges have limits of their own. Through the CLI they have no temperature
+pin, and neither 5.5 model has a dated snapshot, so the full model ID is the
+pin.
+
+### The rules for reading a number
+
+- **One run is a sample, not a measurement.** Quote `--runs 3` only, and on both
+  sides of a comparison.
+- **`--compare` asks whether intervals overlap, not whether a mean moved.**
+  - A metric is better or worse only when the two ranges are disjoint.
+  - Any metric clearly worse is a regression.
+  - An improvement needs one metric clearly better and none worse.
+  - The reasoning is in [The noise floor](#the-noise-floor). Its numbers are
+    the 2026-09-18 instrument's; the reasoning holds.
+- **Pass counts move by 2 between identical runs** (9–11 here). Do not read a
+  difference of 2 or less.
+- **The `configKey` names the instrument.** It holds:
+  - suite, provider and resolved model
+  - the judges and their temperatures
+  - variant and schema enforcement
+  - threshold, sample count and split
+  - `checksVersion`, thinking and `judgePromptHash`
+
+  A change to any of them reads "not comparable", never as a delta. So the v2
+  rerun and the schema on/off comparison must be read by hand, interval against
+  interval. The prompt itself is reported (`promptHash`) but not keyed, so a
+  prompt change can be measured.
+- **Run folders are local.** `test-data/eval-runs/` is gitignored, and removing
+  the worktree a run was made in deletes them; only `baseline.json` is
+  committed. Copy the folders out first if the per-check numbers might matter
+  later.
+
+### Next
+
+Items 1, 3 and 4 are on the [roadmap](../roadmap.md) (E3); item 2 is a
+proposal. Only item 1 waits on something outside the repo.
+
+1. **The other forms.** First the owner's real samples for chat, memo, wiki
+   and presentation. Then a harness that runs those forms, and per-form
+   deterministic checks (E3 phase 1, a `checksVersion` bump). Measure each form
+   on those, then answer the model question.
+2. **Samples that carry instructions.** One or two, including one that states
+   content, so the 2026-10-13 rule is exercised. Proposed, not decided.
+3. **Schema enforcement on and off for v3.**
+4. **Instrument follow-ups.**
+   - The Fix judge should record its own prompt hash. `judgePromptHash` is
+     Pyramidize-only, so Fix keys as `unrecorded`.
+   - Optionally, give the judges the marked history split.
+
+Earlier ideas, not scheduled (E9 is parked): semantic eval checks (sentence
+embeddings instead of term overlap), and NLP info-loss detection. A deterministic
+gate inside the live pipeline is also on that list, though "one call, no quality
+threshold" (ADR-003) argues against it.
+
+### How it is measured
+
+- **Framework:** deterministic checks plus LLM judges, build-tagged
+  `//go:build eval` and never part of `go test`.
+- **Samples:** `test-data/pyramidal-emails/`. Mail history is marked
+  `<!-- history -->` … `<!-- /history -->`, in the format of `eval_samples.go`.
+  The markers are removed before the input reaches Pyramidize or a judge.
+- **Checks:** `structure`, `info_coverage` (the author's message only) and
+  `no_hallucination` (the whole input, with a ratio over output terms the
+  history does not hold). Samples with history also get
+  `no_history_reproduction`. These checks are `checksVersion` 2.
+- **Judges:** `claude-haiku-5-5` and `claude-sonnet-5-5`, both through the
+  Claude Code CLI. Their prompt, template, schema and output limit are keyed as
+  `judgePromptHash`.
+- **Results:** `test-data/eval-runs/<timestamp>/` holds `summary.json`,
+  `results.jsonl` and `samples/`. `--runs n` writes
+  `test-data/eval-baselines/<timestamp>/baseline.json`.
+- **Requires:** a signed-in Claude Code CLI (`claude auth status`), no API key.
+  The API route (`EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --provider claude`,
+  with `ANTHROPIC_API_KEY` in `.env`) is a different instrument again.
+  **No API-era baseline compares with any run of this instrument**, whichever
+  route it takes.
 
 ---
 
-## Eval Scores — baseline of 2026-10-13 (choice-page prompt, the current reference)
+## History
+
+Roughly newest first. A section that ran over several days sits at the date
+it started. Present tense in a section below describes the time it was
+written: "current reference", "the shipped default", "still open" and
+"pending" all mean *then*. Where that has since become false in a way that
+misleads, a note in brackets says so. What holds now is the part above.
+
+### Eval Scores — baseline of 2026-10-13 (choice-page prompt)
 
 Control run after E3 phase 3 changed the v3 prompt: `<user_choices>` holds
 only the user's instructions (no style or relationship), and instructions may
@@ -49,7 +272,7 @@ dropping style and relationship. Read it with two limits:
 
 ---
 
-## Eval Scores — baseline of 2026-10-12 (prompt v3, the current reference)
+### Eval Scores — baseline of 2026-10-12 (prompt v3, first run on the mail-history instrument)
 
 Three runs of prompt v3 (email form, `promptHash` `p1-21668d0c1f756770`) on the
 instrument of the mail-history change: `sonnet` → `claude-sonnet-5-5` through
@@ -75,15 +298,16 @@ all changed. Read the numbers as the starting point, not as a move.
   `email-diagnose-update`: 0.90, 0.86, 0.89.
 - **Weakest samples, deterministically:** `email-passwort erhalten` (0.76,
   `no_hallucination` 0.31–0.50, while both judges give it 0.86–0.90) and
-  `email-meeting-request` (0.83, `info_coverage` 0.60–0.63) — the same term
-  checks the "Deterministic Check Limitations" section below describes.
+  `email-meeting-request` (0.83, `info_coverage` 0.60–0.63) — the term checks
+  [Deterministic check limitations](#deterministic-check-limitations) above
+  describes.
 - **No v2 run on this instrument.** v3 replaced v2 by the old instrument's
   comparison; a v2 rerun (another 117 calls) is needed only if that comparison
   is to be repeated on the new instrument.
 
 ---
 
-## Instrument change — 2026-10-11: mail history is context
+### Instrument change — 2026-10-11: mail history is context
 
 **Mail history in the input is context, never part of the output** (owner
 decision, [ADR-003 addendum](adr-003-prompt-v3.md)). The prompt changed with it,
@@ -111,12 +335,12 @@ mails it answers is not scored down:
   **`judgePromptHash`** in `summary.json` and the baseline, and it
   is the last field of the `configKey` (runs before it key as `unrecorded`).
 - **Every baseline below reads "not comparable"** against a run on this
-  instrument, both 2026-10-11 references included. New v2 and v3 runs are
-  pending.
+  instrument, both 2026-10-11 references included. New v2 and v3 runs were
+  pending then; v3 ran on 2026-10-12, v2 has not been rerun.
 
 ---
 
-## Instrument change — 2026-10-11: two judges
+### Instrument change — 2026-10-11: two judges
 
 **Two judges since 2026-10-11 (E3 phase 1).** Every sample is scored by
 `claude-haiku-5-5` and `claude-sonnet-5-5`, both through the Claude Code CLI,
@@ -129,8 +353,9 @@ and each judge is reported on its own — `summary.json` has `judges`,
   2026-10-11, CLI 2.1.296, answered with the requested ID), and the aggregate
   names each judge column by that ID, as the key does.
 - **The judge set is in the `configKey`**, so **every single-judge baseline
-  below reads "not comparable" against a two-judge run** — there are no
-  two-judge numbers yet. `EVAL_JUDGES=a,b,c` chooses the set (a bridge run adds
+  below reads "not comparable" against a two-judge run** — there were no
+  two-judge numbers yet when this was written; the first are the 2026-10-11
+  baseline below. `EVAL_JUDGES=a,b,c` chooses the set (a bridge run adds
   `claude-sonnet-4-5-20250929` as a third); `EVAL_JUDGE_MODEL` names a single
   judge.
 - **`--compare` judges each metric** (deterministic, then each judge) by the
@@ -153,7 +378,7 @@ and each judge is reported on its own — `summary.json` has `judges`,
 
 ---
 
-## Eval Scores — prompt v3 against v2 (2026-10-11)
+### Eval Scores — prompt v3 against v2 (2026-10-11)
 
 Three runs of prompt v3 (email form, `promptHash` `p1-31eace752eb07743`),
 same instrument as the v2 reference below: `sonnet` → `claude-sonnet-5-5`
@@ -188,11 +413,12 @@ worse.** Two things to read alongside it:
   history is context, never output** (see "Instrument change — mail history"
   above). This comparison was scored by the old instrument.
 
-## Eval Scores — baseline of 2026-10-11 (two judges, the reference for v3)
+### Eval Scores — baseline of 2026-10-11 (two judges, then the reference for v3)
 
-**The current reference.** Three runs of the shipped email prompt v2 through the
-Claude Code CLI, scored by both judges. Everything E3 phase 2 measures (v3
-against v2) compares against this file:
+**The reference for E3 phase 2 at the time** (the mail-history instrument made
+it "not comparable" later the same day). Three runs of the shipped email prompt
+v2 through the Claude Code CLI, scored by both judges. v3 against v2 was
+compared against this file:
 `test-data/eval-baselines/2026-10-11T21-59-15/baseline.json`.
 
 | Metric | Mean | Min | Max | Spread |
@@ -212,12 +438,12 @@ against v2) compares against this file:
   baselines are not comparable with this instrument on any route, so a third
   judge would have bought nothing.
 
-## Eval Scores — baseline of 2026-10-04 (Claude Code CLI — a new instrument)
+### Eval Scores — baseline of 2026-10-04 (Claude Code CLI — a new instrument)
 
 > **Possibly affected, superseded.** These runs predate the CLI isolation fix
 > (#127): Claude Code's auto-memory for the checkout's directory may have been
-> injected into every pipeline and judge call. They are superseded by the coming
-> two-judge baselines and will not be re-recorded. The numbers stay as a record;
+> injected into every pipeline and judge call. They are superseded by the
+> two-judge baselines of 2026-10-11 and will not be re-recorded. The numbers stay as a record;
 > read nothing into them beyond that.
 
 **Every eval call goes through the owner's subscription now.** Pipeline and
@@ -275,7 +501,8 @@ different judge sampling, and for the pipeline a different model:
 *Unconfirmed, given the note above:* the shape resembled what Opus 5 showed —
 the deterministic checks liking the newer model, the judge marking it down,
 with rationales about subject lines that pack several messages. Whether that
-survives an isolated run is for the two-judge baseline to show.
+survives an isolated run is for the two-judge baseline to show. (Not
+followed up.)
 
 **Cost:** 13 samples × (one pipeline call + one judge call) × 3 runs on the
 subscription, 12.5–14 minutes per run — close enough to the old 900 s `go test`
@@ -286,7 +513,7 @@ on do, and `--compare` names a CLI version change next to the verdict.
 
 ---
 
-## Eval Scores — baseline of 2026-09-18 (API era — history, not comparable with any CLI-era run)
+### Eval Scores — baseline of 2026-09-18 (API era — history, not comparable with any CLI-era run)
 
 **Three runs of the same commit, same model, same judge.** Run individually they
 report 0.82, 0.84 and 0.84 on the deterministic checks — that variation is the
@@ -299,7 +526,7 @@ shape.
 | Avg judge overall | **0.8485** | 0.8338 | 0.8569 | 0.0231 |
 | Samples passing | — | 7/13 | 9/13 | 2 samples |
 
-### Other configurations measured (2026-09-18)
+#### Other configurations measured (2026-09-18)
 
 Same suite, same judge, three runs each. Reported side by side because
 `--compare` refuses every one of these pairs: it requires both sides to share
@@ -351,12 +578,14 @@ document's own rule that is "improvement: deterministic" — an improvement in o
 metric with no regression in the other. The default model is unchanged anyway,
 because the work that measured it was asked for a stricter bar; see
 [ADR-002](adr-002-one-shot-vs-pipeline.md), which records both readings.
+(Since 2026-10-08 the default is the `sonnet` alias, E2 step 5.)
 
 **These rows measure the explicitly typed email path.** The shipped default is
 `auto`, which spends a detect call first — two calls, or three if detection
-picks a document type that still runs self-QA.
+picks a document type that still runs self-QA. (Then. Since v3, `auto` is a
+preset lookup, not a call, and every run is one call: ADR-003.)
 
-### Why Sonnet 5 hit the output limit
+#### Why Sonnet 5 hit the output limit
 
 **Single API calls, not an eval run.** Each row below is one request, made on
 2026-09-24/25 with the exact foundation-step request the eval sends (email, v1 or
@@ -411,7 +640,7 @@ The self-QA *instruction* that ADR-002 named as a candidate is therefore not
 needed to explain the failures. Whether v1's prompt raises the failure rate —
 by making the model think longer — is still open: 4 of 6 v1 attempts against 0
 of 6 v2 attempts on these samples on 2026-09-18 says it may, and eight calls
-today say nothing either way.
+today say nothing either way. (Moot since v3: v1 was removed.)
 
 **What changed:** Pyramidize's `max_tokens` is now 16000, up from 4096. It is a
 ceiling, not a spend, and the model does not see it: the four v1 calls at 16000
@@ -443,11 +672,12 @@ no text; at 16000 the same request finished with 5361 output tokens after about
 5 was not tried on the long selection.) Fix is a silent hotkey: a fix that
 succeeds after most of a minute, with no feedback, pastes into whatever window
 has focus by then. Whether Fix should fail fast or wait for every answer is an
-open product decision, so it keeps its limit. What changed is the message: a
+open product decision, so it keeps its limit. (Settled since by #93/#110: it
+waits with a tray dot and pastes only into the source window; roadmap E2.) What changed is the message: a
 reply spent entirely on reasoning now says so and tells the user to pick a
 faster model or shorten the text, instead of only "try a shorter selection".
 
-### The noise floor
+#### The noise floor
 
 **A single-run delta of less than 0.024 (deterministic) or 0.023 (judge) is not
 evidence of anything.** Those numbers are `max − min` over three runs — the full
@@ -469,7 +699,7 @@ Use `./scripts/eval.sh --runs 3` for anything you intend to quote, and
 `./scripts/eval.sh --compare <baseline.json>` to have the comparison made for
 you — it stays silent inside the noise floor and exits non-zero only past it.
 
-### Configuration
+#### Configuration
 
 | | |
 |---|---|
@@ -492,7 +722,7 @@ judge is pinned to a dated snapshot precisely because the instrument must not
 move; the pipeline stays on the alias because that is what users get. When the
 numbers shift and nothing in this repository did, suspect that alias first.
 
-### Run folders
+#### Run folders
 
 - `test-data/eval-runs/2026-09-18T03-53-02`
 - `test-data/eval-runs/2026-09-18T03-56-20`
@@ -501,7 +731,7 @@ numbers shift and nothing in this repository did, suspect that alias first.
 `test-data/eval-runs/` is gitignored, so these exist only on the machine that
 produced them. The aggregate is committed.
 
-### Per sample
+#### Per sample
 
 Sorted by score. The range columns are `max − min` over the three runs, per
 sample — which is where the variance actually lives.
@@ -526,7 +756,7 @@ sample — which is where the variance actually lives.
 change that moves the overall mean by 0.02 may well be that one sample having a
 good day.
 
-### What the March numbers were, and why they looked like a regression
+#### What the March numbers were, and why they looked like a regression
 
 | Metric | March 2026 | Now (3 runs) |
 |--------|:---:|:---:|
@@ -570,12 +800,12 @@ measurement. What *is* verifiable: #54 fixed the parser (`unmarshalRobust`
 repairs array elements, with a regression test), and across the three September
 runs there were **no sample errors at all**.
 
-## Superseded: the March table
+### Superseded: the March table
 
 Kept for provenance. Produced by a single run, with an unpinned judge, before
 the parser fix — not a baseline to compare against.
 
-### March 2026 numbers (2026-03-29)
+#### March 2026 numbers (2026-03-29)
 
 | Metric | Baseline | After Improvements | Opus |
 |--------|:---:|:---:|:---:|
@@ -587,16 +817,19 @@ the parser fix — not a baseline to compare against.
 
 ---
 
-## Improvements Made
+### Improvements made (March 2026)
 
-### Deterministic Check Calibration
+Prompt v2 era, before the pipeline was dropped; the prompt items describe
+prompts v3 replaced.
+
+#### Deterministic Check Calibration
 - Bold header detection (email prompts produce `**bold**` not `#` markdown)
 - German compound noun decomposition (hyphen/slash/prefix-suffix splitting)
 - Business vocabulary exclusion list (~80 common German/English restructuring terms)
 - Percentage-based hallucination threshold (15% of output terms, not absolute count)
 - Case-insensitive test-data parsing with typo tolerance
 
-### Prompt Improvements (All 4 Doc Types)
+#### Prompt Improvements (All 4 Doc Types)
 - V1-derived structure rules: explicit structure template (header + bullet points, not prose)
 - Standalone content-statement headers (UBERSCHRIFTEN-REGELN from v1 archive)
 - Analysis phase: scan all input for relevant info before restructuring
@@ -607,9 +840,24 @@ the parser fix — not a baseline to compare against.
 
 ---
 
-## Known Open Issues
+### Open issues as of March 2026
 
-### 4 Failing Samples (info_coverage)
+What became of them, as of 2026-10-13 (v3, `checksVersion` 2):
+
+- `email-diagnose-update`'s dropped history was part of the question that
+  2026-10-11 answered with "history is context". It now passes 2 of 3 runs,
+  and the judges give it 0.87 and 0.89.
+- `email-dataquality-reply-to-feedback` passes every run at 0.98: the reply
+  answers without a recap, and coverage counts only the author's message.
+- `email-adverity-field-structuring` passes every check (0.94), but it is now
+  the judges' lowest sample.
+- `email-meeting-request` still fails every run (on coverage, when last read
+  on 2026-10-12).
+
+The model behaviours below were seen on Sonnet 4.6 with v2 and have not been
+re-checked on v3. The current list is [Where it is weak](#where-it-is-weak).
+
+#### 4 Failing Samples (info_coverage)
 
 | Sample | Coverage | Judge Overall | Root Cause |
 |--------|:---:|:---:|---|
@@ -620,22 +868,23 @@ the parser fix — not a baseline to compare against.
 
 Note: Only `email-diagnose-update` is a real quality problem (judge completeness 0.78). The other 3 are measurement noise — judge scores are high (0.80-0.93).
 
-### Persistent Model Behaviors
+#### Persistent Model Behaviors
 - **Process-label headers:** Despite explicit rules, model occasionally uses "Erhoffte Erkenntnisse", "Nächste Schritte" instead of content statements
 - **Editorial additions:** "Kein Handlungsbedarf" added when not in original input
 - **Tone drift:** Short informal emails get slightly over-formatted with bold headers and bullets
 - **Opus handles mail history better:** Judge completeness 0.93 vs 0.82 (Sonnet) on diagnose-update — partly a model capability gap
 
-### Deterministic Check Limitations
-- Info coverage uses capitalized-word extraction — fundamentally noisy for German
-- No semantic similarity (would require NLP model, see research-nlp-langchain.md)
-- Hallucination check can't distinguish legitimate restructuring vocab from invented claims
+The deterministic check limitations listed here in March still hold; they
+moved to [Deterministic check limitations](#deterministic-check-limitations)
+above.
 
 ---
 
-## Quality Improvement Roadmap
+### Quality improvement roadmap (March 2026)
 
-1. ~~**V1 specialist architecture** — Reimplement 4 parallel specialist agents in Go for independent quality verification (see ADR-001)~~ — **parked.** [ADR-002](adr-002-one-shot-vs-pipeline.md) found the 2-call pipeline buys no measured quality over a single call for email; a 6-call architecture needs evidence before it is proposed again. `roadmap.md` already parks it.
+Superseded by [Next](#next) above. Kept for the record:
+
+1. ~~**V1 specialist architecture** — Reimplement 4 parallel specialist agents in Go for independent quality verification (see ADR-001)~~ — **parked.** [ADR-002](adr-002-one-shot-vs-pipeline.md) found the 2-call pipeline buys no measured quality over a single call for email; a 6-call architecture needs evidence before it is proposed again. `roadmap.md` already parks it. ADR-003 then removed the pipeline altogether.
 2. **Semantic eval checks** — Python sentence-transformer script for eval, replacing term overlap
 3. **Inline deterministic QA** — Move existing checks into live pipeline as post-LLM gate
 4. **NLP info-loss detection** — Sentence embeddings via hugot/ONNX for live QA (Tier 2)

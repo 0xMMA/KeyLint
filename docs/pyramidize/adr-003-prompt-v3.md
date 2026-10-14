@@ -1,6 +1,6 @@
 # ADR-003 — Prompt v3: the user picks the form, one call writes it
 
-> Status: accepted, not yet measured · Date: 2026-10-11 (addendum on mail history the same day; addendum on the choice page 2026-10-12) · Supersedes [ADR-001](adr-001-pipeline-architecture.md) and decisions 2, 3, 5 and 6 of [ADR-002](adr-002-one-shot-vs-pipeline.md) · Issue: #34 · Roadmap: E3 phase 2 (and the phase 4 cleanup it makes possible)
+> Status: accepted; email measured on 2026-10-12 and 2026-10-13, the other forms not yet ([quality-status](quality-status.md)) · Date: 2026-10-11 (addendum on mail history the same day; addendum on the choice page 2026-10-12) · Supersedes [ADR-001](adr-001-pipeline-architecture.md) and decisions 2, 3, 5 and 6 of [ADR-002](adr-002-one-shot-vs-pipeline.md) · Issue: #34 · Roadmap: E3 phase 2 (and the phase 4 cleanup it makes possible)
 
 ## Decision
 
@@ -119,8 +119,9 @@ The eval follows, so it does not punish the intended behaviour:
   and output limit — is now recorded as `judgePromptHash` and is part of the
   `configKey`.
 - So **every earlier baseline reads "not comparable"** with a run on this
-  instrument, the v3 and v2 references of 2026-10-11 included. Both need new
-  runs (pending).
+  instrument, the v3 and v2 references of 2026-10-11 included. Both needed new
+  runs: v3 ran on 2026-10-12 (and again after the choice page on 2026-10-13),
+  v2 has not been rerun.
 
 v2 is byte-identical through both: `TestV2IsKeptVerbatim` pins sha256 hashes
 of its system prompt, computed from main's file built on its own.
