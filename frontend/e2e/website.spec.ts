@@ -11,6 +11,7 @@
  * - Nothing scrolls sideways at phone width.
  */
 import { test, expect, Page } from '@playwright/test';
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
@@ -119,37 +120,66 @@ test.describe('website', () => {
  */
 test.describe('website demo samples', () => {
   const SAMPLES = path.join(__dirname, '../../scripts/website/samples');
-  const read = (file: string) => fs.readFileSync(path.join(SAMPLES, file), 'utf8').trim();
+  const raw = (file: string) => fs.readFileSync(path.join(SAMPLES, file));
+  const read = (file: string) => raw(file).toString('utf8').trim();
+  const hash12 = (file: string) => createHash('sha256').update(raw(file)).digest('hex').slice(0, 12);
+  const words = (text: string) => text.split(/\s+/);
 
-  /** Words that differ between two texts: the longer length minus their longest common run. */
-  function wordsChanged(before: string, after: string): number {
-    const a = before.split(/\s+/);
-    const b = after.split(/\s+/);
+  /** Length of the longest common subsequence of two word lists. */
+  function commonWords(a: string[], b: string[]): number {
     const lcs = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
     for (let i = a.length - 1; i >= 0; i--) {
       for (let j = b.length - 1; j >= 0; j--) {
         lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
       }
     }
-    return Math.max(a.length, b.length) - lcs[0][0];
+    return lcs[0][0];
   }
 
-  test('every sample has a recorded output, and recorded.txt names it', () => {
-    const inputs = fs.readdirSync(SAMPLES).filter((f) => f.endsWith('.in.txt'));
+  const inputs = fs.readdirSync(SAMPLES).filter((f) => f.endsWith('.in.txt'));
+  const recorded = read('recorded.txt').split('\n').filter((l) => !l.startsWith('#'));
+  const outputOf = (name: string) => fs.readdirSync(SAMPLES).filter((f) => f.startsWith(`${name}.out.`));
+
+  test('every sample has one recorded output', () => {
     expect(inputs.length).toBeGreaterThan(0);
-    const recorded = read('recorded.txt').split('\n').filter((l) => !l.startsWith('#'));
     for (const input of inputs) {
       const name = input.replace(/\.in\.txt$/, '');
-      const outputs = fs.readdirSync(SAMPLES).filter((f) => f.startsWith(`${name}.out.`));
-      expect(outputs, `${name}: run scripts/website/refresh-samples.sh ${name}`).toHaveLength(1);
-      expect(read(outputs[0]).length, `${name}: empty output`).toBeGreaterThan(0);
-      expect(recorded.some((l) => l.startsWith(`${name} `)), `${name}: no line in recorded.txt`).toBe(true);
+      expect(outputOf(name), `${name}: run scripts/website/refresh-samples.sh ${name}`).toHaveLength(1);
+      expect(read(outputOf(name)[0]).length, `${name}: empty output`).toBeGreaterThan(0);
+    }
+  });
+
+  // The site says these are what KeyLint returned: an input edited after the
+  // recording, or an output polished by hand, must not pass.
+  test('each output is the recording of its input, unedited', () => {
+    for (const input of inputs) {
+      const name = input.replace(/\.in\.txt$/, '');
+      const line = recorded.find((l) => l.startsWith(`${name} `));
+      const hint = `${name}: run scripts/website/refresh-samples.sh ${name}`;
+      expect(line, hint).toBeDefined();
+      expect(line, `${hint} (input changed since it was recorded)`).toContain(`in=${hash12(input)}`);
+      expect(line, `${hint} (output edited since it was recorded)`).toContain(`out=${hash12(outputOf(name)[0])}`);
+    }
+  });
+
+  // A Fix sample's output is a correction of its input, not a rewrite, a
+  // translation or a reply about it: about as long, mostly the same words.
+  test('each Fix output is a correction of its input', () => {
+    for (const output of fs.readdirSync(SAMPLES).filter((f) => f.endsWith('.out.txt'))) {
+      const name = output.replace(/\.out\.txt$/, '');
+      const a = words(read(`${name}.in.txt`));
+      const b = words(read(output));
+      expect(b.length, `${name}: length`).toBeGreaterThanOrEqual(Math.floor(a.length * 0.9));
+      expect(b.length, `${name}: length`).toBeLessThanOrEqual(Math.ceil(a.length * 1.1));
+      expect(commonWords(a, b), `${name}: words kept`).toBeGreaterThanOrEqual(Math.ceil(a.length * 0.7));
     }
   });
 
   // Owner feedback 2026-10-14: the Silent Fix clip's message had too few
   // mistakes to show what Fix does. Eight corrected words is the floor.
   test('the Silent Fix clip corrects at least eight words', () => {
-    expect(wordsChanged(read('chat.in.txt'), read('chat.out.txt'))).toBeGreaterThanOrEqual(8);
+    const a = words(read('chat.in.txt'));
+    const b = words(read('chat.out.txt'));
+    expect(Math.max(a.length, b.length) - commonWords(a, b)).toBeGreaterThanOrEqual(8);
   });
 });

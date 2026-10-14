@@ -29,6 +29,13 @@ import {
 // Scene pixels are 1280×800; the scene is zoomed 2x (scenes/stage.css), so the
 // viewport, every coordinate here and the recorded frames are twice that.
 const Z = 2;
+
+// Read from the recorded samples, so a refreshed sample needs no edit here:
+// the first words of the notes (the Form step's excerpt) and the start of the
+// document's first line (its subject).
+const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const NOTES_START = PYRAMIDIZE_INPUT.split(/\s+/).slice(0, 4).join(' ');
+const SUBJECT_START = new RegExp(escapeRe(PYRAMIDIZE_OUTPUT.split('\n')[0].trim().slice(0, 30)));
 const STAGE = { width: 1280 * Z, height: 800 * Z };
 let server: http.Server;
 
@@ -194,7 +201,7 @@ test('clip: Pyramidize from a webmail client', async ({ page, context }) => {
   await frame.evaluate(() => (window as any)._wails.dispatchWailsEvent({ name: 'shortcut:pyramidize', data: 'hotkey' }));
   // The shortcut's text opens on the Form step, email preselected.
   await expect(app.getByTestId('form-email')).toHaveAttribute('aria-checked', 'true');
-  await expect(app.getByTestId('text-excerpt')).toContainText('quick update');
+  await expect(app.getByTestId('text-excerpt')).toContainText(NOTES_START);
   await page.waitForTimeout(1600);
 
   const pz = await appCenter(page, app.getByTestId('pyramidize-btn').getByRole('button'));
@@ -202,7 +209,7 @@ test('clip: Pyramidize from a webmail client', async ({ page, context }) => {
   await expect(app.getByTestId('step-indicator')).toBeVisible();
   await page.waitForTimeout(1700);
   release();
-  await expect(app.getByTestId('canvas-textarea')).toHaveValue(/Laptop Delivery Delayed/);
+  await expect(app.getByTestId('canvas-textarea')).toHaveValue(SUBJECT_START);
   await page.waitForTimeout(500);
 
   const pv = await appCenter(page, app.getByTestId('canvas-mode').getByText('Preview', { exact: true }));
@@ -233,7 +240,7 @@ test('clip: Pyramidize from a webmail client', async ({ page, context }) => {
   const subject = await center(page.locator('#subject'));
   await clickAt(page, subject.x - 200 * Z, subject.y);
   await press(page, 'Control+V', ['Ctrl', 'V'], 'paste it as the subject');
-  await expect(page.locator('#subject')).toHaveValue(/Laptop Delivery Delayed/);
+  await expect(page.locator('#subject')).toHaveValue(SUBJECT_START);
   await page.waitForTimeout(500);
   // A click back into the body: the subject field shows its start again.
   const bb = (await body.boundingBox())!;

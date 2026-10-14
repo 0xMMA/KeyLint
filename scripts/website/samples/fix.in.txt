@@ -1,1 +1,1 @@
-Hi team, i wanted to let you know that the release is moved to thursday. Their are still two bugs in the export wich we need too fix before we ship. Please dont merge anything into main untill then, and let me know if you have any question.
+Hi team, i wanted to let you know that the release was moved to thursday. Their are still two bugs in the export wich we need too fix before we ship. Please dont merge anything into main untill then, and let me know if you have any question.

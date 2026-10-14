@@ -25,11 +25,19 @@ export const BASE_URL = `http://127.0.0.1:${PORT}`;
 // The default window (main.go: 1280×800 outer) leaves about this much page.
 export const VIEWPORT = { width: 1264, height: 740 };
 /**
- * The version in the sidebar footer: the newest release tag at capture time
- * (the moving dev-channel tags v0.0.0-* are not releases).
+ * The version in the sidebar footer: the nearest release tag reachable from
+ * HEAD at capture time (the moving dev-channel tags v0.0.0-* are not
+ * releases). A branch that has not merged main since a release shows the
+ * release before it, so merge main before capturing.
  */
-export const APP_VERSION = execSync("git describe --tags --abbrev=0 --exclude 'v0.0.0-*'", { cwd: ROOT, encoding: 'utf8' })
-  .trim().replace(/^v/, '');
+export const APP_VERSION = (() => {
+  try {
+    return execSync("git describe --tags --abbrev=0 --exclude 'v0.0.0-*'", { cwd: ROOT, encoding: 'utf8', stdio: 'pipe' })
+      .trim().replace(/^v/, '');
+  } catch {
+    throw new Error('No release tag reachable from HEAD: run `git fetch --tags` (plus `--unshallow` in a shallow clone) first.');
+  }
+})();
 
 export const SAMPLES = path.join(__dirname, 'samples');
 
