@@ -1,6 +1,6 @@
 # KeyLint Roadmap
 
-> Last updated: 2026-10-11 (v4.7.0-beta released) · Owner: Michael · Source of truth for priorities.
+> Last updated: 2026-10-14 (E3 phase 4 done; phase 3 is built and waits on the Windows check and the clip re-record) · Owner: Michael · Source of truth for priorities.
 > Tracking: each epic links to a GitHub issue. This file holds the *why* and the order; issues hold the *what*.
 
 ---
@@ -150,6 +150,9 @@ Issue: #34. **Re-scoped 2026-10-11 (Michael).** The original question (pipeline 
 
 **Phases:**
 1. [ ] **Instrument:** rebase and land #105 (CLI eval); two judges in summary, baseline and `configKey`; one bridge run with the old Sonnet 4.5 judge; per-form deterministic checks (a chat has no subject, a wiki no greeting) with a `checksVersion` bump; new v2 email baseline. **Samples for chat, memo, wiki and presentation should be real anonymised texts from Michael; not available yet (2026-10-11)**, so email is measured first and the other forms wait for them.
+   - [x] #105 landed, two judges in summary, baseline and `configKey`, v2 email baseline (2026-10-11; "not comparable" since the mail-history instrument, a rerun is optional)
+   - Bridge run skipped: the API-era baselines are not comparable with this instrument on any route, so a third judge would have bought nothing (quality-status)
+   - [ ] Per-form deterministic checks (`structure` wants a subject and a header today) and a harness that runs the other forms, with the samples
 2. [ ] **Prompt v3:** shared core (pyramid principle, fidelity, tone, language of the original) plus one section per form; schema shrinks to document (+ subject where there is one). v3 email must not regress against v2. Memo/wiki/presentation: v3 against today's pipeline once samples exist, then the pipeline is deleted. Then the model question on v3 (Sonnet 5.5, Opus 5.5, maybe Haiku 5.5).
    - [x] **Built, default, one call per run for every form** ([ADR-003](pyramidize/adr-003-prompt-v3.md)): core + email, chat (new), memo, wiki, presentation sections; reply `{fullDocument, language}`; "auto" = app preset, else email (presets now applied); v2 email kept as `--variant 2`. The pipeline went in the same change rather than after the comparison: without self-QA and refine the old memo/wiki/powerpoint prompts had no output format left; they are in the `v4.7.1-beta` tag for that comparison.
    - [x] **Mail history is context, never output** (Michael, 2026-10-11, [ADR-003 addendum](pyramidize/adr-003-prompt-v3.md)): v3's "history moves to the end" rule replaced; samples mark history, coverage counts the author's message (`checksVersion` 2), judges told, judge prompt keyed (`judgePromptHash`) — every earlier baseline reads "not comparable", v2 and v3 need new runs
@@ -161,10 +164,10 @@ Issue: #34. **Re-scoped 2026-10-11 (Michael).** The original question (pipeline 
    - [ ] Afterwards: re-record the two website demo clips and screenshots of #126 with the new UI and v3 via `scripts/website/` — decided 2026-10-11, the current ones show the options column and "Detect automatically"; also pick a Fix sample KeyLint corrects fully and tidier Pyramidize notes
    - [x] A small control run of v3 email (`./scripts/eval.sh --runs 3`): `<user_choices>` and `<fidelity>` changed (instructions may add content, 2026-10-13), so v3's `promptHash` did — **done 2026-10-13:** improvement (Sonnet judge, disjoint ranges), deterministic and Haiku overlap; no sample carries instructions, so the "instructions may add" rule is untested (quality-status)
    - [ ] Windows check of the new page: the real shortcut (lands on Form, remembered app preselected, Send back, the refusal after a shortcut in another window) and the names presets are stored under for real titles — Outlook classic and new, new Teams, Word, Slack, Gmail in Chrome/Edge/Firefox (Edge profile segments are not recognised yet)
-4. [ ] **Cleanup:** detect prompt and step, `prompts_selfqa.go`, `prompts_refine.go`, threshold bindings, email v1, options panel, per-session provider switch, `LookupDocType`, the `--json` quality score (ADR-002 decision 6); CLAUDE.md, an ADR-003 for v3, quality-status.
+4. [x] **Cleanup:** detect prompt and step, `prompts_selfqa.go`, `prompts_refine.go`, threshold bindings, email v1, options panel, per-session provider switch, `LookupDocType`, the `--json` quality score (ADR-002 decision 6); CLAUDE.md, an ADR-003 for v3, quality-status.
    - [x] Done with v3 (ADR-003): detect prompt and step, `prompts_selfqa.go`, `prompts_refine.go`, threshold bindings (the settings field stays, inert), email v1, `LookupDocType`/`source_app_map.go`, the `--json` quality score, CLAUDE.md, ADR-003, a v3 note in quality-status
    - [x] Done with phase 3: options panel, per-session provider switch (and the model/effort pickers on the page)
-   - [ ] quality-status rewrite once v3 is measured
+   - [x] quality-status rewrite once v3 is measured — done 2026-10-14: current state first (reference 2026-10-13, per sample, weak spots, what is not measured, next), the history behind it
 
 Earlier E3 findings that still hold: the Fix suite is saturated and needs samples with headroom; structured output stays off until v3 is measured with and without it.
 
