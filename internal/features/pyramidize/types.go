@@ -17,8 +17,9 @@ type PyramidizeRequest struct {
 }
 
 // EffortNone, as a request's Effort, sends no effort for that run even when
-// settings name one for Pyramidize: the panel's "Model default". An empty
-// Effort follows settings instead, as an empty Model does.
+// settings name one for Pyramidize. An empty Effort follows settings instead,
+// as an empty Model does. Nothing sends either since the choice page removed
+// the page's effort picker (roadmap housekeeping: drop the dead overrides).
 const EffortNone = "none"
 
 // PyramidizeResult is the RPC response from the main Pyramidize call — one

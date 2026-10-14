@@ -423,8 +423,9 @@ func TestCallAISyncSendsTheProvidersPyramidizeEffort(t *testing.T) {
 	}
 }
 
-// TestCallAISyncEffortOverride: the Pyramidize panel can pick an effort for
-// one run, the way it picks a model. "" follows settings, "none" sends none
+// TestCallAISyncEffortOverride: a request can carry an effort for one run,
+// the way it carries a model (no app caller since the choice page; the
+// request type keeps the field until the dead overrides are removed). "" follows settings, "none" sends none
 // whatever settings say, a level wins over settings, and anything else is
 // ignored like an unknown level in settings is. The judge's noEffort wins
 // over all of it.
@@ -468,7 +469,8 @@ func (c *effortClient) Complete(_ context.Context, req llm.Request) (llm.Respons
 }
 
 // TestTheRequestEffortReachesEveryPanelCall: Pyramidize, a whole-text change
-// and a splice all carry the effort the panel sent, as they carry its model.
+// and a splice all carry the effort their request names, as they carry its
+// model.
 func TestTheRequestEffortReachesEveryPanelCall(t *testing.T) {
 	cfg := settings.Default()
 	cfg.ActiveProvider = llm.ProviderClaude

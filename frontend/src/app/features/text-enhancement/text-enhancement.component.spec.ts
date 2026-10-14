@@ -478,6 +478,8 @@ describe('TextEnhancementComponent (Pyramidize: Text → Form → Result)', () =
 
     const req = svcMock.refineGlobal.mock.calls[0][0];
     expect(req).toEqual(expect.objectContaining({ fullCanvas: 'Body', originalText: ORIGINAL, instruction: 'Make it shorter', documentType: 'email' }));
+    // Settings decide provider, model and effort: the page overrides none (E3 phase 3).
+    expect(req).toEqual(expect.objectContaining({ provider: '', model: '', effort: '' }));
     expect(req).not.toHaveProperty('communicationStyle');
     expect(q<HTMLTextAreaElement>('canvas-textarea')!.value).toBe('Refined canvas text');
     expect(traceLabels().at(-1)).toBe('Refined: "Make it shorter"');
@@ -574,7 +576,9 @@ describe('TextEnhancementComponent (Pyramidize: Text → Form → Result)', () =
     textarea.setSelectionRange(5, 9);
     await component.applySelectionInstruction();
     await settle();
-    expect(svcMock.splice).toHaveBeenCalledWith(expect.objectContaining({ selectedText: 'text', instruction: 'bolder' }));
+    expect(svcMock.splice).toHaveBeenCalledWith(expect.objectContaining({
+      selectedText: 'text', instruction: 'bolder', provider: '', model: '', effort: '',
+    }));
     expect(q<HTMLTextAreaElement>('canvas-textarea')!.value).toBe('Some Rewritten to change');
   });
 
