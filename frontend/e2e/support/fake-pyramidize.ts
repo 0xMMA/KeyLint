@@ -17,7 +17,16 @@ export interface FakePyramidizeState {
   clipboard: string;
   /** The document Pyramidize returns. */
   fullDocument: string;
-  detectedType: string;
+  /**
+   * What GetSourcePreset answers for a capture: the app's name, the form to
+   * preselect, and whether that form is remembered. SetAppPreset and
+   * DeleteAppPreset change it as the backend would.
+   */
+  sourcePreset: { app: string; documentType: string; remembered: boolean };
+  /** What SetAppPreset received, oldest first. */
+  presetsSet: { sourceApp: string; documentType: string }[];
+  /** What DeleteAppPreset received, oldest first. */
+  presetsDeleted: string[];
   /** When set, Pyramidize fails with this message, as a Go error would. */
   failPyramidize?: string;
   /** When set, Pyramidize answers only once this resolves (to show the step). */
@@ -33,7 +42,9 @@ export function fakePyramidize(overrides: Partial<FakePyramidizeState> = {}): Fa
     sourceApp: '',
     clipboard: '',
     fullDocument: '',
-    detectedType: 'email',
+    sourcePreset: { app: '', documentType: 'email', remembered: false },
+    presetsSet: [],
+    presetsDeleted: [],
     requests: [],
     sentBack: [],
     ...overrides,
@@ -61,6 +72,18 @@ export async function installFakePyramidize(page: Page, state: FakePyramidizeSta
     switch (ids.get(id)) {
       case 'GetSourceApp':
         return json(state.sourceApp);
+      case 'GetSourcePreset':
+        return json(state.sourcePreset);
+      case 'SetAppPreset': {
+        const preset = args[0] as { sourceApp: string; documentType: string };
+        state.presetsSet.push(preset);
+        state.sourcePreset = { app: preset.sourceApp, documentType: preset.documentType, remembered: true };
+        return empty();
+      }
+      case 'DeleteAppPreset':
+        state.presetsDeleted.push(args[0] as string);
+        state.sourcePreset = { ...state.sourcePreset, documentType: 'email', remembered: false };
+        return empty();
       case 'CancelOperation':
         return empty();
       case 'Pyramidize': {
@@ -69,18 +92,12 @@ export async function installFakePyramidize(page: Page, state: FakePyramidizeSta
         if (state.failPyramidize) {
           return route.fulfill({ status: 500, contentType: 'text/plain', body: state.failPyramidize });
         }
+        // PyramidizeResult since ADR-003: the form written, and the text.
+        const requested = String((args[0] as { documentType?: string })?.documentType ?? 'email');
         return json({
-          documentType: state.detectedType,
+          documentType: requested.toUpperCase(),
           language: 'en',
           fullDocument: state.fullDocument,
-          headers: [],
-          qualityScore: 0.9,
-          qualityFlags: [],
-          appliedRefinement: false,
-          refinementWarning: '',
-          detectedType: state.detectedType,
-          detectedLang: 'en',
-          detectedConfidence: 0.95,
         });
       }
       case 'SendBack':
@@ -89,5 +106,19 @@ export async function installFakePyramidize(page: Page, state: FakePyramidizeSta
       default:
         return route.fallback();
     }
+  });
+}
+
+/**
+ * Presses the Pyramidize shortcut, as far as the page can tell: the event the
+ * Go side emits after it captured the source app and copied the selection.
+ * The Wails runtime in the page dispatches it to the app's listeners; the
+ * fake above answers what the page then asks (clipboard, source app, preset).
+ */
+export async function pressPyramidizeShortcut(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const wails = (window as unknown as { _wails?: { dispatchWailsEvent?: (e: { name: string; data: unknown }) => void } })._wails;
+    if (!wails?.dispatchWailsEvent) throw new Error('the Wails runtime is not loaded in the page');
+    wails.dispatchWailsEvent({ name: 'shortcut:pyramidize', data: '' });
   });
 }

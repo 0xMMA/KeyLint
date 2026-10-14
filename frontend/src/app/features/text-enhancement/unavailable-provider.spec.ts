@@ -1,46 +1,50 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { ChangeDetectorRef } from '@angular/core';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { TextEnhancementComponent, resetPyramidizeProviderSession } from './text-enhancement.component';
+import { TextEnhancementComponent, resetPyramidizeSession } from './text-enhancement.component';
 import { TextEnhancementService } from './text-enhancement.service';
 import { WailsService } from '../../core/wails.service';
 import { createWailsMock, defaultSettings } from '../../../testing/wails-mock';
 
 function makeEnhancementServiceMock() {
   return {
-    pyramidize: vi.fn().mockResolvedValue({}),
+    pyramidize: vi.fn().mockResolvedValue({ documentType: 'EMAIL', language: 'en', fullDocument: 'doc' }),
     refineGlobal: vi.fn().mockResolvedValue({ newCanvas: '' }),
     splice: vi.fn().mockResolvedValue({ rewrittenSection: '' }),
     cancelOperation: vi.fn().mockResolvedValue(undefined),
     sendBack: vi.fn().mockResolvedValue(undefined),
-    getSourceApp: vi.fn().mockResolvedValue(''),
-    getAppPresets: vi.fn().mockResolvedValue([]),
     setAppPreset: vi.fn().mockResolvedValue(undefined),
     deleteAppPreset: vi.fn().mockResolvedValue(undefined),
-    enhance: vi.fn().mockResolvedValue(''),
   };
 }
 
-// A settings file that still names AWS Bedrock (#22): the provider dropdown no
-// longer offers it, so the page says why the field is empty instead of failing
-// later with a raw backend error. The value is not switched for the user.
-describe('TextEnhancementComponent — saved provider that is not available yet', () => {
+// A settings file that still names AWS Bedrock (#22): Settings offers no way to
+// pick it, so the page says why nothing can run instead of failing later with a
+// raw backend error. The value is not switched for the user: provider, model
+// and effort are Settings' business only.
+describe('TextEnhancementComponent — Settings name a provider that is not available yet', () => {
   let fixture: ComponentFixture<TextEnhancementComponent>;
-  let component: TextEnhancementComponent;
   let el: HTMLElement;
   let wailsMock: ReturnType<typeof createWailsMock>;
   let svcMock: ReturnType<typeof makeEnhancementServiceMock>;
 
+  async function settle(): Promise<void> {
+    for (let i = 0; i < 3; i++) {
+      await new Promise(r => setTimeout(r));
+      fixture.debugElement.injector.get(ChangeDetectorRef).markForCheck();
+      fixture.detectChanges();
+      await fixture.whenStable();
+    }
+  }
+
   beforeEach(async () => {
-    // The provider choice is module-level and shared with every other spec in
-    // this process (isolate: false); start each test from a fresh session.
-    resetPyramidizeProviderSession();
+    resetPyramidizeSession();
     TestBed.resetTestingModule();
     wailsMock = createWailsMock();
     wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, active_provider: 'bedrock' });
     wailsMock.getKeyStatus.mockResolvedValue({ is_set: false, source: 'none' });
     svcMock = makeEnhancementServiceMock();
-
     await TestBed.configureTestingModule({
       imports: [TextEnhancementComponent],
       providers: [
@@ -51,78 +55,33 @@ describe('TextEnhancementComponent — saved provider that is not available yet'
     }).compileComponents();
 
     fixture = TestBed.createComponent(TextEnhancementComponent);
-    component = fixture.componentInstance;
     el = fixture.nativeElement;
-    component.originalTextView = 'Some text to pyramidize';
-    component.canvasTextView = '';
+    fixture.componentInstance.originalTextView = 'Some text to pyramidize';
+    fixture.componentInstance.goToStep('choice');
     fixture.detectChanges();
-    await fixture.whenStable();
-    fixture.detectChanges();
+    await settle();
   });
 
   afterEach(() => {
-    // Module-level state outlives the fixture; put it back to a fresh page.
-    component.originalTextView = '';
-    component.canvasTextView = '';
-    resetPyramidizeProviderSession();
+    fixture.destroy();
+    resetPyramidizeSession();
   });
 
-  function pyramidizeButton(): HTMLButtonElement {
-    return el.querySelector<HTMLButtonElement>('[data-testid="pyramidize-btn"] button')!;
-  }
-
-  it('says why the provider field is empty, and shows no key banner', () => {
-    const note = el.querySelector('[data-testid="provider-unavailable"]');
-    expect(note?.textContent).toContain('AWS Bedrock is not available yet');
-    // A choice here lasts for the session only; Settings is where it sticks.
-    expect(note?.textContent).toContain('Settings');
+  it('says why nothing can run, and shows no key banner', () => {
+    expect(el.querySelector('[data-testid="provider-unavailable"]')?.textContent).toContain('AWS Bedrock is not available yet');
     expect(el.querySelector('[data-testid="api-key-banner"]')).toBeNull();
+    expect(el.querySelector('[data-testid="run-settings"]')?.textContent).toContain('AWS Bedrock');
   });
 
   it('does not ask the backend about a provider it cannot use', () => {
-    expect(wailsMock.listModels).not.toHaveBeenCalledWith('bedrock');
-    expect(wailsMock.getKeyStatus).not.toHaveBeenCalledWith('bedrock');
+    expect(wailsMock.getKeyStatus).not.toHaveBeenCalled();
   });
 
-  it('keeps Pyramidize disabled until a provider is chosen', async () => {
-    expect(pyramidizeButton().disabled).toBe(true);
-
-    await component.pyramidize();
+  it('keeps Pyramidize off, by button and by Enter', async () => {
+    expect(el.querySelector<HTMLButtonElement>('[data-testid="pyramidize-btn"] button')!.disabled).toBe(true);
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await fixture.componentInstance.pyramidize();
+    await settle();
     expect(svcMock.pyramidize).not.toHaveBeenCalled();
-  });
-
-  // The canvas is editable before any Pyramidize, so the refine paths need the
-  // same guard: otherwise they end in a raw "unsupported provider" error.
-  it('keeps the canvas refinements from reaching the backend', async () => {
-    component.canvasTextView = 'Some canvas text';
-    fixture.detectChanges();
-    const input = el.querySelector<HTMLInputElement>('[data-testid="global-instruction-input"]')!;
-    input.value = 'make it shorter';
-    input.dispatchEvent(new Event('input'));
-    fixture.detectChanges();
-    await fixture.whenStable();
-    fixture.detectChanges();
-
-    const apply = el.querySelector<HTMLButtonElement>('[data-testid="apply-instruction-btn"] button')!;
-    expect(apply.disabled).toBe(true);
-    expect(apply.classList).toContain('quiet');
-
-    await component.applyGlobalInstruction();
-    component.selectionInstruction = 'rephrase';
-    await component.applySelectionInstruction();
-    expect(svcMock.refineGlobal).not.toHaveBeenCalled();
-    expect(svcMock.splice).not.toHaveBeenCalled();
-    expect(component.errorMessage).toBe('');
-  });
-
-  it('clears the note and enables Pyramidize once the user picks a provider', async () => {
-    component.providerView = 'openai';
-    await component.onProviderChange();
-    fixture.detectChanges();
-    await fixture.whenStable();
-    fixture.detectChanges();
-
-    expect(el.querySelector('[data-testid="provider-unavailable"]')).toBeNull();
-    expect(pyramidizeButton().disabled).toBe(false);
   });
 });

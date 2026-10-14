@@ -128,7 +128,6 @@ func TestPyramidizeLogFlag(t *testing.T) {
 	mock := &mockPyramidizer{
 		result: pyramidize.PyramidizeResult{
 			FullDocument: "output",
-			QualityFlags: []string{},
 		},
 	}
 	err := runPyramidizeWith([]string{"--log", "debug", "hello"}, &stdout, &stderr, mock)

@@ -14,13 +14,13 @@ import * as PyramidizeService from '../../../bindings/keylint/internal/features/
 import { Settings, KeyStatus } from '../../../bindings/keylint/internal/features/settings/models.js';
 import { UpdateInfo, InstallResult } from '../../../bindings/keylint/internal/features/updater/models.js';
 import type { BuildIdentity, DevBuild, DevChannel } from '../../../bindings/keylint/internal/features/updater/models.js';
-import type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset } from '../../../bindings/keylint/internal/features/pyramidize/models.js';
+import type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset, SourcePreset } from '../../../bindings/keylint/internal/features/pyramidize/models.js';
 import type { ClaudeCodeStatus, ModelList, ModelInfo } from '../../../bindings/keylint/internal/llm/models.js';
 import type { Notice as SilentFixNotice } from '../../../bindings/keylint/internal/features/silentfix/models.js';
 
 export type { Settings, KeyStatus, UpdateInfo, InstallResult, ClaudeCodeStatus, ModelList, ModelInfo };
 export type { BuildIdentity, DevBuild, DevChannel };
-export type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset };
+export type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset, SourcePreset };
 export type { SilentFixNotice };
 
 
@@ -385,6 +385,21 @@ export class WailsService implements OnDestroy {
       return PyramidizeService.GetAppPresets().catch(() => []);
     } catch {
       return Promise.resolve([]);
+    }
+  }
+
+  /**
+   * What the choice page shows for a captured window title: the form to
+   * preselect (its app preset, else email), whether that is a remembered
+   * preset, and the name "Remember <form> for <app>" stores one under — ''
+   * when nothing safe can be remembered for that title.
+   */
+  getSourcePreset(title: string): Promise<SourcePreset> {
+    const none: SourcePreset = { app: '', documentType: 'email', remembered: false };
+    try {
+      return PyramidizeService.GetSourcePreset(title).catch(() => none);
+    } catch {
+      return Promise.resolve(none);
     }
   }
 

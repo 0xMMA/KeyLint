@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, ChangeDetectorRef, input } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef, input, ChangeDetectionStrategy } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { ButtonComponent, MessageComponent, TagComponent } from '../../../shared/ui';
 import { WailsService, DevBuild, DevChannel, BuildIdentity, InstallResult } from '../../../core/wails.service';
@@ -21,6 +21,7 @@ import { versionLabel, isDevVersion } from '../../../core/version-label';
   selector: 'app-dev-channel',
   standalone: true,
   imports: [DatePipe, ButtonComponent, MessageComponent, TagComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <section class="flex flex-col gap-3" data-testid="dev-channel" aria-labelledby="dev-channel-heading">
       <div>

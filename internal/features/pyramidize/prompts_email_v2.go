@@ -62,16 +62,24 @@ output: {"fullDocument": "Q1 Review Moved to Monday 2pm | Numbers Due Sunday, Sl
 
 // buildEmailPromptV2 builds the system prompt and user message for the v2 email prompt.
 // V2 is self-contained — no selfQA block appended. Quality is evaluated externally.
+// Kept verbatim as the baseline v3 email is measured against (ADR-003).
 func buildEmailPromptV2(style, relationship, customInstructions, inputText string) (systemPrompt, userMessage string) {
-	styleSection := fmt.Sprintf(`<style_injection>
+	return emailSystemBaseV2 + "\n\n" + styleInjection(style, relationship, customInstructions), inputText
+}
+
+// v2StyleDefaults are the style and relationship v2 was measured with, and
+// what every v2 run sends since the choice page has neither control
+// (roadmap E3 phase 3). v2 stays byte-identical: TestV2IsKeptVerbatim.
+const v2StyleDefault, v2RelationshipDefault = "professional", "professional"
+
+// styleInjection is v2's style block, word for word as measured. v3 has its
+// own instructions block (buildPromptV3).
+func styleInjection(style, relationship, customInstructions string) string {
+	s := fmt.Sprintf(`<style_injection>
 Communication style: %s
 Relationship level: %s`, style, relationship)
 	if customInstructions != "" {
-		styleSection += fmt.Sprintf("\nAdditional instructions: %s", customInstructions)
+		s += fmt.Sprintf("\nAdditional instructions: %s", customInstructions)
 	}
-	styleSection += "\n</style_injection>"
-
-	systemPrompt = emailSystemBaseV2 + "\n\n" + styleSection
-	userMessage = inputText
-	return
+	return s + "\n</style_injection>"
 }

@@ -5,7 +5,7 @@ import "fmt"
 // buildGlobalRefinePrompt builds the system prompt and user message for a
 // full-canvas instruction-driven revision. The user instruction takes priority;
 // the original text is soft context only and may be overridden.
-func buildGlobalRefinePrompt(fullCanvas, originalText, instruction, docType, style, relationship string) (systemPrompt, userMessage string) {
+func buildGlobalRefinePrompt(fullCanvas, originalText, instruction, docType string) (systemPrompt, userMessage string) {
 	systemPrompt = fmt.Sprintf(`<role>
 You are an expert document editing assistant. You revise documents according to precise user instructions.
 </role>
@@ -17,18 +17,18 @@ The user wants to revise the canvas document using the instruction provided. App
 <priorities>
 1. The user instruction is the highest priority — follow it exactly and completely
 2. The original text is SOFT context only — it may be referenced for background but the user instruction can override or contradict it
-3. Preserve the document type (%s), communication style (%s), and relationship level (%s) unless the instruction says otherwise
+3. Preserve the document type (%s) and the voice of the current canvas unless the instruction says otherwise
 4. Preserve the language and any code-switching from the existing canvas
 </priorities>
 
 <constraints>
 - Output the complete revised canvas — not just the changed sections
 - Do not add explanations or commentary — output only the document
-- Maintain the structural format of the document (subject line / headers / body)
+- Keep the structural format the canvas has (subject line, headers, body — only the parts it already has: a chat message has no subject line or headers)
 </constraints>
 
 Respond ONLY with valid JSON (no markdown fences, no explanation):
-{"newCanvas": "complete revised document text"}`, docType, style, relationship)
+{"newCanvas": "complete revised document text"}`, docType)
 
 	userMessage = fmt.Sprintf("Original text (soft context — may be overridden by instruction):\n%s\n\nCurrent canvas:\n%s\n\nUser instruction:\n%s", originalText, fullCanvas, instruction)
 	return

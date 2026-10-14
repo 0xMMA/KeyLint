@@ -1,4 +1,4 @@
-import { ChangeDetectorRef, Component, effect, input } from '@angular/core';
+import { ChangeDetectorRef, Component, effect, input, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ButtonComponent, InputDirective, SelectComponent } from '../../../shared/ui';
 import { WailsService, type AppPreset, type Settings as AppSettings } from '../../../core/wails.service';
@@ -18,17 +18,18 @@ import { SettingsSectionComponent } from '../settings-section/settings-section.c
   selector: 'app-app-presets',
   standalone: true,
   imports: [FormsModule, ButtonComponent, InputDirective, SelectComponent, SettingsSectionComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
-    <app-settings-section heading="App presets" description="Pyramidize picks the document type from the app the text came from. Presets are saved as soon as you change them.">
+    <app-settings-section heading="App presets" description="Pyramidize preselects the document type for text the shortcut copies from these apps; you can always pick another. Presets are saved as soon as you change them.">
       @if (presets.length === 0 && !adding) {
-        <p class="row m-0 text-sm text-muted" data-testid="presets-empty">No app presets saved yet. Use Pyramidize with the global hotkey to detect apps automatically.</p>
+        <p class="row m-0 text-sm text-muted" data-testid="presets-empty">No app presets yet. When the shortcut opens Pyramidize, the window title of the app you copied from is matched against the names here (whole words, the app's part of the title first) to preselect a document type. Add one below.</p>
       }
       @for (preset of presets; track preset.sourceApp) {
         @if (editing?.sourceApp === preset.sourceApp) {
           <div class="row" data-testid="preset-edit-row">
             <input klInput class="flex-1" aria-label="App name" [(ngModel)]="editDraft.sourceApp" />
             <kl-select class="w-40" ariaLabel="Document type" [options]="docTypeOptions" optionLabel="label" optionValue="value" [(ngModel)]="editDraft.documentType" />
-            <kl-button variant="primary" size="sm" icon="check" iconOnly ariaLabel="Save preset" (click)="saveEdit()" />
+            <kl-button variant="primary" size="sm" icon="check" iconOnly ariaLabel="Save preset" [disabled]="!editDraft.sourceApp.trim()" (click)="saveEdit()" />
             <kl-button size="sm" icon="x" iconOnly ariaLabel="Cancel" (click)="cancelEdit()" />
           </div>
         } @else {
@@ -44,7 +45,7 @@ import { SettingsSectionComponent } from '../settings-section/settings-section.c
         <div class="row" data-testid="preset-add-row">
           <input klInput class="flex-1" aria-label="App name" placeholder="App name" [(ngModel)]="addDraft.sourceApp" />
           <kl-select class="w-40" ariaLabel="Document type" [options]="docTypeOptions" optionLabel="label" optionValue="value" [(ngModel)]="addDraft.documentType" />
-          <kl-button variant="primary" size="sm" icon="check" iconOnly ariaLabel="Add preset" [disabled]="!addDraft.sourceApp" (click)="saveAdd()" />
+          <kl-button variant="primary" size="sm" icon="check" iconOnly ariaLabel="Add preset" [disabled]="!addDraft.sourceApp.trim()" (click)="saveAdd()" />
           <kl-button size="sm" icon="x" iconOnly ariaLabel="Cancel" (click)="cancelAdd()" />
         </div>
       }
@@ -111,7 +112,19 @@ export class AppPresetsComponent {
   }
 
   async saveEdit(): Promise<void> {
-    await this.wails.setAppPreset(this.editDraft);
+    // Renamed to nothing, the delete below would lose the preset.
+    // Names are stored trimmed and compared trimmed, ignoring case, as the
+    // backend and the Pyramidize page's Remember do.
+    const draft = { ...this.editDraft, sourceApp: this.editDraft.sourceApp.trim() };
+    if (!draft.sourceApp) return;
+    const before = (this.editing?.sourceApp ?? '').trim();
+    await this.wails.setAppPreset(draft);
+    // The backend matches presets by name, so a new name is a new preset: the
+    // old one goes, or both would match. A change of case or padding is the
+    // same preset and was just updated in place.
+    if (before && before.toLowerCase() !== draft.sourceApp.toLowerCase()) {
+      await this.wails.deleteAppPreset(before);
+    }
     this.syncPresets(await this.wails.getAppPresets());
     this.editing = null;
     this.cdr.markForCheck();
@@ -133,8 +146,9 @@ export class AppPresetsComponent {
   }
 
   async saveAdd(): Promise<void> {
-    if (!this.addDraft.sourceApp) return;
-    await this.wails.setAppPreset(this.addDraft);
+    const draft = { ...this.addDraft, sourceApp: this.addDraft.sourceApp.trim() };
+    if (!draft.sourceApp) return;
+    await this.wails.setAppPreset(draft);
     this.syncPresets(await this.wails.getAppPresets());
     this.adding = false;
     this.cdr.markForCheck();

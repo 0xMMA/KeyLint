@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Component } from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { SpinnerComponent } from './spinner.component';
 
 @Component({
   standalone: true,
   imports: [SpinnerComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <kl-spinner data-testid="spin" />
     <kl-spinner data-testid="spin-named" label="Loading models" [size]="24" />

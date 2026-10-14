@@ -227,15 +227,128 @@ the rule is written down where it is enforced, in the samples' own notes:
 
 ### The judge
 
-Same pinned instrument as the Pyramidize suite — `claude-sonnet-4-5-20250929` at
-temperature 0 — scoring four dimensions: correctness, meaning preserved, tone
+Same pinned instruments as the Pyramidize suite — since 2026-10-11 two judges,
+`claude-haiku-5-5` and `claude-sonnet-5-5`, reported separately (before that the
+single `claude-sonnet-4-5-20250929`); since 2026-10-04 run through the installed
+Claude Code CLI, which cannot pin a temperature (until then: the API at
+temperature 0) — each scoring four dimensions: correctness, meaning preserved, tone
 preserved, and **no over-editing**. The last one is there because the expensive
 failure in a correction tool is not a missed comma; it is rewriting text the
 user did not ask to have rewritten.
 
 ---
 
-## Baseline — 2026-09-18
+## Instrument change — 2026-10-11: two judges
+
+**Two judges since 2026-10-11 (E3 phase 1).** Every sample is scored by
+`claude-haiku-5-5` and `claude-sonnet-5-5`, both through the Claude Code CLI,
+and each judge is reported on its own — `summary.json` has `judges`,
+`avgJudges` and `judgeCounts`, a baseline has one interval per judge under
+`judges`, and nothing averages across them.
+
+- **Pinned by ID.** Neither model has a dated snapshot: the full ID is the pin.
+  Each judge records the ID that answered (`resolvedModel`; both smoke calls on
+  2026-10-11, CLI 2.1.296, answered with the requested ID), and the aggregate
+  names each judge column by that ID, as the key does.
+- **The judge set is in the `configKey`**, so **every single-judge baseline
+  below reads "not comparable" against a two-judge run** — there are no
+  two-judge numbers yet. `EVAL_JUDGES=a,b,c` chooses the set (a bridge run adds
+  `claude-sonnet-4-5-20250929` as a third); `EVAL_JUDGE_MODEL` names a single
+  judge.
+- **`--compare` judges each metric** (deterministic, then each judge) by the
+  interval rule: any metric clearly worse is a regression, and the output names
+  which (`regressedMetrics`), so a regression carried by one judge alone reads
+  as that; an improvement needs one metric clearly better and none worse. A
+  judge with no interval on one side is "not comparable", never an overlap.
+- **Temperature.** Through the CLI no judge is pinned (`null` plus a note).
+  Through the API (`EVAL_JUDGE_PROVIDER=claude`) the 5.5 judges are not pinned
+  either — Anthropic rejects a non-default temperature from the 4.7 generation
+  on — and record `null` with a note saying so; the Sonnet 4.5 bridge judge
+  keeps temperature 0.
+- **The CLI version is reported, not keyed** (`claudeCodeVersion`, next to the
+  verdict like `promptHash`): the CLI updates itself, and a keyed version
+  would make every baseline incomparable within days.
+- **Isolation.** Since #127 every CLI call runs in an empty KeyLint-owned
+  directory with Claude Code's auto-memory off. Runs before that, including the
+  2026-10-04 baselines below, may have carried the auto-memory of the
+  checkout's directory into every call.
+
+---
+
+## Baseline — 2026-10-04 (Claude Code CLI — a new instrument)
+
+> **Possibly affected, superseded.** These runs predate the CLI isolation fix
+> (#127): Claude Code's auto-memory for the checkout's directory may have been
+> injected into every pipeline and judge call. They are superseded by the coming
+> two-judge baselines and will not be re-recorded. The numbers stay as a record;
+> read nothing into them beyond that.
+
+**Every call goes through the owner's subscription now**: the pipeline and the
+judge both run through the installed Claude Code CLI (`claude-code`), and no API
+key is read. The owner chose that knowing what it costs, and the cost is that
+**nothing below is comparable with the API-era sections that follow**. They stay
+as history. `--compare` refuses the pair (exit 2) rather than printing a delta.
+
+What makes it a different instrument:
+
+- **The judge has no temperature pin.** The CLI has no flag for it, so the judge
+  samples at the CLI default. `summary.json` records `"temperature": null` with a
+  note instead of claiming 0, and the judge temperature is part of the
+  `configKey`. Expect a wider judge spread than the API era's.
+- **The pipeline runs on an alias.** `haiku` is what a Claude Code user of the
+  silent fix gets. It resolved to `claude-haiku-4-5-20251001` in every call —
+  the same ID the API-era rows used. The route differed, and so, possibly, did
+  what reached the model (see the note above).
+- **Resolved IDs are recorded and keyed.** `summary.json` carries
+  `resolvedModel` for the pipeline and `judge.resolvedModel` for the judge, from
+  the CLI's `modelUsage`; the `configKey` uses them in place of the requested
+  names. The day `haiku` moves to a new generation, a comparison against this
+  baseline reads "not comparable" instead of reporting the model's move as the
+  prompt's.
+
+Three runs, `claude-code` / `haiku` → `claude-haiku-4-5-20251001`, judge
+`claude-code` / `claude-sonnet-4-5-20250929` (resolved to the same ID), prompt
+`p2-f344eb5f4fd0f30a` (unchanged since #80), checks version 2, all 15 samples,
+gitSHA `2c772f1`. Baseline in `test-data/eval-baselines/2026-10-04T21-20-15/baseline.json`.
+
+| Metric | Mean | Range | Spread |
+|---|:---:|:---:|:---:|
+| Avg deterministic | **0.9287** | 0.9223–0.9351 | 0.0128 |
+| Avg judge overall | **0.8589** | 0.8233–0.8800 | 0.0567 |
+| Samples passing | 9 | 7–11 of 15 | 4 |
+
+Judge dimensions, averaged over all 45 scored samples:
+
+| correctness | meaning preserved | tone preserved | no over-editing |
+|:---:|:---:|:---:|:---:|
+| **0.85** | 1.00 | 0.98 | 0.99 |
+
+Next to the last API-era measurement of the same prompt and the same model ID,
+**labelled not comparable** — different route, different judge sampling:
+
+| | API era, 2026-09-18 (`09-07-42`) | CLI, 2026-10-04 (`21-20-15`) |
+|---|---|---|
+| Avg deterministic | 0.9537 (0.9381–0.9684) | 0.9287 (0.9223–0.9351) |
+| Avg judge overall | 0.9369 (0.9320–0.9453) | 0.8589 (0.8233–0.8800) |
+| Samples passing | 11.3 (10–12) | 9 (7–11) |
+
+*Unconfirmed, given the note above:* these runs corrected less than the API
+route — correctness the lowest dimension at 0.85, no-over-editing at 0.99, and
+`chat-ton` keeping lowercase sentence starts and missing commas (deterministic
+0.78, judge 0.53, 0 of 3 passing) without answering the message. Whether that
+is the CLI route at all, or the auto-memory that may have reached these calls,
+is not established; the two-judge baseline on an isolated CLI is the next
+measurement, not a reading of these numbers.
+
+**Cost:** 90 CLI calls on the subscription, about 12 minutes per run — roughly
+three times the API's wall clock, which is why `eval.sh` raised the `go test`
+limit (3600 s then, 10800 s since the second judge): the first attempt at this
+baseline lost a whole run to the old 900 s limit. CLI version on the machine at the time: 2.1.289 — not in the files,
+which predate the `claudeCodeVersion` field that runs now record.
+
+---
+
+## Baseline — 2026-09-18 (API era — history, not comparable with any CLI-era run)
 
 Three runs, `claude` / `claude-haiku-4-5-20251001`, which was the shipped default
 for Fix at the time.
@@ -350,7 +463,7 @@ against exactly these numbers.
 
 ---
 
-## Prompt change — 2026-09-18 (#80)
+## Prompt change — 2026-09-18 (#80) (API era)
 
 The first baseline found three rule violations. Two are fixed and hold in every
 run. The third is not. No output guard ships with this — three attempts at one
@@ -475,9 +588,18 @@ samples to tune against, five never looked at until the end.
 ## Running it
 
 ```
-./scripts/eval.sh --suite fix --runs 3
-./scripts/eval-aggregate.sh --compare test-data/eval-baselines/2026-09-18T09-07-42/baseline.json <run-dir>...
+./scripts/eval.sh --suite fix --runs 3                      # through the Claude Code CLI, no key
+./scripts/eval-aggregate.sh --compare <a two-judge baseline.json> <run-dir>...   # none recorded yet
+EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --suite fix --provider claude --runs 3   # the API route, needs ANTHROPIC_API_KEY
 ```
+
+The default is the subscription. A run against the API is still possible, but
+it is this instrument on another route, not the API era's: two judges,
+resolved IDs, and a thinking label of its own. **The 2026-09-18 baselines are
+not comparable with any run of this instrument**, and there is no flag
+combination that makes them so. Every recorded baseline in this file predates
+the two-judge instrument, so `--compare` against any of them answers "not
+comparable" (exit 2) until a two-judge baseline is recorded.
 
 `--variant` and `--schema` configure the Pyramidize pipeline and are rejected
 here rather than ignored; the Fix prompt has no variants and returns text.
@@ -488,8 +610,10 @@ intervals overlap rather than whether a mean moved, and it refuses two sides
 that did not measure the same configuration.
 
 What counts as the same configuration is the point of the `configKey`: suite,
-provider, model, judge, variant, schema enforcement, threshold, sample count and
-**checksVersion**. The prompt hash is recorded and reported next to the verdict
+provider, **resolved** model, the judges' providers, **resolved** models and
+temperatures (`0` for the API, `null` for the CLI; one entry per judge, joined
+with `+`), variant, schema enforcement, threshold, sample count,
+**checksVersion**, split and thinking. The prompt hash and the CLI version are recorded and reported next to the verdict
 but is deliberately **not** in the key — it was, for one revision, and that made
 the suite refuse the one comparison it exists to make. A prompt change is the
 question; a change to the checks is a change of instrument, and those are

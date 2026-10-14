@@ -159,10 +159,11 @@ updates:
         update-types:
           - version-update:semver-major
       # Gated on the Angular builder's peer range, not on Vitest's release:
-      # @angular/build up to 22.1.x declares vitest ^4.0.8 only, and vitest 5
-      # then makes `npm install` fail with ERESOLVE (.claude/rules/testing.md).
-      # 22.2.0 is the first to accept ^5 — drop this line only once
-      # @angular/build is on >= 22.2.
+      # @angular/build declares vitest as an optional peer, and a vitest major
+      # outside that range makes `npm install` fail with ERESOLVE (vitest 5
+      # did until @angular/build 22.2, see .claude/rules/testing.md). It reads
+      # `^4.0.8 || ^5.0.0` on 22.2; take the next vitest major with the Angular
+      # update whose builder lists it, not before.
       - dependency-name: "vitest"
         update-types:
           - version-update:semver-major

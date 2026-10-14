@@ -68,9 +68,7 @@ func TestSchemasMirrorTheStructsTheyParseInto(t *testing.T) {
 		schema json.RawMessage
 		target any
 	}{
-		{"detect", detectSchema, detectResult{}},
-		{"document", documentSchema, foundationResult{}},
-		{"document/refine", documentSchema, refineResult{}},
+		{"document v3", documentSchemaV3, documentResult{}},
 		{"canvas", canvasSchema, canvasResult{}},
 		{"splice", spliceSchema, spliceResult{}},
 		{"judge", judgeSchema, JudgeScore{}},
@@ -86,63 +84,28 @@ func TestSchemasMirrorTheStructsTheyParseInto(t *testing.T) {
 	}
 }
 
-// TestDocumentSchemaV2MatchesTheV2Prompt pins the reason that schema exists: the
-// v2 email prompt produces three fields and says so, and forcing the other two
-// would make the model invent a quality score that decides whether a second AI
-// call fires.
+// TestDocumentSchemaV2MatchesTheV2Prompt: v2 is kept as it was measured, so
+// its schema keeps the three fields its prompt asks for — and documentResult
+// must be able to hold the two that are read.
 func TestDocumentSchemaV2MatchesTheV2Prompt(t *testing.T) {
 	properties, _ := schemaFields(t, documentSchemaV2)
 	want := []string{"fullDocument", "headers", "language"}
 	if !reflect.DeepEqual(properties, want) {
 		t.Errorf("documentSchemaV2 properties = %v, want %v", properties, want)
 	}
-
-	// Whatever it asks for must still be something foundationResult can hold.
-	full := structJSONFields(t, foundationResult{})
-	for _, name := range properties {
+	for _, name := range structJSONFields(t, documentResult{}) {
 		found := false
-		for _, candidate := range full {
-			if candidate == name {
-				found = true
-				break
-			}
+		for _, p := range properties {
+			found = found || p == name
 		}
 		if !found {
-			t.Errorf("documentSchemaV2 asks for %q, which foundationResult cannot hold", name)
+			t.Errorf("v2 replies carry no %q, which documentResult reads", name)
 		}
 	}
-
-	// The v2 prompt must not be asked for the fields it deliberately dropped.
 	for _, dropped := range []string{"qualityScore", "qualityFlags"} {
-		if strings.Contains(string(documentSchemaV2), dropped) {
-			t.Errorf("documentSchemaV2 must not require %q — the v2 prompt does not define it", dropped)
+		if strings.Contains(string(documentSchemaV2), dropped) || strings.Contains(string(documentSchemaV3), dropped) {
+			t.Errorf("a document schema asks for %q, which no prompt defines", dropped)
 		}
-	}
-}
-
-// TestPipelineStepsSendTheMatchingSchema pins the mapping itself: swapping two
-// schemas at the call sites would otherwise leave the suite green.
-func TestPipelineStepsSendTheMatchingSchema(t *testing.T) {
-	tests := []struct {
-		docType string
-		variant int
-		want    json.RawMessage
-	}{
-		{"email", 0, documentSchemaV2}, // 0 means "latest", which is v2
-		{"email", 2, documentSchemaV2},
-		{"email", 1, documentSchema},
-		{"wiki", 0, documentSchema},
-		{"memo", 0, documentSchema},
-		{"powerpoint", 0, documentSchema},
-		{"unknown", 0, documentSchemaV2}, // falls back to the email prompt
-	}
-	for _, tc := range tests {
-		t.Run(tc.docType, func(t *testing.T) {
-			_, _, schema := buildDocTypePrompt(tc.docType, tc.variant, "professional", "professional", "", "text")
-			if !bytes.Equal(schema, tc.want) {
-				t.Errorf("%s variant %d got the wrong schema:\n got %s\nwant %s", tc.docType, tc.variant, schema, tc.want)
-			}
-		})
 	}
 }
 
@@ -150,8 +113,7 @@ func TestPipelineStepsSendTheMatchingSchema(t *testing.T) {
 // becomes an argv element, and cmd.exe ends a command at the first newline.
 func TestSchemasSurviveTheCommandLine(t *testing.T) {
 	all := map[string]json.RawMessage{
-		"detect":     detectSchema,
-		"document":   documentSchema,
+		"documentV3": documentSchemaV3,
 		"documentV2": documentSchemaV2,
 		"canvas":     canvasSchema,
 		"splice":     spliceSchema,
@@ -181,12 +143,12 @@ func TestEnforcedSchemaRespectsTheSwitch(t *testing.T) {
 	t.Cleanup(func() { schemaEnforcement = original })
 
 	schemaEnforcement = false
-	if got := enforcedSchema(documentSchema); got != nil {
+	if got := enforcedSchema(documentSchemaV3); got != nil {
 		t.Errorf("enforcedSchema = %s, want nil while enforcement is off", got)
 	}
 
 	schemaEnforcement = true
-	if got := enforcedSchema(documentSchema); !bytes.Equal(got, documentSchema) {
+	if got := enforcedSchema(documentSchemaV3); !bytes.Equal(got, documentSchemaV3) {
 		t.Errorf("enforcedSchema = %s, want the caller's schema while enforcement is on", got)
 	}
 }

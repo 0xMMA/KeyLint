@@ -2,7 +2,7 @@
 
 ## What (The Map)
 
-**Stack:** Go 1.27 + Wails v3 (beta.25) + Wire DI | Angular v21 + Angular CDK + own UI components (`frontend/src/app/shared/ui`) + Tailwind v4 (utilities, `--kl-*` tokens) + Vitest
+**Stack:** Go 1.27 + Wails v3 (beta.25) + Wire DI | Angular v22 + Angular CDK + own UI components (`frontend/src/app/shared/ui`) + Tailwind v4 (utilities, `--kl-*` tokens) + Vitest
 
 **Key directories:**
 - `main.go` — Wails entry point, service registration, event loop
@@ -25,20 +25,48 @@ cat input.txt | ./bin/KeyLint -fix                     # fix from stdin
 # Input precedence: -f wins, then the inline argument, then stdin. Stdin is only
 # read when neither of the others is given, and gives up after 15 s of silence
 # rather than hanging on a pipe that never speaks.
-./bin/KeyLint -pyramidize -type email -f input.md      # pyramidize from file
-./bin/KeyLint -pyramidize --json -f input.md           # JSON output with quality score
+./bin/KeyLint -pyramidize -type email -f input.md      # pyramidize from file, one model call
+                                                       # -type: email (default) | chat | memo | wiki | powerpoint
+                                                       # ("presentation" = powerpoint; "auto" = email here — the
+                                                       # CLI has no source app, so no app preset can apply)
+./bin/KeyLint -pyramidize --json -f input.md           # JSON: {documentType, language, fullDocument}
+                                                       # (no qualityScore since v3 — nothing produces one, ADR-003)
 ./bin/KeyLint -pyramidize --provider claude --model claude-sonnet-4-6 -f input.md
-./bin/KeyLint -pyramidize --variant 1 -f input.md     # use prompt variant v1
-./bin/KeyLint -pyramidize --variant 2 -f input.md     # use prompt variant v2 (0=latest)
+./bin/KeyLint -pyramidize --variant 2 -f input.md     # the v2 email prompt (email only); 0 = latest = v3
+                                                       # variant 1 was removed with the refine pass
+./bin/KeyLint -pyramidize --instructions "more formal" -f input.md
+                                                       # the app's "Instructions (optional)" field: the user's
+                                                       # own words, the only choice besides the form. --style and
+                                                       # --relationship are accepted and IGNORED since the choice
+                                                       # page (one stderr line says so; no prompt carries them, v2
+                                                       # always gets its measured professional/professional).
+                                                       # Content the instructions state is added where it belongs
+                                                       # (owner decision 2026-10-13) — ADR-003 addendum
 ```
 
-**Evaluation tests (real API calls — NOT run by default):**
+**Pyramidize page:** Text → Form → Result. The shortcut's text opens on Form; the Form step offers the five forms (keys 1–5, Enter runs), "Remember <form> for <app>" for captured text, and one field, Instructions. No options column, no provider/model/effort pickers (Settings only), no tone/style/relationship/audience control. Running again adds a result; earlier ones stay selectable, each with its own original and source. The source app belongs to the session (set by the shortcut, cleared only by a new session); Send back refuses when the shortcut was used in another window since. → ADR-003 addendum (2026-10-12, review round).
+
+**Evaluation tests (real model calls — NOT run by default):**
 ```
-# Requires .env with ANTHROPIC_API_KEY (or OPENAI_API_KEY) in project root.
+# Default: pipeline AND judges run through the installed Claude Code CLI
+# (provider claude-code) on the signed-in subscription. No API key is needed or
+# read; `claude auth status` must say loggedIn. Pipeline models are the CLI
+# aliases (sonnet for Pyramidize, haiku for Fix). TWO judges score every sample,
+# claude-haiku-5-5 and claude-sonnet-5-5 (full IDs, no dated form exists), each
+# reported separately — never averaged. Through the CLI they lose temperature 0
+# (no flag), and on the API the 5.5 judges take none either (Anthropic rejects a
+# non-default temperature from 4.7 on), so each records "temperature": null
+# with a note; only a judge up to 4.6 (the Sonnet 4.5 bridge judge) is pinned
+# at 0. summary.json records the RESOLVED model IDs (model / modelRequested,
+# judges[].resolvedModel).
+# Against the API instead: --provider claude (pipeline) and
+# EVAL_JUDGE_PROVIDER=claude (judges), with ANTHROPIC_API_KEY in .env — .env keys
+# are loaded only when one of the two is an API provider.
 # Uses //go:build eval tag — never included in normal `go test` runs.
 # Results are logged to test-data/eval-runs/<timestamp>/ with summary.json.
-go test -tags eval ./internal/features/pyramidize/ -v -timeout 900s
-EVAL_PROVIDER=claude go test -tags eval ./internal/features/pyramidize/ -v -timeout 900s
+go test -tags eval ./internal/features/pyramidize/ -v -timeout 10800s
+EVAL_PROVIDER=claude go test -tags eval ./internal/features/pyramidize/ -v -timeout 10800s  # API pipeline, CLI judges
+EVAL_SPLIT=tune go test -tags eval ./internal/features/enhance/ -run 'TestEvalFix/^interpunktion$' -v   # smoke: one tune sample = 3 CLI calls
 EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 go test -tags eval ...
 ./scripts/eval.sh                                      # one run of the pyramidize suite
 ./scripts/eval.sh --suite fix --runs 3                 # the silent grammar fix instead (15 samples)
@@ -46,8 +74,11 @@ EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 go test -tags eval ...
 ./scripts/eval.sh --suite fix --split tune --runs 3    # the 10 tuning samples; --split holdout is the other 5
                                                        # default is all 15. Tune on tune, measure holdout ONCE at the end.
                                                        # split is in the configKey, so --compare refuses to mix halves.
-./scripts/eval.sh --provider claude --model claude-sonnet-4-6
-./scripts/eval.sh --variant 1                          # compare v1 vs v2 prompts
+./scripts/eval.sh --provider claude --model claude-sonnet-4-6   # API pipeline (needs the key)
+EVAL_JUDGE_PROVIDER=claude ./scripts/eval.sh --provider claude  # fully API (still not comparable with API-era baselines)
+./scripts/eval.sh --variant 2                          # the v2 email prompt, for v3 (latest) vs v2
+                                                       # variant is in the configKey: --compare calls the
+                                                       # pair "not comparable"; compare the intervals by hand
 ./scripts/eval.sh --schema                             # enforce the JSON schemas (default off, see pyramidize/schemas.go)
 ./scripts/eval.sh --runs 3                             # n runs → test-data/eval-baselines/<ts>/baseline.json (needs n≥2)
 ./scripts/eval.sh --runs 3 --compare path/to/baseline.json   # verdict vs a baseline
@@ -56,7 +87,9 @@ EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 go test -tags eval ...
 EVAL_VARIANT=2 go test -tags eval ...                  # variant via env var
 EVAL_SPLIT=holdout go test -tags eval ./internal/features/enhance/  # split via env var
                                                        # eval.sh ignores EVAL_SPLIT from .env unless --split is given
-EVAL_JUDGE_MODEL=... ./scripts/eval.sh                 # override the pinned judge (recorded in summary.json)
+EVAL_JUDGES=claude-haiku-5-5,claude-sonnet-5-5,claude-sonnet-4-5-20250929 ./scripts/eval.sh --runs 3
+                                                       # choose the judge set (here: bridge run, old judge as a third)
+EVAL_JUDGE_MODEL=... ./scripts/eval.sh                 # a single judge instead of the set (recorded in summary.json)
 ./scripts/eval-human.sh                                # interactive human review mode
 
 # One run is a sample, not a measurement: the same commit and model move by a few
@@ -64,19 +97,36 @@ EVAL_JUDGE_MODEL=... ./scripts/eval.sh                 # override the pinned jud
 # sides of a comparison — a single run has no range, and --compare answers
 # "indicative only" rather than pretending otherwise.
 # --compare asks whether the two observed intervals overlap, not whether a mean
-# moved. Exit codes: 0 nothing to report, 1 regression (new range entirely below
-# the old), 2 not comparable (different configuration, or the judge skipped
+# moved — per metric: deterministic, then each judge. Any metric clearly worse is
+# a regression, named in regressedMetrics; an improvement needs one clearly
+# better and none worse; a judge with no interval on one side is "not
+# comparable". The CLI version (claudeCodeVersion) and promptHash are reported
+# next to the verdict, not keyed. Exit
+# codes: 0 nothing to report, 1 regression (some metric's new range entirely
+# below the old), 2 not comparable (different configuration, or a judge skipped
 # samples), 3 usage or unusable input.
 # Runs are isolated: settings come from an explicit config and keys from the
 # environment only, so ~/.config/KeyLint/settings.json and the OS keyring cannot
-# move a number. The judge is pinned to a dated snapshot; the pipeline is not,
-# because users get the alias.
+# move a number; the CLI is spawned without credential, model-remapping,
+# thinking-budget or output-cap env vars, with --setting-sources "", in an empty
+# KeyLint-owned working directory and with auto-memory off (#127). Whether
+# user-level instructions (~/.claude/CLAUDE.md) still reach it is not verified.
+# The judges are pinned to full model IDs; the pipeline is not, because users
+# get the alias.
 # The configKey names the instrument, not the thing measured: suite, provider,
-# model, judge, variant, schema, threshold, sample count and checksVersion. A
+# RESOLVED model, the judge SET (providers, RESOLVED models, temperatures — one
+# "+"-joined entry per judge, ordered by ID), variant, schema, threshold, sample
+# count, checksVersion, split, thinking and the judges' prompt (judgePromptHash;
+# Pyramidize only, "unrecorded" elsewhere). An alias that moves to a new
+# generation therefore reads "not comparable", and so does a different judge set
+# (every recorded baseline is single-judge) — the API-era baselines are not
+# comparable with this instrument on either route. A
 # prompt change is recorded (promptHash) and reported next to the verdict, but
 # is NOT in the key — a suite that refuses to compare across a prompt change
 # cannot answer the question it exists for. Changing the deterministic checks
-# DOES bump checksVersion (enhance.ChecksVersion), which makes older runs read
+# DOES bump checksVersion (enhance.ChecksVersion, pyramidize.ChecksVersion — 2
+# since marked mail history is context: coverage counts only the author's
+# message and no_history_reproduction fails a copy), which makes older runs read
 # "not comparable" rather than reporting the instrument's move as the model's.
 ```
 
@@ -102,7 +152,7 @@ KeyLint is a desktop app that fixes/enhances clipboard text via AI (OpenAI, Anth
 
 **Dark mode / UI components / styling / state:** → See `.claude/rules/architecture.md` for dark mode, the shared UI primitives, tokens and Tailwind, and navigation state patterns.
 
-**Environment setup:** copy `.env.example` → `.env` and add `ANTHROPIC_API_KEY` for E2E tests. Linux needs `libgtk-3-dev libwebkit2gtk-4.1-dev` and **`-tags gtk3` on every Linux `go build`/`go test`/`go vet` and on `go install …/wails3`** — Wails v3 defaults to GTK4 + WebKitGTK 6.0 since alpha.93, and KeyLint deliberately stays on GTK3 (the Taskfile and CI pass the tag; see `docs/roadmap.md` E4 for the decision due before Wails v3.1 removes GTK3). The tag is ignored on Windows. `go env -w GOFLAGS=-tags=gtk3` saves typing, but an explicit `-tags` (e.g. `-tags eval`) replaces it, so write `-tags eval,gtk3` there.
+**Environment setup:** Linux needs `libgtk-3-dev libwebkit2gtk-4.1-dev` and **`-tags gtk3` on every Linux `go build`/`go test`/`go vet` and on `go install …/wails3`** — Wails v3 defaults to GTK4 + WebKitGTK 6.0 since alpha.93, and KeyLint deliberately stays on GTK3 (the Taskfile and CI pass the tag; see `docs/roadmap.md` E4 for the decision due before Wails v3.1 removes GTK3). The tag is ignored on Windows. `go env -w GOFLAGS=-tags=gtk3` saves typing, but an explicit `-tags` (e.g. `-tags eval`) replaces it, so write `-tags eval,gtk3` there. `.env` is optional: the app never reads it, E2E needs no key since #87 (`playwright.config.ts` still loads the file, but its only reader, `silent-fix.spec.ts`, is skipped), and the eval suites run through the Claude Code CLI without one. Copy `.env.example` → `.env` only to run an eval against the API (`--provider claude` / `EVAL_JUDGE_PROVIDER=claude`).
 
 **Releasing:** → See `.claude/docs/versioning.md` and `.claude/rules/workflows.md`.
 
@@ -110,7 +160,7 @@ KeyLint is a desktop app that fixes/enhances clipboard text via AI (OpenAI, Anth
 
 1. Never mark work complete without running the relevant test suite and seeing it pass.
 2. If the changed behavior has no test, write the test first, then make the change.
-   - **Every bug report and every piece of feedback ships with a guard.** Alongside the fix, ask what test would have caught it, write that test, see it fail on the unfixed code, then fix. That includes things that look like taste ("that scrollbar is ugly"): find the property behind it and assert that (e.g. `e2e/pyramidize-options-fit.spec.ts` — no scrollbar at the default window size). If no reasonable test exists, say so in the PR and why.
+   - **Every bug report and every piece of feedback ships with a guard.** Alongside the fix, ask what test would have caught it, write that test, see it fail on the unfixed code, then fix. That includes things that look like taste ("that scrollbar is ugly"): find the property behind it and assert that (e.g. `e2e/pyramidize-fit.spec.ts` — no scrollbar at the default window size). If no reasonable test exists, say so in the PR and why.
 3. Before handing back, run:
    - `cd frontend && npm test` — must show 0 failures
    - `go test -tags gtk3 ./internal/...` — must pass
@@ -128,6 +178,6 @@ KeyLint is a desktop app that fixes/enhances clipboard text via AI (OpenAI, Anth
 
 **Logging conventions:** `docs/logging.md` (levels, Redact() usage, source tagging, CLI flags)
 
-**Pyramidize docs:** `docs/pyramidize/` (requirements, ADR, quality status, NLP/LangChain research, UX roadmap)
+**Pyramidize docs:** `docs/pyramidize/` (requirements, ADRs — ADR-003 is the current design: the user picks the form, one call writes it — quality status, NLP/LangChain research, UX roadmap)
 
 **Fix docs:** `docs/fix/quality-status.md` (eval suite, baseline, what it found). Two eval suites exist — `--suite pyramidize` (default) and `--suite fix`; their baselines are not comparable with each other.

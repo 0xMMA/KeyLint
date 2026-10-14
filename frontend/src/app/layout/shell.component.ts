@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef, ChangeDetectionStrategy } from '@angular/core';
 import { Router, RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { CdkScrollable } from '@angular/cdk/scrolling';
 import { isDevMode } from '@angular/core';
@@ -18,6 +18,7 @@ let sidebarHovered   = false;
   standalone: true,
   imports: [RouterOutlet, RouterLink, RouterLinkActive, CdkScrollable, IconComponent, TooltipDirective],
   styleUrls: ['./shell.component.scss'],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <div class="layout-wrapper" [class.sidebar-collapsed]="collapsedView">
       <aside class="layout-sidebar" data-testid="sidebar"

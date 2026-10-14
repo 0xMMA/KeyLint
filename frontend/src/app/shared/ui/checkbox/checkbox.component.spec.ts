@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Component, signal } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { FormsModule } from '@angular/forms';
 import { CheckboxComponent } from './checkbox.component';
@@ -7,6 +7,7 @@ import { CheckboxComponent } from './checkbox.component';
 @Component({
   standalone: true,
   imports: [CheckboxComponent, FormsModule],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <kl-checkbox data-testid="copy" [(ngModel)]="copy">Copy the result</kl-checkbox>
     <label for="outside">Outside label</label>

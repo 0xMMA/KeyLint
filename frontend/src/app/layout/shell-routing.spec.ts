@@ -3,11 +3,11 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { By } from '@angular/platform-browser';
-import { Component, OnDestroy } from '@angular/core';
+import { Component, OnDestroy, ChangeDetectionStrategy } from '@angular/core';
 import { ShellComponent } from './shell.component';
 import { SettingsComponent } from '../features/settings/settings.component';
 import { FixComponent } from '../features/fix/fix.component';
-import { TextEnhancementComponent, resetPyramidizeProviderSession } from '../features/text-enhancement/text-enhancement.component';
+import { TextEnhancementComponent, resetPyramidizeSession } from '../features/text-enhancement/text-enhancement.component';
 import { WailsService } from '../core/wails.service';
 import { createWailsMock, defaultSettings } from '../../testing/wails-mock';
 
@@ -18,10 +18,10 @@ import { createWailsMock, defaultSettings } from '../../testing/wails-mock';
 // These drive the real router through the real shell, so "the page was
 // replaced" means what it means in the app: exactly one routed component in the
 // outlet.
-// Pyramidize keeps its provider choice in module state, which outlives every
+// Pyramidize keeps its session in module state, which outlives every
 // fixture and is shared across spec files (isolate: false).
-beforeEach(() => resetPyramidizeProviderSession());
-afterEach(() => resetPyramidizeProviderSession());
+beforeEach(() => resetPyramidizeSession());
+afterEach(() => resetPyramidizeSession());
 
 describe('ShellComponent — routing away from Settings', () => {
   let wailsMock: ReturnType<typeof createWailsMock>;
@@ -131,7 +131,7 @@ describe('ShellComponent — routing away from Settings', () => {
 // Worth keeping, because it rules a hypothesis out. A blank content area and a
 // stuck page are different bugs with different causes.
 describe('what a throwing ngOnDestroy does to a router outlet', () => {
-  @Component({ standalone: true, template: `<div class="page-a">A</div>` })
+  @Component({ standalone: true, changeDetection: ChangeDetectionStrategy.Eager, template: `<div class="page-a">A</div>` })
   class PageA implements OnDestroy {
     static throwOnDestroy = false;
     ngOnDestroy(): void {
@@ -141,7 +141,7 @@ describe('what a throwing ngOnDestroy does to a router outlet', () => {
     }
   }
 
-  @Component({ standalone: true, template: `<div class="page-b">B</div>` })
+  @Component({ standalone: true, changeDetection: ChangeDetectionStrategy.Eager, template: `<div class="page-b">B</div>` })
   class PageB {}
 
   beforeEach(async () => {

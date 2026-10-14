@@ -23,12 +23,56 @@ type EvalScorecard struct {
 	AllPassed    bool          `json:"allPassed"`
 }
 
+// ChecksVersion names the deterministic instrument. summary.json records it and
+// scripts/eval-aggregate.sh keys on it, so a run scored by other checks reads
+// "not comparable" instead of reporting the instrument's move as the prompt's.
+// Bump it whenever a change here can move a score for the same output.
+//
+//	1  up to 2026-10-11, never recorded (the aggregate reads a missing field as 1)
+//	2  2026-10-11: mail history is context the output must not reproduce
+//	   (ADR-003, addendum) — info coverage counts only the author's own
+//	   message, the hallucination ratio leaves out output terms the history
+//	   holds, and samples with history get no_history_reproduction
+const ChecksVersion = 2
+
+// instrumentSummary is what summary.json records about the scoring instrument:
+// the deterministic checks and the judges' prompt. Both are in the configKey.
+func instrumentSummary() map[string]any {
+	return map[string]any{
+		"checksVersion":   ChecksVersion,
+		"judgePromptHash": judgePromptHash(),
+	}
+}
+
+// EvalInput is what the deterministic checks read about a sample's input.
+type EvalInput struct {
+	// Raw is the whole text the user selected, mail history included.
+	Raw string
+	// Author is the author's own message within Raw (eval_samples.go).
+	Author string
+	// History is the marked mail history; empty when the sample has none.
+	History string
+}
+
 // RunDeterministicChecks runs all deterministic checks and returns a scorecard.
-func RunDeterministicChecks(input, output string) EvalScorecard {
+//
+// Mail history is context the output must not reproduce (ADR-003, addendum),
+// and the checks follow that:
+//   - info coverage is computed on the author's message: a term only the
+//     history holds is not one the output should carry;
+//   - the hallucination check reads the whole input (a fact taken from the
+//     history is referenced, not invented), but takes its ratio over output
+//     terms the history does not hold, so pasted history cannot dilute it;
+//   - no_history_reproduction, for a sample with history only, fails an
+//     output that copies it.
+func RunDeterministicChecks(in EvalInput, output string) EvalScorecard {
 	checks := []CheckResult{
 		checkStructure(output),
-		checkInfoCoverage(input, output),
-		checkNoHallucination(input, output),
+		checkInfoCoverage(in.Author, output),
+		checkNoHallucination(in.Raw, in.History, output),
+	}
+	if strings.TrimSpace(in.History) != "" {
+		checks = append(checks, checkNoHistoryReproduction(in.History, output))
 	}
 
 	var sum float64
@@ -88,7 +132,8 @@ func checkStructure(output string) CheckResult {
 	return CheckResult{Name: name, Pass: pass, Score: score, Detail: detail}
 }
 
-// checkInfoCoverage extracts key terms from the input and checks what fraction
+// checkInfoCoverage extracts key terms from the input — the author's own
+// message, when called from RunDeterministicChecks — and checks what fraction
 // appear in the output. Pass if >= 70% coverage.
 func checkInfoCoverage(input, output string) CheckResult {
 	name := "info_coverage"
@@ -233,11 +278,26 @@ var commonRestructuringVocab = map[string]bool{
 // the input. Known structural heading words are excluded. Compound words
 // (split on hyphens) are accepted if any part appears in the input. Pass if
 // new terms are <= 15% of total output terms. Score = max(0, 1.0 - ratio*3).
-func checkNoHallucination(input, output string) CheckResult {
+//
+// history (empty when the input has none) narrows the denominator: output
+// terms the history holds are left out of the ratio. They are not invented,
+// but counting them as found would let an output that pastes the history
+// dilute whatever it did invent.
+func checkNoHallucination(input, history, output string) CheckResult {
 	name := "no_hallucination"
 
 	inputTerms := extractKeyTerms(input)
 	outputTerms := extractKeyTerms(output)
+	if history != "" {
+		historyLower := strings.ToLower(history)
+		kept := outputTerms[:0:0]
+		for _, t := range outputTerms {
+			if !strings.Contains(historyLower, strings.ToLower(t)) {
+				kept = append(kept, t)
+			}
+		}
+		outputTerms = kept
+	}
 
 	inputSet := make(map[string]bool, len(inputTerms))
 	for _, t := range inputTerms {
@@ -330,4 +390,87 @@ func checkNoHallucination(input, output string) CheckResult {
 	}
 
 	return CheckResult{Name: name, Pass: pass, Score: score, Detail: detail}
+}
+
+// Thresholds of no_history_reproduction. A reference to a fact from the
+// history keeps a name or a phrase — "weiße Seite unter Citrix", a ticket
+// number, a date. A quoted original or a recap copied from it keeps whole
+// sentences. A business-mail sentence runs well past ten words, a noun phrase
+// rarely does, so twelve consecutive words shared with the history is a quote.
+// historyShingle is the window for the share of the history reproduced: long
+// enough that a shared phrase does not count, short enough that a copied
+// paragraph counts nearly in full.
+const (
+	historyQuoteWords    = 12
+	historyShingle       = 8
+	historyMaxReproduced = 0.10
+)
+
+// checkNoHistoryReproduction fails an output that copies the mail history.
+// Score = 1 - the share of the history's 8-word windows found verbatim in the
+// output; pass needs that share below 10 % and no run of 12 or more
+// consecutive words shared with the history.
+func checkNoHistoryReproduction(history, output string) CheckResult {
+	name := "no_history_reproduction"
+	h, o := words(history), words(output)
+
+	longest := longestSharedRun(h, o)
+
+	var windows, found int
+	if len(h) > 0 {
+		n := min(historyShingle, len(h))
+		inOutput := make(map[string]bool)
+		for i := 0; i+n <= len(o); i++ {
+			inOutput[strings.Join(o[i:i+n], " ")] = true
+		}
+		seen := make(map[string]bool)
+		for i := 0; i+n <= len(h); i++ {
+			w := strings.Join(h[i:i+n], " ")
+			if seen[w] {
+				continue
+			}
+			seen[w] = true
+			windows++
+			if inOutput[w] {
+				found++
+			}
+		}
+	}
+	var share float64
+	if windows > 0 {
+		share = float64(found) / float64(windows)
+	}
+
+	pass := share < historyMaxReproduced && longest < historyQuoteWords
+	detail := fmt.Sprintf("%.0f%% of the history reproduced (%d/%d %d-word windows); longest shared run %d words",
+		share*100, found, windows, historyShingle, longest)
+	return CheckResult{Name: name, Pass: pass, Score: 1 - share, Detail: detail}
+}
+
+// words splits text into lowercase words: letters and digits, everything else
+// a separator, so punctuation and markdown do not hide a copy.
+func words(text string) []string {
+	return strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+}
+
+// longestSharedRun is the length of the longest run of consecutive words that
+// a and b share.
+func longestSharedRun(a, b []string) int {
+	best := 0
+	prev := make([]int, len(b)+1)
+	cur := make([]int, len(b)+1)
+	for i := 1; i <= len(a); i++ {
+		for j := 1; j <= len(b); j++ {
+			if a[i-1] == b[j-1] {
+				cur[j] = prev[j-1] + 1
+				best = max(best, cur[j])
+			} else {
+				cur[j] = 0
+			}
+		}
+		prev, cur = cur, prev
+	}
+	return best
 }

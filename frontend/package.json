@@ -13,13 +13,13 @@
   "private": true,
   "packageManager": "npm@11.19.0",
   "dependencies": {
-    "@angular/cdk": "^21.2.14",
-    "@angular/common": "^21.2.25",
-    "@angular/compiler": "^21.2.25",
-    "@angular/core": "^21.2.25",
-    "@angular/forms": "^21.2.25",
-    "@angular/platform-browser": "^21.2.25",
-    "@angular/router": "^21.2.25",
+    "@angular/cdk": "^22.2.1",
+    "@angular/common": "^22.2.1",
+    "@angular/compiler": "^22.2.1",
+    "@angular/core": "^22.2.1",
+    "@angular/forms": "^22.2.1",
+    "@angular/platform-browser": "^22.2.1",
+    "@angular/router": "^22.2.1",
     "@wailsio/runtime": "3.0.0-beta.25",
     "diff": "^9.0.0",
     "dotenv": "^18.0.4",
@@ -27,16 +27,16 @@
     "tslib": "^2.3.0"
   },
   "devDependencies": {
-    "@angular/build": "^21.2.25",
-    "@angular/cli": "^21.2.25",
-    "@angular/compiler-cli": "^21.2.25",
+    "@angular/build": "^22.2.1",
+    "@angular/cli": "^22.2.1",
+    "@angular/compiler-cli": "^22.2.1",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "4.3.3",
     "jsdom": "^30.1.1",
     "postcss": "8.5.28",
     "prettier": "^3.9.9",
     "tailwindcss": "4.3.3",
-    "typescript": "~5.9.2",
-    "vitest": "^4.1.11"
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.3"
   }
 }

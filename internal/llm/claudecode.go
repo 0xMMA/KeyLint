@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -47,8 +49,20 @@ var blockedCLIEnv = []string{
 	"ANTHROPIC_BASE_URL",
 	// A pasted OAuth token stands in for the signed-in account just like a key.
 	"CLAUDE_CODE_OAUTH_TOKEN",
-	// Would answer with a different model than the one KeyLint asked for.
+	// Would answer with a different model than the one KeyLint asked for —
+	// directly, or by remapping the alias KeyLint sends.
 	"ANTHROPIC_MODEL",
+	"ANTHROPIC_DEFAULT_OPUS_MODEL",
+	"ANTHROPIC_DEFAULT_SONNET_MODEL",
+	"ANTHROPIC_DEFAULT_HAIKU_MODEL",
+	"ANTHROPIC_SMALL_FAST_MODEL",
+	// Would change how the model answers behind KeyLint's back: a thinking
+	// budget or output cap from the user's shell is not a choice anyone made
+	// for this call, and the CLI's own defaults are what KeyLint measures.
+	"MAX_THINKING_TOKENS",
+	"CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+	// Set by KeyLint itself below; an inherited value must not turn it back on.
+	"CLAUDE_CODE_DISABLE_AUTO_MEMORY",
 	"CLAUDE_CODE_USE_BEDROCK",
 	"CLAUDE_CODE_USE_VERTEX",
 	"AWS_BEARER_TOKEN_BEDROCK",
@@ -197,9 +211,14 @@ func (c *claudeCodeClient) complete(ctx context.Context, req Request) (Response,
 		"path", logger.Redact(path), "model", req.Model, "effort", req.Effort,
 		"system", logger.Redact(req.System), "user", logger.Redact(req.User))
 
+	workDir, err := cliWorkDir()
+	if err != nil {
+		return Response{}, fmt.Errorf("%s: %w", name, err)
+	}
 	cmd := exec.CommandContext(ctx, path, args...)
 	cliEnviron, removed := cliEnv()
 	cmd.Env = cliEnviron
+	cmd.Dir = workDir
 	cmd.Stdin = strings.NewReader(req.User)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -210,7 +229,7 @@ func (c *claudeCodeClient) complete(ctx context.Context, req Request) (Response,
 	// Names only — the values are credentials. One line per completion, so a bug
 	// report shows why the CLI saw a different environment than KeyLint itself.
 	if len(removed) > 0 {
-		logger.Info("llm: credential variables removed for the claude code cli",
+		logger.Info("llm: environment variables removed for the claude code cli",
 			"vars", strings.Join(removed, ", "))
 	}
 
@@ -364,18 +383,82 @@ func writeSystemPromptFile(systemPrompt string) (path string, cleanup func(), er
 // point it at another account, plus the names of the variables it dropped. Both
 // the completion call and the discovery probe use it, so what KeyLint detects
 // and what it later runs see the same environment. See blockedCLIEnv.
+//
+// It also turns off Claude Code's auto-memory. --setting-sources "" does not:
+// the CLI still reads ~/.claude/projects/<slug of the working directory>/memory
+// and injects it into the conversation, so a user's notes from their own
+// Claude Code sessions would ride along with every grammar fix (measured on
+// 2026-10-04). cliWorkDir takes away the slug; this takes away the feature.
 func cliEnv() (env []string, removed []string) {
 	parent := os.Environ()
-	filtered := make([]string, 0, len(parent))
+	filtered := make([]string, 0, len(parent)+1)
 	for _, entry := range parent {
 		name, _, found := strings.Cut(entry, "=")
 		if found && isBlockedCLIEnv(name) {
-			removed = append(removed, name)
+			// Our own setting is not a credential worth reporting.
+			if !strings.EqualFold(name, "CLAUDE_CODE_DISABLE_AUTO_MEMORY") {
+				removed = append(removed, name)
+			}
 			continue
 		}
 		filtered = append(filtered, entry)
 	}
+	filtered = append(filtered, "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
 	return filtered, removed
+}
+
+// cliWorkDir is the working directory every CLI spawn runs in: an empty
+// directory KeyLint owns, under the user cache directory.
+//
+// Without it the CLI inherited KeyLint's own working directory — the install
+// folder, or a developer's checkout — and Claude Code keys its per-project
+// memory and project-level CLAUDE.md lookup on that directory. A neutral,
+// empty one gives it nothing of KeyLint's or the user's projects to find.
+// Not verified: whether the CLI still reads user-level instructions —
+// ~/.claude/CLAUDE.md, or a CLAUDE.md in a parent of this directory such as
+// the home directory. What was shown is the auto-memory leak and its fix.
+//
+// A variable so tests can see where the spawn ran.
+var cliWorkDir = defaultCLIWorkDir
+
+// userCacheDir is os.UserCacheDir, replaced in tests so that no test touches
+// the developer's real cache directory on any OS.
+var userCacheDir = os.UserCacheDir
+
+// privateWorkDir is the fallback when there is no user cache directory: a
+// directory made for this process by os.MkdirTemp (random name, mode 0700), so
+// it cannot be a path another account created first — which a fixed name under
+// the shared system temp directory could be. Made once and reused.
+var privateWorkDir struct {
+	sync.Mutex
+	path string
+}
+
+func defaultCLIWorkDir() (string, error) {
+	if cache, err := userCacheDir(); err == nil && cache != "" {
+		// %LocalAppData%\KeyLint\claude-cli on Windows, ~/.cache/KeyLint/claude-cli
+		// on Linux, ~/Library/Caches/KeyLint/claude-cli on macOS.
+		dir := filepath.Join(cache, "KeyLint", "claude-cli")
+		if err := os.MkdirAll(dir, 0o700); err == nil {
+			return dir, nil
+		}
+	}
+	privateWorkDir.Lock()
+	defer privateWorkDir.Unlock()
+	if privateWorkDir.path != "" {
+		if info, err := os.Stat(privateWorkDir.path); err == nil && info.IsDir() {
+			return privateWorkDir.path, nil
+		}
+	}
+	dir, err := os.MkdirTemp("", "keylint-claude-cli-")
+	if err != nil {
+		// Running in the inherited directory instead would hand Claude Code
+		// whatever that directory holds; failing the call says what is wrong.
+		return "", fmt.Errorf("no working directory for the Claude Code CLI: %w", err)
+	}
+	logger.Info("llm: no user cache directory; the claude code cli runs in a private temp directory")
+	privateWorkDir.path = dir
+	return dir, nil
 }
 
 // isBlockedCLIEnv matches case-insensitively, because Windows environment

@@ -12,8 +12,8 @@
 |----|---------|-------------|---------|
 | US-01 | knowledge worker | paste an unstructured email draft and get a pyramidally-structured email with an information-dense subject line | recipients can quickly extract key information |
 | US-02 | German/English writer | have my language (or code-switching mix) preserved in the output | I don't need to fix translation artifacts |
-| US-03 | user | select communication style and relationship level | the tone matches my social context |
-| US-04 | user | select the document type or let it auto-detect | the output format matches my use case |
+| US-03 | user | say in my own words how the text should read ("more formal", "in English") or what it should also say ("mention I'm away Friday") | it reads the way I need — my instruction wins over the author's tone; nothing I did not write is added. There is no style, relationship or audience picker (choice page, [ADR-003 addendum](adr-003-prompt-v3.md)) |
+| US-04 | user | pick the document type (email, chat, memo, wiki, presentation) | the output format matches my use case — nothing guesses it for me |
 | US-05 | user | provide custom instructions | I can guide the AI without starting over |
 | US-06 | user | edit the AI output directly on the canvas | I can make manual tweaks without re-running |
 | US-07 | user | give the AI a targeted instruction for the whole canvas or a selected section | I can refine specific parts without losing the rest |
@@ -27,34 +27,30 @@
 
 ## Functional Requirements
 
-### FR-01 Document Type Detection
-- Auto-detect document type + language when AUTO is selected
-- Supported types: EMAIL, WIKI, POWERPOINT, MEMO
-- Detection skipped when user manually selects a type
-- If detection fails, default to EMAIL
+> FR-01 to FR-03 describe Pyramidize v3 ([ADR-003](adr-003-prompt-v3.md),
+> 2026-10-11). Until then they described auto-detection, a self-QA score and a
+> refine pass; all three are gone.
 
-### FR-02 Foundation Generation
-- Generate pyramidally-structured document for the detected/selected type
-- Output: `{fullDocument, headers[], language}` for email (prompt variant v2, the
-  default); `{…, qualityScore, qualityFlags[]}` for memo, wiki and powerpoint,
-  which still run the self-QA prompt — see [ADR-002](adr-002-one-shot-vs-pipeline.md)
-- Subject line embedded as first line of fullDocument
-- Information preservation: NO essential content from original may be lost
+### FR-01 Document Type: the user picks the form
+- Forms: EMAIL, CHAT, MEMO, WIKI, POWERPOINT (presentation). The user always picks one; no model detects it
+- Preselection: email, unless an app preset matches the app the shortcut copied from. A preset matches whole words (at least three characters) of the window title, the app's part of the title (after the last " - ") first; the longest match wins
+- `auto` (CLI, older clients) resolves the same way without a model call; the CLI has no source app, so there it is email
+- An unknown type is an error, not a silent fallback
+
+### FR-02 Generation: one call writes the form
+- One prompt per form: a shared core (pyramid, content headers, fidelity, voice, user choices, style) plus that form's section — `prompts_v3.go`
+- Output: `{fullDocument, language}`; subject, title and headers are inside `fullDocument`, the subject/title as its first line where the form has one
+- Fixed shapes: email always has subject line, greeting as written, bold content headers with bullets and sign-off as written — also for three casual sentences; memo, wiki and presentation keep their shapes too. Chat is the form for a short result
+- Information preservation: every fact, name, number, date, request and open question appears; nothing is added (no conclusions, no "no action needed")
+- Voice: by default the author's language, code-switching, tone and person stay; the user's own instruction ("auf Englisch", "formeller") wins over that default. Content the user states in the instructions ("mention I'm away Friday") is added where it belongs; nothing else is (2026-10-13)
 - MECE rule: headers at same level are mutually exclusive and collectively exhaustive
 - Header rule: content headers, NOT process headers
-- Priority rule: business impact before technical detail
+- Priority rule: decisions → actions → context
 
-### FR-03 Self-QA and Optional Refinement
-**Not in effect for email**, which is the default document type. Prompt variant
-v2 asks for no `qualityFlags`, so the refinement gate below can never open; see
-[ADR-002](adr-002-one-shot-vs-pipeline.md). What follows applies to memo, wiki
-and powerpoint.
-
-- Foundation call includes self-evaluation: `qualityScore` (0-1) and `qualityFlags[]`
-- Flags: `MECE_VIOLATION`, `INFO_LOSS`, `STYLE_MISMATCH`, `SUBJECT_FORMAT`, `FIDELITY_VIOLATION`
-- If qualityScore < threshold (default 0.65) -> conditional refinement pass
-- Quality threshold: a persisted setting with no UI since 2026-10-11 (owner
-  decision, ADR-002 §5 — for email it does nothing); the pipeline uses 0.65
+### FR-03 No self-QA, no refinement
+- Exactly one model call per run, for every form. No quality score is asked for or reported; a score a model volunteers is ignored
+- Quality is measured outside the product, by the eval suite (deterministic checks and two LLM judges), not by the model grading itself
+- The `pyramidize_quality_threshold` setting is inert; nothing reads it
 
 ### FR-04 Canvas Model (3-Layer State)
 - `originalText` — immutable source
@@ -80,10 +76,10 @@ See original spec for: subject/title handling, hover copy, output actions, input
 
 | ID | Requirement |
 |----|-------------|
-| NFR-01 | Detection < 2s, foundation < 8s, total pipeline < 15s with refinement |
-| NFR-02 | API budget: 1-3 calls per pyramidize (detect + foundation + optional refine) |
+| NFR-01 | One call per run, so the wait is that call's; each call is bounded at 120 s |
+| NFR-02 | API budget: exactly 1 call per pyramidize |
 | NFR-03 | All API failures show actionable messages, canvas state preserved on error |
-| NFR-04 | All pipeline steps work with OpenAI, Anthropic Claude, and Ollama |
+| NFR-04 | Pyramidize, whole-text changes and splices work with OpenAI, Anthropic Claude, the Claude Code CLI and Ollama |
 | NFR-05 | All AI calls through Go backend (no webview -> external API) |
 | NFR-06 | Unit-testable Go functions, Angular Vitest specs, prompts as Go constants |
 
@@ -93,9 +89,9 @@ See original spec for: subject/title handling, hover copy, output actions, input
 
 | Decision | Choice |
 |----------|--------|
-| Pipeline architecture | Email: one call (detect adds a second when the type is AUTO, which is the shipped default). Memo/wiki/powerpoint: still 2-call adaptive with self-QA and optional refine. See [ADR-002](adr-002-one-shot-vs-pipeline.md) |
-| Prompt format | One XML-structured prompt per doc type, all providers |
+| Pipeline architecture | One call per run for every form; the user picks the form. See [ADR-003](adr-003-prompt-v3.md) (and [ADR-002](adr-002-one-shot-vs-pipeline.md) for why) |
+| Prompt format | One XML-structured prompt: shared core + one section per form, all providers |
 | Canvas model | 3-layer + trace log |
 | Canvas AI | Global rewrite + selection splice |
-| Source app presets | Doc type only (style/relationship always default per session) |
+| Source app presets | Doc type only — remembered from the Form step ("Remember <form> for <app>") or set in Settings › App defaults |
 | Out of scope | .pptx export, streaming output, AWS Bedrock, LangChain, per-feature provider selection |

@@ -22,7 +22,7 @@ Dark only, for now: `<html class="app-dark">` in `index.html`, and `ShellCompone
 
 ## Shared UI
 
-No component library: PrimeNG was removed in E11 after its relicensing (`docs/ui/primeng-replacement.md`) — don't add it, or another one, back. KeyLint's own components live in `frontend/src/app/shared/ui/<name>/` and are imported from `shared/ui` (index.ts): `kl-button`, `kl-message`, `kl-tag`, `kl-card`, `kl-spinner`, `kl-icon` (vendored Lucide SVGs in `icon/icons.ts`, add one there), `kl-switch`, `kl-checkbox`, `klInput`, `kl-segmented`, `kl-select` (with `editable`), `kl-tabs`, `klTooltip` (`klTooltipOnClick` on a help button, whose click would otherwise hide it). Overlays (select, tooltip) use the CDK overlay on `<body>` with `usePopover: false`; they follow, and close when their trigger leaves, only the scroll containers the CDK knows, so an element that scrolls and can hold one carries `cdkScrollable` (the shell's `.layout-main` and the Pyramidize options column do). Every state of each is on `/dev-tools/ui`. Form controls are ControlValueAccessors; testids go on the host, which wraps the real `<button>`/`<input>`.
+No component library: PrimeNG was removed in E11 after its relicensing (`docs/ui/primeng-replacement.md`) — don't add it, or another one, back. KeyLint's own components live in `frontend/src/app/shared/ui/<name>/` and are imported from `shared/ui` (index.ts): `kl-button`, `kl-message`, `kl-tag`, `kl-card`, `kl-spinner`, `kl-icon` (vendored Lucide SVGs in `icon/icons.ts`, add one there), `kl-switch`, `kl-checkbox`, `klInput`, `kl-segmented`, `kl-select` (with `editable`), `kl-tabs`, `klTooltip` (`klTooltipOnClick` on a help button, whose click would otherwise hide it). Overlays (select, tooltip) use the CDK overlay on `<body>` with `usePopover: false`; they follow, and close when their trigger leaves, only the scroll containers the CDK knows, so an element that scrolls and can hold one carries `cdkScrollable` (the shell's `.layout-main` and the Pyramidize page's `.canvas-area` do). Every state of each is on `/dev-tools/ui`. Form controls are ControlValueAccessors; testids go on the host, which wraps the real `<button>`/`<input>`.
 
 ## Styling: tokens and Tailwind
 
@@ -33,6 +33,8 @@ Layout utilities are Tailwind v4 (`mt-4`, `flex`, `gap-4`, `text-muted`, `bg-she
 ## Component Structure
 
 **Frontend (Angular):** every component lives in its own folder — `feature-name/feature-name.component.ts`. Subcomponents go in nested folders: `feature-name/sub-part/sub-part.component.ts`. Colocate specs, services, and related files in the same folder as the component they belong to. Decompose large components into focused subcomponents rather than growing monolithic templates.
+
+**Change detection:** a new component is OnPush, Angular 22's default — leave `changeDetection` out and drive what the template shows through signals (or `markForCheck()` after setting a plain field). The app components that existed before the upgrade carry `ChangeDetectionStrategy.Eager`, the pre-v22 behaviour the migration kept; a plain field set from a Wails callback updates only there. Copy their state handling into a new component and it silently stops refreshing. Move them to OnPush one at a time, each with its own check.
 
 **Backend (Go):** vertical slices in `internal/features/<domain>/`. Group by domain — service, model, platform-specific files, and tests all colocate in the same package. Add a new package when a new domain emerges; don't force single-file packages but keep each package focused on one concern.
 

@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, ChangeDetectorRef, ElementRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef, ElementRef, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
 import { Subscription, filter } from 'rxjs';
@@ -52,6 +52,7 @@ interface ProviderKey {
     ProviderCardComponent, ActiveProviderComponent, SettingsSectionComponent,
     SettingsGeneralComponent, AppPresetsComponent, SettingsAboutComponent,
   ],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <div class="settings-page">
       <h1 class="m-0 mb-2 text-2xl font-bold tracking-tight text-fg-strong">Settings</h1>

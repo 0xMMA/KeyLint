@@ -34,7 +34,7 @@ export function CaptureSourceApp() {
 }
 
 /**
- * DeleteAppPreset removes an app preset by source app name (case-insensitive).
+ * DeleteAppPreset removes an app preset by source app name (trimmed, case-insensitive).
  * @param {string} sourceApp
  * @returns {$CancellablePromise<void>}
  */
@@ -53,16 +53,6 @@ export function GetAppPresets() {
 }
 
 /**
- * GetQualityThreshold returns the threshold the pipeline uses, which is always
- * the default since the control was removed (see Pyramidize). Kept for the
- * binding; nothing in the frontend calls it any more.
- * @returns {$CancellablePromise<number>}
- */
-export function GetQualityThreshold() {
-    return $Call.ByID(337443021);
-}
-
-/**
  * GetSourceApp returns the captured source app name so the frontend can display
  * the detection indicator and look up a saved app preset.
  * @returns {$CancellablePromise<string>}
@@ -72,15 +62,29 @@ export function GetSourceApp() {
 }
 
 /**
- * Pyramidize is the main RPC: detects the document type (if AUTO), generates the
- * foundation document, and applies a refinement pass if the quality score is below
- * the configured threshold.
+ * GetSourcePreset tells the choice page which form to preselect for a
+ * captured window title, whether that is a remembered preset, and under which
+ * name "Remember <form> for <app>" stores one. The page passes its session's
+ * title: the backend's own capture may be newer (a replace the user declined).
+ * @param {string} title
+ * @returns {$CancellablePromise<$models.SourcePreset>}
+ */
+export function GetSourcePreset(title) {
+    return $Call.ByID(4278213683, title).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType2($result);
+    }));
+}
+
+/**
+ * Pyramidize is the main RPC: it writes the text in the form the user picked,
+ * in exactly one model call (ADR-003). "auto" picks no form by model: it is
+ * the app preset for the captured source app, else email.
  * @param {$models.PyramidizeRequest} req
  * @returns {$CancellablePromise<$models.PyramidizeResult>}
  */
 export function Pyramidize(req) {
     return $Call.ByID(1267468009, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType2($result);
+        return $$createType3($result);
     }));
 }
 
@@ -91,7 +95,7 @@ export function Pyramidize(req) {
  */
 export function RefineGlobal(req) {
     return $Call.ByID(296035873, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType3($result);
+        return $$createType4($result);
     }));
 }
 
@@ -111,21 +115,13 @@ export function SendBack(text) {
 }
 
 /**
- * SetAppPreset saves or updates an app preset matched by SourceApp name (case-insensitive).
+ * SetAppPreset saves or updates an app preset matched by SourceApp name
+ * (trimmed, case-insensitive). The name is stored trimmed.
  * @param {$models.AppPreset} preset
  * @returns {$CancellablePromise<void>}
  */
 export function SetAppPreset(preset) {
     return $Call.ByID(2260797659, preset);
-}
-
-/**
- * SetQualityThreshold saves the quality threshold. Value must be in [0, 1].
- * @param {number} v
- * @returns {$CancellablePromise<void>}
- */
-export function SetQualityThreshold(v) {
-    return $Call.ByID(218741417, v);
 }
 
 /**
@@ -135,13 +131,14 @@ export function SetQualityThreshold(v) {
  */
 export function Splice(req) {
     return $Call.ByID(2632758783, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType4($result);
+        return $$createType5($result);
     }));
 }
 
 // Private type creation functions
 const $$createType0 = $models.AppPreset.createFrom;
 const $$createType1 = $Create.Array($$createType0);
-const $$createType2 = $models.PyramidizeResult.createFrom;
-const $$createType3 = $models.RefineGlobalResult.createFrom;
-const $$createType4 = $models.SpliceResult.createFrom;
+const $$createType2 = $models.SourcePreset.createFrom;
+const $$createType3 = $models.PyramidizeResult.createFrom;
+const $$createType4 = $models.RefineGlobalResult.createFrom;
+const $$createType5 = $models.SpliceResult.createFrom;

@@ -3,23 +3,23 @@
 package pyramidize
 
 // Evaluation tests — make real AI calls against test-data samples.
-// Run with: go test -tags eval ./internal/features/pyramidize/ -v -timeout 300s
+// Run with: go test -tags eval ./internal/features/pyramidize/ -v -timeout 10800s
 //
-// Requires:
-//   - A configured AI provider (env vars: ANTHROPIC_API_KEY or OPENAI_API_KEY)
-//   - Network access to the AI provider's API
+// Requires, by default, nothing but a signed-in Claude Code CLI: pipeline and
+// judge both run through it (provider claude-code), so no API key is read.
 //
-// Override provider/model:
+// Against the API instead (needs ANTHROPIC_API_KEY in .env or the environment):
 //   EVAL_PROVIDER=claude EVAL_MODEL=claude-sonnet-4-6 go test -tags eval ...
+//   EVAL_JUDGE_PROVIDER=claude moves the judge back to the API as well.
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -29,15 +29,8 @@ import (
 	"keylint/internal/llm"
 )
 
-// loadEvalEnv brings .env into the environment, letting it win for credentials
-// and lose for everything else.
-//
-// A blanket Overload looked right — a stale ANTHROPIC_API_KEY in the shell
-// should not beat the project's own — but it also overwrote the EVAL_* and
-// KEYLINT_* variables that scripts/eval.sh exports from its command line, so
-// `--model X` silently lost to a line in a file. A run is configured by what the
-// caller asked for; .env is a place to keep secrets, not a second opinion on
-// what to measure.
+// loadEvalEnv brings .env into the environment. What it takes, and why a
+// CLI-only run takes no key, is evalEnvFromFile's business.
 func loadEvalEnv(t *testing.T) {
 	t.Helper()
 	values, err := godotenv.Read(filepath.Join("..", "..", "..", ".env"))
@@ -45,21 +38,10 @@ func loadEvalEnv(t *testing.T) {
 		t.Logf("no .env loaded: %v", err)
 		return
 	}
-	for key, value := range values {
-		if strings.HasSuffix(key, "_API_KEY") {
-			t.Setenv(key, value)
-			continue
-		}
-		if os.Getenv(key) == "" {
-			t.Setenv(key, value)
-		}
+	for key, value := range evalEnvFromFile(values, os.Getenv) {
+		t.Setenv(key, value)
 	}
 }
-
-// defaultEvalProvider is what a run measures when nothing says otherwise. A
-// constant rather than the machine's active provider: a baseline that changes
-// with whoever runs it is not a baseline.
-const defaultEvalProvider = llm.ProviderClaude
 
 // gitSHA records which commit produced a run, so a number in quality-status.md
 // can be traced back to code. Empty when this is not a checkout.
@@ -78,40 +60,17 @@ func gitSHA() string {
 	return sha
 }
 
-// testSample holds one parsed test-data file.
-type testSample struct {
-	Name     string
-	RawInput string
-	Baseline string
-}
-
-func loadTestSamples(t *testing.T) []testSample {
+// loadTestSamples parses test-data/pyramidal-emails (format and history
+// markers: eval_samples.go). A malformed sample stops the run before any call
+// is paid for.
+func loadTestSamples(t *testing.T) []evalSample {
 	t.Helper()
-	dir := filepath.Join("..", "..", "..", "test-data", "pyramidal-emails")
-	entries, err := os.ReadDir(dir)
+	samples, skipped, err := loadEvalSamples(filepath.Join("..", "..", "..", "test-data", "pyramidal-emails"))
 	if err != nil {
-		t.Fatalf("cannot read test-data dir: %v", err)
+		t.Fatal(err)
 	}
-
-	var samples []testSample
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
-		if err != nil {
-			t.Fatalf("reading %s: %v", e.Name(), err)
-		}
-		raw, baseline := parseTestData(string(data))
-		if raw == "" {
-			t.Logf("skipping %s: no raw input found", e.Name())
-			continue
-		}
-		samples = append(samples, testSample{
-			Name:     strings.TrimSuffix(e.Name(), ".md"),
-			RawInput: raw,
-			Baseline: baseline,
-		})
+	for _, name := range skipped {
+		t.Logf("skipping %s: no raw input found", name)
 	}
 	if len(samples) == 0 {
 		t.Fatal("no test samples found")
@@ -119,39 +78,21 @@ func loadTestSamples(t *testing.T) []testSample {
 	return samples
 }
 
-var fenceBlockRegex = regexp.MustCompile("(?s)```\\w*\\n?(.*?)```")
-
-// rawInputHeader matches "# Raw Input" / "# Raw input" / "# raw input" (case-insensitive).
-var rawInputHeader = regexp.MustCompile(`(?im)^#\s+raw\s+input\s*$`)
-
-// baselineHeader matches "# User accepted output(s)" including the typo "accpted" (case-insensitive).
-var baselineHeader = regexp.MustCompile(`(?im)^#\s+user\s+acce?pted\s+outputs?\s*$`)
-
-func parseTestData(content string) (rawInput, baseline string) {
-	// Find the baseline header position first — it delimits the two sections.
-	blLoc := baselineHeader.FindStringIndex(content)
-	if blLoc == nil {
-		return "", ""
+// TestDumpEvalSamples is scripts/eval-human.sh's sample parser, not a test:
+// with KEYLINT_SAMPLE_DUMP naming an absolute directory it writes every
+// sample's raw input and accepted output there (dumpEvalSamples). Without it,
+// it skips. No model is called.
+func TestDumpEvalSamples(t *testing.T) {
+	dst := os.Getenv("KEYLINT_SAMPLE_DUMP")
+	if dst == "" {
+		t.Skip("KEYLINT_SAMPLE_DUMP is not set")
 	}
-
-	rawSection := content[:blLoc[0]]
-	baselineSection := content[blLoc[1]:]
-
-	// Strip the raw-input header from the first section.
-	rawSection = rawInputHeader.ReplaceAllString(rawSection, "")
-
-	// Try fenced block first; fall back to plain text after stripping the header.
-	if m := fenceBlockRegex.FindStringSubmatch(rawSection); len(m) > 1 {
-		rawInput = strings.TrimSpace(m[1])
-	} else {
-		rawInput = strings.TrimSpace(rawSection)
+	if !filepath.IsAbs(dst) {
+		t.Fatalf("KEYLINT_SAMPLE_DUMP must be absolute (go test runs in the package directory): %q", dst)
 	}
-	if m := fenceBlockRegex.FindStringSubmatch(baselineSection); len(m) > 1 {
-		baseline = strings.TrimSpace(m[1])
-	} else {
-		baseline = strings.TrimSpace(baselineSection)
+	if err := dumpEvalSamples(filepath.Join("..", "..", "..", "test-data", "pyramidal-emails"), dst); err != nil {
+		t.Fatal(err)
 	}
-	return
 }
 
 func TestEvalPyramidize(t *testing.T) {
@@ -162,22 +103,16 @@ func TestEvalPyramidize(t *testing.T) {
 	// key lookup, so neither ~/.config/KeyLint/settings.json nor the OS keyring
 	// can change what this run produces — a developer whose GUI has Ollama as
 	// the active provider gets the same numbers as anyone else.
-	provider := os.Getenv("EVAL_PROVIDER")
-	if provider == "" {
-		provider = defaultEvalProvider
-	}
-	// Resolved here and passed as an explicit override, so a run does not depend
-	// on whichever model the developer happens to have picked in the GUI — and
-	// so the value recorded in summary.json is the one that actually ran.
-	model := os.Getenv("EVAL_MODEL")
-	if model == "" {
-		model = llm.DefaultModel(provider, llm.FeaturePyramidize)
-	}
+	provider, model := evalTarget(os.Getenv)
 	variant := 0 // latest
 	if v := os.Getenv("EVAL_VARIANT"); v != "" {
 		fmt.Sscanf(v, "%d", &variant)
 	}
-	judge := JudgeConfigFromEnv()
+	judges, err := JudgesFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	judgeProvider := judges[0].Provider // shared by every judge
 
 	evalSettings := settings.Default()
 	evalSettings.ActiveProvider = provider
@@ -189,19 +124,39 @@ func TestEvalPyramidize(t *testing.T) {
 	model = llm.ResolveModel(context.Background(), provider, model,
 		llm.Config{APIKey: settingsSvc.GetKey(provider), Feature: "eval"})
 
-	if settingsSvc.GetKey(provider) == "" && provider != llm.ProviderOllama && provider != llm.ProviderClaudeCode {
-		t.Fatalf("no API key for %q in the environment or .env — the eval reads no keyring", provider)
+	for _, p := range []string{provider, judgeProvider} {
+		if llm.UsesAPIKey(p) && settingsSvc.GetKey(p) == "" {
+			t.Fatalf("no API key for %q in the environment or .env — the eval reads no keyring", p)
+		}
 	}
 
+	// Read at the start and again at the end: the CLI is part of the
+	// instrument, and an auto-update mid-run would otherwise go unrecorded.
+	cliVersionAtStart := evalCLIVersion(provider, judgeProvider)
 	svc := NewService(settingsSvc, nil)
 	// What ran is read off the responses, for the Claude Code CLI's aliases.
-	// The judge runs on a service of its own so its pinned model is not
-	// counted as the pipeline's.
+	// Each judge runs on a service of its own, with a recorder of its own, so
+	// no judge's model is counted as the pipeline's or as another judge's.
 	var answered llm.ModelRecorder
 	svc.newClient = answered.Wrap(svc.newClient)
-	judgeSvc := NewService(settingsSvc, nil)
+	judgeSvcs := make([]*Service, len(judges))
+	judgeAnswered := make([]llm.ModelRecorder, len(judges))
+	for i := range judges {
+		judgeSvcs[i] = NewService(settingsSvc, nil)
+		judgeSvcs[i].newClient = judgeAnswered[i].Wrap(judgeSvcs[i].newClient)
+	}
+	// Refused up front: a variant that does not exist for email would
+	// otherwise fail every sample one call at a time.
+	effectiveVariant, err := resolvePromptVariant("email", variant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	promptHash, err := evalPromptHash(variant)
+	if err != nil {
+		t.Fatal(err)
+	}
 	samples := loadTestSamples(t)
-	t.Logf("prompt variant: %d (0=latest=%d)", variant, LatestEmailVariant)
+	t.Logf("prompt variant: %d (0=latest=%d)", variant, LatestPromptVariant)
 
 	// Create eval run directory.
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
@@ -214,12 +169,17 @@ func TestEvalPyramidize(t *testing.T) {
 	type sampleResult struct {
 		Name          string        `json:"name"`
 		Deterministic EvalScorecard `json:"deterministic"`
-		Judge         *JudgeScore   `json:"judge,omitempty"`
-		Error         string        `json:"error,omitempty"`
-		// AppliedRefinement says whether this sample cost a second model call.
-		// Without it a run cannot show whether the pipeline arm of a comparison
-		// ever behaved like a pipeline — the gap ADR-002 had to record as
-		// unfalsifiable from its own data.
+		// Judges holds each judge's score, keyed by its model; never averaged.
+		Judges map[string]*JudgeScore `json:"judges,omitempty"`
+		Error  string                 `json:"error,omitempty"`
+		// JudgeErrors is recorded, not just logged: a judge that dropped an
+		// answer leaves its judgeCount below scoredCount, and the run folder
+		// has to say why once the log is gone.
+		JudgeErrors map[string]string `json:"judgeErrors,omitempty"`
+		// AppliedRefinement said whether this sample cost a second model call.
+		// Since ADR-003 every run is one call (pinned by oneshot_test.go), so it
+		// is always false — and still written, so the aggregate reports 0
+		// refined rather than "unrecorded" (null).
 		AppliedRefinement bool `json:"appliedRefinement"`
 	}
 
@@ -230,22 +190,24 @@ func TestEvalPyramidize(t *testing.T) {
 	defer resultsFile.Close()
 
 	totalDet := 0.0
-	totalJudge := 0.0
-	judgeCount := 0
+	scored := 0
+	judgeTotal := map[string]float64{}
+	judgeCount := map[string]int{}
+	for _, j := range judges {
+		judgeCount[j.Model] = 0
+	}
 
 	for _, sample := range samples {
 		t.Run(sample.Name, func(t *testing.T) {
 			result, err := svc.Pyramidize(PyramidizeRequest{
-				Text:               sample.RawInput,
-				DocumentType:       "email",
-				CommunicationStyle: "professional",
-				RelationshipLevel:  "professional",
-				Provider:           provider,
-				Model:              model,
-				PromptVariant:      variant,
+				Text:          sample.RawInput,
+				DocumentType:  "email",
+				Provider:      provider,
+				Model:         model,
+				PromptVariant: variant,
 			})
 
-			sr := sampleResult{Name: sample.Name, AppliedRefinement: result.AppliedRefinement}
+			sr := sampleResult{Name: sample.Name}
 
 			if err != nil {
 				sr.Error = err.Error()
@@ -256,28 +218,39 @@ func TestEvalPyramidize(t *testing.T) {
 				os.WriteFile(outPath, []byte(result.FullDocument), 0644)
 
 				// Deterministic checks.
-				sr.Deterministic = RunDeterministicChecks(sample.RawInput, result.FullDocument)
+				sr.Deterministic = RunDeterministicChecks(sample.Input(), result.FullDocument)
 				totalDet += sr.Deterministic.OverallScore
+				scored++
 
 				t.Logf("deterministic: %.2f (pass=%v)", sr.Deterministic.OverallScore, sr.Deterministic.AllPassed)
 				for _, c := range sr.Deterministic.Checks {
 					t.Logf("  %s: %.2f pass=%v — %s", c.Name, c.Score, c.Pass, c.Detail)
 				}
 
-				// LLM-as-judge (if baseline available).
-				if sample.Baseline != "" {
-					score, err := judgeSvc.runJudge(settingsSvc, judge,
+				// LLM-as-judge (if baseline available), every judge in turn.
+				for i, judge := range judges {
+					if sample.Baseline == "" {
+						break
+					}
+					score, err := judgeSvcs[i].runJudge(settingsSvc, judge,
 						sample.RawInput, sample.Baseline, result.FullDocument)
 					if err != nil {
-						t.Logf("judge failed: %v", err)
-					} else {
-						sr.Judge = &score
-						totalJudge += score.Overall
-						judgeCount++
-						t.Logf("judge: overall=%.2f pyramid=%.2f clarity=%.2f completeness=%.2f tone=%.2f",
-							score.Overall, score.PyramidStructure, score.Clarity, score.Completeness, score.TonePreservation)
-						t.Logf("judge rationale: %s", score.Rationale)
+						if sr.JudgeErrors == nil {
+							sr.JudgeErrors = map[string]string{}
+						}
+						sr.JudgeErrors[judge.Model] = err.Error()
+						t.Logf("judge %s failed: %v", judge.Model, err)
+						continue
 					}
+					if sr.Judges == nil {
+						sr.Judges = map[string]*JudgeScore{}
+					}
+					sr.Judges[judge.Model] = &score
+					judgeTotal[judge.Model] += score.Overall
+					judgeCount[judge.Model]++
+					t.Logf("judge %s: overall=%.2f pyramid=%.2f clarity=%.2f completeness=%.2f tone=%.2f",
+						judge.Model, score.Overall, score.PyramidStructure, score.Clarity, score.Completeness, score.TonePreservation)
+					t.Logf("judge %s rationale: %s", judge.Model, score.Rationale)
 				}
 			}
 
@@ -291,40 +264,66 @@ func TestEvalPyramidize(t *testing.T) {
 	// here: a number without its configuration is not a measurement, and the
 	// March table in quality-status.md became unreadable for exactly that
 	// reason — nobody could tell which model had produced it.
-	effectiveVariant := variant
-	if effectiveVariant == 0 {
-		effectiveVariant = LatestEmailVariant
+	avgJudges := map[string]float64{}
+	for i := range judges {
+		judges[i].ResolvedModel = judgeAnswered[i].Recorded(judges[i].Model)
+		if n := judgeCount[judges[i].Model]; n > 0 {
+			avgJudges[judges[i].Model] = judgeTotal[judges[i].Model] / float64(n)
+		}
 	}
 	summary := map[string]any{
 		"timestamp": timestamp,
 		"gitSHA":    gitSHA(),
 		"provider":  provider,
 		// What answered, never the alias; see llm.ModelRecorder.
-		"model":            answered.Recorded(model),
-		"modelRequested":   requestedModel,
-		"promptVariant":    effectiveVariant,
-		"judge":            judge,
+		"model":          answered.Recorded(model),
+		"modelRequested": requestedModel,
+		// The CLI is part of the instrument when either side runs through it:
+		// its defaults sit between the model and the score. Reported next to a
+		// verdict, not keyed (the CLI updates itself).
+		"claudeCodeVersion": cliVersionSpan(cliVersionAtStart, evalCLIVersion(provider, judgeProvider)),
+		"thinking":          pyramidizeThinking(provider),
+		"promptVariant":     effectiveVariant,
+		// Which prompt, not only which variant: reported, not keyed.
+		"promptHash": promptHash,
+		// Every judge, with the ID that answered for it. Their scores stay
+		// apart: avgJudges and judgeCounts are keyed by judge model.
+		"judges":      judges,
+		"avgJudges":   avgJudges,
+		"judgeCounts": judgeCount,
+		// Inert since ADR-003 (no refine pass reads it), still recorded:
+		// it is part of the configKey, and dropping it would make every
+		// earlier baseline "not comparable" for a field that changed nothing.
 		"qualityThreshold": settings.DefaultQualityThreshold,
 		// Which configuration produced these numbers; see schemas.go.
 		"schemaEnforcement": schemaEnforcement,
 		"sampleCount":       len(samples),
-		"avgDeterministic":  totalDet / float64(len(samples)),
+		// Divided by what was scored, not by what was attempted: a sample whose
+		// call failed is a measurement of the network, not of the prompt. The
+		// counts say how many that was; the aggregate refuses to compare a run
+		// that did not score every sample.
+		"avgDeterministic": totalDet / float64(max(scored, 1)),
+		"scoredCount":      scored,
+		"errorCount":       len(samples) - scored,
 	}
-	if judgeCount > 0 {
-		summary["avgJudge"] = totalJudge / float64(judgeCount)
-		summary["judgeCount"] = judgeCount
-	}
+	// The scoring instrument: checksVersion and judgePromptHash, both keyed.
+	// A run scored by other checks or a reworded judge is another measurement.
+	maps.Copy(summary, instrumentSummary())
 	summaryData, _ := json.MarshalIndent(summary, "", "  ")
 	os.WriteFile(filepath.Join(runDir, "summary.json"), summaryData, 0644)
 
 	t.Logf("\n=== EVAL SUMMARY ===")
-	t.Logf("Provider: %s | Model: %s | Prompt Variant: v%d", provider, model, effectiveVariant)
-	t.Logf("Judge: %s / %s @ temp %.1f", judge.Provider, judge.Model, judge.Temperature)
-	t.Logf("Schema enforcement: %v | Quality threshold: %.2f", schemaEnforcement, settings.DefaultQualityThreshold)
+	t.Logf("Provider: %s | Model: %s (resolved: %s) | Prompt Variant: v%d | Prompt: %s", provider, requestedModel, answered.Recorded(model), effectiveVariant, promptHash)
+	for _, j := range judges {
+		t.Logf("Judge: %s / %s (resolved: %s) @ temp %s", j.Provider, j.Model, j.ResolvedModel, j.TemperatureLabel())
+	}
+	t.Logf("Schema enforcement: %v | Quality threshold: %.2f | Checks: v%d | Judge prompt: %s", schemaEnforcement, settings.DefaultQualityThreshold, ChecksVersion, judgePromptHash())
 	t.Logf("Samples: %d", len(samples))
-	t.Logf("Avg deterministic: %.2f", totalDet/float64(len(samples)))
-	if judgeCount > 0 {
-		t.Logf("Avg judge overall: %.2f (%d samples)", totalJudge/float64(judgeCount), judgeCount)
+	t.Logf("Avg deterministic: %.2f (%d of %d samples scored)", totalDet/float64(max(scored, 1)), scored, len(samples))
+	for _, j := range judges {
+		if n := judgeCount[j.Model]; n > 0 {
+			t.Logf("Avg judge %s overall: %.2f (%d samples)", j.Model, avgJudges[j.Model], n)
+		}
 	}
 	t.Logf("Results: %s", runDir)
 }

@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Component, signal } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { SegmentedComponent } from './segmented.component';
 
 @Component({
   standalone: true,
   imports: [SegmentedComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `<kl-segmented data-testid="view" ariaLabel="Result view" [options]="views" [(value)]="view" />`,
 })
 class Host {

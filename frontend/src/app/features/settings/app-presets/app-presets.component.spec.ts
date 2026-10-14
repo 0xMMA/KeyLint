@@ -23,11 +23,14 @@ describe('AppPresetsComponent', () => {
     stored = presets.map(p => ({ ...p }));
     wails = createWailsMock();
     wails.getAppPresets.mockImplementation(async () => stored.map(p => ({ ...p })));
+    // As the Go service does: matched by name ignoring case, replaced in place.
+    const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
     wails.setAppPreset.mockImplementation(async (p: AppPreset) => {
-      stored = [...stored.filter(s => s.sourceApp !== p.sourceApp), { ...p }];
+      const i = stored.findIndex(s => same(s.sourceApp, p.sourceApp));
+      stored = i < 0 ? [...stored, { ...p }] : stored.map((s, j) => (j === i ? { ...p } : s));
     });
     wails.deleteAppPreset.mockImplementation(async (app: string) => {
-      stored = stored.filter(s => s.sourceApp !== app);
+      stored = stored.filter(s => !same(s.sourceApp, app));
     });
     await TestBed.configureTestingModule({
       imports: [AppPresetsComponent],
@@ -49,9 +52,14 @@ describe('AppPresetsComponent', () => {
   beforeEach(() => TestBed.resetTestingModule());
   afterEach(() => document.querySelector('.cdk-overlay-container')?.replaceChildren());
 
+  // Nothing saves presets by itself: the text used to say apps were detected
+  // automatically. It says what really happens with a name added here.
   it('says how presets come about when there are none', async () => {
     await render([]);
-    expect(q('presets-empty')?.textContent).toContain('No app presets saved yet');
+    const text = q('presets-empty')!.textContent!;
+    expect(text).toContain('No app presets yet');
+    expect(text).toContain('window title');
+    expect(text).not.toMatch(/automatic/i);
     expect(q('preset-add-btn')).not.toBeNull();
   });
 
@@ -76,6 +84,32 @@ describe('AppPresetsComponent', () => {
     expect(fixture.componentInstance.settings()!.app_presets).toEqual([{ sourceApp: 'Slack', documentType: 'email' }]);
   });
 
+  // PR #130 review: a padded name was stored padded, so the choice page's
+  // Remember (trimmed) added a second preset and Forget deleted neither.
+  it('adds a padded name trimmed, and nothing for a blank one', async () => {
+    await render([]);
+    await click(q('preset-add-btn'));
+    const input = q('preset-add-row')!.querySelector('input')!;
+    const add = () => Array.from(q('preset-add-row')!.querySelectorAll('button')).find(b => b.getAttribute('aria-label') === 'Add preset')!;
+    input.value = '   ';
+    input.dispatchEvent(new Event('input'));
+    await settle();
+    expect(add().disabled).toBe(true);
+
+    input.value = '  Slack  ';
+    input.dispatchEvent(new Event('input'));
+    await settle();
+    await click(q('preset-add-row'), 'Add preset');
+    expect(wails.setAppPreset).toHaveBeenCalledWith({ sourceApp: 'Slack', documentType: 'email' });
+  });
+
+  it('keeps one preset when a rename only adds padding', async () => {
+    await render([{ sourceApp: 'Slack', documentType: 'chat' }]);
+    await rename('Slack', ' Slack ');
+    expect(wails.deleteAppPreset).not.toHaveBeenCalled();
+    expect(stored).toEqual([{ sourceApp: 'Slack', documentType: 'chat' }]);
+  });
+
   it('will not add a preset without an app name', async () => {
     await render([]);
     await click(q('preset-add-btn'));
@@ -95,6 +129,47 @@ describe('AppPresetsComponent', () => {
     expect(wails.deleteAppPreset).toHaveBeenCalledWith('Confluence');
     expect(q('preset-Confluence')).toBeNull();
     expect(fixture.componentInstance.settings()!.app_presets).toEqual([]);
+  });
+
+  /** Opens a preset's edit row, types a name and saves. */
+  async function rename(from: string, to: string): Promise<void> {
+    await click(q(`preset-${from}`), `Edit ${from}`);
+    const input = q('preset-edit-row')!.querySelector('input')!;
+    input.value = to;
+    input.dispatchEvent(new Event('input'));
+    await settle();
+    await click(q('preset-edit-row'), 'Save preset');
+  }
+
+  // Roadmap housekeeping: renaming added a second preset next to the old one.
+  // Presets now steer Pyramidize's preselection, so the old name kept matching.
+  it('renames a preset instead of adding a second one', async () => {
+    await render([{ sourceApp: 'Outlok', documentType: 'email' }]);
+    await rename('Outlok', 'Outlook');
+
+    expect(stored).toEqual([{ sourceApp: 'Outlook', documentType: 'email' }]);
+    expect(q('preset-Outlok')).toBeNull();
+    expect(q('preset-Outlook')).not.toBeNull();
+    expect(fixture.componentInstance.settings()!.app_presets).toEqual([{ sourceApp: 'Outlook', documentType: 'email' }]);
+  });
+
+  it('will not save a preset renamed to nothing', async () => {
+    await render([{ sourceApp: 'Slack', documentType: 'chat' }]);
+    await click(q('preset-Slack'), 'Edit Slack');
+    const input = q('preset-edit-row')!.querySelector('input')!;
+    input.value = '';
+    input.dispatchEvent(new Event('input'));
+    await settle();
+    const save = Array.from(q('preset-edit-row')!.querySelectorAll('button')).find(b => b.getAttribute('aria-label') === 'Save preset')!;
+    expect(save.disabled).toBe(true);
+    expect(stored).toEqual([{ sourceApp: 'Slack', documentType: 'chat' }]);
+  });
+
+  it('keeps a preset whose name only changes case', async () => {
+    await render([{ sourceApp: 'slack', documentType: 'chat' }]);
+    await rename('slack', 'Slack');
+
+    expect(stored).toEqual([{ sourceApp: 'Slack', documentType: 'chat' }]);
   });
 
   it('reloads when the page hands over new settings, as after a reset', async () => {
