@@ -414,9 +414,10 @@ func cliEnv() (env []string, removed []string) {
 // folder, or a developer's checkout — and Claude Code keys its per-project
 // memory and project-level CLAUDE.md lookup on that directory. A neutral,
 // empty one gives it nothing of KeyLint's or the user's projects to find.
-// Not verified: whether the CLI still reads user-level instructions —
-// ~/.claude/CLAUDE.md, or a CLAUDE.md in a parent of this directory such as
-// the home directory. What was shown is the auto-memory leak and its fix.
+// User-level instructions — ~/.claude/CLAUDE.md, or a CLAUDE.md in a parent of
+// this directory such as the home directory — did not reach the CLI in one
+// diagnostic call on 2026-10-14 (CLI 2.1.299): indicative, not a guarantee
+// for every CLI version. What was shown is the auto-memory leak and its fix.
 //
 // A variable so tests can see where the spawn ran.
 var cliWorkDir = defaultCLIWorkDir

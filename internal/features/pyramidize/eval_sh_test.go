@@ -134,6 +134,31 @@ func TestEvalShReadsDotEnvTheWayGoDoes(t *testing.T) {
 	}
 }
 
+// TestEvalShRunsOnlyTheSuitesTest: the pyramidize package also holds
+// TestEvalLanguage. Without -run every eval.sh run paid for it as well, and
+// its run directory could be taken for the suite's.
+func TestEvalShRunsOnlyTheSuitesTest(t *testing.T) {
+	for suite, want := range map[string]string{
+		"pyramidize": "^TestEvalPyramidize$",
+		"fix":        "^TestEvalFix$",
+	} {
+		out, code, _ := evalShRun(t, nil, signedIn, nil, "--suite", suite)
+		if code != 0 {
+			t.Fatalf("--suite %s: exit = %d\n%s", suite, code, out)
+		}
+		if !strings.Contains(out, "Test:     "+want+"\n") {
+			t.Errorf("--suite %s does not run %s alone:\n%s", suite, want, out)
+		}
+	}
+	script, err := os.ReadFile(filepath.Join("..", "..", "..", "scripts", "eval.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(script), `go test -tags eval "$SUITE_PKG" -run "$SUITE_TEST"`) {
+		t.Error("eval.sh's go test does not pass -run \"$SUITE_TEST\"")
+	}
+}
+
 // TestEvalShKeepsTheShellsKeyOverAnEmptyLine: an empty value copied from
 // .env.example must not count as a key.
 func TestEvalShKeepsTheShellsKeyOverAnEmptyLine(t *testing.T) {

@@ -39,7 +39,7 @@
 
 ### FR-02 Generation: one call writes the form
 - One prompt per form: a shared core (pyramid, content headers, fidelity, voice, user choices, style) plus that form's section — `prompts_v3.go`
-- Output: `{fullDocument, language}`; subject, title and headers are inside `fullDocument`, the subject/title as its first line where the form has one
+- Output: `{language, fullDocument}` (language first since 2026-10-14, ADR-003 addendum); subject, title and headers are inside `fullDocument`, the subject/title as its first line where the form has one
 - Fixed shapes: email always has subject line, greeting as written, bold content headers with bullets and sign-off as written — also for three casual sentences; memo, wiki and presentation keep their shapes too. Chat is the form for a short result
 - Information preservation: every fact, name, number, date, request and open question appears; nothing is added (no conclusions, no "no action needed")
 - Voice: by default the author's language, code-switching, tone and person stay; the user's own instruction ("auf Englisch", "formeller") wins over that default. Content the user states in the instructions ("mention I'm away Friday") is added where it belongs; nothing else is (2026-10-13)
