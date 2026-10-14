@@ -44,7 +44,7 @@ const FEATURES: readonly FeatureRow[] = [
       <div class="head">
         <div class="summary" data-testid="providers-summary" tabindex="-1">
           <h2 id="in-use-heading" class="name" data-testid="active-provider-name">{{ label() }}</h2>
-          <p class="lede">KeyLint sends your text here. Pyramidize can pick another provider for one session.</p>
+          <p class="lede">KeyLint sends your text here, for Fix and for Pyramidize.</p>
         </div>
         <kl-tag severity="primary" icon="check">In use</kl-tag>
       </div>

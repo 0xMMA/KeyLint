@@ -45,6 +45,17 @@ describe('ActiveProviderComponent', () => {
     expect(q('active-provider')?.textContent).toContain('In use');
   });
 
+  // Since E3 phase 3 the Pyramidize page has no provider switch: Fix and
+  // Pyramidize both send to the provider in use. The lede still promised a
+  // per-session switch after that (review of #126, 2026-10-14).
+  it('says Fix and Pyramidize both use it, with no per-session switch', async () => {
+    await render({});
+    const lede = q('active-provider')!.querySelector('.lede')!.textContent!;
+    expect(lede).not.toMatch(/session/i);
+    expect(lede).toContain('Fix');
+    expect(lede).toContain('Pyramidize');
+  });
+
   it('names each picker by its feature and column, for a screen reader', async () => {
     await render({ showEffort: true, effortNote: 'More effort means more reasoning.' });
     const model = q('model-fix-claude')!.querySelector('[role="combobox"]')!;

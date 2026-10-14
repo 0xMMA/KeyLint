@@ -123,7 +123,7 @@ const LISTED: ModelOption[] = [
 
       <section>
         <h2>Card</h2>
-        <kl-card heading="Claude Code" subheading="KeyLint sends your text here. Pyramidize can pick another provider for one session.">
+        <kl-card heading="Claude Code" subheading="KeyLint sends your text here, for Fix and for Pyramidize.">
           <div class="row"><kl-tag severity="primary" icon="check">In use</kl-tag></div>
         </kl-card>
       </section>

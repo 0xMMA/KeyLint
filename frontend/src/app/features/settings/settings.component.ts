@@ -100,8 +100,8 @@ interface ProviderKey {
                 </div>
               }
 
-              <!-- Pyramidize follows this choice unless the user picked another
-                   there for the session, and says so on its own page. -->
+              <!-- Fix and Pyramidize both follow this choice: the Pyramidize page
+                   has no provider switch since E3 phase 3. -->
               @if (activeProviderLabel && settings.active_provider; as active) {
                 <app-active-provider
                   [providerId]="active"
