@@ -1,6 +1,6 @@
 # Pyramidize Output Quality — Status
 
-> Last updated: 2026-10-14
+> Last updated: 2026-10-15
 
 > The Fix prompt has its own suite and baseline: [`docs/fix/quality-status.md`](../fix/quality-status.md).
 
@@ -11,7 +11,7 @@ about measuring still holds.
 
 ---
 
-## Where it stands (2026-10-14)
+## Where it stands (2026-10-15)
 
 **What ships: prompt v3 ([ADR-003](adr-003-prompt-v3.md)).** The user picks the
 form (email, chat, memo, wiki, presentation) and one model call writes it. There
@@ -22,11 +22,29 @@ nothing on its own (owner decision 2026-10-13). Mail history in the input is
 context, never output (2026-10-11). v2 stays selectable with `--variant 2`: email
 only, byte-identical, always `professional`/`professional`. The prompt on `main`
 (77b7bd8) is the one measured below: nothing under `internal/features/pyramidize/`
-changed between the baseline's commit and the merge.
+changed between the baseline's commit and the merge. #132 has changed it
+since (the reply names its language first). Its control run of 2026-10-15
+found nothing worse than this reference (History). The reference stays
+2026-10-13 because the per-sample analysis below is built on it.
 
 **What is measured: the email form, and only it.** The suite has 13 anonymised
 German business emails. Two of them carry mail history; one mixes German and
 English heavily, a code-switch the prompts keep on purpose.
+
+**English input: fixed with #132 (found 2026-10-14, measured 2026-10-15).**
+The suite above could not see it, because all its samples are German. English
+notes for the website's demo came back in German in 6 of 7 calls on v3, and in
+3 of 3 on v2 (Sonnet 5.5 through the CLI): whole replies, or English bullets
+under German subject and headers. The reply named its language only after the
+document, and the prompt's own examples and wording are partly German. With
+#132 the reply names its language first: the author's, unless the user's
+instructions ask for another. `<voice>` says that the prompt's own languages
+tell nothing. `TestEvalLanguage` (see How it is measured) then put 27 of 27
+replies in the language they should be. The samples are the five forms in
+English, German email and chat, a German mail with an English greeting and
+sign-off, and a German mail whose instructions ask for English. Each ran
+three times, on gitSHA `c134d53` with CLI 2.1.300. The German suite did not
+get worse (control run of 2026-10-15 under History).
 
 ### Reference baseline: 2026-10-13
 
@@ -137,9 +155,12 @@ in brackets. A sample passes a run when every deterministic check passes.
   without it.
 - **v2 on the current instrument.** v2 has not been rerun. v3 replaced it on the
   old instrument's comparison (2026-10-11, in History below).
-- **Isolation, one gap.** Every CLI call runs in an empty directory with
-  auto-memory off (#127). Whether user-level instructions
-  (`~/.claude/CLAUDE.md`) still reach the CLI is not verified.
+- **Isolation.** Every CLI call runs in an empty directory with auto-memory
+  off (#127). User-level instructions (`~/.claude/CLAUDE.md`) seem not to reach
+  it. One diagnostic call on 2026-10-14 checked this, with KeyLint's flags and
+  working directory, Haiku and CLI 2.1.299. Asked to quote any instruction in
+  its context about language or about the owner, it found none. That is one
+  call on one machine, so it is indicative only.
 
 ### Deterministic check limitations
 
@@ -189,8 +210,8 @@ pin.
 
 ### Next
 
-Items 1, 3 and 4 are on the [roadmap](../roadmap.md) (E3); item 2 is a
-proposal. Only item 1 waits on something outside the repo.
+Items 1, 3 and 5 are on the [roadmap](../roadmap.md) (E3); items 2 and 4
+are proposals. Only item 1 waits on something outside the repo.
 
 1. **The other forms.** First the owner's real samples for chat, memo, wiki
    and presentation. Then a harness that runs those forms, and per-form
@@ -199,7 +220,11 @@ proposal. Only item 1 waits on something outside the repo.
 2. **Samples that carry instructions.** One or two, including one that states
    content, so the 2026-10-13 rule is exercised. Proposed, not decided.
 3. **Schema enforcement on and off for v3.**
-4. **Instrument follow-ups.**
+4. **English in the main suite.** `checkLanguage` could join the
+   deterministic checks once the suite has English samples. That bumps
+   `checksVersion`, so it waits for the next instrument change. Proposed, not
+   decided.
+5. **Instrument follow-ups.**
    - The Fix judge should record its own prompt hash. `judgePromptHash` is
      Pyramidize-only, so Fix keys as `unrecorded`.
    - Optionally, give the judges the marked history split.
@@ -220,6 +245,22 @@ threshold" (ADR-003) argues against it.
   `no_hallucination` (the whole input, with a ratio over output terms the
   history does not hold). Samples with history also get
   `no_history_reproduction`. These checks are `checksVersion` 2.
+- **Language:** `TestEvalLanguage` is a separate test, and `eval.sh` does not
+  run it. It covers 9 samples written for it:
+  - English in all five forms;
+  - German email and chat;
+  - a German mail with an English greeting;
+  - a German mail whose instructions ask for English.
+
+  Each sample runs 3 times, which makes 27 pipeline calls and no judge. A
+  `summary.json` records the model that answered, the git SHA and the
+  `promptHash`. `checkLanguage` gives each line one vote, by German and English
+  function words, and compares the result with the author's message (or with
+  the asked-for language). It also holds the first line to the author's
+  language. It is not part of `checksVersion`.
+
+      go test -tags eval,gtk3 ./internal/features/pyramidize/ -run TestEvalLanguage -v -timeout 3600s
+
 - **Judges:** `claude-haiku-5-5` and `claude-sonnet-5-5`, both through the
   Claude Code CLI. Their prompt, template, schema and output limit are keyed as
   `judgePromptHash`.
@@ -241,6 +282,27 @@ it started. Present tense in a section below describes the time it was
 written: "current reference", "the shipped default", "still open" and
 "pending" all mean *then*. Where that has since become false in a way that
 misleads, a note in brackets says so. What holds now is the part above.
+
+### Eval Scores — control run of 2026-10-15 (language first, #132)
+
+Control run after #132 reordered the reply (`language` before `fullDocument`)
+and added one `<voice>` line. Same instrument as 2026-10-13 (`checksVersion` 2,
+`judgePromptHash` `j1-fda30fd7bd94a7fa`), `promptHash` `p1-b17f9af30df7d35a`,
+CLI 2.1.300 (was 2.1.296), gitSHA `c134d53`, three runs, 13 samples, full
+coverage. `test-data/eval-baselines/2026-10-15T00-21-34/baseline.json`.
+
+| Metric | 2026-10-13 | 2026-10-15 | `--compare` |
+|---|:---:|:---:|---|
+| Deterministic | 0.9013 (0.8974–0.9054) | 0.9028 (0.8932–0.9120) | overlap |
+| Judge Haiku 5.5 | 0.8544 (0.8492–0.8577) | **0.8618** (0.8600–0.8646) | **improvement**, ranges disjoint |
+| Judge Sonnet 5.5 | 0.8272 (0.8223–0.8354) | 0.8185 (0.8077–0.8331) | overlap |
+| Samples passing | 10 (9–11) | 11 (11–11) | — |
+
+**Verdict: nothing worse.** The language fix did not cost the German suite
+anything. The prompt and the CLI both changed between the two sides, so the
+Haiku judge's move cannot be credited to either one. The Sonnet judge's mean
+is 0.009 lower, inside overlapping ranges. The run folders were kept locally
+this time (`test-data/eval-runs/2026-10-15T*`, gitignored).
 
 ### Eval Scores — baseline of 2026-10-13 (choice-page prompt)
 

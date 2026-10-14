@@ -19,11 +19,11 @@ The prompt for every form is **v3**: one shared core plus one section per form
 | Core: `<pyramid>` | Main point first, then grouped support; decisions → actions → context. (The first version also said "thread history moves to the end, it does not drop out" — replaced, see the addendum.) |
 | Core: `<headers>` | Content statements, never process labels; same-level headers MECE |
 | Core: `<fidelity>` | Every fact, name, number, date, request and open question **of the author's own message** appears (addendum); mail history is context only; nothing is added beyond what the user's instructions state (2026-10-13) — no conclusions, reasons, or status claims like "no action needed"; what the input leaves open stays open; holds whatever the user chooses |
-| Core: `<voice>` | The default: the language (the author's message's, addendum) and code-switching (none introduced), tone and person; never raise formality on its own; greetings and sign-offs as written |
+| Core: `<voice>` | The default: the language (the author's message's, addendum; and only it, not the language of the prompt's own wording and examples, 2026-10-14) and code-switching (none introduced), tone and person; never raise formality on its own; greetings and sign-offs as written |
 | Core: `<user_choices>` | The user's own instructions, when there are any (choice page addendum: no style or relationship any more): they are the user's words and win over the voice and form defaults ("auf Englisch" means English, "formeller" raises formality); content they state is added where it belongs, nothing else is (2026-10-13) |
 | Core: `<style>` | Compact but complete, no filler, nothing the input or the user's instructions do not say; the form's shape is fixed — email, memo, wiki and presentation always take their full shape, however short the input; chat is the form for a short result |
 | Form sections | email (subject line `Decision \| Details \| Actions`, greeting, bold headers + bullets, sign-off), **chat (new)**: no subject, no headers, first sentence carries the point, greeting only if the author's message has one, may shorten but keeps every fact and ask; memo (`TO \| FROM \| RE` line, one-sentence summary, bold headers); wiki (`# title`, one-sentence summary, `##` sections); presentation (`# Slide N:` titles that tell the story, slide 1 is the summary) |
-| Output | `{"fullDocument", "language"}` — subject, title and headers live inside the document, where the user sees them |
+| Output | `{"language", "fullDocument"}`, language first since 2026-10-14 (addendum below). Subject, title and headers live inside the document, where the user sees them |
 
 The style block (`<style_injection>`) was v2's, word for word; since the choice
 page addendum v3 carries only a `<user_instructions>` block, and only when the
@@ -371,3 +371,52 @@ v3 email control run happens after this change (roadmap E3 phase 3).
   and shows that version.
 - CLI: passing `--style` or `--relationship` prints one line on stderr that
   they are ignored and that `--instructions` is the way.
+
+## Addendum — the reply names its language first (2026-10-14)
+
+**English input came back in German.** The website's demo notes were English,
+and Pyramidize returned German in 6 of 7 calls on v3. v2 did the same in 3 of
+3 (Sonnet 5.5 through the CLI). Some replies were German throughout. Others
+had German subject and headers over English bullets. The main suite could not
+see it: its 13 samples are German.
+
+One diagnostic call (indicative only) found none of the user's own
+`~/.claude/CLAUDE.md` in the CLI's context, although that file is written in
+German. That points at the prompt. Its reply named the language only after the
+document. Its `<headers>` examples and the `<user_choices>` examples are
+German, and so are some of the form examples.
+
+**The fix:**
+- **Language first.** The reply's first field is now the language it is
+  written in, "decided first: the author's message's, unless
+  <user_instructions> ask for another". This applies to the output format,
+  every example and `documentSchemaV3`. The instructions may ask for another
+  language: the UI's own placeholder suggests "in English". So the field
+  names the language the document is written in, not the author's.
+- **A new line in `<voice>`.** It says the language comes from the author's
+  message, never from the prompt. The prompt's instructions and examples are
+  written in more than one language, and that tells nothing.
+
+Both are general principles, not tuned to any sample. On the same notes, 0 of
+6 diagnostic calls came back in German, and a German eval sample stayed German.
+These calls were not recorded as a run.
+
+**The guards:**
+- `TestV3NamesTheLanguageBeforeTheDocument` pins the order and the
+  instructions clause.
+- `TestEvalLanguage` measures it, with 9 samples:
+  - English in all five forms;
+  - German email and chat;
+  - a German mail with an English greeting;
+  - a German mail whose instructions ask for English.
+- `checkLanguage` gives each line one vote, counted by function words, and
+  holds the first line to the author's language. Its fixtures are the replies
+  from that day. It passes every accepted output in the main suite, including
+  `email-software-deployment`, a German mail with a pasted English README
+  section.
+
+The schema order reaches only the Claude Code CLI. The API SDKs sort the keys
+of the schema map. Schema enforcement is off by default.
+
+v2 stays byte-identical, and so it keeps the fault. It is a comparison baseline
+only.
