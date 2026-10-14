@@ -102,6 +102,17 @@ test.describe('website', () => {
     });
   }
 
+  // Since the Pyramidize choice page (#130) provider, model and effort come
+  // from Settings only; the providers caption still promised a per-session
+  // Pyramidize provider until #131's review caught it.
+  test('promises no per-session or Pyramidize-only provider', async ({ page }) => {
+    for (const name of PAGES) {
+      await page.goto(url(name));
+      const text = await page.locator('body').innerText();
+      expect(text, name).not.toMatch(/session|another provider|per run|one run|switch to another/i);
+    }
+  });
+
   test('every download link is exactly /releases/latest', async ({ page }) => {
     for (const name of PAGES) {
       await page.goto(url(name));
