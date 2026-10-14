@@ -258,6 +258,8 @@ test.describe('Pyramidize — flow', () => {
     await expect(send).toHaveText(/Send back to Outlook/);
     await send.getByRole('button').click();
     await expect.poll(() => state.sentBack).toEqual([DOCUMENT]);
+    // Formatted beside it, for Outlook to paste bold text rather than "**".
+    expect(state.sentBackHTML[0]).toContain("<strong>Two things need a decision before tomorrow's meeting.</strong>");
 
     await page.getByTestId('try-another-form-btn').getByRole('button').click();
     await expect(page.getByTestId('remembered-note')).toContainText('Memo is remembered for Outlook.');

@@ -33,8 +33,9 @@ export interface FakePyramidizeState {
   hold?: Promise<void>;
   /** The requests Pyramidize received, oldest first. */
   requests: Record<string, unknown>[];
-  /** What SendBack received. */
+  /** What SendBack received: the text, and its HTML. */
   sentBack: string[];
+  sentBackHTML: string[];
 }
 
 export function fakePyramidize(overrides: Partial<FakePyramidizeState> = {}): FakePyramidizeState {
@@ -47,6 +48,7 @@ export function fakePyramidize(overrides: Partial<FakePyramidizeState> = {}): Fa
     presetsDeleted: [],
     requests: [],
     sentBack: [],
+    sentBackHTML: [],
     ...overrides,
   };
 }
@@ -102,6 +104,7 @@ export async function installFakePyramidize(page: Page, state: FakePyramidizeSta
       }
       case 'SendBack':
         state.sentBack.push(args[0] as string);
+        state.sentBackHTML.push(args[1] as string);
         return empty();
       default:
         return route.fallback();

@@ -58,3 +58,16 @@ export function SendPaste() {
 export function Write(text) {
     return $Call.ByID(608683786, text);
 }
+
+/**
+ * WriteRich writes the text only. Each of xclip, xsel and wl-copy holds one
+ * type per call, so offering text and HTML together would take a clipboard
+ * owner of KeyLint's own; Linux is a development platform, and the plain text
+ * pastes everywhere. Windows writes both (service_windows.go).
+ * @param {string} text
+ * @param {string} html
+ * @returns {$CancellablePromise<void>}
+ */
+export function WriteRich(text, html) {
+    return $Call.ByID(2859371848, text, html);
+}

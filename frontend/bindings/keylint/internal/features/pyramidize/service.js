@@ -103,15 +103,21 @@ export function RefineGlobal(req) {
  * SendBack writes text to the system clipboard and pastes it into the window
  * the Pyramidize shortcut was pressed in.
  * 
+ * html is the text as the Preview renders it. It goes on the clipboard next
+ * to the text, so an app that takes formatted text (Outlook, Teams) pastes
+ * bold and lists rather than raw Markdown, and any other app pastes the text
+ * (owner decision 2026-10-11, roadmap E8).
+ * 
  * The clipboard is written first, so whatever goes wrong afterwards the text
  * is there to paste by hand, and every error says so. The paste goes to the
  * source window only: if it is closed, or does not come to the foreground, or
  * loses the foreground before the keystroke, nothing is pasted anywhere.
  * @param {string} text
+ * @param {string} html
  * @returns {$CancellablePromise<void>}
  */
-export function SendBack(text) {
-    return $Call.ByID(4139008126, text);
+export function SendBack(text, html) {
+    return $Call.ByID(4139008126, text, html);
 }
 
 /**

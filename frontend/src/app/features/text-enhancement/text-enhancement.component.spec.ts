@@ -599,8 +599,30 @@ describe('TextEnhancementComponent (Pyramidize: Text → Form → Result)', () =
       expect(button('send-back-btn').textContent).toContain('Send back to Outlook');
       button('send-back-btn').click();
       await settle();
-      expect(svcMock.sendBack).toHaveBeenCalledWith('A email result');
+      expect(svcMock.sendBack).toHaveBeenCalledWith('A email result', expect.stringContaining('A email result'));
       expect(q('error-row')).toBeNull();
+    });
+
+    it('sends the result formatted as the Preview shows it, with its Markdown beside it', async () => {
+      // Outlook and Teams paste the HTML; an app without formatting the Markdown.
+      const markdown = '**Renting** is cheaper\n\n- 600 EUR\n- nobody waits';
+      const editor = q<HTMLTextAreaElement>('canvas-textarea')!;
+      editor.value = markdown;
+      editor.dispatchEvent(new Event('input'));
+      await settle();
+      q<HTMLButtonElement>('segment-preview')!.click();
+      await settle();
+      const preview = q('canvas-preview')!.innerHTML;
+
+      button('send-back-btn').click();
+      await settle();
+      const [text, html] = svcMock.sendBack.mock.calls[0];
+      expect(text).toBe(markdown);
+      expect(html).toContain('<strong>Renting</strong>');
+      expect(html).toContain('<li>600 EUR</li>');
+      const sent = document.createElement('div');
+      sent.innerHTML = html;
+      expect(sent.innerHTML).toBe(preview);
     });
 
     it('says why the text was not pasted, without offering to copy the error', async () => {
@@ -803,7 +825,7 @@ describe('TextEnhancementComponent (Pyramidize: Text → Form → Result)', () =
     await settle();
     button('send-back-btn').click();
     await settle();
-    expect(svcMock.sendBack).toHaveBeenCalledWith('A email result');
+    expect(svcMock.sendBack).toHaveBeenCalledWith('A email result', expect.stringContaining('A email result'));
   });
 
   it('cancels the run in flight when a shortcut replaces the session (N1)', async () => {
