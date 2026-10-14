@@ -11,10 +11,11 @@
  *   The scene does those steps itself, with the recorded result.
  * - Pyramidize is the real app (production build) in an iframe. The hotkey
  *   is the real `shortcut:pyramidize` event dispatched into it, which reads
- *   the clipboard (the fake answers with the notes) like the app does. "Copy
- *   as rich text" is the app's own clipboard write, and the paste into the
- *   mail is a real Ctrl+V of it. Send back is not used: it pastes plain
- *   Markdown today.
+ *   the clipboard (the fake answers with the notes) like the app does. Send
+ *   back runs in Go (internal/features/pyramidize/sendback.go): it puts the
+ *   text and the HTML the app handed it on the clipboard, brings the source
+ *   window to the front and sends Ctrl+V into it. The scene does those steps
+ *   with exactly what the app handed over, and the paste is a real Ctrl+V.
  */
 import { test, expect, Page, Frame } from '@playwright/test';
 import * as http from 'http';
@@ -158,7 +159,7 @@ test('clip: Pyramidize from a webmail client', async ({ page, context }) => {
   await installFakeBackend(page, configured('claude-code'));
   let release!: () => void;
   const hold = new Promise<void>((r) => { release = r; });
-  await installFakePyramidize(page, fakePyramidize({
+  const fake = fakePyramidize({
     // What the hotkey copies from the mail body, and the window it came from:
     // the app is the title's last segment, as GetSourcePreset splits it.
     clipboard: PYRAMIDIZE_INPUT,
@@ -166,7 +167,8 @@ test('clip: Pyramidize from a webmail client', async ({ page, context }) => {
     sourcePreset: { app: 'Webmail', documentType: 'email', remembered: false },
     fullDocument: PYRAMIDIZE_OUTPUT,
     hold,
-  }));
+  });
+  await installFakePyramidize(page, fake);
   await installFakeUpdater(page);
 
   await page.goto('/scenes/mail.html');
@@ -217,17 +219,27 @@ test('clip: Pyramidize from a webmail client', async ({ page, context }) => {
   await expect(app.getByTestId('canvas-preview')).toBeVisible();
   await page.waitForTimeout(1900);
 
-  const copy = await appCenter(page, app.getByTestId('copy-rich-text-btn').getByRole('button'));
-  await clickAt(page, copy.x, copy.y);
-  await page.waitForTimeout(500);
+  const send = await appCenter(page, app.getByTestId('send-back-btn').getByRole('button'));
+  await clickAt(page, send.x, send.y);
+  await expect.poll(() => fake.sentBackHTML.length).toBe(1);
 
-  // Back to the mail: a click on it brings the browser to the front.
-  await clickAt(page, 1232 * Z, 420 * Z);
-  await page.evaluate(() => document.getElementById('klwin')!.classList.remove('show'));
-  await page.waitForTimeout(350);
-  await press(page, 'Control+A', ['Ctrl', 'A'], 'select the notes');
-  await page.waitForTimeout(450);
-  await press(page, 'Control+V', ['Ctrl', 'V'], 'paste the rich text');
+  // What Go does next: the clipboard, the mail's window to the front (its
+  // notes still selected, as when the shortcut copied them), then Ctrl+V.
+  await page.evaluate(async ([text, html]) => {
+    document.getElementById('klwin')!.classList.remove('show');
+    const mail = document.getElementById('body')!;
+    mail.focus();
+    const range = document.createRange();
+    range.selectNodeContents(mail);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    await navigator.clipboard.write([new ClipboardItem({
+      'text/html': new Blob([html], { type: 'text/html' }),
+      'text/plain': new Blob([text], { type: 'text/plain' }),
+    })]);
+  }, [fake.sentBack[0], fake.sentBackHTML[0]]);
+  await page.waitForTimeout(250);
+  await page.keyboard.press('Control+V');
   await expect(body.locator('strong').first()).toBeVisible();
   await page.waitForTimeout(1500);
 
