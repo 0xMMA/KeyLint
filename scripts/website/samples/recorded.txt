@@ -1,4 +1,4 @@
 # Which KeyLint produced each *.out file. refresh-samples.sh rewrites a line when it records that sample.
 chat 2026-10-14 KeyLint b757317, claude-code 2.1.299, fix, in=b1af6eacb2f3 out=db1b8fd66eb6
 fix 2026-10-14 KeyLint b757317, claude-code 2.1.299, fix, in=769e769cffd7 out=e25c613a3fd9
-pyramidize 2026-10-11 KeyLint (before refresh-samples.sh and prompt v3), claude-code, pyramidize, in=34e7946ae379 out=37763d8680ea
+pyramidize 2026-10-15 KeyLint dde53e8, claude-code 2.1.300, pyramidize, in=0153e458344b out=c4f9836e0d19

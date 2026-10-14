@@ -1,19 +1,18 @@
-Laptop Delivery Delayed to March 14 | Recommend Renting for Two Weeks (~600 EUR) | @Finance Yes Needed by Friday
+Laptops delayed to March 14, onboarding March 3 at risk | I recommend renting (~600 EUR) | @Finance yes needed by Friday
 
-hi all,
+Hi all,
 
-**Recommendation: rent laptops for two weeks (~600 EUR total)**
-- Cheap, and nobody has to wait
-- Alternative: new hires start on loaner machines from the IT pool, but only two are left for three hires
+**I recommend renting laptops for two weeks; I need a yes from Finance by Friday**
+- Renting costs about 600 EUR in total, it's cheap and nobody has to wait
+- I need the yes from Finance by Friday so I can still order in time
 
-**Finance yes needed by Friday**
-- @Finance: yes needed by Friday so Alex can still order in time
+**Onboarding of the three new hires on March 3 is at risk because laptops can't arrive before March 14**
+- Source: this morning's vendor call
+- Reason: chip shortage
 
-**Onboarding on March 3 is at risk**
-- Vendor cannot deliver the new laptops before March 14 because of the chip shortage
-- Three new hires start on March 3
+**Alternative: new hires start on loaner machines from the IT pool, but only two are left**
+- That covers only two of the three new hires
 
 **Vendor offers 5% off if we accept March 14 as is**
-- Offered during this morning's vendor call
 
-alex
+Alex
