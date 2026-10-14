@@ -2,12 +2,13 @@
  * Shared by the website captures (capture.spec.ts: stills, demos.spec.ts:
  * clips). See capture.spec.ts for the command that runs them.
  *
- * The sample texts are not invented results: each output below is what the
- * real pipeline returned for its input (`KeyLint -fix` and
- * `KeyLint -pyramidize -type email`, claude-code provider, 2026-10-11). The
- * fake backend only replays them, so the app is shown doing what it does.
+ * The sample texts are not invented results: samples/<name>.out.* is what
+ * KeyLint really returned for samples/<name>.in.txt, recorded by
+ * refresh-samples.sh (samples/recorded.txt says when and from which commit).
+ * The fake backend only replays them, so the app is shown doing what it does.
  */
 import { Page, CDPSession } from '@playwright/test';
+import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as http from 'http';
 import * as path from 'path';
@@ -23,39 +24,28 @@ export const BASE_URL = `http://127.0.0.1:${PORT}`;
 
 // The default window (main.go: 1280×800 outer) leaves about this much page.
 export const VIEWPORT = { width: 1264, height: 740 };
-export const APP_VERSION = '4.7.1-beta';
+/**
+ * The version in the sidebar footer: the newest release tag at capture time
+ * (the moving dev-channel tags v0.0.0-* are not releases).
+ */
+export const APP_VERSION = execSync("git describe --tags --abbrev=0 --exclude 'v0.0.0-*'", { cwd: ROOT, encoding: 'utf8' })
+  .trim().replace(/^v/, '');
 
-export const FIX_INPUT =
-  'Hi team, i wanted to let you know that the release is moved to thursday. Their are still two bugs in the export wich we need too fix before we ship. Please dont merge anything into main untill then, and let me know if you have any question.';
-export const FIX_OUTPUT =
-  "Hi team, I wanted to let you know that the release has been moved to Thursday. There are still two bugs in the export which we need to fix before we ship. Please don't merge anything into main until then, and let me know if you have any questions.";
+export const SAMPLES = path.join(__dirname, 'samples');
 
-export const CHAT_INPUT =
-  "hey both, the client demo got moved to tomorow at 10. can you send me you're slides untill tonight so i can merge them into one deck? thx";
-export const CHAT_OUTPUT =
-  'hey both, the client demo got moved to tomorrow at 10. Can you send me your slides until tonight so I can merge them into one deck? Thanks!';
+/** A recorded sample file, without the trailing newline the CLI prints. */
+export function sample(file: string): string {
+  return fs.readFileSync(path.join(SAMPLES, file), 'utf8').replace(/\n+$/, '');
+}
 
-export const PYRAMIDIZE_INPUT =
-  'hi all, quick update from the vendor call this morning. they cant deliver the new laptops before march 14 because of the chip shortage, so onboarding for the three new hires on march 3 is at risk. options: we rent laptops for two weeks (about 600 eur total) or the new hires start on loaner machines from the IT pool, but there are only two left in the pool. i would go for renting, its cheap and nobody has to wait. need a yes from finance by friday so i can still order in time. the vendor also offered 5% off if we accept the march 14 date as is. alex';
-export const PYRAMIDIZE_OUTPUT = `Laptop Delivery Delayed to March 14 | Recommend Renting for Two Weeks (~600 EUR) | @Finance Yes Needed by Friday
+export const FIX_INPUT = sample('fix.in.txt');
+export const FIX_OUTPUT = sample('fix.out.txt');
 
-hi all,
+export const CHAT_INPUT = sample('chat.in.txt');
+export const CHAT_OUTPUT = sample('chat.out.txt');
 
-**Recommendation: rent laptops for two weeks (~600 EUR total)**
-- Cheap, and nobody has to wait
-- Alternative: new hires start on loaner machines from the IT pool, but only two are left for three hires
-
-**Finance yes needed by Friday**
-- @Finance: yes needed by Friday so Alex can still order in time
-
-**Onboarding on March 3 is at risk**
-- Vendor cannot deliver the new laptops before March 14 because of the chip shortage
-- Three new hires start on March 3
-
-**Vendor offers 5% off if we accept March 14 as is**
-- Offered during this morning's vendor call
-
-alex`;
+export const PYRAMIDIZE_INPUT = sample('pyramidize.in.txt');
+export const PYRAMIDIZE_OUTPUT = sample('pyramidize.out.md');
 
 const TYPES: Record<string, string> = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml',

@@ -152,11 +152,12 @@ test('clip: Pyramidize from a webmail client', async ({ page, context }) => {
   let release!: () => void;
   const hold = new Promise<void>((r) => { release = r; });
   await installFakePyramidize(page, fakePyramidize({
-    // What the hotkey copies from the mail body, and the window it came from.
+    // What the hotkey copies from the mail body, and the window it came from:
+    // the app is the title's last segment, as GetSourcePreset splits it.
     clipboard: PYRAMIDIZE_INPUT,
-    sourceApp: 'Mail — New message',
+    sourceApp: 'New message – Webmail',
+    sourcePreset: { app: 'Webmail', documentType: 'email', remembered: false },
     fullDocument: PYRAMIDIZE_OUTPUT,
-    detectedType: 'email',
     hold,
   }));
   await installFakeUpdater(page);
@@ -169,7 +170,7 @@ test('clip: Pyramidize from a webmail client', async ({ page, context }) => {
   }, PYRAMIDIZE_INPUT);
   const frame = await appFrame(page);
   const app = page.frameLocator('#app');
-  await expect(app.getByTestId('model-select')).toContainText('KeyLint default');
+  await expect(app.getByTestId('original-textarea')).toBeVisible();
   await page.waitForLoadState('networkidle');
   await page.evaluate(() => document.fonts.ready);
   await placePointer(page, 1180 * Z, 560 * Z);
@@ -191,8 +192,10 @@ test('clip: Pyramidize from a webmail client', async ({ page, context }) => {
   await page.waitForTimeout(250);
   await page.evaluate(() => document.getElementById('klwin')!.classList.add('show'));
   await frame.evaluate(() => (window as any)._wails.dispatchWailsEvent({ name: 'shortcut:pyramidize', data: 'hotkey' }));
-  await expect(app.getByTestId('original-textarea')).toHaveValue(PYRAMIDIZE_INPUT);
-  await page.waitForTimeout(1000);
+  // The shortcut's text opens on the Form step, email preselected.
+  await expect(app.getByTestId('form-email')).toHaveAttribute('aria-checked', 'true');
+  await expect(app.getByTestId('text-excerpt')).toContainText('quick update');
+  await page.waitForTimeout(1600);
 
   const pz = await appCenter(page, app.getByTestId('pyramidize-btn').getByRole('button'));
   await clickAt(page, pz.x, pz.y);

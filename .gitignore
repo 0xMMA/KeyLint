@@ -13,3 +13,4 @@ frontend/playwright-report
 frontend/e2e/screenshots/
 .worktrees/
 scripts/website/out/
+scripts/website/.venv/

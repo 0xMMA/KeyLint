@@ -112,3 +112,44 @@ test.describe('website', () => {
     }
   });
 });
+
+/**
+ * The texts the demo clips and stills replay (scripts/website/samples/,
+ * recorded by refresh-samples.sh). Read from disk, no browser needed.
+ */
+test.describe('website demo samples', () => {
+  const SAMPLES = path.join(__dirname, '../../scripts/website/samples');
+  const read = (file: string) => fs.readFileSync(path.join(SAMPLES, file), 'utf8').trim();
+
+  /** Words that differ between two texts: the longer length minus their longest common run. */
+  function wordsChanged(before: string, after: string): number {
+    const a = before.split(/\s+/);
+    const b = after.split(/\s+/);
+    const lcs = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
+    for (let i = a.length - 1; i >= 0; i--) {
+      for (let j = b.length - 1; j >= 0; j--) {
+        lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+      }
+    }
+    return Math.max(a.length, b.length) - lcs[0][0];
+  }
+
+  test('every sample has a recorded output, and recorded.txt names it', () => {
+    const inputs = fs.readdirSync(SAMPLES).filter((f) => f.endsWith('.in.txt'));
+    expect(inputs.length).toBeGreaterThan(0);
+    const recorded = read('recorded.txt').split('\n').filter((l) => !l.startsWith('#'));
+    for (const input of inputs) {
+      const name = input.replace(/\.in\.txt$/, '');
+      const outputs = fs.readdirSync(SAMPLES).filter((f) => f.startsWith(`${name}.out.`));
+      expect(outputs, `${name}: run scripts/website/refresh-samples.sh ${name}`).toHaveLength(1);
+      expect(read(outputs[0]).length, `${name}: empty output`).toBeGreaterThan(0);
+      expect(recorded.some((l) => l.startsWith(`${name} `)), `${name}: no line in recorded.txt`).toBe(true);
+    }
+  });
+
+  // Owner feedback 2026-10-14: the Silent Fix clip's message had too few
+  // mistakes to show what Fix does. Eight corrected words is the floor.
+  test('the Silent Fix clip corrects at least eight words', () => {
+    expect(wordsChanged(read('chat.in.txt'), read('chat.out.txt'))).toBeGreaterThanOrEqual(8);
+  });
+});

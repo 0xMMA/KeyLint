@@ -1,6 +1,6 @@
 """Turns the raw captures in scripts/website/out/ into the files keylint.io uses.
 
-Run after the captures (see capture.spec.ts for the full command):
+Run by capture.sh after the captures (`encode.py [name...]`, all by default):
 - stills (fix, providers) become WebP,
 - each demo clip becomes a WebM (VP8) with the recorded frame timing, plus a
   WebP poster of its last frame (also what reduced-motion visitors see).
@@ -89,14 +89,22 @@ def clip(name: str) -> None:
           f"{poster.name}: {poster.stat().st_size // 1024} KB")
 
 
-def main() -> int:
+STILLS = ("fix", "providers")
+CLIPS = ("demo-fix", "demo-pyramidize")
+
+
+def main(names: list[str]) -> int:
+    """Encodes the named captures, or all of them when none is named."""
     IMG.mkdir(parents=True, exist_ok=True)
-    for name in ("fix", "providers"):
-        still(name)
-    for name in ("demo-fix", "demo-pyramidize"):
-        clip(name)
+    for name in names or [*STILLS, *CLIPS]:
+        if name in STILLS:
+            still(name)
+        elif name in CLIPS:
+            clip(name)
+        else:
+            sys.exit(f"unknown capture: {name} (stills: {', '.join(STILLS)}; clips: {', '.join(CLIPS)})")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

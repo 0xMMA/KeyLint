@@ -1,11 +1,13 @@
 /**
  * Stills and demo clips for keylint.io (website/img/).
  *
- * Rerun after a UI change, from the repo root:
+ * Rerun after a UI change, from the repo root, with one command:
  *
- *   (cd frontend && npm ci && npx ng build) && \
- *     NODE_PATH=frontend/node_modules frontend/node_modules/.bin/playwright test -c scripts/website && \
- *     python3 scripts/website/encode.py
+ *   scripts/website/capture.sh                  # stills, fix-clip, pyramidize-clip
+ *   scripts/website/capture.sh stills fix-clip  # only these
+ *
+ * When a sample text or a prompt changed, first record the real outputs:
+ *   scripts/website/refresh-samples.sh [fix chat pyramidize]  (real model calls)
  *
  * capture.spec.ts takes the app screenshots, demos.spec.ts records the two
  * staged clips (scenes/). Both serve the production build on 127.0.0.1:47813
@@ -30,7 +32,7 @@ test.use({ viewport: VIEWPORT, deviceScaleFactor: 2, baseURL: BASE_URL });
 test.beforeAll(async () => { server = await startServer(); });
 test.afterAll(async () => { await stopServer(server); });
 
-test('Fix, with the corrections marked', async ({ page }) => {
+test('still: Fix, with the corrections marked', async ({ page }) => {
   await installFakeBackend(page, configured('claude-code'));
   await installFakeFix(page);
   await installFakeUpdater(page);
@@ -42,7 +44,7 @@ test('Fix, with the corrections marked', async ({ page }) => {
   await page.screenshot({ path: path.join(OUT, 'fix.png') });
 });
 
-test('Settings › AI providers, with the installed CLI signed in', async ({ page }) => {
+test('still: Settings › AI providers, with the installed CLI signed in', async ({ page }) => {
   const state = configured('claude-code');
   // A local Ollama that answers, so its row reads as set up rather than broken.
   state.modelSources['ollama'] = 'live';
