@@ -56,7 +56,7 @@ const LISTED: ModelOption[] = [
       <section>
         <h2>Messages</h2>
         <div class="stack">
-          <kl-message severity="info" text="Pyramidize uses OpenAI for this session. Settings still names Claude Code." />
+          <kl-message severity="info" text="An info message: one line of context, nothing to do." />
           <kl-message severity="success" text="Fixed and copied to the clipboard." />
           <kl-message severity="warn" title="Fix took too long" closable>
             The hotkey fix ran out of time. Your text is unchanged on the clipboard.

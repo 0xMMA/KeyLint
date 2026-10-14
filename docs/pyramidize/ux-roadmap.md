@@ -22,6 +22,8 @@ Moving a default is a quality decision for E3 (#34) and needs an eval run.
 
 ## UX-01 — Inline Provider + Model Selector (Pyramidize)
 
+> **Superseded by E3 phase 3 (2026-10-12):** provider, model and effort live in Settings only; the Pyramidize page shows them read-only with a link to Settings.
+
 **Goal:** Replace the "Change Provider" button in the error row with a persistent, compact provider+model selector visible in the left settings panel (below the Document Type selector).
 
 **Location:** `text-enhancement.component.ts` — left panel, between doc-type selector and comm-style selector.
@@ -51,6 +53,8 @@ Model      [claude-sonnet-4-6 ▼]
 ---
 
 ## UX-01b — Inline Provider + Model Selector (Fix / Quick Fix page)
+
+> **Superseded by E3 phase 3 (2026-10-12):** provider, model and effort live in Settings only; the Fix page shows them read-only ("Sent to" chips). Never built.
 
 **Goal:** Add same compact provider+model selector to the Fix page, above the Fix button row.
 

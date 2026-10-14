@@ -50,8 +50,8 @@ describe('ActiveProviderComponent', () => {
   // per-session switch after that (review of #126, 2026-10-14).
   it('says Fix and Pyramidize both use it, with no per-session switch', async () => {
     await render({});
-    const lede = q('active-provider')!.querySelector('.lede')!.textContent!;
-    expect(lede).not.toMatch(/session/i);
+    const lede = q('active-provider-lede')!.textContent!;
+    expect(lede).not.toMatch(/session|another provider|per run|one run|switch/i);
     expect(lede).toContain('Fix');
     expect(lede).toContain('Pyramidize');
   });

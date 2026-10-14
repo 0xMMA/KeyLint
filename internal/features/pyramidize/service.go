@@ -485,8 +485,8 @@ func (svc *Service) callAISync(ctx context.Context, cfg settings.Settings, opts 
 // override wins over the model in settings, which in turn wins over KeyLint's
 // default — see Settings.ModelFor.
 func (svc *Service) providerConfig(provider string, cfg settings.Settings, apiKey, modelOverride string) (llm.Config, string, error) {
-	// A request-level override wins — the Pyramidize panel lets a user pick a
-	// model for one run without changing their settings.
+	// A request-level override wins: the CLI's -pyramidize --model and the
+	// eval set one. The app sends none since the choice page (E3 phase 3).
 	model := strings.TrimSpace(modelOverride)
 	if model == "" {
 		model = cfg.ModelFor(provider, llm.FeaturePyramidize)
@@ -683,7 +683,8 @@ func isWordRune(r rune) bool {
 }
 
 // pyramidizeEffort is the effort a call sends: the request's own for this run
-// (the CLI and the eval may set one; the app sends none), else the provider's Pyramidize effort from settings, or none for a call
+// (no caller sets one today: the app sends none since the choice page, and
+// the CLI and the eval have no effort flag), else the provider's Pyramidize effort from settings, or none for a call
 // that must not take it. An override that is no level is ignored, as an
 // unknown level in settings is.
 func pyramidizeEffort(cfg settings.Settings, provider string, opts aiOpts) string {
