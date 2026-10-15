@@ -479,7 +479,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
     // Detection spawns processes, so the rest of the screen must not wait for it.
     void this.recheckClaudeCode();
-    // Same for the model lists: four providers, each a round trip.
+    // Same for the model lists: a round trip per provider (OpenRouter's only
+    // while it is the one in use; see listsNow).
     void this.loadModelOptions();
   }
 
