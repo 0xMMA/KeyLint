@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { ActiveProviderComponent, FeatureChoice } from './active-provider.component';
-import { ModelOption } from '../model-options';
+import { ModelOption, defaultOption, toModelOption } from '../model-options';
 
 const OPTIONS: ModelOption[] = [
   { id: null, label: '', display: 'Default: Haiku (latest)', secondary: 'claude-haiku-5-5' },
@@ -80,6 +80,22 @@ describe('ActiveProviderComponent', () => {
     ];
     await render({ providerId: 'openrouter', fixOptions: catalogue, pyramidizeOptions: catalogue });
     expect(q('model-effective-fix')).toBeNull();
+  });
+
+  // The line exists for an alias, which moves. Before the OpenRouter review
+  // it also showed "Now gpt-6-luna" under OpenAI's default whenever the
+  // built-in list was on screen (its label differs from the ID) and never
+  // with the live list — a fixed ID read as a moving one, depending on the
+  // network. Only an alias that resolves to another ID gets it.
+  it('says nothing about "now" under OpenAI\'s default while the built-in list shows', async () => {
+    const builtIn = [toModelOption({ id: 'gpt-6-luna', label: 'GPT-6 Luna', resolved: '' }), toModelOption({ id: 'gpt-6-astra', label: 'GPT-6 Astra', resolved: '' })];
+    await render({
+      providerId: 'openai',
+      fixOptions: [defaultOption('openai', 'fix', builtIn), ...builtIn],
+      pyramidizeOptions: [defaultOption('openai', 'pyramidize', builtIn), ...builtIn],
+    });
+    expect(q('model-effective-fix')).toBeNull();
+    expect(q('model-effective-pyramidize')).toBeNull();
   });
 
   it('hides effort where the provider has nothing to send it to', async () => {
