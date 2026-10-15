@@ -50,12 +50,15 @@ type Option = unknown;
  * the matching option's label, or the raw value if none matches; an option
  * whose label is "" leaves the field empty so the placeholder shows.
  *
- * `filter` (editable only) makes the field search the list as well: typing
- * opens it and keeps the options whose label, display text or second line
- * hold every typed word, case-insensitively. It is a search, not a different
- * value model — the typed text is still the value, so free text still works.
- * Opening with the chevron or ArrowDown shows the whole list. Without
- * `filter` the list never narrows, as p-select's editable mode never did.
+ * `filter` (editable only) makes the field a search instead: typing opens the
+ * list and keeps the options whose label, display text or second line hold
+ * every typed word, case-insensitively — and changes nothing. A click or Enter
+ * on an option commits it; Enter on text that names no option commits that
+ * text, so a free-text value still works; Escape, leaving the field or a
+ * click elsewhere put the stored value back. (Committing every keystroke made
+ * an abandoned search the saved value.) Opening with the chevron or ArrowDown
+ * shows the whole list. Without `filter` nothing here changes: typed text is
+ * the value and the list never narrows, as in p-select's editable mode.
  *
  * Keyboard: ArrowDown/ArrowUp open and move, Enter takes the active option
  * (editable: typed text that names no option leaves none active, and Enter
@@ -99,7 +102,7 @@ type Option = unknown;
           [attr.aria-activedescendant]="activeId()"
           (input)="onType($event)"
           (keydown)="onKeydown($event)"
-          (blur)="onTouched()"
+          (blur)="onBlur()"
         />
         <button type="button" class="kl-select-chevron" tabindex="-1" aria-label="Show options"
           [disabled]="isDisabled()" (mousedown)="$event.preventDefault()" (click)="toggle()">
@@ -264,7 +267,11 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
   protected readonly selectedOption = computed(() => this.options()[this.selectedIndex()]);
   /** What was typed since the list opened; with `filter`, what the list is narrowed by. */
   private readonly query = signal('');
-  protected readonly searching = computed(() => this.filter() && this.editable() && this.query().trim() !== '');
+  /** With `filter`: the search in the field, not yet a value; null when the field shows the value. */
+  private readonly draft = signal<string | null>(null);
+  /** Whether typing searches rather than sets the value. */
+  private readonly searches = computed(() => this.filter() && this.editable());
+  protected readonly searching = computed(() => this.searches() && this.query().trim() !== '');
   /**
    * The options the open list shows. Every index into the list — the active
    * option, a click, the arrows — is an index into this, not into options().
@@ -283,6 +290,8 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
     return this.shown().findIndex(o => this.valueOf(o) === v);
   });
   protected readonly inputText = computed(() => {
+    const draft = this.draft();
+    if (draft !== null) return draft;
     const i = this.selectedIndex();
     if (i >= 0) return this.labelOf(this.options()[i]);
     const v = this.value();
@@ -391,11 +400,13 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
     this.overlayRef?.updateSize({ width: width || undefined, minWidth: 192 });
   }
 
+  /** Closes the list. A search not committed by now is dropped: the field shows the value again. */
   close(): void {
     if (this.overlayRef?.hasAttached()) this.overlayRef.detach();
     this.isOpen.set(false);
     this.activeIndex.set(-1);
     this.query.set('');
+    this.draft.set(null);
   }
 
   // ── choosing ────────────────────────────────────────────────────────────
@@ -419,13 +430,16 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
 
   protected onType(event: Event): void {
     const text = (event.target as HTMLInputElement).value;
-    this.value.set(text);
-    this.onChange(text);
-    this.changed.emit(text);
-    if (this.filter() && this.editable()) {
-      // A search: what was typed narrows the list, which opens to show it.
+    if (this.searches()) {
+      // A search: it narrows the list, which opens to show it, and changes
+      // no value until something is chosen.
+      this.draft.set(text);
       this.query.set(text);
       if (!this.isOpen()) this.open(true);
+    } else {
+      this.value.set(text);
+      this.onChange(text);
+      this.changed.emit(text);
     }
     if (this.isOpen()) {
       // Text that names no option leaves none active (as p-select did), so
@@ -461,8 +475,11 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
           event.preventDefault();
           this.choose(this.activeIndex());
         } else if (open) {
-          // Editable, nothing active: the typed text already is the value.
+          // Editable, nothing active: the typed text is the value — already,
+          // or (searching) from now on, as a free-text one.
           event.preventDefault();
+          const draft = this.draft();
+          if (draft !== null) this.commitText(draft);
           this.close();
         } else if (fixed) {
           event.preventDefault();
@@ -523,6 +540,20 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
         return;
       }
     }
+  }
+
+  /** Commits typed text as the value, as a choice would; nothing if it is the value already. */
+  private commitText(text: string): void {
+    if (text === this.value()) return;
+    this.value.set(text);
+    this.onChange(text);
+    this.changed.emit(text);
+  }
+
+  /** Leaving the field drops a search that was never committed. */
+  protected onBlur(): void {
+    this.onTouched();
+    if (this.draft() !== null) this.close();
   }
 
   private focusTrigger(): void {

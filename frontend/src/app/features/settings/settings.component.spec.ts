@@ -1843,6 +1843,19 @@ describe('SettingsComponent — OpenRouter', () => {
     expect(component.modelFor('openrouter', 'pyramidize')).toBe('openai/gpt-6-luna');
   });
 
+  it('does not save a search the user gave up on', async () => {
+    await render({ key: { is_set: true, source: 'keyring' } });
+    const input = q('model-fix-openrouter')!.querySelector('input')!;
+    input.value = 'gpt lu';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    input.dispatchEvent(new FocusEvent('blur'));
+    fixture.detectChanges();
+
+    expect(component.modelFor('openrouter', 'fix')).toBe('');
+    expect(input.value).toBe('');
+  });
+
   it('says Fix asks the default Haiku not to reason, and offers effort', async () => {
     await render({ key: { is_set: true, source: 'keyring' } });
 

@@ -150,8 +150,16 @@ test.describe('Settings — AI Providers layout', () => {
     // An explicit ID is not an alias: no "Now <model>" line under it.
     await expect(page.getByTestId('model-effective-fix')).toHaveCount(0);
 
-    // Typing narrows the list to what matches every word, and a click takes it.
+    // A search given up on changes nothing: the field goes back to the default.
     const pyramidize = page.getByTestId('model-pyramidize-openrouter').locator('input');
+    await pyramidize.click();
+    await pyramidize.pressSequentially('gemini');
+    await expect(page.getByRole('option')).toHaveCount(1);
+    await page.getByTestId('active-provider-name').click();
+    await expect(page.getByRole('listbox')).toHaveCount(0);
+    await expect(pyramidize).toHaveValue('');
+
+    // Typing narrows the list to what matches every word, and a click takes it.
     await pyramidize.click();
     await pyramidize.pressSequentially('gpt luna');
     await expect(page.getByRole('option')).toHaveCount(1);

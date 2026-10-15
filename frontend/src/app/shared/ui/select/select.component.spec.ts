@@ -85,6 +85,7 @@ const CATALOGUE: ModelOption[] = [
       [ngModel]="stored() || null"
       (ngModelChange)="emitted.push($event); stored.set($event ?? '')"
     />
+    <button data-testid="elsewhere">elsewhere</button>
   `,
 })
 class SearchHost {
@@ -431,18 +432,85 @@ describe('kl-select, editable with filter: searching a long list', () => {
     await settle(fixture);
     expect(names()).toEqual([]);
     expect(document.querySelector('.kl-option-empty')?.textContent?.trim()).toBe('No matches');
+    expect(host.emitted, 'typing alone commits nothing').toEqual([]);
     key(input, 'Enter');
     await settle(fixture);
     expect(host.stored()).toBe('vendor/brand-new-model');
+    expect(host.emitted).toEqual(['vendor/brand-new-model']);
     expect(listbox()).toBeNull();
   });
 
-  it('marks the option the typed ID names as selected and active, at its place in the filtered list', async () => {
+  it('makes the option the typed ID names active, so Enter takes it', async () => {
     type(input, 'anthropic/claude-haiku-4.5');
     await settle(fixture);
     expect(names()).toEqual(['Anthropic: Claude Haiku 4.5']);
-    expect(options()[0].getAttribute('aria-selected')).toBe('true');
     expect(input.getAttribute('aria-activedescendant')).toBe(options()[0].id);
+    // Selected means stored: nothing is, until it is taken.
+    expect(options()[0].getAttribute('aria-selected')).toBe('false');
+    key(input, 'Enter');
+    await settle(fixture);
+    expect(host.emitted).toEqual(['anthropic/claude-haiku-4.5']);
+  });
+
+  // Review of #134: with every keystroke committed, a search the user gave up
+  // on ("gpt lu", then a click elsewhere) became the saved model — an ID no
+  // provider knows. Typing here is a search; only a choice commits.
+  describe('typing is a search, not a choice', () => {
+    beforeEach(async () => {
+      host.stored.set('openai/gpt-6-luna');
+      await settle(fixture);
+    });
+
+    it('commits nothing while typing', async () => {
+      type(input, 'gem');
+      type(input, 'gemini');
+      await settle(fixture);
+      expect(host.emitted).toEqual([]);
+      expect(host.stored()).toBe('openai/gpt-6-luna');
+      expect(input.value).toBe('gemini');
+    });
+
+    it('Escape puts the stored model back in the field', async () => {
+      type(input, 'gem');
+      await settle(fixture);
+      key(input, 'Escape');
+      await settle(fixture);
+      expect(listbox()).toBeNull();
+      expect(input.value).toBe('openai/gpt-6-luna');
+      expect(host.emitted).toEqual([]);
+    });
+
+    it('leaving the field puts the stored model back', async () => {
+      type(input, 'gem');
+      await settle(fixture);
+      input.dispatchEvent(new FocusEvent('blur'));
+      await settle(fixture);
+      expect(listbox()).toBeNull();
+      expect(input.value).toBe('openai/gpt-6-luna');
+      expect(host.emitted).toEqual([]);
+    });
+
+    it('a click elsewhere puts the stored model back', async () => {
+      type(input, 'gem');
+      await settle(fixture);
+      expect(listbox()).toBeTruthy();
+      const elsewhere = fixture.nativeElement.querySelector('[data-testid="elsewhere"]') as HTMLElement;
+      elsewhere.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+      elsewhere.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await settle(fixture);
+      expect(listbox()).toBeNull();
+      expect(input.value).toBe('openai/gpt-6-luna');
+      expect(host.emitted).toEqual([]);
+    });
+
+    it('a click on a match commits it', async () => {
+      type(input, 'gem');
+      await settle(fixture);
+      options()[0].click();
+      await settle(fixture);
+      expect(host.emitted).toEqual(['google/gemini-3.8-flash']);
+      expect(input.value).toBe('google/gemini-3.8-flash');
+    });
   });
 
 });
