@@ -30,10 +30,10 @@ Perfect for professional emails, chat messages, documents, and social media post
 
 - **OpenAI** (GPT-4o, GPT-4, etc.)
 - **Anthropic** (Claude)
+- **OpenRouter** — one key for models from many vendors.
+- **AWS Bedrock** — Claude models from your own AWS account, with a Bedrock API key or the AWS sign-in already on your computer (profile or SSO; KeyLint stores nothing for it). You choose whether your text stays in your region's geography or may be processed worldwide.
 - **Claude Code** — uses the Claude Code CLI you already installed and signed in to, with your own subscription. No API key to enter. KeyLint runs the unmodified binary and never reads or stores your credentials; you sign in in your own terminal.
 - **Ollama** (local, fully offline)
-
-AWS Bedrock is not available yet — it is planned ([#23](https://github.com/0xMMA/KeyLint/issues/23)).
 
 ## Installation
 
