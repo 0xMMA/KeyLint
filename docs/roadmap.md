@@ -1,6 +1,6 @@
 # KeyLint Roadmap
 
-> Last updated: 2026-10-15 (`v4.8.0-beta` released; English input came back in German, fixed in #132; Send back pastes formatted text, #133, released as `v4.9.0-beta`; `v5.0.0` scope cut to Bedrock UI and OpenRouter, the reviewer moved after it) · Owner: Michael · Source of truth for priorities.
+> Last updated: 2026-10-16 (`v4.8.0-beta` released; English input came back in German, fixed in #132; Send back pastes formatted text, #133, released as `v4.9.0-beta`; `v5.0.0` scope cut to Bedrock UI and OpenRouter, the reviewer moved after it; OpenRouter merged, #134; AWS Bedrock built, E6, awaiting a Windows run with a live AWS account) · Owner: Michael · Source of truth for priorities.
 > Tracking: each epic links to a GitHub issue. This file holds the *why* and the order; issues hold the *what*.
 
 ---
@@ -34,7 +34,7 @@
 | TypeScript | 6.0 | 7.0 | Angular 22 requires 6.0 (`>=6.0 <6.1`); TS 7 = Go-native compiler, only when Angular CLI supports it |
 | Vitest / Playwright / jsdom | 5.0 / 1.63 / 30 | 5.0 / 1.63 / 30 | #84; Vitest 5 with Angular 22.2 (E4 step 3), see `.claude/rules/testing.md` |
 
-**Provider code today:** one `internal/llm` package behind a `Client` interface — the vendor SDKs for Claude, OpenAI and Ollama, plus the spawned Claude Code CLI — with contexts, timeouts, SDK retries and tests on every path (#39, #45, #33 step 3). Model IDs are still constants at the two call sites; that is step 4. Bedrock is still a stub that returns an error (#23).
+**Provider code today:** one `internal/llm` package behind a `Client` interface — the vendor SDKs for Claude, OpenAI and Ollama, plus the spawned Claude Code CLI — with contexts, timeouts, SDK retries and tests on every path (#39, #45, #33 step 3). Model IDs are still constants at the two call sites; that is step 4. Bedrock was a stub that returned an error (#23) until E6.
 
 ---
 
@@ -116,7 +116,7 @@ Issue: #33 (closed). Follow-ups: #47 schema enforcement (closed, parked default-
 | Need | Covered by | Notes |
 |---|---|---|
 | Anthropic API | `github.com/anthropics/anthropic-sdk-go` (v1.78) | official |
-| AWS Bedrock | same SDK, `bedrock.NewMantleClient` | closes #23 for free, #22 becomes moot |
+| AWS Bedrock | same SDK, `bedrock.WithConfig` on bedrock-runtime (E6) | not `NewMantleClient`: the AWS model cards serve Haiku/Sonnet 5.5 in-region on mantle only in us-gov-west-1, everywhere else on bedrock-runtime through a cross-region profile |
 | Google Vertex | same SDK, `vertex.WithGoogleAuth` | optional |
 | OpenAI | `github.com/openai/openai-go/v3` (v3.68 — held below 3.69, #116) | official |
 | Ollama, OpenRouter, LM Studio, Groq, Mistral, … | `openai-go` + `option.WithBaseURL` | OpenAI-compatible endpoints; Ollama serves `/v1`; OpenRouter is E10 |
@@ -193,7 +193,15 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 - **Settings stays rendered after version click** (#38) — new, repro in the issue.
 - Existing April triage: #21 `vv` version prefix, #24 hide unimplemented themes, #26 toggle knob clipping, #28 global-instruction input light background, #29 Apply button focus, #27 side-by-side on wide screens.
 
-#### E6 · Bedrock end-to-end UI (#23) — unblocked (E2 step 3 done), mostly settings UI work plus the region field and AWS SDK noted in E2 step 3. Closes #22. **In `v5.0.0`. Decided 2026-10-15 (Michael): the user chooses how to connect, either a Bedrock API key (in the OS keyring like the other keys) or the AWS sign-in already on the machine (profile or SSO, nothing stored by KeyLint), plus a region.**
+#### E6 · Bedrock end-to-end UI (#23) — built (PR open), awaiting a Windows run with a live AWS account. Closes #22. **In `v5.0.0`. Decided 2026-10-15 (Michael): the user chooses how to connect, either a Bedrock API key (in the OS keyring like the other keys) or the AWS sign-in already on the machine (profile or SSO, nothing stored by KeyLint), plus a region. Routing is the user's explicit choice, clearly explained: keep the text in the region's geography (preselected) or worldwide (says it can leave, and that it is somewhat cheaper — Anthropic: regional endpoints carry a 10% premium over global).**
+- [x] **Built:** provider `bedrock` (`internal/llm/bedrock.go`) on **bedrock-runtime** `InvokeModel` through the Anthropic SDK's `bedrock.WithConfig` (SigV4 or a bearer key), sharing the Anthropic client's request, retry and reply handling. Not bedrock-mantle: the AWS model cards (read 2026-10-15) serve Haiku 5.5 and Sonnet 5.5 in-region on mantle only in us-gov-west-1, and on bedrock-runtime only through a cross-region inference profile.
+  - **Connect:** key mode (default) — `AWS_BEARER_TOKEN_BEDROCK` first, then the keyring; `~/.aws` is never read. Sign-in mode — `config.LoadDefaultConfig` with the region and an optional profile; credentials resolved before anything is sent, so a missing profile, an expired SSO session (`aws sso login --profile …`) or no sign-in at all is worded as such (`ErrAWSSignIn`), the AWS SDK's text only at Debug. `AWS_BEARER_TOKEN_BEDROCK` wins in both modes (the SDK adapter does it regardless; AWS's own SDKs do the same), and the card says so in sign-in mode — decided, tested, documented rather than worked around. A sign-in mode without any credentials takes ~5 s to fail on a machine with no EC2 metadata service (the default chain's last step).
+  - **Routing:** models are stored as base IDs; the prefix is added per call from region and routing: `eu-*` → `eu.`, `us-*`/`ca-*` → `us.`, `ap-southeast-2/4` → `au.`, `ap-northeast-1/3` → `jp.`, every other listed region worldwide only (the card says so), worldwide → `global.`. The card names where a geography-routed call can be processed per region (the EU; the EU and Switzerland from Zurich; the EU and the UK from London; the US and Canada from Canada — the profiles' destination tables). A known model with no profile for the geography (Sonnet 5.5 and Sonnet 5 have no `jp.`; Haiku 4.5 none from ca-west-1) is refused before anything is sent, and the card names it. Prefixed IDs (`in.anthropic.claude-sonnet-5` works that way) and application inference profile ARNs go as typed. 33 regions, GovCloud out of scope. The region is validated (shape of a region code) before it reaches the host name.
+  - **Models:** no listing exists on Bedrock (Anthropic's Models API is not offered there), so a curated list with source `known`: Haiku 5.5, Sonnet 5.5, Opus 5.5, Sonnet 5, Haiku 4.5, Opus 4.8, each checked against its AWS model card; the picker stays editable. Defaults `anthropic.claude-haiku-5-5` (Fix), `anthropic.claude-sonnet-5-5` (Pyramidize). The cards stand in for capabilities: effort sent as `output_config.effort` except to Haiku 4.5; `thinking: disabled` only where a model can stop (Haiku 5.5, Sonnet 5, Haiku 4.5, Opus 4.8), so Fix's no-reasoning ask reaches Haiku (`IsFastTier` knows `anthropic.claude-haiku-*`, with or without a prefix); an unknown model gets the effort and one retry without it on a 400. **No structured outputs** (the cards list them as unsupported for these models), even with `KEYLINT_PYRAMIDIZE_SCHEMA=1`.
+  - **Errors:** a 403 is worded by its `X-Amzn-Errortype` class — model access (naming model and region, pointing at the Bedrock console's Model access and `bedrock:InvokeModel`), a rejected key or credentials, expired credentials; a 404 names model and region and Anthropic's first-time-use form; the body never reaches the error (#41). Toasts: model access, AWS sign-in, no region, no route that stays.
+  - **UI:** an AWS Bedrock card on AI Providers (connection, profile, region, routing; saved on change through `SetBedrock`, kept by Reset), Test connection (one call with the Fix model and a fixed text, only on click), an option in the setup wizard, the region banner on the Pyramidize page, `--provider bedrock` on the CLI. Settings sends AWS nothing on opening: regions and models come from the build. The "not available yet" mechanism that existed only for Bedrock (`UNAVAILABLE_PROVIDERS`) is gone.
+- [ ] **Unverified until a live run** (no AWS account here; every test is against an httptest server): the wire format against real bedrock-runtime (path, SigV4 scope, bearer header), that `output_config.effort` and `thinking: disabled` are accepted there, the `X-Amzn-Errortype` header on bedrock-runtime errors, the response's `model` field, the 403/404 wording against real denials, SSO and profile sign-in on Windows. Windows checklist in the PR.
+- **Not eval'd.** The same model on Bedrock is not known to answer like the Anthropic API; measure before quoting.
 #### E7 · Light theme (#25) — unblocked by E11: redefine the `--kl-*` roles in `frontend/src/theme.css` under a light selector on `<html>` (see `index.html`), plus `color-scheme: light`.
 #### E8 · Feature parity leftovers (moved from the old `TODO.md`)
 - Linux global hotkey (currently a stub) — low, Linux is dev-only
@@ -237,7 +245,7 @@ The Fix page redesign (#36, E5) is the natural first screen for the new look.
 | `v4.7.1-beta` | ✅ released 2026-10-11: Pyramidize options fit the default window again (#124) |
 | `v4.8.0-beta` | ✅ released 2026-10-15: E3 Pyramidize v3: user picks the form, one call, new choice page, two judges · English input stays English (#132) · E4 upgrade wave (Angular 22 in with #125, Windows run done 2026-10-14) |
 | `v4.9.0-beta` | ✅ released 2026-10-15: Send back pastes rich text (E8, #133) · ~~E3 reviewer~~ moved after `v5.0.0` |
-| `v5.0.0` | first stable release · Bedrock UI (E6) · OpenRouter (E10, ✅ #134) · website update (#126, draft) ships with the first stable 4.x/5.x. Scope decided 2026-10-15 (Michael): light theme and the Codex/Gemini CLI providers moved after it |
+| `v5.0.0` | first stable release · Bedrock UI (E6, built, PR open; needs a live AWS run on Windows) · OpenRouter (E10, ✅ #134) · website update (#126, draft) ships with the first stable 4.x/5.x. Scope decided 2026-10-15 (Michael): light theme and the Codex/Gemini CLI providers moved after it |
 | after `v5.0.0` | E3 reviewer (findings on single passages) · presentation form work · light theme (E7) · Codex/Gemini CLI providers (decided 2026-10-15) |
 
 ---
