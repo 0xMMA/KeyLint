@@ -1,6 +1,6 @@
 # KeyLint Roadmap
 
-> Last updated: 2026-10-15 (`v4.8.0-beta` released; English input came back in German, fixed in #132; Send back pastes formatted text, #133, tagged as `v4.9.0-beta`; `v5.0.0` scope cut to Bedrock UI and OpenRouter, the reviewer moved after it) · Owner: Michael · Source of truth for priorities.
+> Last updated: 2026-10-15 (`v4.8.0-beta` released; English input came back in German, fixed in #132; Send back pastes formatted text, #133, released as `v4.9.0-beta`; `v5.0.0` scope cut to Bedrock UI and OpenRouter, the reviewer moved after it) · Owner: Michael · Source of truth for priorities.
 > Tracking: each epic links to a GitHub issue. This file holds the *why* and the order; issues hold the *what*.
 
 ---
@@ -193,7 +193,7 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 - **Settings stays rendered after version click** (#38) — new, repro in the issue.
 - Existing April triage: #21 `vv` version prefix, #24 hide unimplemented themes, #26 toggle knob clipping, #28 global-instruction input light background, #29 Apply button focus, #27 side-by-side on wide screens.
 
-#### E6 · Bedrock end-to-end UI (#23) — unblocked (E2 step 3 done), mostly settings UI work plus the region field and AWS SDK noted in E2 step 3. Closes #22.
+#### E6 · Bedrock end-to-end UI (#23) — unblocked (E2 step 3 done), mostly settings UI work plus the region field and AWS SDK noted in E2 step 3. Closes #22. **In `v5.0.0`. Decided 2026-10-15 (Michael): the user chooses how to connect, either a Bedrock API key (in the OS keyring like the other keys) or the AWS sign-in already on the machine (profile or SSO, nothing stored by KeyLint), plus a region.**
 #### E7 · Light theme (#25) — unblocked by E11: redefine the `--kl-*` roles in `frontend/src/theme.css` under a light selector on `<html>` (see `index.html`), plus `color-scheme: light`.
 #### E8 · Feature parity leftovers (moved from the old `TODO.md`)
 - Linux global hotkey (currently a stub) — low, Linux is dev-only
@@ -201,7 +201,7 @@ Definition of done: CI green on Linux + Windows, `wails3 dev` works, one manual 
 #### E9 · Pyramidize quality track — parked (see E3). Revisit only with eval evidence.
 #### E10 · OpenRouter provider — not started
 One key, many vendors' models — for users who don't want a separate account per vendor. Fits the E2 decision without new plumbing: OpenRouter is OpenAI-compatible, so it is `openai-go` + `option.WithBaseURL("https://openrouter.ai/api/v1")`, a new provider ID in the registry, and a key in the OS keyring like the others. HTTPS, so the openai-go 3.69 plain-HTTP refusal (#116) does not touch it.
-- **Model list:** OpenRouter publishes its catalogue at `/api/v1/models`; feed it through `ListModels` with the same `Source` states. IDs are `vendor/model` (e.g. `anthropic/claude-sonnet-…`), so the family aliases (`haiku`/`sonnet`) do not apply as-is — decide whether to map them or offer explicit IDs only, and pick per-feature defaults (fast model for Fix, stronger for Pyramidize).
+- **Model list:** OpenRouter publishes its catalogue at `/api/v1/models`; feed it through `ListModels` with the same `Source` states. IDs are `vendor/model` (e.g. `anthropic/claude-sonnet-…`), so the family aliases (`haiku`/`sonnet`) do not apply as-is. **Decided 2026-10-15 (Michael): defaults plus the whole catalogue** — a fast model for Fix and a stronger one for Pyramidize work without a choice, and the picker offers the full catalogue with search; no family mapping. In `v5.0.0`.
 - **Effort / JSON schema:** OpenRouter normalises reasoning and structured output across vendors, but support varies per routed model. Verify against its docs before wiring; skip what a model refuses, as E2 step 5 does.
 - **Settings UI:** one more connection card in the AI Providers tab (#108 layout); no new screen.
 - **Not eval'd until measured:** the same model through OpenRouter can be routed to different hosts; record the provider in eval runs if it is ever measured.
@@ -232,7 +232,7 @@ The Fix page redesign (#36, E5) is the natural first screen for the new look.
 | `v4.7.0-beta` | ✅ released 2026-10-11: E11 own UI on CDK + Tailwind, new look incl. Fix page redesign, PrimeNG out (#121, #123) · Pyramidize effort picker, quality threshold removed (#123) |
 | `v4.7.1-beta` | ✅ released 2026-10-11: Pyramidize options fit the default window again (#124) |
 | `v4.8.0-beta` | ✅ released 2026-10-15: E3 Pyramidize v3: user picks the form, one call, new choice page, two judges · English input stays English (#132) · E4 upgrade wave (Angular 22 in with #125, Windows run done 2026-10-14) |
-| `v4.9.0-beta` | tagged 2026-10-15: Send back pastes rich text (E8, #133) · ~~E3 reviewer~~ moved after `v5.0.0` |
+| `v4.9.0-beta` | ✅ released 2026-10-15: Send back pastes rich text (E8, #133) · ~~E3 reviewer~~ moved after `v5.0.0` |
 | `v5.0.0` | first stable release · Bedrock UI (E6) · OpenRouter (E10) · website update (#126, draft) ships with the first stable 4.x/5.x. Scope decided 2026-10-15 (Michael): light theme and the Codex/Gemini CLI providers moved after it |
 | after `v5.0.0` | E3 reviewer (findings on single passages) · presentation form work · light theme (E7) · Codex/Gemini CLI providers (decided 2026-10-15) |
 
