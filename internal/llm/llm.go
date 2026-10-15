@@ -366,8 +366,19 @@ func apiErrorForModel(p provider, status int, model, rawBody string) error {
 			"%s error %d: the model %q was not found, or the endpoint URL is wrong — check both in Settings → AI Providers",
 			p.name, status, model)}
 	}
-	return &StatusError{Provider: p.name, Status: status, msg: fmt.Sprintf("%s error %d: %s", p.name, status, statusMessage(status))}
+	reason := statusMessage(status)
+	if p == openRouterProvider && status == http.StatusForbidden {
+		// OpenRouter answers 403 when the chosen model requires moderation
+		// and the input was flagged (openrouter.ai/docs, errors) — nothing a
+		// key or a model setting fixes, so the usual wording would mislead.
+		reason = openRouterModerationMessage
+	}
+	return &StatusError{Provider: p.name, Status: status, msg: fmt.Sprintf("%s error %d: %s", p.name, status, reason)}
 }
+
+// openRouterModerationMessage is OpenRouter's 403. The text itself is not
+// echoed: the provider's own message may quote it (see statusMessage).
+const openRouterModerationMessage = "the chosen model's moderation flagged the text, so it was not processed"
 
 // rateLimitedPastDeadline is a rate limit the SDK was still waiting out when
 // the caller's deadline passed: the provider answered 429 with a Retry-After

@@ -549,6 +549,9 @@ func TestOpenRouterErrorsNameOpenRouter(t *testing.T) {
 		{http.StatusPaymentRequired, "OpenRouter error 402: the account is out of credit or has a billing problem"},
 		{http.StatusUnauthorized, "OpenRouter error 401: the API key was not accepted"},
 		{http.StatusNotFound, `OpenRouter error 404: the model "vendor/gone" was not found`},
+		// OpenRouter's 403 is its moderation flagging the input, not a key
+		// that may not use the model (openrouter.ai/docs, errors).
+		{http.StatusForbidden, "OpenRouter error 403: the chosen model's moderation flagged the text"},
 	}
 	for _, c := range cases {
 		f := newFakeOpenRouter(t, orCatalogue)

@@ -104,6 +104,10 @@ func describeStatus(e *llm.StatusError) (string, Target) {
 	switch {
 	case e.Status == http.StatusUnauthorized:
 		return fmt.Sprintf("%s didn't accept the API key.", provider), TargetProviders
+	case e.Status == http.StatusForbidden && e.Provider == "OpenRouter":
+		// OpenRouter's 403 is its moderation flagging the text, which no
+		// setting on AI Providers changes; the Fix page shows the detail.
+		return "OpenRouter's moderation flagged this text.", TargetFix
 	case e.Status == http.StatusForbidden:
 		return "This key can't use the chosen model.", TargetProviders
 	case e.Status == http.StatusNotFound:
