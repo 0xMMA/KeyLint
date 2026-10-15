@@ -10,7 +10,8 @@ describe('noteForModelSource', () => {
   // there): the picker says so truthfully, and that it takes other IDs.
   it('says where the Bedrock list comes from, truthfully', () => {
     const note = noteForModelSource('known', 'bedrock', true);
-    expect(note).toContain('Bedrock has no model list to ask');
+    // Bedrock does list foundation models; what KeyLint does not do is ask.
+    expect(note).toContain('KeyLint does not ask AWS for a model list');
     expect(note).toContain('the Claude models KeyLint knows');
     expect(note).toMatch(/inference profile ARN/);
   });

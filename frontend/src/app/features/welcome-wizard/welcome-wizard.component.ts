@@ -4,7 +4,7 @@ import { Router } from '@angular/router';
 import { ButtonComponent, InputDirective, MessageComponent, SpinnerComponent, TagComponent } from '../../shared/ui';
 import { WailsService, BedrockRegion, ClaudeCodeStatus, KeyStatus, ModelInfo, Settings } from '../../core/wails.service';
 import { ENV_KEY_VARS, KEY_PROVIDERS, PROVIDER_OPTIONS, cliTag, isKeyProvider, keyPlaceholder, keyTag } from '../../core/providers';
-import { BedrockConnection, bedrockConnectionOf, bedrockReady, usesBedrockKey } from '../../core/bedrock';
+import { BedrockConnection, bedrockConnectionOf, bedrockReady, bedrockRoutable, usesBedrockKey } from '../../core/bedrock';
 import { BedrockOptionsComponent } from '../settings/bedrock-options/bedrock-options.component';
 import { effectiveModel } from '../settings/model-options';
 import { comboKeys } from '../../core/shortcut-format';
@@ -332,8 +332,8 @@ export class WelcomeWizardComponent implements OnInit {
     const p = this.selected();
     if (!p) return false;
     if (p === 'bedrock') {
-      // A region always; a key only in key mode.
-      if (!this.bedrock().region) return false;
+      // A region whose routing is settled always; a key only in key mode.
+      if (!bedrockRoutable(this.bedrock(), this.bedrockRegions())) return false;
       if (!this.bedrockKeyMode()) return true;
     } else if (!isKeyProvider(p)) {
       return true;
@@ -391,7 +391,7 @@ export class WelcomeWizardComponent implements OnInit {
       if (isKeyProvider(saved) && keys[saved]?.is_set) return saved;
       if (saved === 'claude-code' && this.cliReady()) return saved;
       if (saved === 'ollama') return saved;
-      if (saved === 'bedrock' && bedrockReady(this.bedrock(), keys['bedrock'])) return saved;
+      if (saved === 'bedrock' && bedrockReady(this.bedrock(), keys['bedrock'], this.bedrockRegions())) return saved;
     }
     if (this.cliReady()) return 'claude-code';
     return KEY_PROVIDERS.find(p => keys[p]?.is_set) ?? null;

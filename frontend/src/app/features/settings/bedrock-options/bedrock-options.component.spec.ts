@@ -103,13 +103,28 @@ describe('BedrockOptionsComponent', () => {
     expect(emitted.at(-1)).toEqual({ ...KEY_MODE, region: 'eu-central-1', routing: 'global' });
   });
 
-  it('says plainly when a region offers only worldwide routing', async () => {
+  // Worldwide only when chosen (review of the Bedrock PR): a region with no
+  // geography offers Worldwide alone, said plainly, and the user picks it.
+  it('says plainly when a region offers only worldwide routing, and lets the user choose it', async () => {
     await render({ ...KEY_MODE, region: 'ap-south-1' });
     expect(q('bedrock-routing')).toBeNull();
     const note = q('bedrock-worldwide-only')!;
     expect(note.textContent).toContain('Asia Pacific (Mumbai)');
-    expect(note.textContent).toContain('only with worldwide routing');
+    expect(note.textContent).toContain('only through worldwide routing');
     expect(note.textContent).toContain('any AWS region');
+    expect(radio('bedrock-routing-global').checked).toBe(false);
+
+    radio('bedrock-routing-global').click();
+    fixture.detectChanges();
+    expect(emitted.at(-1)).toEqual({ ...KEY_MODE, region: 'ap-south-1', routing: 'global' });
+    expect(radio('bedrock-routing-global').checked).toBe(true);
+  });
+
+  it('judges a region this build does not list by its name', async () => {
+    await render({ ...KEY_MODE, region: 'eu-central-3' });
+    expect(q('bedrock-routing')!.textContent).toContain('Keep in Europe');
+    await render({ ...KEY_MODE, region: 'ap-east-9' });
+    expect(q('bedrock-worldwide-only')).not.toBeNull();
   });
 
   it('says which model in use cannot stay in the geography', async () => {
@@ -123,9 +138,27 @@ describe('BedrockOptionsComponent', () => {
     // Worldwide: nothing to warn about.
     await render({ ...KEY_MODE, region: 'ap-northeast-1', routing: 'global' });
     expect(el.querySelector('[data-testid="bedrock-cannot-stay"]')).toBeNull();
-    // An ID the user routed themselves is theirs.
-    await render({ ...KEY_MODE, region: 'ap-northeast-1' }, { pyramidizeModel: 'global.anthropic.claude-sonnet-5-5' });
-    expect(el.querySelector('[data-testid="bedrock-cannot-stay"]')).toBeNull();
+  });
+
+  // An ID the user routed themselves goes as typed (review of the Bedrock
+  // PR): the card must not promise "only in the EU" over it.
+  it('says where a model with its own route goes', async () => {
+    await render({ ...KEY_MODE, region: 'eu-central-1' }, { pyramidizeModel: 'global.anthropic.claude-sonnet-5-5' });
+    const notes = () => Array.from(el.querySelectorAll('[data-testid="bedrock-own-route"]')).map(n => n.textContent ?? '');
+    expect(notes()).toHaveLength(1);
+    expect(notes()[0]).toContain('global.anthropic.claude-sonnet-5-5 (Pyramidize)');
+    expect(notes()[0]).toContain('outside the EU');
+
+    await render({ ...KEY_MODE, region: 'eu-central-1' }, { fixModel: 'arn:aws:bedrock:eu-central-1:123456789012:application-inference-profile/abc' });
+    expect(notes()).toHaveLength(1);
+    expect(notes()[0]).toContain('inference profile');
+
+    // Its own route is the region's own: nothing to say.
+    await render({ ...KEY_MODE, region: 'eu-central-1' }, { pyramidizeModel: 'eu.anthropic.claude-sonnet-5-5' });
+    expect(notes()).toHaveLength(0);
+    // Worldwide chosen: nothing to say either.
+    await render({ ...KEY_MODE, region: 'eu-central-1', routing: 'global' }, { pyramidizeModel: 'us.anthropic.claude-sonnet-5-5' });
+    expect(notes()).toHaveLength(0);
   });
 
   it('says when AWS_BEARER_TOKEN_BEDROCK will be used instead of the sign-in', async () => {

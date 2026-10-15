@@ -261,7 +261,7 @@ test.describe('Settings — AI Providers layout', () => {
       await expect.poll(() => (state.settings['providers'] as Record<string, string>)['bedrock_routing']).toBe('global');
 
       // The models: KeyLint's own list, said so, and the defaults named.
-      await expect(page.getByTestId('models-note-bedrock')).toContainText('Bedrock has no model list to ask');
+      await expect(page.getByTestId('models-note-bedrock')).toContainText('KeyLint does not ask AWS for a model list');
       await expect(page.getByTestId('model-fix-bedrock').locator('input')).toHaveAttribute('placeholder', 'Default: Claude Haiku 5.5');
       await expect(page.getByTestId('fix-fast-note')).toBeVisible();
 
@@ -299,12 +299,20 @@ test.describe('Settings — AI Providers layout', () => {
       await installFakeBackend(page, state);
 
       await page.goto('/settings?tab=providers');
+      // Worldwide only when chosen: the one option is there to pick.
       await chooseRegion(page, 'Mumbai');
       await expect(page.getByTestId('bedrock-routing')).toHaveCount(0);
-      await expect(page.getByTestId('bedrock-worldwide-only')).toContainText('only with worldwide routing');
+      await expect(page.getByTestId('bedrock-worldwide-only')).toContainText('only through worldwide routing');
+      await expect(page.getByTestId('provider-not-ready-bedrock')).toContainText('choose Worldwide');
+      await page.getByTestId('bedrock-routing-global').check();
+      await expect.poll(() => state.bedrockSaves.at(-1)?.['routing']).toBe('global');
+      await expect(page.getByTestId('provider-not-ready-bedrock')).toHaveCount(0);
+      await page.screenshot({ path: 'e2e/screenshots/providers-bedrock-worldwide-only.png', fullPage: true });
 
       await chooseRegion(page, 'Tokyo');
       await expect(page.getByTestId('bedrock-routing')).toContainText('Keep in Japan');
+      // Worldwide stays chosen from Mumbai; keeping the text in Japan is a click.
+      await page.getByTestId('bedrock-routing-geo').check();
       await expect(page.getByTestId('bedrock-cannot-stay')).toContainText('Claude Sonnet 5.5 (Pyramidize) cannot stay in Japan');
       await page.getByTestId('bedrock-routing-global').check();
       await expect(page.getByTestId('bedrock-cannot-stay')).toHaveCount(0);

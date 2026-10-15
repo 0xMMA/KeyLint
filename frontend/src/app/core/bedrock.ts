@@ -1,4 +1,4 @@
-import type { KeyStatus, Settings } from './wails.service';
+import type { BedrockRegion, KeyStatus, Settings } from './wails.service';
 
 /**
  * AWS Bedrock's connection as the settings page and the setup wizard edit it.
@@ -49,18 +49,52 @@ export function usesBedrockKey(c: BedrockConnection): boolean {
   return c.auth !== BEDROCK_AUTH_SIGNIN;
 }
 
+/** Where a geography-routed call from a region can be processed. */
+export interface RegionGeography {
+  /** The profile prefix ("eu", "us", "au", "jp"), or "" where only worldwide routing exists. */
+  geography: string;
+  name: string;
+  label: string;
+}
+
 /**
- * Set up enough to try: a region, and a key unless this computer's AWS
- * sign-in is used — whether that works can only be known by trying (the
- * card's Test connection).
+ * A region's geography: from the build's list (BedrockRegions), else read
+ * from its name by the same rule as bedrockGeography in internal/llm/bedrock.go
+ * — for a region AWS added after this build, or before the list has arrived.
  */
-export function bedrockReady(c: BedrockConnection, key: KeyStatus | null | undefined): boolean {
-  return !!c.region && (!usesBedrockKey(c) || !!key?.is_set);
+export function regionGeography(region: string, regions: readonly BedrockRegion[]): RegionGeography {
+  const listed = regions.find(r => r.id === region);
+  if (listed) return { geography: listed.geography, name: listed.geography_name, label: listed.label };
+  if (region.startsWith('us-gov-')) return { geography: '', name: '', label: region };
+  if (region.startsWith('eu-')) return { geography: 'eu', name: 'Europe', label: region };
+  if (region.startsWith('ca-')) return { geography: 'us', name: 'the US and Canada', label: region };
+  if (region.startsWith('us-')) return { geography: 'us', name: 'the US', label: region };
+  return { geography: '', name: '', label: region };
+}
+
+/**
+ * Whether the routing can be used from the region: worldwide always, "keep"
+ * only where the region has a geography. Mirrors llm.BedrockRoutable — text
+ * goes worldwide only when the user chose Worldwide.
+ */
+export function bedrockRoutable(c: BedrockConnection, regions: readonly BedrockRegion[]): boolean {
+  if (!c.region) return false;
+  return c.routing === BEDROCK_ROUTING_GLOBAL || !!regionGeography(c.region, regions).geography;
+}
+
+/**
+ * Set up enough to try: a region whose routing is settled, and a key unless
+ * this computer's AWS sign-in is used — whether that works can only be known
+ * by trying (the card's Test connection).
+ */
+export function bedrockReady(c: BedrockConnection, key: KeyStatus | null | undefined, regions: readonly BedrockRegion[] = []): boolean {
+  return bedrockRoutable(c, regions) && (!usesBedrockKey(c) || !!key?.is_set);
 }
 
 /** Why Bedrock cannot work yet, or null — including while the key status is loading. */
-export function bedrockProblem(c: BedrockConnection, key: KeyStatus | null | undefined): string | null {
+export function bedrockProblem(c: BedrockConnection, key: KeyStatus | null | undefined, regions: readonly BedrockRegion[] = []): string | null {
   if (!c.region) return "Won't work yet: choose a region.";
+  if (!bedrockRoutable(c, regions)) return "Won't work yet: this region routes only worldwide — choose Worldwide, or another region.";
   if (usesBedrockKey(c) && key && !key.is_set) return "Won't work yet: no API key is set.";
   return null;
 }

@@ -5,6 +5,7 @@ import { InputDirective, MessageComponent, SelectComponent } from '../../../shar
 import type { BedrockRegion, ModelInfo } from '../../../core/wails.service';
 import {
   BEDROCK_AUTH_KEY, BEDROCK_AUTH_SIGNIN, BEDROCK_ROUTING_GEO, BEDROCK_ROUTING_GLOBAL, BedrockConnection, bedrockBaseModel,
+  regionGeography,
 } from '../../../core/bedrock';
 
 /** A region as the picker lists it: its name, and its code on the second line. */
@@ -82,16 +83,16 @@ const NO_MODELS: readonly ModelInfo[] = [];
           placeholder="Choose a region" [formControl]="region" />
       </div>
 
-      @if (selectedRegion(); as r) {
-        @if (r.geography) {
+      @if (geography(); as g) {
+        @if (g.geography) {
           <fieldset class="group" data-testid="bedrock-routing">
             <legend>Where AWS may process your text</legend>
             <label class="choice">
               <input type="radio" [name]="idPrefix() + '-routing'" data-testid="bedrock-routing-geo"
                 [checked]="c.routing !== globalValue" (change)="patch({ routing: geoValue })" />
               <span class="flex flex-col gap-0.5">
-                <span class="choice-title">Keep in {{ r.geography_name }}</span>
-                <span class="choice-note">AWS processes your text only in its data centres in {{ r.geography_name }}.</span>
+                <span class="choice-title">Keep in {{ g.name }}</span>
+                <span class="choice-note">AWS processes your text only in its data centres in {{ g.name }}.</span>
               </span>
             </label>
             <label class="choice">
@@ -99,18 +100,35 @@ const NO_MODELS: readonly ModelInfo[] = [];
                 [checked]="c.routing === globalValue" (change)="patch({ routing: globalValue })" />
               <span class="flex flex-col gap-0.5">
                 <span class="choice-title">Worldwide</span>
-                <span class="choice-note">AWS may process your text in any of its regions, outside {{ r.geography_name }} too. About 10% cheaper.</span>
+                <span class="choice-note">AWS may process your text in any of its regions, outside {{ g.name }} too. About 10% cheaper.</span>
               </span>
             </label>
           </fieldset>
           @for (note of cannotStay(); track note) {
             <kl-message data-testid="bedrock-cannot-stay" severity="warn">{{ note }}</kl-message>
           }
+          @for (note of ownRoutes(); track note) {
+            <kl-message data-testid="bedrock-own-route" severity="info">{{ note }}</kl-message>
+          }
         } @else {
-          <kl-message data-testid="bedrock-worldwide-only" severity="warn">
-            In {{ r.label }}, AWS offers these Claude models only with worldwide routing: your text may be processed in
-            any AWS region. To keep it in one place, choose a region in the EU, the US, Canada, Australia or Japan.
-          </kl-message>
+          <!-- Worldwide only when chosen: the one option is there to pick,
+               not picked for the user (review of the Bedrock PR). -->
+          <fieldset class="group" data-testid="bedrock-routing-worldwide-only">
+            <legend>Where AWS may process your text</legend>
+            <kl-message data-testid="bedrock-worldwide-only" severity="warn">
+              In {{ g.label }}, AWS serves these Claude models only through worldwide routing: your text may be processed
+              in any AWS region. Choose Worldwide to use this region, or a region in the EU, the US and Canada,
+              Australia or Japan to keep it closer.
+            </kl-message>
+            <label class="choice">
+              <input type="radio" [name]="idPrefix() + '-routing'" data-testid="bedrock-routing-global"
+                [checked]="c.routing === globalValue" (change)="patch({ routing: globalValue })" />
+              <span class="flex flex-col gap-0.5">
+                <span class="choice-title">Worldwide</span>
+                <span class="choice-note">AWS may process your text in any of its regions.</span>
+              </span>
+            </label>
+          </fieldset>
         }
       }
     </div>
@@ -170,6 +188,36 @@ export class BedrockOptionsComponent {
   });
 
   readonly selectedRegion = computed(() => this.regions().find(r => r.id === this.draft().region) ?? null);
+
+  /** Where the chosen region can keep the text, or null before a region is chosen. */
+  readonly geography = computed(() => {
+    const region = this.draft().region;
+    return region ? regionGeography(region, this.regions()) : null;
+  });
+
+  /**
+   * The models in use that carry a route of their own — a routing prefix
+   * other than the region's geography, or an inference profile ARN — under
+   * "keep". They go as typed (the user's own route), so the card says where
+   * that may take the text rather than promising it stays.
+   */
+  readonly ownRoutes = computed(() => {
+    const g = this.geography();
+    if (!g?.geography || this.draft().routing === BEDROCK_ROUTING_GLOBAL) return [];
+    const notes: string[] = [];
+    for (const [feature, id] of [['Fix', this.fixModel()], ['Pyramidize', this.pyramidizeModel()]] as const) {
+      if (id.startsWith('arn:')) {
+        notes.push(`${feature} uses an inference profile ARN, so its text goes wherever that profile routes it in AWS, possibly outside ${g.name}.`);
+        continue;
+      }
+      const base = bedrockBaseModel(id);
+      const prefix = base === id ? '' : id.slice(0, id.length - base.length - 1);
+      if (prefix && prefix !== g.geography) {
+        notes.push(`${id} (${feature}) carries its own route (${prefix}.), so it is sent as typed and its text may be processed outside ${g.name}.`);
+      }
+    }
+    return notes;
+  });
 
   /**
    * The models in use that cannot stay in the geography from this region. Only

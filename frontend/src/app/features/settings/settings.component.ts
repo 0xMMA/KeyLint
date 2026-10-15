@@ -282,7 +282,7 @@ interface ProviderKey {
                           [disabled]="!bedrockCanTest"
                           (click)="testBedrock()"
                         >Test connection</kl-button>
-                        <small class="detail-hint">One short request with your Fix model; nothing of yours is sent.</small>
+                        <small class="detail-hint">One short request with your saved Fix model; nothing of yours is sent.</small>
                       </div>
                       @if (bedrockTest; as result) {
                         <kl-message data-testid="bedrock-test-result" [attr.data-state]="result.ok ? 'ok' : 'error'"
@@ -615,7 +615,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
         return null;
       }
       case 'bedrock':
-        return bedrockProblem(this.bedrockConnection, this.keyFor('bedrock')?.status);
+        return bedrockProblem(this.bedrockConnection, this.keyFor('bedrock')?.status, this.bedrockRegions);
       case 'ollama': {
         const where = this.savedOllamaURL || DEFAULT_OLLAMA_URL;
         switch (this.modelSource['ollama']) {
@@ -637,7 +637,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
     switch (provider) {
       case 'claude-code': return !!this.claudeCodeStatus?.installed && !!this.claudeCodeStatus.loggedIn;
       case 'ollama': return this.modelSource['ollama'] === 'live';
-      case 'bedrock': return bedrockReady(this.bedrockConnection, this.keyFor('bedrock')?.status);
+      case 'bedrock': return bedrockReady(this.bedrockConnection, this.keyFor('bedrock')?.status, this.bedrockRegions);
       default: return !!this.keyFor(provider)?.status?.is_set;
     }
   }
@@ -649,7 +649,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   /** Something to test: a region, and a key unless the AWS sign-in is used. */
   get bedrockCanTest(): boolean {
-    return !this.bedrockTesting && bedrockReady(this.bedrockConnection, this.keyFor('bedrock')?.status);
+    return !this.bedrockTesting && bedrockReady(this.bedrockConnection, this.keyFor('bedrock')?.status, this.bedrockRegions);
   }
 
   /** The Bedrock card's status line: how it connects, and where. */
@@ -678,7 +678,6 @@ export class SettingsComponent implements OnInit, OnDestroy {
   async saveBedrock(connection: BedrockConnection): Promise<void> {
     if (!this.settings) return;
     const round = ++this.bedrockSaveRound;
-    const before = this.bedrockConnection;
     this.bedrockSaveError = '';
     this.bedrockSaved = '';
     // What it tested is no longer what is saved.
@@ -692,8 +691,14 @@ export class SettingsComponent implements OnInit, OnDestroy {
       this.log.info('settings: Bedrock connection saved');
     } catch (e) {
       if (round !== this.bedrockSaveRound) return;
-      this.bedrockConnection = { ...before };
       this.bedrockSaveError = `Could not save the Bedrock connection: ${e instanceof Error ? e.message : String(e)}`;
+      // Read back, not assumed: an earlier save may have landed meanwhile.
+      // A new object either way, so the card's controls follow it.
+      const saved = await this.wails.loadSettings().catch(() => null);
+      if (round !== this.bedrockSaveRound) return;
+      const connection = bedrockConnectionOf(saved ?? this.settings);
+      this.bedrockConnection = { ...connection };
+      this.settings.providers = withBedrockConnection(this.settings, connection).providers;
     } finally {
       if (!this.destroyed) this.cdr.detectChanges();
     }
@@ -842,6 +847,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   onModelChange(provider: string, choice: FeatureChoice): void {
     this.setModel(provider, choice.feature, choice.value);
+    // What the Bedrock test said was about the other model.
+    if (provider === 'bedrock') this.bedrockTest = null;
   }
 
   onEffortChange(provider: string, choice: FeatureChoice): void {

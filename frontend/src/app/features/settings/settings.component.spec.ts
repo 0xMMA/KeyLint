@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { ChangeDetectorRef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
@@ -1688,16 +1689,49 @@ describe('SettingsComponent — AWS Bedrock', () => {
     }));
   });
 
-  it('puts the saved choice back when saving fails', async () => {
+  // After a failure the card shows what the backend has — read back, not
+  // assumed: an earlier save may have landed meanwhile (review of the PR).
+  it('shows the saved connection, read back, when saving fails', async () => {
     await render({ providers: { aws_region: 'eu-central-1' } });
     wailsMock.setBedrock.mockRejectedValueOnce(new Error('disk full'));
+    wailsMock.loadSettings.mockResolvedValueOnce({
+      ...defaultSettings, active_provider: 'bedrock',
+      providers: { ...defaultSettings.providers, aws_region: 'eu-central-1', bedrock_auth: 'aws-signin' },
+    });
 
     radio('bedrock-routing-global').click();
     await settle();
 
     expect(q('bedrock-save-error')!.textContent).toContain('disk full');
     expect(radio('bedrock-routing-geo').checked).toBe(true);
-    expect(component.settings!.providers.bedrock_routing).toBe('');
+    expect(radio('bedrock-auth-signin').checked).toBe(true);
+    expect(component.settings!.providers.bedrock_routing).not.toBe('global');
+    expect(component.settings!.providers.bedrock_auth).toBe('aws-signin');
+  });
+
+  it('asks for Worldwide in a region that routes only worldwide', async () => {
+    await render({ providers: { aws_region: 'ap-south-1', bedrock_auth: 'aws-signin' } });
+    expect(q('provider-not-ready-bedrock')!.textContent).toContain('choose Worldwide');
+    expect(q('bedrock-test')!.querySelector('button')!.disabled).toBe(true);
+
+    radio('bedrock-routing-global').click();
+    await settle();
+    expect(wailsMock.setBedrock).toHaveBeenCalledWith({ region: 'ap-south-1', auth: 'aws-signin', profile: '', routing: 'global' });
+    expect(q('provider-not-ready-bedrock')).toBeNull();
+  });
+
+  it('forgets an old test result once a Bedrock model changes', async () => {
+    await render({ providers: { aws_region: 'eu-central-1', bedrock_auth: 'aws-signin' } });
+    q('bedrock-test')!.querySelector('button')!.click();
+    await settle();
+    expect(q('bedrock-test-result')).not.toBeNull();
+
+    // Called as the picker's event would; a plain field set from a test is
+    // marked first (testing.md, zoneless).
+    component.onModelChange('bedrock', { feature: 'fix', value: 'anthropic.claude-sonnet-5-5' });
+    fixture.debugElement.injector.get(ChangeDetectorRef).markForCheck();
+    fixture.detectChanges();
+    expect(q('bedrock-test-result')).toBeNull();
   });
 
   it('tests the connection only when asked, and says where the call went', async () => {
@@ -1746,7 +1780,7 @@ describe('SettingsComponent — AWS Bedrock', () => {
 
     expect(q('model-fix-bedrock')!.querySelector('input')!.placeholder).toBe('Default: Claude Haiku 5.5');
     expect(q('model-pyramidize-bedrock')!.querySelector('input')!.placeholder).toBe('Default: Claude Sonnet 5.5');
-    expect(el.textContent).toContain('Bedrock has no model list to ask');
+    expect(el.textContent).toContain('KeyLint does not ask AWS for a model list');
     expect(q('fix-fast-note')).not.toBeNull();
   });
 

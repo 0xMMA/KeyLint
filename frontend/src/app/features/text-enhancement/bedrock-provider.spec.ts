@@ -79,6 +79,11 @@ describe('TextEnhancementComponent — AWS Bedrock in use', () => {
     expect(el.querySelector('[data-testid="api-key-banner-message"]')?.textContent).toContain('No AWS region is set for Bedrock');
   });
 
+  it('says when the region routes only worldwide and Worldwide is not chosen', async () => {
+    await render({ aws_region: 'ap-south-1', bedrock_auth: 'aws-signin' });
+    expect(el.querySelector('[data-testid="api-key-banner-message"]')?.textContent).toContain('routes Bedrock only worldwide');
+  });
+
   it('asks for the key in key mode', async () => {
     await render({ aws_region: 'eu-central-1' });
     expect(wailsMock.getKeyStatus).toHaveBeenCalledWith('bedrock');

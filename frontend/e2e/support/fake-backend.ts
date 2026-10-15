@@ -213,11 +213,23 @@ export async function installFakeBackend(page: Page, state: FakeBackendState): P
     switch (method) {
       case 'Get':
         return json(state.settings);
-      case 'Save':
-        // Like the real Save, completed_setup is not the screen's to change.
-        state.settings = { ...structuredClone(args[0] as Record<string, unknown>), completed_setup: state.settings['completed_setup'] };
+      case 'Save': {
+        // Like the real Save, completed_setup is not the screen's to change,
+        // and neither is the Bedrock connection (SetBedrock writes it).
+        const sent = structuredClone(args[0] as Record<string, unknown>);
+        const kept = state.settings['providers'] as Record<string, string>;
+        state.settings = {
+          ...sent,
+          completed_setup: state.settings['completed_setup'],
+          providers: {
+            ...(sent['providers'] as Record<string, string>),
+            aws_region: kept['aws_region'], bedrock_auth: kept['bedrock_auth'],
+            aws_profile: kept['aws_profile'], bedrock_routing: kept['bedrock_routing'],
+          },
+        };
         state.saves.push(state.settings);
         return empty();
+      }
       case 'SetActiveProvider': {
         const provider = args[0] as string;
         // The runtime turns a non-2xx answer into a rejected promise carrying
@@ -253,17 +265,20 @@ export async function installFakeBackend(page: Page, state: FakeBackendState): P
       case 'SetBedrock': {
         // The real SetBedrock's checks (settings/service.go), so a spec
         // cannot pass on a connection the backend would refuse.
-        const b = args[0] as Record<string, string>;
+        const sent = args[0] as Record<string, string>;
+        const b = { ...sent, region: (sent['region'] ?? '').trim(), profile: (sent['profile'] ?? '').trim() };
         const fail = (why: string) => route.fulfill({ status: 500, contentType: 'text/plain', body: `settings: ${why}` });
-        if (b['region'] && !/^[a-z]{2}(-[a-z]+)+-[0-9]+$/.test(b['region'])) return fail(`"${b['region']}" is not an AWS region`);
+        if (b.region && !/^[a-z]{2}(-[a-z]+)+-[0-9]+$/.test(b.region)) return fail(`"${b.region}" is not an AWS region`);
         if (!['api-key', 'aws-signin'].includes(b['auth'])) return fail(`"${b['auth']}" is not a way to connect to AWS Bedrock`);
         if (!['geo', 'global'].includes(b['routing'])) return fail(`"${b['routing']}" is not a Bedrock routing`);
+        // eslint-disable-next-line no-control-regex
+        if (b.profile.length > 128 || /[\x00-\x1f\x7f]/.test(b.profile)) return fail('that is not an AWS profile name');
         state.bedrockSaves.push({ ...b });
         state.settings = {
           ...state.settings,
           providers: {
             ...(state.settings['providers'] as Record<string, string>),
-            aws_region: b['region'].trim(), bedrock_auth: b['auth'], aws_profile: (b['profile'] ?? '').trim(), bedrock_routing: b['routing'],
+            aws_region: b.region, bedrock_auth: b['auth'], aws_profile: b.profile, bedrock_routing: b['routing'],
           },
         };
         state.saves.push(state.settings);

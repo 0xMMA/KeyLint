@@ -21,7 +21,7 @@ import { ChoiceStepComponent } from './choice-step/choice-step.component';
 import { ResultHeaderComponent } from './result-header/result-header.component';
 import { DEFAULT_FORM, formLabel } from './forms';
 import { EFFORT_OPTIONS, effectiveModel, effortNote, modelName } from '../settings/model-options';
-import { BedrockConnection, bedrockConnectionOf, usesBedrockKey } from '../../core/bedrock';
+import { BedrockConnection, bedrockConnectionOf, bedrockRoutable, usesBedrockKey } from '../../core/bedrock';
 
 // Same names as Settings › AI Providers, so the line under the form choice
 // names the provider the user sees there.
@@ -45,6 +45,8 @@ const CLI_NOT_INSTALLED_MESSAGE = 'Claude Code CLI not found on this machine.';
 const CLI_NOT_SIGNED_IN_MESSAGE =
   'Claude Code is installed but not signed in. Open a terminal, run `claude`, and sign in.';
 const BEDROCK_NO_REGION_MESSAGE = 'No AWS region is set for Bedrock. Choose one in Settings › AI providers.';
+const BEDROCK_WORLDWIDE_ONLY_MESSAGE =
+  'This AWS region routes Bedrock only worldwide, and Worldwide is not chosen. Choose it, or another region, in Settings › AI providers.';
 
 /** Send back refuses when the backend's window is no longer the result's (PR #130 review). */
 const SOURCE_MOVED_MESSAGE =
@@ -832,6 +834,9 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     } else if (provider === 'bedrock' && !this.bedrock.region) {
       ok = false;
       message = BEDROCK_NO_REGION_MESSAGE;
+    } else if (provider === 'bedrock' && !bedrockRoutable(this.bedrock, await this.wails.getBedrockRegions().catch(() => []))) {
+      ok = false;
+      message = BEDROCK_WORLDWIDE_ONLY_MESSAGE;
     } else if (provider === 'bedrock' && !usesBedrockKey(this.bedrock)) {
       // This computer's AWS sign-in: whether it works is known only by
       // trying, and the error then says what to do.

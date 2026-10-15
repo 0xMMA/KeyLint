@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { defaultSettings } from '../../testing/wails-mock';
-import { bedrockBaseModel, bedrockConnectionOf, bedrockProblem, bedrockReady, withBedrockConnection } from './bedrock';
+import { bedrockBaseModel, bedrockConnectionOf, bedrockProblem, bedrockReady, bedrockRoutable, regionGeography, withBedrockConnection } from './bedrock';
+import { bedrockRegions } from '../../testing/wails-mock';
 
 describe('bedrock', () => {
   const settingsWith = (providers: Record<string, string>) =>
@@ -45,5 +46,22 @@ describe('bedrock', () => {
     expect(bedrockBaseModel('us-gov.anthropic.claude-opus-4-8')).toBe('anthropic.claude-opus-4-8');
     expect(bedrockBaseModel('anthropic.claude-sonnet-5-5')).toBe('anthropic.claude-sonnet-5-5');
     expect(bedrockBaseModel('xx.anthropic.claude-haiku-5-5')).toBe('xx.anthropic.claude-haiku-5-5');
+  });
+
+  // Mirrors llm.BedrockRoutable and bedrockGeography: worldwide only when
+  // chosen; an unlisted region is judged by its name.
+  it('knows when the routing can be used', () => {
+    const c = (region: string, routing: string) => ({ region, auth: 'aws-signin', profile: '', routing });
+    expect(bedrockRoutable(c('eu-central-1', 'geo'), bedrockRegions)).toBe(true);
+    expect(bedrockRoutable(c('ap-south-1', 'geo'), bedrockRegions)).toBe(false);
+    expect(bedrockRoutable(c('ap-south-1', 'global'), bedrockRegions)).toBe(true);
+    expect(bedrockRoutable(c('', 'global'), bedrockRegions)).toBe(false);
+    // Before the list arrives, the name decides.
+    expect(bedrockRoutable(c('ap-south-1', 'geo'), [])).toBe(false);
+    expect(bedrockRoutable(c('eu-central-1', 'geo'), [])).toBe(true);
+    expect(regionGeography('ca-west-1', [])).toEqual({ geography: 'us', name: 'the US and Canada', label: 'ca-west-1' });
+    expect(regionGeography('us-gov-west-1', []).geography).toBe('');
+    expect(bedrockProblem(c('ap-south-1', 'geo'), null, bedrockRegions)).toContain('choose Worldwide');
+    expect(bedrockReady(c('ap-south-1', 'geo'), null, bedrockRegions)).toBe(false);
   });
 });

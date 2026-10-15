@@ -56,9 +56,10 @@ export function noteForModelSource(source: string, provider: string, hasList: bo
     case 'empty':
       return emptyNote(provider);
     case 'known':
-      // Bedrock: Anthropic's Models API is not offered there, so nothing is
-      // asked. The list is curated, not exhaustive — say both.
-      return "Bedrock has no model list to ask; these are the Claude models KeyLint knows. Type another model ID or an inference profile ARN to use one that isn't here.";
+      // Bedrock: Anthropic's Models API is not offered there, and KeyLint does
+      // not ask AWS's own listings either. The list is curated, not
+      // exhaustive — say both.
+      return "KeyLint does not ask AWS for a model list; these are the Claude models KeyLint knows. Type another model ID or an inference profile ARN to use one that isn't here.";
     case 'not-asked':
       // Not shown in practice — only the provider in use has pickers — but a
       // source with no sentence would leave a built-in list unexplained.

@@ -318,6 +318,19 @@ describe('WelcomeWizardComponent', () => {
         expect(wails.setBedrock).toHaveBeenCalledWith({ region: 'eu-central-1', auth: 'aws-signin', profile: '', routing: 'global' });
       });
 
+      it('needs Worldwide chosen in a region that routes only worldwide', async () => {
+        await render();
+        await toProviders();
+        await pick('bedrock');
+        (q('bedrock-auth-signin') as HTMLInputElement).click();
+        await settle();
+        await chooseRegion('ap-south-1');
+        expect(finishButton().disabled).toBe(true);
+        (q('bedrock-routing-global') as HTMLInputElement).click();
+        await settle();
+        expect(finishButton().disabled).toBe(false);
+      });
+
       it('preselects a saved Bedrock that is set up', async () => {
         await render({ settings: { active_provider: 'bedrock', providers: { ...defaultSettings.providers, aws_region: 'eu-west-1', bedrock_auth: 'aws-signin' } } });
         await toProviders();
