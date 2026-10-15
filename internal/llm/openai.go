@@ -43,9 +43,12 @@ type chatExtras struct {
 	// itself sends it: an Ollama model behind the same dialect has no
 	// reasoning switch, and OpenRouter documents the reasoning object instead.
 	reasoningEffort string
-	// reasoning is OpenRouter's {"reasoning": {"effort": …}}; "none" turns
-	// reasoning off.
-	reasoning string
+	// reasoning is OpenRouter's "reasoning" object — {"effort": …} or
+	// {"enabled": false}; nil sends none.
+	reasoning map[string]any
+	// onReasoningRejected runs when the model refused the reasoning option
+	// and the call was retried without it, so the caller can stop asking.
+	onReasoningRejected func()
 	// maxTokens is sent as max_tokens when positive. OpenAI and Ollama do not
 	// get it — their wire format predates Request.MaxTokens and stayed as it
 	// was (TestOpenAIIgnoresUnsupportedFields).
@@ -57,7 +60,7 @@ type chatExtras struct {
 
 // reasoningSent reports whether the request carries a reasoning option, which
 // is what a 400 about reasoning is retried without.
-func (e chatExtras) reasoningSent() bool { return e.reasoningEffort != "" || e.reasoning != "" }
+func (e chatExtras) reasoningSent() bool { return e.reasoningEffort != "" || e.reasoning != nil }
 
 // completeViaOpenAI serves both OpenAI itself and every OpenAI-compatible
 // endpoint — today Ollama, which speaks this dialect under /v1, and OpenRouter.
@@ -107,10 +110,10 @@ func completeViaOpenAI(ctx context.Context, cfg Config, p provider, baseURL stri
 	if extras.reasoningEffort != "" {
 		params.ReasoningEffort = shared.ReasoningEffort(extras.reasoningEffort)
 	}
-	if extras.reasoning != "" {
+	if extras.reasoning != nil {
 		// openai-go has no field for it: the reasoning object belongs to the
 		// Responses API there, so it travels as an extra field.
-		params.SetExtraFields(map[string]any{"reasoning": map[string]any{"effort": extras.reasoning}})
+		params.SetExtraFields(map[string]any{"reasoning": extras.reasoning})
 	}
 	if extras.maxTokens > 0 {
 		params.MaxTokens = openai.Int(int64(extras.maxTokens))
@@ -131,6 +134,9 @@ func completeViaOpenAI(ctx context.Context, cfg Config, p provider, baseURL stri
 			"reasoning_effort", extras.reasoningEffort, "reasoning", extras.reasoning)
 		params.ReasoningEffort = ""
 		params.SetExtraFields(nil)
+		if extras.onReasoningRejected != nil {
+			extras.onReasoningRejected()
+		}
 		attempts = newHTTPAttempts(ctx, cfg, p)
 		client = openAISDKClient(cfg, baseURL, attempts)
 		completion, err = client.Chat.Completions.New(ctx, params)

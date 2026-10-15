@@ -26,11 +26,12 @@ var openRouterProvider = provider{id: ProviderOpenRouter, name: "OpenRouter"}
 // OpenRouter speaks OpenAI's chat dialect, so a completion goes through the
 // same SDK path as OpenAI and Ollama. Two things differ on the wire:
 //
-//   - Reasoning is the nested {"reasoning": {"effort": …}}, which OpenRouter
-//     normalises across vendors; "none" turns reasoning off. OpenAI's top-level
-//     reasoning_effort (openAIReasoningModels, keyed on bare OpenAI names) is
-//     never sent here. Support varies per routed model, so what is sent is read
-//     off that model's catalogue entry.
+//   - Reasoning is the nested "reasoning" object, which OpenRouter normalises
+//     across vendors: {"effort": …}, and to turn it off {"effort": "none"} or
+//     {"enabled": false}. OpenAI's top-level reasoning_effort
+//     (openAIReasoningModels, keyed on bare OpenAI names) is never sent here.
+//     Support varies per routed model, so what is sent is read off that
+//     model's catalogue entry; see openRouterReasoning.
 //   - max_tokens is sent: without it OpenRouter picks its own ceiling, and
 //     Fix's 2048 is what keeps a hotkey fix short (and bounds the credit
 //     OpenRouter reserves for the call).
@@ -69,7 +70,15 @@ func (c *openRouterClient) Complete(ctx context.Context, req Request) (Response,
 	extras := chatExtras{maxTokens: req.MaxTokens}
 
 	extras.reasoning = openRouterReasoning(effort, req.NoThinking, entry, known)
-	if effort != "" && extras.reasoning != effort {
+	if extras.reasoning != nil && openRouterRefusedReasoning(c.cfg, req.Model) {
+		// It refused the option in the last ten minutes; asking again costs
+		// the user a second call every time.
+		logger.Info("llm: reasoning option left out, the model refused it recently", "feature", c.cfg.Feature,
+			"provider", openRouterProvider.id, "model", req.Model, "reasoning", extras.reasoning)
+		extras.reasoning = nil
+	}
+	extras.onReasoningRejected = func() { rememberOpenRouterRefusal(c.cfg, req.Model) }
+	if effort != "" && extras.reasoning["effort"] != effort {
 		// Info, not Warn: the user chose a level and a model that does not
 		// take it, and the request is still the right one to send.
 		logger.Info("llm: effort not supported by this model, sent without it",
@@ -98,33 +107,47 @@ func (c *openRouterClient) Complete(ctx context.Context, req Request) (Response,
 	return completeViaOpenAI(ctx, c.cfg, openRouterProvider, base, req, extras)
 }
 
-// openRouterReasoning is the reasoning effort to send, or "" for none.
+// openRouterReasoning is the reasoning object to send, or nil for none.
 //
 // known says whether the model's catalogue entry was found. When it was:
-// an effort goes out only if the model exposes reasoning and lists that level
-// (or lists none, which means every level); NoThinking becomes "none" only if
-// the model reasons and may stop — "none" to a model whose reasoning is
-// mandatory is refused. When it was not — no catalogue, or a model it does not
-// list — a chosen effort is sent anyway (a refusal is retried without it, see
-// completeViaOpenAI), and "none" is not: whether the model can stop reasoning
-// is exactly what is unknown.
-func openRouterReasoning(effort string, noThinking bool, entry openRouterModel, known bool) string {
+//   - an effort goes out only if the model exposes reasoning and lists that
+//     level (supported_efforts null means every level, per OpenRouter's docs);
+//   - NoThinking turns reasoning off only if the model reasons and may stop —
+//     a model whose reasoning is mandatory refuses it. As effort "none" where
+//     the model lists "none" (or null); otherwise as {"enabled": false}, which
+//     is what a model reasoning optionally without a "none" level takes:
+//     Anthropic's, whose thinking: disabled OpenRouter maps from it.
+//
+// When it was not — no catalogue, or a model it does not list — a chosen
+// effort is sent anyway (a refusal is retried without it, see
+// completeViaOpenAI), and nothing turns reasoning off: whether the model can
+// stop is exactly what is unknown.
+//
+// Unverified against a live call: there is no OpenRouter key in this project.
+func openRouterReasoning(effort string, noThinking bool, entry openRouterModel, known bool) map[string]any {
 	if !known {
-		return effort
+		if effort != "" {
+			return map[string]any{"effort": effort}
+		}
+		return nil
 	}
 	if entry.reasoning == nil {
-		return ""
+		return nil
 	}
+	levels := entry.reasoning.SupportedEfforts
 	if effort != "" {
-		if entry.reasoning.SupportedEfforts == nil || slices.Contains(*entry.reasoning.SupportedEfforts, effort) {
-			return effort
+		if levels == nil || slices.Contains(*levels, effort) {
+			return map[string]any{"effort": effort}
 		}
-		return ""
+		return nil
 	}
-	if noThinking && !entry.reasoning.Mandatory {
-		return "none"
+	if !noThinking || entry.reasoning.Mandatory {
+		return nil
 	}
-	return ""
+	if levels == nil || slices.Contains(*levels, "none") {
+		return map[string]any{"effort": "none"}
+	}
+	return map[string]any{"enabled": false}
 }
 
 // openRouterModel is one catalogue entry, with the parts KeyLint acts on.
@@ -280,7 +303,27 @@ type cachedOpenRouterCatalogue struct {
 var openRouterCatalogueCache = struct {
 	sync.Mutex
 	entries map[string]cachedOpenRouterCatalogue
-}{entries: map[string]cachedOpenRouterCatalogue{}}
+	// refused remembers, per endpoint and model, when a model last refused
+	// the reasoning option; see openRouterRefusedReasoning.
+	refused map[string]time.Time
+}{entries: map[string]cachedOpenRouterCatalogue{}, refused: map[string]time.Time{}}
+
+// rememberOpenRouterRefusal records that a model refused the reasoning
+// option. For as long as a catalogue answer is trusted (catalogueTTL), the
+// model is not asked again: the retry costs a second call on every hotkey
+// press, and the catalogue said it would take the option.
+func rememberOpenRouterRefusal(cfg Config, model string) {
+	openRouterCatalogueCache.Lock()
+	openRouterCatalogueCache.refused[openRouterCatalogueKey(cfg)+"\x00"+model] = time.Now()
+	openRouterCatalogueCache.Unlock()
+}
+
+func openRouterRefusedReasoning(cfg Config, model string) bool {
+	openRouterCatalogueCache.Lock()
+	defer openRouterCatalogueCache.Unlock()
+	at, found := openRouterCatalogueCache.refused[openRouterCatalogueKey(cfg)+"\x00"+model]
+	return found && time.Since(at) < catalogueTTL
+}
 
 func openRouterCatalogueKey(cfg Config) string {
 	return resolveBaseURL(cfg.BaseURL, defaultOpenRouterBaseURL)

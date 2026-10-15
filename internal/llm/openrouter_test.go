@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -358,21 +359,27 @@ func resetOpenRouterCatalogueCache(t *testing.T) {
 }
 
 // TestOpenRouterReasoningFollowsTheCatalogue: OpenRouter takes reasoning as
-// {"reasoning": {"effort": …}} and support varies per routed model, so what is
-// sent is read off that model's catalogue entry. "none" turns reasoning off and
-// is refused by a model whose reasoning is mandatory.
+// a "reasoning" object and support varies per routed model, so what is sent
+// is read off that model's catalogue entry. Fix turns reasoning off with
+// effort "none" where the model lists it (or lists no levels at all), and
+// with {"enabled": false} where it reasons optionally but lists no "none" —
+// Anthropic's models, whose thinking: disabled OpenRouter maps from it. A
+// model whose reasoning is mandatory is asked for neither.
 func TestOpenRouterReasoningFollowsTheCatalogue(t *testing.T) {
+	type obj = map[string]any
 	cases := []struct {
 		name string
 		req  Request
-		want any
+		want obj // nil: no reasoning object at all
 	}{
-		{"listed effort is sent", Request{Model: "anthropic/claude-sonnet-5.5", Effort: EffortHigh}, "high"},
+		{"listed effort is sent", Request{Model: "anthropic/claude-sonnet-5.5", Effort: EffortHigh}, obj{"effort": "high"}},
 		{"unlisted effort is left out", Request{Model: "vendor/picky", Effort: EffortMedium}, nil},
-		{"null efforts take any level", Request{Model: "deepseek/any-effort", Effort: EffortXHigh}, "xhigh"},
+		{"null efforts take any level", Request{Model: "deepseek/any-effort", Effort: EffortXHigh}, obj{"effort": "xhigh"}},
 		{"no reasoning, nothing sent", Request{Model: "meta/no-reasoning", Effort: EffortHigh}, nil},
-		{"Fix on Haiku turns reasoning off", Request{Model: "anthropic/claude-haiku-5.5", NoThinking: true}, "none"},
-		{"Fix on Luna turns reasoning off", Request{Model: "openai/gpt-6-luna", NoThinking: true}, "none"},
+		{"Fix on Haiku: it lists no none, so reasoning is disabled", Request{Model: "anthropic/claude-haiku-5.5", NoThinking: true}, obj{"enabled": false}},
+		{"Fix on Luna: it lists none", Request{Model: "openai/gpt-6-luna", NoThinking: true}, obj{"effort": "none"}},
+		{"Fix on a model with null efforts: none", Request{Model: "deepseek/any-effort", NoThinking: true}, obj{"effort": "none"}},
+		{"Fix on a model listing levels without none: disabled", Request{Model: "vendor/picky", NoThinking: true}, obj{"enabled": false}},
 		{"mandatory reasoning is not asked to stop", Request{Model: "anthropic/claude-sonnet-5.5", NoThinking: true}, nil},
 		{"no reasoning, no none", Request{Model: "meta/no-reasoning", NoThinking: true}, nil},
 		{"unknown level is never sent", Request{Model: "deepseek/any-effort", Effort: "turbo"}, nil},
@@ -385,13 +392,52 @@ func TestOpenRouterReasoningFollowsTheCatalogue(t *testing.T) {
 				t.Fatalf("Complete: %v", err)
 			}
 			body := f.last(t)
-			if got := reasoningEffort(t, body); got != c.want {
-				t.Errorf("reasoning.effort = %v, want %v", got, c.want)
+			got, _ := body["reasoning"].(map[string]any)
+			if c.want == nil {
+				if _, sent := body["reasoning"]; sent {
+					t.Errorf("reasoning = %v, want none", body["reasoning"])
+				}
+			} else if !reflect.DeepEqual(got, c.want) {
+				t.Errorf("reasoning = %v, want %v", body["reasoning"], c.want)
 			}
 			if _, ok := body["reasoning_effort"]; ok {
 				t.Error("reasoning_effort must never reach OpenRouter")
 			}
 		})
+	}
+}
+
+// TestOpenRouterRemembersARejectedReasoning: a model that refused the
+// reasoning option costs two calls once, not on every hotkey press. The
+// rejection is kept per model; another model still gets its option.
+func TestOpenRouterRemembersARejectedReasoning(t *testing.T) {
+	f := newFakeOpenRouter(t, orCatalogue)
+	f.reject = func(body map[string]any) (int, string) {
+		if _, ok := body["reasoning"]; ok && body["model"] == "anthropic/claude-haiku-5.5" {
+			return http.StatusBadRequest, `{"error":{"code":400,"message":"reasoning.enabled is not supported"}}`
+		}
+		return 0, ""
+	}
+	fix := Request{Model: "anthropic/claude-haiku-5.5", User: "x", NoThinking: true}
+	for i := 0; i < 3; i++ {
+		if _, err := f.client().Complete(context.Background(), fix); err != nil {
+			t.Fatalf("Complete %d: %v", i, err)
+		}
+	}
+	if len(f.bodies) != 4 {
+		t.Errorf("chat calls = %d for three fixes, want 4: one rejection, its retry, then two without asking again", len(f.bodies))
+	}
+	for i, body := range f.bodies[1:] {
+		if _, sent := body["reasoning"]; sent {
+			t.Errorf("call %d still carried reasoning = %v", i+2, body["reasoning"])
+		}
+	}
+
+	if _, err := f.client().Complete(context.Background(), Request{Model: "openai/gpt-6-luna", User: "x", NoThinking: true}); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if got := reasoningEffort(t, f.last(t)); got != "none" {
+		t.Errorf("another model's reasoning.effort = %v, want none — the rejection belongs to one model", got)
 	}
 }
 
