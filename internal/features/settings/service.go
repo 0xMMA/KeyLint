@@ -27,9 +27,10 @@ var errIsolated = errors.New("settings: this service has an explicit key source 
 // envVars maps provider ID → environment variable name for the API key.
 // Empty string means no standard env var for that provider.
 var envVars = map[string]string{
-	"openai":  "OPENAI_API_KEY",
-	"claude":  "ANTHROPIC_API_KEY",
-	"bedrock": "AWS_SECRET_ACCESS_KEY",
+	"openai":     "OPENAI_API_KEY",
+	"claude":     "ANTHROPIC_API_KEY",
+	"openrouter": "OPENROUTER_API_KEY",
+	"bedrock":    "AWS_SECRET_ACCESS_KEY",
 }
 
 // Service handles loading and saving application settings.
@@ -72,6 +73,10 @@ type Service struct {
 
 	// loaded records how the settings file was read; see LoadOutcome.
 	loaded LoadInfo
+
+	// listModels asks a provider for its models, swappable so a test can see
+	// whether a provider was asked at all. nil means llm.ListModels.
+	listModels func(context.Context, string, llm.Config) (llm.ModelList, error)
 
 	// models caches per-provider listings; see ListModels.
 	modelsMu sync.Mutex
@@ -318,6 +323,7 @@ func Update(s *Service, mutate func(*Settings)) error {
 var selectableProviders = []string{
 	llm.ProviderOpenAI,
 	llm.ProviderClaude,
+	llm.ProviderOpenRouter,
 	llm.ProviderClaudeCode,
 	llm.ProviderOllama,
 }
@@ -415,7 +421,7 @@ func (s *Service) SetKey(provider, key string) error {
 	}
 	// Only now: a write that failed leaves the old key in place, and dropping
 	// the list for it would cost a listing round trip that changes nothing.
-	s.forgetModelList(provider)
+	s.keyChanged(provider)
 	return nil
 }
 
@@ -427,8 +433,18 @@ func (s *Service) DeleteKey(provider string) error {
 	if err := keyring.Delete(appName, provider); err != nil {
 		return err
 	}
-	s.forgetModelList(provider)
+	s.keyChanged(provider)
 	return nil
+}
+
+// keyChanged drops what a provider's key decided: its model list. Not
+// OpenRouter's — its catalogue is public, the same for every key, and kept in
+// llm's cache alone (see ListModels).
+func (s *Service) keyChanged(provider string) {
+	if provider == llm.ProviderOpenRouter {
+		return
+	}
+	s.forgetModelList(provider)
 }
 
 // modelListFailureTTL is how long a failed listing is remembered. Short,
@@ -460,6 +476,16 @@ type cachedModelList struct {
 // happened, so the picker can explain itself; ttl decides how long that answer
 // is worth keeping.
 func (s *Service) ListModels(provider string) llm.ModelList {
+	// OpenRouter's catalogue needs no key, so nothing else would stop every
+	// Settings visit from calling openrouter.ai. KeyLint contacts it only once
+	// the user has chosen it. Not cached: the answer changes the moment they do.
+	if provider == llm.ProviderOpenRouter {
+		if s.Get().ActiveProvider != llm.ProviderOpenRouter {
+			return llm.CuratedModels(provider, llm.ModelSourceNotAsked)
+		}
+		return s.listOpenRouter()
+	}
+
 	// Two attempts, because an invalidation that lands mid-listing retires the
 	// answer on its way back: the key or the URL it asked with is gone. Asking
 	// once more with what replaced it is the only way to return a list that
@@ -483,7 +509,7 @@ func (s *Service) ListModels(provider string) llm.ModelList {
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), modelListTimeout)
-		list, err := llm.ListModels(ctx, provider, cfg)
+		list, err := s.lister()(ctx, provider, cfg)
 		cancel()
 		if err != nil {
 			logger.Info("settings: model list unavailable, using the built-in one",
@@ -509,6 +535,30 @@ func (s *Service) ListModels(provider string) llm.ModelList {
 	// keeps the picker usable and expires in 30 seconds, by which time whatever
 	// they are typing has settled.
 	return llm.CuratedModels(provider, llm.ModelSourceUnreachable)
+}
+
+// listOpenRouter lists OpenRouter's catalogue without a cache of its own: llm
+// keeps the one cache, which every completion reads as well, so a listing and
+// the next hotkey press share one request — and its lifetimes follow the same
+// rule as ttl's (a settled answer ten minutes, a failure thirty seconds).
+func (s *Service) listOpenRouter() llm.ModelList {
+	cfg, _ := s.modelListConfig(llm.ProviderOpenRouter)
+	ctx, cancel := context.WithTimeout(context.Background(), modelListTimeout)
+	defer cancel()
+	list, err := s.lister()(ctx, llm.ProviderOpenRouter, cfg)
+	if err != nil {
+		logger.Info("settings: model list unavailable, using the built-in one",
+			"provider", llm.ProviderOpenRouter, "err", err)
+	}
+	return list
+}
+
+// lister is the listing call: the test seam, else llm.ListModels.
+func (s *Service) lister() func(context.Context, string, llm.Config) (llm.ModelList, error) {
+	if s.listModels != nil {
+		return s.listModels
+	}
+	return llm.ListModels
 }
 
 // ttl is how long this entry stays valid.
@@ -561,6 +611,11 @@ func (s *Service) modelListConfig(provider string) (llm.Config, bool) {
 		}
 	case llm.ProviderOllama:
 		cfg.BaseURL = s.Get().Providers.OllamaURL
+	case llm.ProviderOpenRouter:
+		// The catalogue is public: it is listed without a key, and the key is
+		// not read for it. So the picker is OpenRouter's real one before a key
+		// is pasted — which is why its "live" says nothing about the key. It is
+		// asked only while OpenRouter is the provider in use; see ListModels.
 	}
 	return cfg, true
 }

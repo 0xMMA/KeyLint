@@ -26,6 +26,9 @@ const (
 	// into themselves. KeyLint spawns the unmodified binary and never reads,
 	// stores or forwards their credentials.
 	ProviderClaudeCode = "claude-code"
+	// ProviderOpenRouter is one OpenRouter key for many vendors' models,
+	// through OpenRouter's OpenAI-compatible endpoint (roadmap E10).
+	ProviderOpenRouter = "openrouter"
 )
 
 // provider pairs the stable ID used in settings and logs with the display name
@@ -80,7 +83,9 @@ type Request struct {
 	// leaves an unsupported level out, and both clients retry once without it
 	// if the model rejects it anyway. OpenAI sends it as reasoning_effort, but
 	// only to the model families whose support is documented (see
-	// openAIReasoningModels); Ollama ignores it.
+	// openAIReasoningModels); OpenRouter as reasoning.effort, to models whose
+	// catalogue entry lists the level (see openRouterReasoning); Ollama
+	// ignores it.
 	//
 	// It interacts with MaxTokens: thinking counts against the output limit, so
 	// a high effort on a small limit (Fix's 2048) can end in the
@@ -91,10 +96,11 @@ type Request struct {
 	// Haiku 5.5 reasons by default and spent all of Fix's 2048 tokens doing so
 	// on a 3.8 KB selection (measured 2026-10-08), where Haiku 4.5 — the old
 	// default — never reasoned. The Anthropic API takes it as
-	// thinking: disabled, and OpenAI as reasoning_effort "none" on the models
-	// documented to accept that; the Claude Code CLI has no flag for it and
-	// Ollama ignores it. A model that cannot turn reasoning off (Sonnet 5.5,
-	// Opus 5.5, GPT-6 Astra) is not sent it.
+	// thinking: disabled, OpenAI as reasoning_effort "none" on the models
+	// documented to accept that, and OpenRouter as reasoning.effort "none"
+	// where its catalogue says the model reasons and may stop; the Claude Code
+	// CLI has no flag for it and Ollama ignores it. A model that cannot turn
+	// reasoning off (Sonnet 5.5, Opus 5.5, GPT-6 Astra) is not sent it.
 	NoThinking bool
 }
 
@@ -168,6 +174,7 @@ var factories = map[string]func(Config) Client{
 	ProviderClaude:     newAnthropic,
 	ProviderOllama:     newOllama,
 	ProviderClaudeCode: newClaudeCode,
+	ProviderOpenRouter: newOpenRouter,
 }
 
 // fallbackTimeout bounds requests when the caller passes no HTTP client.
@@ -359,8 +366,19 @@ func apiErrorForModel(p provider, status int, model, rawBody string) error {
 			"%s error %d: the model %q was not found, or the endpoint URL is wrong — check both in Settings → AI Providers",
 			p.name, status, model)}
 	}
-	return &StatusError{Provider: p.name, Status: status, msg: fmt.Sprintf("%s error %d: %s", p.name, status, statusMessage(status))}
+	reason := statusMessage(status)
+	if p == openRouterProvider && status == http.StatusForbidden {
+		// OpenRouter answers 403 when the chosen model requires moderation
+		// and the input was flagged (openrouter.ai/docs, errors) — nothing a
+		// key or a model setting fixes, so the usual wording would mislead.
+		reason = openRouterModerationMessage
+	}
+	return &StatusError{Provider: p.name, Status: status, msg: fmt.Sprintf("%s error %d: %s", p.name, status, reason)}
 }
+
+// openRouterModerationMessage is OpenRouter's 403. The text itself is not
+// echoed: the provider's own message may quote it (see statusMessage).
+const openRouterModerationMessage = "the chosen model's moderation flagged the text, so it was not processed"
 
 // rateLimitedPastDeadline is a rate limit the SDK was still waiting out when
 // the caller's deadline passed: the provider answered 429 with a Retry-After
@@ -457,6 +475,11 @@ const outputLimitMessage = "the result exceeded the output limit — try a short
 // still spent 2047 of Fix's 2048 tokens reasoning (measured 2026-10-08). What
 // works is a Haiku with no effort set, which Fix asks not to reason at all.
 const outputLimitThinkingMessage = "the model spent most of the output limit reasoning and was cut off — use a model that does not reason first (a Haiku with the effort on Model default), or shorten the text"
+
+// outputLimitReasoningMessage is the same cut-off in words for the
+// OpenAI-dialect providers (OpenAI, OpenRouter, Ollama), whose pickers have no
+// model called a Haiku to point at.
+const outputLimitReasoningMessage = "the model spent most of the output limit reasoning and was cut off — use a model that does not reason first (a fast one, with the effort on Model default), or shorten the text"
 
 // schemaName labels the schema for providers that require a name for it. It is
 // never shown to a user.

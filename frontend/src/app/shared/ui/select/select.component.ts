@@ -50,6 +50,16 @@ type Option = unknown;
  * the matching option's label, or the raw value if none matches; an option
  * whose label is "" leaves the field empty so the placeholder shows.
  *
+ * `filter` (editable only) makes the field a search instead: typing opens the
+ * list and keeps the options whose label, display text or second line hold
+ * every typed word, case-insensitively — and changes nothing. A click or Enter
+ * on an option commits it; Enter on text that names no option commits that
+ * text, so a free-text value still works; Escape, leaving the field or a
+ * click elsewhere put the stored value back. (Committing every keystroke made
+ * an abandoned search the saved value.) Opening with the chevron or ArrowDown
+ * shows the whole list. Without `filter` nothing here changes: typed text is
+ * the value and the list never narrows, as in p-select's editable mode.
+ *
  * Keyboard: ArrowDown/ArrowUp open and move, Enter takes the active option
  * (editable: typed text that names no option leaves none active, and Enter
  * then keeps the typed text and closes), Escape closes, Tab closes; the fixed list also opens on Space/Enter and has
@@ -92,12 +102,16 @@ type Option = unknown;
           [attr.aria-activedescendant]="activeId()"
           (input)="onType($event)"
           (keydown)="onKeydown($event)"
-          (blur)="onTouched()"
+          (blur)="onBlur()"
         />
         <button type="button" class="kl-select-chevron" tabindex="-1" aria-label="Show options"
           [disabled]="isDisabled()" (mousedown)="$event.preventDefault()" (click)="toggle()">
           <kl-icon [name]="isOpen() ? 'chevron-up' : 'chevron-down'" />
         </button>
+        @if (searches()) {
+          <!-- In the DOM before anything is typed, so the first count is heard. -->
+          <span class="kl-select-status" aria-live="polite">{{ searchStatus() }}</span>
+        }
       </div>
     } @else {
       <button
@@ -130,13 +144,13 @@ type Option = unknown;
     <ng-template #panel>
       <div role="listbox" class="kl-select-panel" [id]="listboxId" [attr.aria-label]="ariaLabel() || forLabel() || null"
         [attr.aria-labelledby]="ariaLabel() ? null : ariaLabelledBy() || null" data-testid="kl-select-panel">
-        @for (option of options(); track $index; let i = $index) {
+        @for (option of shown(); track $index; let i = $index) {
           <div
             role="option"
             class="kl-option"
             [id]="optionId(i)"
             [class.active]="i === activeIndex()"
-            [attr.aria-selected]="i === selectedIndex()"
+            [attr.aria-selected]="i === shownSelectedIndex()"
             [attr.aria-disabled]="disabledOf(option) ? 'true' : null"
             [attr.data-testid]="optionTestId()?.(option) ?? null"
             (mousedown)="$event.preventDefault()"
@@ -145,7 +159,7 @@ type Option = unknown;
           >
             <span class="kl-option-label">
               {{ displayOf(option) }}
-              @if (i === selectedIndex()) {
+              @if (i === shownSelectedIndex()) {
                 <kl-icon class="kl-option-check" name="check" [size]="14" [strokeWidth]="2.5" />
               }
             </span>
@@ -154,7 +168,7 @@ type Option = unknown;
             }
           </div>
         } @empty {
-          <div class="kl-option-empty">No options</div>
+          <div class="kl-option-empty">{{ searching() ? 'No matches' : 'No options' }}</div>
         }
       </div>
     </ng-template>
@@ -189,6 +203,10 @@ type Option = unknown;
       color: var(--kl-muted); background: transparent; border: 0; border-radius: var(--kl-radius-sm); cursor: pointer;
     }
     .kl-select-chevron:disabled { cursor: not-allowed; }
+    .kl-select-status {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+    }
 
     .kl-select-panel {
       width: 100%; max-height: 18rem; overflow-y: auto; padding: 4px;
@@ -216,6 +234,8 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
   readonly optionDisabled = input('disabled');
   readonly placeholder = input('');
   readonly editable = input(false, { transform: booleanAttribute });
+  /** Editable only: typing also narrows the list to the options that match; see the class comment. */
+  readonly filter = input(false, { transform: booleanAttribute });
   readonly disabled = input(false, { transform: booleanAttribute });
   readonly ariaLabel = input('');
   readonly ariaLabelledBy = input('');
@@ -253,7 +273,39 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
     return this.options().findIndex(o => this.valueOf(o) === v);
   });
   protected readonly selectedOption = computed(() => this.options()[this.selectedIndex()]);
+  /** What was typed since the list opened; with `filter`, what the list is narrowed by. */
+  private readonly query = signal('');
+  /** With `filter`: the search in the field, not yet a value; null when the field shows the value. */
+  private readonly draft = signal<string | null>(null);
+  /** Whether typing searches rather than sets the value. */
+  protected readonly searches = computed(() => this.filter() && this.editable());
+  /** What a screen reader hears when a search narrows the list. */
+  protected readonly searchStatus = computed(() => {
+    if (!this.isOpen() || !this.searching()) return '';
+    const n = this.shown().length;
+    return n === 0 ? 'No matches' : n === 1 ? '1 match' : `${n} matches`;
+  });
+  protected readonly searching = computed(() => this.searches() && this.query().trim() !== '');
+  /**
+   * The options the open list shows. Every index into the list — the active
+   * option, a click, the arrows — is an index into this, not into options().
+   */
+  protected readonly shown = computed(() => {
+    const list = this.options();
+    if (!this.searching()) return list;
+    const words = this.query().toLowerCase().split(/\s+/).filter(Boolean);
+    return list.filter(option => {
+      const text = `${this.labelOf(option)} ${this.displayOf(option)} ${this.descriptionOf(option)}`.toLowerCase();
+      return words.every(word => text.includes(word));
+    });
+  });
+  protected readonly shownSelectedIndex = computed(() => {
+    const v = this.value();
+    return this.shown().findIndex(o => this.valueOf(o) === v);
+  });
   protected readonly inputText = computed(() => {
+    const draft = this.draft();
+    if (draft !== null) return draft;
     const i = this.selectedIndex();
     if (i >= 0) return this.labelOf(this.options()[i]);
     const v = this.value();
@@ -308,8 +360,10 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
     this.focusTrigger();
   }
 
-  open(): void {
+  /** Opens the list; `keepQuery` (typing, with `filter`) keeps it narrowed, anything else shows every option. */
+  open(keepQuery = false): void {
     if (this.isDisabled() || this.isOpen()) return;
+    if (!keepQuery) this.query.set('');
     if (!this.overlayRef) {
       this.positionStrategy = createFlexibleConnectedPositionStrategy(this.injector, this.hostEl)
         .withPositions([
@@ -348,8 +402,8 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
     this.forLabel.set(this.associatedLabelText());
     this.overlayRef.attach(new TemplatePortal(this.panelTpl(), this.vcr));
     this.isOpen.set(true);
-    const selected = this.selectedIndex();
-    if (selected >= 0 && !this.disabledOf(this.options()[selected])) this.setActive(selected);
+    const selected = this.shownSelectedIndex();
+    if (selected >= 0 && !this.disabledOf(this.shown()[selected])) this.setActive(selected);
     // Editable with free text in the field: nothing active, so Enter keeps it.
     else this.setActive(this.editable() && selected < 0 ? -1 : this.step(-1, 1));
   }
@@ -360,16 +414,19 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
     this.overlayRef?.updateSize({ width: width || undefined, minWidth: 192 });
   }
 
+  /** Closes the list. A search not committed by now is dropped: the field shows the value again. */
   close(): void {
     if (this.overlayRef?.hasAttached()) this.overlayRef.detach();
     this.isOpen.set(false);
     this.activeIndex.set(-1);
+    this.query.set('');
+    this.draft.set(null);
   }
 
   // ── choosing ────────────────────────────────────────────────────────────
 
   choose(index: number): void {
-    const option = this.options()[index];
+    const option = this.shown()[index];
     if (option === undefined || this.disabledOf(option)) return;
     const v = this.valueOf(option);
     if (v !== this.value()) {
@@ -382,18 +439,26 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
   }
 
   protected hover(index: number): void {
-    if (!this.disabledOf(this.options()[index])) this.activeIndex.set(index);
+    if (!this.disabledOf(this.shown()[index])) this.activeIndex.set(index);
   }
 
   protected onType(event: Event): void {
     const text = (event.target as HTMLInputElement).value;
-    this.value.set(text);
-    this.onChange(text);
-    this.changed.emit(text);
+    if (this.searches()) {
+      // A search: it narrows the list, which opens to show it, and changes
+      // no value until something is chosen.
+      this.draft.set(text);
+      this.query.set(text);
+      if (!this.isOpen()) this.open(true);
+    } else {
+      this.value.set(text);
+      this.onChange(text);
+      this.changed.emit(text);
+    }
     if (this.isOpen()) {
       // Text that names no option leaves none active (as p-select did), so
       // Enter keeps what was typed instead of taking the old active option.
-      const match = this.options().findIndex(o => this.labelOf(o) === text && !this.disabledOf(o));
+      const match = this.shown().findIndex(o => this.labelOf(o) === text && !this.disabledOf(o));
       this.setActive(match);
     }
   }
@@ -417,15 +482,18 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
       case 'End':
         if (!fixed || !open) return;
         event.preventDefault();
-        this.setActive(event.key === 'Home' ? this.step(-1, 1) : this.step(this.options().length, -1));
+        this.setActive(event.key === 'Home' ? this.step(-1, 1) : this.step(this.shown().length, -1));
         return;
       case 'Enter':
         if (open && this.activeIndex() >= 0) {
           event.preventDefault();
           this.choose(this.activeIndex());
         } else if (open) {
-          // Editable, nothing active: the typed text already is the value.
+          // Editable, nothing active: the typed text is the value — already,
+          // or (searching) from now on, as a free-text one.
           event.preventDefault();
+          const draft = this.draft();
+          if (draft !== null) this.commitText(draft);
           this.close();
         } else if (fixed) {
           event.preventDefault();
@@ -457,7 +525,7 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
 
   /** The next enabled option from `from` in `direction`, or `from` if none (clamped, no wrap). */
   private step(from: number, direction: 1 | -1): number {
-    const list = this.options();
+    const list = this.shown();
     for (let i = from + direction; i >= 0 && i < list.length; i += direction) {
       if (!this.disabledOf(list[i])) return i;
     }
@@ -475,8 +543,9 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
     if (this.typeaheadTimer) clearTimeout(this.typeaheadTimer);
     this.typeahead += char.toLowerCase();
     this.typeaheadTimer = setTimeout(() => (this.typeahead = ''), 500);
-    const list = this.options();
-    const start = Math.max(this.isOpen() ? this.activeIndex() : this.selectedIndex(), 0);
+    // Fixed lists only, which never filter: shown() is options() here.
+    const list = this.shown();
+    const start = Math.max(this.isOpen() ? this.activeIndex() : this.shownSelectedIndex(), 0);
     for (let n = 0; n < list.length; n++) {
       const i = (start + (this.typeahead.length === 1 ? 1 : 0) + n) % list.length;
       if (!this.disabledOf(list[i]) && this.displayOf(list[i]).toLowerCase().startsWith(this.typeahead)) {
@@ -485,6 +554,20 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
         return;
       }
     }
+  }
+
+  /** Commits typed text as the value, as a choice would; nothing if it is the value already. */
+  private commitText(text: string): void {
+    if (text === this.value()) return;
+    this.value.set(text);
+    this.onChange(text);
+    this.changed.emit(text);
+  }
+
+  /** Leaving the field drops a search that was never committed. */
+  protected onBlur(): void {
+    this.onTouched();
+    if (this.draft() !== null) this.close();
   }
 
   private focusTrigger(): void {

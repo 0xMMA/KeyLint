@@ -222,6 +222,31 @@ describe('WelcomeWizardComponent', () => {
       expect(wails.completeSetup).toHaveBeenCalled();
     });
 
+    it('offers OpenRouter as a key provider and saves its key', async () => {
+      await render();
+      await toProviders();
+      expect(q('wizard-option-openrouter')?.textContent).toContain('OpenRouter');
+      await pick('openrouter');
+      expect(finishButton().disabled).toBe(true);
+
+      const input = q('wizard-key-input') as HTMLInputElement;
+      expect(input.placeholder).toBe('sk-or-…');
+      input.value = 'sk-or-v1-test';
+      input.dispatchEvent(new Event('input'));
+      await settle();
+
+      wails.getKeyStatus.mockResolvedValue({ is_set: true, source: 'keyring' });
+      await click('wizard-finish');
+      expect(wails.setKey).toHaveBeenCalledWith('openrouter', 'sk-or-v1-test');
+      expect(wails.setActiveProvider).toHaveBeenCalledWith('openrouter');
+    });
+
+    it('preselects OpenRouter when its key is the one stored', async () => {
+      await render({ keys: { openrouter: { is_set: true, source: 'keyring' } } });
+      await toProviders();
+      expect(radio('openrouter').checked).toBe(true);
+    });
+
     it('does not finish when the keyring refused the key, and says so', async () => {
       await render();
       await toProviders();

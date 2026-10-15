@@ -9,7 +9,7 @@
  * together on one line.
  */
 import { test, expect } from '@playwright/test';
-import { installFakeBackend, fakeState, ANTHROPIC_MODELS } from './support/fake-backend';
+import { installFakeBackend, fakeState, ANTHROPIC_MODELS, OPENROUTER_MODELS } from './support/fake-backend';
 
 test.describe('Settings — AI Providers layout', () => {
   test('shows only the provider in use, with its models and effort', async ({ page }) => {
@@ -126,5 +126,80 @@ test.describe('Settings — AI Providers layout', () => {
     await page.getByTestId('provider-pointer-link').click();
     await expect(page.getByTestId('providers-summary')).toBeFocused();
     await expect(page.getByTestId('active-provider-name')).toHaveText('Anthropic API');
+  });
+
+  // OpenRouter (roadmap E10): its catalogue is public, so the picker is the
+  // real one before a key is set — which must not read as "the key works" —
+  // and at ~450 entries it is searched, not scrolled.
+  test('OpenRouter: the catalogue is there before the key, and typing searches it', async ({ page }) => {
+    const state = fakeState({
+      activeProvider: 'openrouter',
+      modelSources: { openrouter: 'live' },
+      modelLists: { openrouter: OPENROUTER_MODELS },
+    });
+    await installFakeBackend(page, state);
+
+    await page.goto('/settings?tab=providers');
+    await expect(page.getByTestId('active-provider-name')).toHaveText('OpenRouter');
+    await expect(page.getByTestId('provider-not-ready-openrouter')).toContainText('no API key is set');
+    await expect(page.getByTestId('models-note-openrouter')).toContainText("OpenRouter's whole catalogue");
+    await expect(page.getByTestId('models-note-openrouter')).toContainText('your OpenRouter account');
+    await expect(page.getByTestId('model-fix-openrouter').locator('input')).toHaveAttribute('placeholder', 'Default: Anthropic: Claude Haiku 5.5');
+    await expect(page.getByTestId('model-pyramidize-openrouter').locator('input')).toHaveAttribute('placeholder', 'Default: Anthropic: Claude Sonnet 5.5');
+    await expect(page.getByTestId('fix-fast-note')).toContainText('Anthropic: Claude Haiku 5.5');
+    // An explicit ID is not an alias: no "Now <model>" line under it.
+    await expect(page.getByTestId('model-effective-fix')).toHaveCount(0);
+
+    // A search given up on changes nothing: the field goes back to the default.
+    const pyramidize = page.getByTestId('model-pyramidize-openrouter').locator('input');
+    await pyramidize.click();
+    await pyramidize.pressSequentially('gemini');
+    await expect(page.getByRole('option')).toHaveCount(1);
+    await page.getByTestId('active-provider-name').click();
+    await expect(page.getByRole('listbox')).toHaveCount(0);
+    await expect(pyramidize).toHaveValue('');
+
+    // Typing narrows the list to what matches every word, and a click takes it.
+    await pyramidize.click();
+    await pyramidize.pressSequentially('gpt luna');
+    await expect(page.getByRole('option')).toHaveCount(1);
+    await expect(page.getByRole('option')).toContainText('OpenAI: GPT-6 Luna');
+    await page.screenshot({ path: 'e2e/screenshots/providers-openrouter-search.png' });
+    await page.getByRole('option').click();
+    await expect(pyramidize).toHaveValue('openai/gpt-6-luna');
+
+    // The key goes in like any other, and the warning goes with it.
+    await page.getByTestId('key-edit-openrouter').getByRole('button').click();
+    await page.getByTestId('key-input-openrouter').fill('sk-or-v1-test');
+    await page.getByTestId('key-save-openrouter').getByRole('button').click();
+    await expect(page.getByTestId('key-status-openrouter')).toHaveText('Key saved in your system keyring');
+    await expect(page.getByTestId('provider-not-ready-openrouter')).toHaveCount(0);
+
+    await page.getByTestId('save-btn').getByRole('button').click();
+    await expect.poll(() => (state.saves.at(-1)?.['models'] as Record<string, Record<string, string>> | undefined)?.['openrouter']?.['pyramidize'])
+      .toBe('openai/gpt-6-luna');
+    await page.screenshot({ path: 'e2e/screenshots/providers-openrouter.png', fullPage: true });
+  });
+
+  test('OpenRouter can be chosen with one click, like any provider', async ({ page }) => {
+    const state = fakeState({
+      activeProvider: 'claude',
+      keys: { claude: 'keyring', openrouter: 'keyring' },
+      modelSources: { claude: 'live', openrouter: 'live' },
+      modelLists: { claude: ANTHROPIC_MODELS, openrouter: OPENROUTER_MODELS },
+    });
+    await installFakeBackend(page, state);
+
+    await page.goto('/settings?tab=providers');
+    // A user on another provider sends openrouter.ai nothing, key or not.
+    await expect.poll(() => state.listModelsCalls).toContain('claude');
+    expect(state.listModelsCalls).not.toContain('openrouter');
+
+    await page.getByTestId('provider-use-openrouter').getByRole('button').click();
+    await expect(page.getByTestId('active-provider-name')).toHaveText('OpenRouter');
+    expect(state.settings['active_provider']).toBe('openrouter');
+    // Chosen: now the catalogue is asked for, and the picker names its default.
+    await expect.poll(() => state.listModelsCalls).toContain('openrouter');
+    await expect(page.getByTestId('model-fix-openrouter').locator('input')).toHaveAttribute('placeholder', 'Default: Anthropic: Claude Haiku 5.5');
   });
 });

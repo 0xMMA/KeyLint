@@ -9,6 +9,7 @@ import { comboKeys } from '../../core/shortcut-format';
 const PROVIDER_BLURBS: Readonly<Record<string, string>> = {
   'openai': 'Pay as you go with an OpenAI API key.',
   'claude': 'Pay as you go with an Anthropic API key.',
+  'openrouter': 'Pay as you go with one OpenRouter key, for models from many vendors.',
   'claude-code': 'Uses your Claude subscription through the installed Claude Code CLI. No key needed.',
   'ollama': 'Runs on this computer. Free, no key, needs Ollama installed.',
 };

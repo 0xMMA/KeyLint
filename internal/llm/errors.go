@@ -27,6 +27,16 @@ var (
 	ErrOutputLimitThinking = errors.New(outputLimitThinkingMessage)
 )
 
+// errOutputLimitReasoning is ErrOutputLimitThinking in provider-neutral words;
+// errors.Is matches it as ErrOutputLimitThinking, so the hotkey toast and every
+// other caller treat the two as one.
+var errOutputLimitReasoning error = reasoningCutOff{}
+
+type reasoningCutOff struct{}
+
+func (reasoningCutOff) Error() string        { return outputLimitReasoningMessage }
+func (reasoningCutOff) Is(target error) bool { return target == ErrOutputLimitThinking }
+
 // StatusError is a provider that answered with an HTTP error status. Error()
 // is the apiError wording; Status lets a caller tell a rejected key (401/403)
 // from a provider that is merely down.

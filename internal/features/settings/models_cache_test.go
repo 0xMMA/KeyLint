@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -375,6 +376,84 @@ func TestOllamaIsAskedWithoutACredential(t *testing.T) {
 	svc := &Service{current: Default()}
 	if _, ok := svc.modelListConfig(llm.ProviderOllama); !ok {
 		t.Error("Ollama needs no key and must still be asked")
+	}
+}
+
+// TestOpenRouterIsNotAskedUnlessItIsInUse: OpenRouter's catalogue needs no
+// key, which made it easy to list for every user who opened Settings. A user
+// who has not chosen OpenRouter must send openrouter.ai nothing; once it is
+// the provider in use, it is asked.
+func TestOpenRouterIsNotAskedUnlessItIsInUse(t *testing.T) {
+	asked := 0
+	svc := &Service{current: Default(), listModels: func(_ context.Context, provider string, _ llm.Config) (llm.ModelList, error) {
+		if provider == llm.ProviderOpenRouter {
+			asked++
+		}
+		return llm.ModelList{Models: []llm.ModelInfo{{ID: "anthropic/claude-haiku-5.5"}}, Source: llm.ModelSourceLive}, nil
+	}}
+	svc.current.ActiveProvider = llm.ProviderClaude
+
+	got := svc.ListModels(llm.ProviderOpenRouter)
+	if asked != 0 {
+		t.Fatalf("OpenRouter was asked %d times while another provider is in use", asked)
+	}
+	if got.Source != llm.ModelSourceNotAsked {
+		t.Errorf("source = %q, want %q", got.Source, llm.ModelSourceNotAsked)
+	}
+
+	// Chosen now: the answer above must not have been kept, or the picker
+	// would show the built-in list for the cache's lifetime.
+	svc.current.ActiveProvider = llm.ProviderOpenRouter
+	if got := svc.ListModels(llm.ProviderOpenRouter); asked != 1 || got.Source != llm.ModelSourceLive {
+		t.Errorf("asked %d times, source %q — want one request and the live list once OpenRouter is in use", asked, got.Source)
+	}
+}
+
+// TestOpenRouterHasOneCatalogueCache: the catalogue is cached once, in llm,
+// where every completion reads it too. A second copy here would outlive what
+// the completion path knows and be thrown away by a key change that has
+// nothing to do with it — the catalogue is the same for every key.
+func TestOpenRouterHasOneCatalogueCache(t *testing.T) {
+	asked := 0
+	svc := &Service{current: Settings{ActiveProvider: llm.ProviderOpenRouter}, listModels: func(context.Context, string, llm.Config) (llm.ModelList, error) {
+		asked++
+		return llm.ModelList{Models: []llm.ModelInfo{{ID: "anthropic/claude-haiku-5.5"}}, Source: llm.ModelSourceLive}, nil
+	}}
+	svc.ListModels(llm.ProviderOpenRouter)
+	svc.ListModels(llm.ProviderOpenRouter)
+	if asked != 2 {
+		t.Errorf("llm was asked %d times, want every listing to go to its cache", asked)
+	}
+	if _, kept := svc.models[llm.ProviderOpenRouter]; kept {
+		t.Error("settings keeps a second copy of the OpenRouter catalogue")
+	}
+
+	// A key saved or cleared does not touch it; the generation is the
+	// invalidation a key change would make.
+	svc.keyChanged(llm.ProviderOpenRouter)
+	if svc.modelGeneration[llm.ProviderOpenRouter] != 0 {
+		t.Error("a key change invalidated the OpenRouter catalogue, which does not depend on the key")
+	}
+	svc.keyChanged(llm.ProviderClaude)
+	if svc.modelGeneration[llm.ProviderClaude] != 1 {
+		t.Error("a key change must still invalidate a listing that depends on the key")
+	}
+}
+
+// TestOpenRouterIsAskedWithoutACredential: OpenRouter's catalogue is public,
+// so the picker is the real one before a key is pasted — and the key is not
+// read for it, so a machine whose keyring hangs cannot hold the listing up.
+func TestOpenRouterIsAskedWithoutACredential(t *testing.T) {
+	svc := &Service{current: Settings{ActiveProvider: llm.ProviderOpenRouter}, isolated: true, keys: func(string) string {
+		t.Error("the OpenRouter listing read a key it does not need")
+		return "sk-or-test"
+	}}
+	cfg, ok := svc.modelListConfig(llm.ProviderOpenRouter)
+	if !ok {
+		t.Fatal("OpenRouter needs no key to list and must still be asked")
+	}
+	if cfg.APIKey != "" {
+		t.Errorf("APIKey = %q, want none for the public catalogue", cfg.APIKey)
 	}
 }
 

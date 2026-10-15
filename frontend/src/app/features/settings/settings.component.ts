@@ -113,6 +113,7 @@ interface ProviderKey {
                   [fixEffort]="effortFor(active, 'fix')"
                   [pyramidizeEffort]="effortFor(active, 'pyramidize')"
                   [editable]="allowsFreeText(active)"
+                  [searchable]="searchesModels(active)"
                   [note]="modelListNote(active)"
                   [showEffort]="effortNoteFor(active) !== null"
                   [effortNote]="effortNoteFor(active)"
@@ -280,7 +281,7 @@ interface ProviderKey {
                 }
                 <p sectionFooter class="detail-hint">
                   Keys are stored in your OS keyring (Windows Credential Manager, libsecret on Linux).
-                  Environment variables (<code>OPENAI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>) take priority and cannot be overridden here.
+                  Environment variables (<code>OPENAI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>, <code>OPENROUTER_API_KEY</code>) take priority and cannot be overridden here.
                 </p>
               </app-settings-section>
               @if (keyError) {
@@ -426,6 +427,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   providerKeys: ProviderKey[] = [
     { id: 'openai', status: null, editing: false, draftKey: '', saving: false },
     { id: 'claude', status: null, editing: false, draftKey: '', saving: false },
+    { id: 'openrouter', status: null, editing: false, draftKey: '', saving: false },
   ];
 
   constructor(
@@ -477,7 +479,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
     // Detection spawns processes, so the rest of the screen must not wait for it.
     void this.recheckClaudeCode();
-    // Same for the model lists: four providers, each a round trip.
+    // Same for the model lists: a round trip per provider (OpenRouter's only
+    // while it is the one in use; see listsNow).
     void this.loadModelOptions();
   }
 
@@ -648,6 +651,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
     } else if (provider === 'ollama') {
       void this.loadModelOptions();
     } else {
+      // Chosen just now, so this is the moment openrouter.ai may be asked.
+      if (provider === 'openrouter') void this.loadModelList(provider, this.modelLoadRound);
       const pk = this.keyFor(provider);
       if (!pk) return;
       void this.wails.getKeyStatus(provider).then(status => {
@@ -736,8 +741,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
   /** Whether Fix will ask its model on this provider not to reason first. */
   fixSkipsReasoningFor(provider: string): boolean {
     if (this.effortFor(provider, 'fix') !== '') return false;
-    const model = this.modelFor(provider, 'fix') || (provider === 'claude' || provider === 'openai'
-      ? this.defaultModelId(provider, 'fix') : '');
+    // fixSkipsReasoning knows which providers have the switch at all.
+    const model = this.modelFor(provider, 'fix') || this.defaultModelId(provider, 'fix');
     return fixSkipsReasoning(provider, model);
   }
 
@@ -754,6 +759,15 @@ export class SettingsComponent implements OnInit, OnDestroy {
    */
   allowsFreeText(provider: string): boolean {
     return provider !== 'claude-code';
+  }
+
+  /**
+   * Whether typing in a model field also searches the list. OpenRouter's
+   * catalogue runs to ~450 entries, which nobody scrolls; the other lists are
+   * short enough to read, and keep the picker they had.
+   */
+  searchesModels(provider: string): boolean {
+    return provider === 'openrouter';
   }
 
   /**
@@ -780,25 +794,40 @@ export class SettingsComponent implements OnInit, OnDestroy {
    */
   private modelLoadRound = 0;
 
-  /** Fetches every provider's model list in parallel; failures fall back. */
+  /**
+   * Whether a provider's model list may be asked for now. OpenRouter's
+   * catalogue needs no key, so without this every visit here would call
+   * openrouter.ai, for users who never chose it. It is asked once it is the
+   * provider in use (the Go side refuses otherwise too; see ListModels).
+   */
+  private listsNow(provider: string): boolean {
+    return provider !== 'openrouter' || this.settings?.active_provider === 'openrouter';
+  }
+
+  /** Fetches the model lists in parallel; failures fall back. */
   private async loadModelOptions(): Promise<void> {
     const round = ++this.modelLoadRound;
     // Rendered as each provider answers: one that is wedged would otherwise
-    // leave all four pickers empty for as long as its timeout.
-    await Promise.all(this.modelProviders.map(async mp => {
-      const list = await this.wails.listModels(mp.id).catch(() => null);
-      if (round !== this.modelLoadRound) return;
-      this.modelOptions[mp.id] = list?.models ?? [];
-      const listed = (list?.models ?? []).map(toModelOption);
-      this.modelSelectOptions[mp.id] = {
-        fix: [defaultOption(mp.id, 'fix', listed), ...listed],
-        pyramidize: [defaultOption(mp.id, 'pyramidize', listed), ...listed],
-      };
-      this.modelSource[mp.id] = list?.source ?? 'unreachable';
-      if (!this.destroyed) {
-        this.cdr.detectChanges();
-      }
-    }));
+    // leave every picker empty for as long as its timeout.
+    await Promise.all(this.modelProviders
+      .filter(mp => this.listsNow(mp.id))
+      .map(mp => this.loadModelList(mp.id, round)));
+  }
+
+  /** One provider's list, dropped if a newer round of loadModelOptions started meanwhile. */
+  private async loadModelList(provider: string, round: number): Promise<void> {
+    const list = await this.wails.listModels(provider).catch(() => null);
+    if (round !== this.modelLoadRound) return;
+    this.modelOptions[provider] = list?.models ?? [];
+    const listed = (list?.models ?? []).map(toModelOption);
+    this.modelSelectOptions[provider] = {
+      fix: [defaultOption(provider, 'fix', listed), ...listed],
+      pyramidize: [defaultOption(provider, 'pyramidize', listed), ...listed],
+    };
+    this.modelSource[provider] = list?.source ?? 'unreachable';
+    if (!this.destroyed) {
+      this.cdr.detectChanges();
+    }
   }
 
   /**

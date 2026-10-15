@@ -67,6 +67,7 @@ func TestCallAISyncModelDefaults(t *testing.T) {
 		{"openai", llm.DefaultModel(llm.ProviderOpenAI, llm.FeaturePyramidize)},
 		{"claude", llm.DefaultModel(llm.ProviderClaude, llm.FeaturePyramidize)},
 		{"ollama", llm.DefaultModel(llm.ProviderOllama, llm.FeaturePyramidize)},
+		{"openrouter", llm.DefaultModel(llm.ProviderOpenRouter, llm.FeaturePyramidize)},
 	}
 	for _, tc := range tests {
 		t.Run(tc.provider, func(t *testing.T) {
@@ -175,6 +176,32 @@ func TestCallAISyncPropagatesProviderError(t *testing.T) {
 	}
 }
 
+// TestOpenRouterTakesItsKey: OpenRouter is a key provider like OpenAI and
+// Anthropic — its key is read and handed on, and a missing one is named.
+func TestOpenRouterTakesItsKey(t *testing.T) {
+	keys := map[string]string{"openrouter": "sk-or-test"}
+	svc := &Service{settings: settings.NewServiceFrom(settings.Default(), func(p string) string { return keys[p] })}
+	key, err := svc.resolveAPIKey("openrouter")
+	if err != nil || key != "sk-or-test" {
+		t.Fatalf("resolveAPIKey(openrouter) = %q, %v — want the stored key", key, err)
+	}
+
+	delete(keys, "openrouter")
+	if _, err := svc.resolveAPIKey("openrouter"); err == nil || !strings.Contains(err.Error(), "OpenRouter API key is not configured") {
+		t.Errorf("err = %v, want the missing key named", err)
+	}
+
+	rsvc, rec := newTestService()
+	cfg := settings.Default()
+	cfg.ActiveProvider = "openrouter"
+	if _, err := rsvc.callAISync(context.Background(), cfg, aiOpts{}, "sk-or-test", "system", "user", documentSchemaV3); err != nil {
+		t.Fatalf("callAISync: %v", err)
+	}
+	if rec.cfg.APIKey != "sk-or-test" || rec.cfg.HTTPClient != rsvc.client || rec.cfg.Feature != logFeature {
+		t.Errorf("cfg = %+v, want the key, the service HTTP client and the feature", rec.cfg)
+	}
+}
+
 func TestResolveAPIKeyNoKeyProvider(t *testing.T) {
 	svc, _ := newTestService()
 	key, err := svc.resolveAPIKey("ollama")
@@ -196,6 +223,8 @@ func TestPyramidizeDefaultsUnchanged(t *testing.T) {
 		llm.ProviderClaude:     "sonnet",
 		llm.ProviderOllama:     "llama3.2",
 		llm.ProviderClaudeCode: "sonnet",
+		// The owner's choice for OpenRouter (2026-10-15), not eval'd there.
+		llm.ProviderOpenRouter: "anthropic/claude-sonnet-5.5",
 	}
 	for provider, model := range want {
 		if got := llm.DefaultModel(provider, llm.FeaturePyramidize); got != model {

@@ -31,6 +31,7 @@ export const DEFAULT_MODELS: Readonly<Record<string, Readonly<Record<Feature, st
   claude: { fix: 'haiku', pyramidize: 'sonnet' },
   'claude-code': { fix: 'haiku', pyramidize: 'sonnet' },
   openai: { fix: 'gpt-6-luna', pyramidize: 'gpt-6-astra' },
+  openrouter: { fix: 'anthropic/claude-haiku-5.5', pyramidize: 'anthropic/claude-sonnet-5.5' },
   ollama: { fix: 'llama3.2', pyramidize: 'llama3.2' },
 };
 
@@ -126,18 +127,40 @@ export function effortNote(provider: string): string | null {
       return 'More effort means more reasoning: better on hard text, but slower. The CLI applies it to the model behind the alias.';
     case 'openai':
       return 'More effort means more reasoning: better on hard text, but slower. Only GPT-6 and GPT-5.6 models take it; others ignore it.';
+    case 'openrouter':
+      return "More effort means more reasoning: better on hard text, but slower. Sent only to models whose OpenRouter listing takes that level; others ignore it.";
     default:
       return null;
   }
 }
 
+/** The providers with a switch for answering without reasoning; the Claude Code CLI has none. */
+const NO_REASONING_SWITCH = new Set(['claude', 'openai', 'openrouter']);
+
 /**
  * Whether Fix asks this model to answer without reasoning first when no effort
- * is chosen. Mirrors `IsFastTier` in internal/llm/families.go, and only the
- * providers that have a switch for it — the Claude Code CLI has none.
+ * is chosen. Mirrors `IsFastTier` in internal/llm/families.go (TestIsFastTier
+ * holds the same cases), and only on providers that have a switch for it. On
+ * OpenRouter the backend also checks the model's catalogue entry; a fast-tier
+ * model there that cannot stop reasoning is not asked.
  */
 export function fixSkipsReasoning(provider: string, model: string): boolean {
-  if (provider !== 'claude' && provider !== 'openai') return false;
+  return NO_REASONING_SWITCH.has(provider) && isFastTier(model);
+}
+
+function isFastTier(model: string): boolean {
+  // OpenRouter: vendor/model, and "latest" IDs of its own under a "~".
+  const slash = model.indexOf('/');
+  if (slash >= 0) {
+    const vendor = model.slice(0, slash).replace(/^~/, '');
+    const name = model.slice(slash + 1);
+    if (vendor === 'anthropic') return name.startsWith('claude-haiku-');
+    if (vendor !== 'openai') return false;
+    if (name === 'gpt-luna-latest') return true;
+    model = name;
+  }
+  // A Pro variant is the same model with more compute: not the fast tier.
+  if (model.endsWith('-pro')) return false;
   return model === 'haiku' || model.startsWith('claude-haiku-')
     || model.startsWith('gpt-6-luna') || model.startsWith('gpt-5.6-luna');
 }

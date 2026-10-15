@@ -12,6 +12,7 @@ import { unavailableProviderName } from './constants';
 export const PROVIDER_OPTIONS: ReadonlyArray<{ label: string; value: string }> = [
   { label: 'OpenAI', value: 'openai' },
   { label: 'Anthropic API', value: 'claude' },
+  { label: 'OpenRouter', value: 'openrouter' },
   { label: 'Claude Code (installed CLI)', value: 'claude-code' },
   { label: 'Ollama (local)', value: 'ollama' },
 ];
@@ -27,7 +28,7 @@ export function providerShortLabel(provider: string): string {
 }
 
 /** The providers that work with an API key, and nothing else. */
-export const KEY_PROVIDERS: ReadonlyArray<string> = ['openai', 'claude'];
+export const KEY_PROVIDERS: ReadonlyArray<string> = ['openai', 'claude', 'openrouter'];
 
 export function isKeyProvider(provider: string | null | undefined): boolean {
   return !!provider && KEY_PROVIDERS.includes(provider);
@@ -41,12 +42,14 @@ export function isKeyProvider(provider: string | null | undefined): boolean {
 export const ENV_KEY_VARS: Readonly<Record<string, string>> = {
   openai: 'OPENAI_API_KEY',
   claude: 'ANTHROPIC_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY',
 };
 
 export function keyPlaceholder(provider: string): string {
   switch (provider) {
     case 'openai': return 'sk-…';
     case 'claude': return 'sk-ant-…';
+    case 'openrouter': return 'sk-or-…';
     default: return 'API key';
   }
 }

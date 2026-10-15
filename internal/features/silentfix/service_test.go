@@ -564,6 +564,11 @@ func TestDescribe(t *testing.T) {
 		{"key rejected", statusErr(t, http.StatusUnauthorized), titleNotRun, "Anthropic didn't accept the API key.", TargetProviders},
 		{"model gone", statusErr(t, http.StatusNotFound), titleNotRun, "The model wasn't found — check it in AI Providers.", TargetProviders},
 		{"rate limited", statusErr(t, http.StatusTooManyRequests), titleNotRun, "Rate limited — try again shortly.", TargetFix},
+		{"key may not use the model", statusErr(t, http.StatusForbidden), titleNotRun, "This key can't use the chosen model.", TargetProviders},
+		// On OpenRouter a 403 is the model's moderation flagging the text: no
+		// key or model setting fixes that, so AI Providers is the wrong place.
+		{"moderation on OpenRouter", openRouterStatusErr(t, http.StatusForbidden), titleNotRun, "OpenRouter's moderation flagged this text.", TargetFix},
+		{"OpenRouter out of credit", openRouterStatusErr(t, http.StatusPaymentRequired), titleNotRun, "The OpenRouter account is out of credit.", TargetFix},
 		{"provider down", statusErr(t, http.StatusBadGateway), titleNotRun, "Anthropic isn't available right now.", TargetFix},
 		{"provider timed out", statusErr(t, http.StatusRequestTimeout), titleNotRun, "Anthropic timed out — try again.", TargetFix},
 		{"too large", statusErr(t, http.StatusRequestEntityTooLarge), titleNotRun, "The text is too long for the provider — try a shorter selection.", TargetFix},
@@ -581,6 +586,21 @@ func TestDescribe(t *testing.T) {
 			}
 		})
 	}
+}
+
+// openRouterStatusErr is statusErr from the OpenRouter client.
+func openRouterStatusErr(t *testing.T, status int) error {
+	t.Helper()
+	client, err := llm.New(llm.ProviderOpenRouter, llm.Config{APIKey: "sk-or-test", BaseURL: newStatusServer(t, status)})
+	if err != nil {
+		t.Fatalf("llm.New: %v", err)
+	}
+	_, err = client.Complete(context.Background(), llm.Request{Model: "openai/gpt-6-luna", User: "x", MaxTokens: 16})
+	var se *llm.StatusError
+	if !errors.As(err, &se) || se.Status != status {
+		t.Fatalf("expected an OpenRouter StatusError for %d, got %v", status, err)
+	}
+	return err
 }
 
 // statusErr gets a real StatusError from the llm package, the way a provider

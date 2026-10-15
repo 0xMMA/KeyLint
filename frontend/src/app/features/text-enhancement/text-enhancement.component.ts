@@ -29,6 +29,7 @@ const PROVIDER_LABELS: Readonly<Record<string, string>> = {
   claude: 'Anthropic API',
   'claude-code': 'Claude Code (installed CLI)',
   openai: 'OpenAI',
+  openrouter: 'OpenRouter',
   ollama: 'Ollama (local)',
 };
 

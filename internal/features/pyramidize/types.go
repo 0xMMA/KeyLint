@@ -10,7 +10,7 @@ type PyramidizeRequest struct {
 	// the options column (roadmap E3 phase 3); v2 runs on the
 	// professional/professional it was measured with.
 	CustomInstructions string `json:"customInstructions"`
-	Provider           string `json:"provider"`      // optional override: "claude"|"openai"|"ollama" — falls back to settings.ActiveProvider
+	Provider           string `json:"provider"`      // optional override: "claude"|"claude-code"|"openai"|"openrouter"|"ollama" — falls back to settings.ActiveProvider
 	Model              string `json:"model"`         // optional override, e.g. "claude-sonnet-4-6" — falls back to provider default
 	Effort             string `json:"effort"`        // optional override: "" follows settings, EffortNone sends none, else a level (llm.Effort*)
 	PromptVariant      int    `json:"promptVariant"` // 0 = latest (v3, every form); 2 = the v2 email prompt, email only

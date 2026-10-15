@@ -44,6 +44,29 @@ describe('noteForModelSource', () => {
     }
   });
 
+  // OpenRouter's catalogue is public: the list is live before any key is
+  // set, and it is OpenRouter's, not the account's. The note has to say both,
+  // and how to find one model among four hundred.
+  it('calls the OpenRouter list the whole catalogue, searchable, and not a promise about the key', () => {
+    const note = noteForModelSource('live', 'openrouter', true);
+    expect(note).toContain("OpenRouter's");
+    expect(note).toMatch(/type/i);
+    expect(note).toMatch(/account/);
+  });
+
+  it('never calls OpenRouter\'s catalogue "this account\'s"', () => {
+    for (const source of ['empty', 'unusable']) {
+      const note = noteForModelSource(source, 'openrouter', source === 'unusable');
+      expect(note, source).not.toContain('This account');
+      expect(note, source).not.toContain("this account's");
+      expect(note, source).toContain('OpenRouter');
+    }
+  });
+
+  it('says why OpenRouter has not been asked yet', () => {
+    expect(noteForModelSource('not-asked', 'openrouter', true)).toContain('in use');
+  });
+
   it('says nothing for a source it has never heard of', () => {
     expect(noteForModelSource('static', 'openai', true)).toBe('');
   });
