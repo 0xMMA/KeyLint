@@ -231,12 +231,14 @@ func (s *Service) decide(cfg settings.Settings) decision {
 	return d
 }
 
-// bedrockUsable reports whether AWS Bedrock is set up enough to try: a region,
-// and a key unless this computer's AWS sign-in is used — whether that sign-in
-// works can only be known by trying, which the AWS Bedrock card's Test
+// bedrockUsable reports whether AWS Bedrock is set up enough to try: a region
+// whose routing the user has settled (a worldwide-only region needs Worldwide
+// chosen), and a key unless this computer's AWS sign-in is used — whether that
+// sign-in works can only be known by trying, which the AWS Bedrock card's Test
 // connection does when the user asks. Never a key's value, only its presence.
 func (s *Service) bedrockUsable(cfg settings.Settings) bool {
-	if cfg.Bedrock().Region == "" {
+	b := cfg.Bedrock()
+	if !llm.BedrockRoutable(b.Region, b.Routing) {
 		return false
 	}
 	if !cfg.UsesAPIKey(llm.ProviderBedrock) {

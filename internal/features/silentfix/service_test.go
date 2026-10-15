@@ -573,10 +573,14 @@ func TestDescribe(t *testing.T) {
 		// checked with the card's Test connection.
 		{"no Bedrock key", &enhance.MissingKeyError{Provider: "AWS Bedrock"}, titleNotRun, "No API key for AWS Bedrock.", TargetProviders},
 		{"Bedrock refused", bedrockStatusErr(t, http.StatusForbidden), titleNotRun, "AWS Bedrock refused the call — check model access and your AWS credentials.", TargetProviders},
-		{"Bedrock key rejected", bedrockStatusErr(t, http.StatusUnauthorized), titleNotRun, "AWS Bedrock didn't accept the API key.", TargetProviders},
+		// A 401 is a key in key mode, credentials in sign-in mode: the toast
+		// knows neither, so it names both.
+		{"Bedrock key rejected", bedrockStatusErr(t, http.StatusUnauthorized), titleNotRun, "AWS Bedrock didn't accept the key or credentials.", TargetProviders},
 		{"AWS sign-in failed", fmt.Errorf("wrapped: %w", llm.ErrAWSSignIn), titleNotRun, "Couldn't use your AWS sign-in.", TargetProviders},
-		{"no Bedrock region", fmt.Errorf("AWS Bedrock: %w", llm.ErrBedrockNoRegion), titleNotRun, "No AWS region is set for Bedrock.", TargetProviders},
-		{"no route that stays", fmt.Errorf("wrapped: %w", llm.ErrBedrockRoute), titleNotRun, "The model can't stay where you chose — see AI Providers.", TargetProviders},
+		{"no Bedrock region", fmt.Errorf("AWS Bedrock: %w", llm.ErrBedrockNoRegion), titleNotRun, "Bedrock needs a valid AWS region — see AI Providers.", TargetProviders},
+		{"malformed Bedrock region", bedrockRegionErr(t, "x.evil.example/"), titleNotRun, "Bedrock needs a valid AWS region — see AI Providers.", TargetProviders},
+		{"no route that stays", fmt.Errorf("wrapped: %w", llm.ErrBedrockRoute), titleNotRun, "Bedrock can't keep the text where you chose — see AI Providers.", TargetProviders},
+		{"worldwide-only region kept", bedrockRegionErr(t, "ap-south-1"), titleNotRun, "Bedrock can't keep the text where you chose — see AI Providers.", TargetProviders},
 		{"provider down", statusErr(t, http.StatusBadGateway), titleNotRun, "Anthropic isn't available right now.", TargetFix},
 		{"provider timed out", statusErr(t, http.StatusRequestTimeout), titleNotRun, "Anthropic timed out — try again.", TargetFix},
 		{"too large", statusErr(t, http.StatusRequestEntityTooLarge), titleNotRun, "The text is too long for the provider — try a shorter selection.", TargetFix},
@@ -625,6 +629,24 @@ func bedrockStatusErr(t *testing.T, status int) error {
 	var se *llm.StatusError
 	if !errors.As(err, &se) || se.Status != status {
 		t.Fatalf("expected a Bedrock StatusError for %d, got %v", status, err)
+	}
+	return err
+}
+
+// bedrockRegionErr is the error a key-mode Bedrock call gives in region,
+// before anything is sent.
+func bedrockRegionErr(t *testing.T, region string) error {
+	t.Helper()
+	client, err := llm.New(llm.ProviderBedrock, llm.Config{
+		APIKey:  "bedrock-key",
+		Bedrock: llm.BedrockConfig{Region: region, Auth: llm.BedrockAuthKey, Routing: llm.BedrockRoutingGeo},
+	})
+	if err != nil {
+		t.Fatalf("llm.New: %v", err)
+	}
+	_, err = client.Complete(context.Background(), llm.Request{Model: "anthropic.claude-haiku-5-5", User: "x", MaxTokens: 16})
+	if err == nil {
+		t.Fatalf("expected an error for region %q", region)
 	}
 	return err
 }

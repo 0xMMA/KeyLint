@@ -153,6 +153,12 @@ func TestIsFirstRun_Matrix(t *testing.T) {
 			cli: cliMissingSt, wantActive: "bedrock", wantProbe: false,
 		},
 		{
+			// Mumbai routes these models only worldwide; "keep" there cannot
+			// run until the user chooses Worldwide on the card.
+			name: "active Bedrock keeping the text in a worldwide-only region, nothing else", cfg: bedrockWith("ap-south-1", llm.BedrockAuthSignIn),
+			cli: cliMissingSt, wantWizard: true, wantActive: "bedrock", wantProbe: true,
+		},
+		{
 			name: "active Bedrock with no region, key stored elsewhere: usable, choice kept", cfg: bedrockWith("", llm.BedrockAuthSignIn),
 			keys: map[string]string{"openai": "sk-x"}, cli: cliMissingSt,
 			wantActive: "bedrock", wantProbe: true,

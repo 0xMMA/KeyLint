@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"keylint/internal/llm"
+
+	keyring "github.com/zalando/go-keyring"
 )
 
 func bedrockService(t *testing.T) *Service {
@@ -224,5 +226,81 @@ func TestTestBedrockChecksTheSavedConnection(t *testing.T) {
 	}
 	if _, err := failing.TestBedrock(); err == nil || !strings.Contains(err.Error(), "403") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+// TestTheOldBedrockKeyringEntryIsNotABedrockKey: until 2026-10-05 the AI
+// Providers page stored an "AWS Secret Access Key" under the keyring account
+// "bedrock". That is half of an IAM key pair, not a Bedrock API key: sent as
+// a bearer token it would be refused, and worse, it would leave the machine.
+// The Bedrock API key lives under its own account; the old entry is never
+// read, and the next Bedrock key the user saves or clears removes it.
+func TestTheOldBedrockKeyringEntryIsNotABedrockKey(t *testing.T) {
+	keyring.MockInit()
+	t.Setenv("AWS_BEARER_TOKEN_BEDROCK", "")
+	svc := bedrockService(t)
+	if err := keyring.Set(appName, "bedrock", "IAM-SECRET-ACCESS-KEY"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := svc.GetKey(llm.ProviderBedrock); got != "" {
+		t.Errorf("GetKey = %q: the old IAM secret was read as a Bedrock key", got)
+	}
+	if st := svc.GetKeyStatus(llm.ProviderBedrock); st.IsSet {
+		t.Errorf("GetKeyStatus = %+v: the old entry counts as a key", st)
+	}
+
+	if err := svc.SetKey(llm.ProviderBedrock, "bedrock-api-key"); err != nil {
+		t.Fatal(err)
+	}
+	if got := svc.GetKey(llm.ProviderBedrock); got != "bedrock-api-key" {
+		t.Errorf("GetKey = %q, want the saved Bedrock key", got)
+	}
+	if _, err := keyring.Get(appName, "bedrock"); err == nil {
+		t.Error("the old IAM secret is still in the keyring after a Bedrock key was saved")
+	}
+
+	// Clearing removes the old entry too, and only Bedrock's.
+	_ = keyring.Set(appName, "bedrock", "IAM-SECRET-AGAIN")
+	_ = keyring.Set(appName, "claude", "sk-ant-x")
+	if err := svc.DeleteKey(llm.ProviderBedrock); err != nil {
+		t.Fatal(err)
+	}
+	if svc.GetKeyStatus(llm.ProviderBedrock).IsSet {
+		t.Error("the Bedrock key survived DeleteKey")
+	}
+	if _, err := keyring.Get(appName, "bedrock"); err == nil {
+		t.Error("the old IAM secret survived DeleteKey")
+	}
+	if got, _ := keyring.Get(appName, "claude"); got != "sk-ant-x" {
+		t.Error("DeleteKey(bedrock) touched another provider's key")
+	}
+}
+
+// TestSaveLeavesTheBedrockConnectionToSetBedrock: the page's Save sends the
+// whole settings object, which can hold a copy of the connection from before
+// a SetBedrock landed — or anything a caller put there. The connection has
+// one writer, SetBedrock, which validates it; Save carries it over, as it
+// does completed_setup.
+func TestSaveLeavesTheBedrockConnectionToSetBedrock(t *testing.T) {
+	svc := bedrockService(t)
+	if err := svc.SetBedrock(BedrockSettings{Region: "eu-central-1", Auth: llm.BedrockAuthSignIn, Profile: "work", Routing: llm.BedrockRoutingGeo}); err != nil {
+		t.Fatal(err)
+	}
+	stale := svc.Get()
+	stale.Providers.AWSRegion = "evil.example.com/x"
+	stale.Providers.BedrockAuth = llm.BedrockAuthKey
+	stale.Providers.AWSProfile = "a\nb"
+	stale.Providers.BedrockRouting = llm.BedrockRoutingGlobal
+	stale.Providers.OllamaURL = "http://gpu:11434"
+	if err := svc.Save(stale); err != nil {
+		t.Fatal(err)
+	}
+	p := svc.Get().Providers
+	if p.AWSRegion != "eu-central-1" || p.BedrockAuth != llm.BedrockAuthSignIn || p.AWSProfile != "work" || p.BedrockRouting != llm.BedrockRoutingGeo {
+		t.Errorf("Save changed the Bedrock connection: %+v", p)
+	}
+	if p.OllamaURL != "http://gpu:11434" {
+		t.Errorf("Save no longer saves the rest of providers: %+v", p)
 	}
 }

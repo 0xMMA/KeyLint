@@ -73,10 +73,12 @@ func describe(err error) Notice {
 		n.Body = "Couldn't use your AWS sign-in."
 		n.Target = TargetProviders
 	case errors.Is(err, llm.ErrBedrockNoRegion):
-		n.Body = "No AWS region is set for Bedrock."
+		n.Body = "Bedrock needs a valid AWS region — see AI Providers."
 		n.Target = TargetProviders
 	case errors.Is(err, llm.ErrBedrockRoute):
-		n.Body = "The model can't stay where you chose — see AI Providers."
+		// A model with no route there, or a region with no geography while
+		// Worldwide is not chosen.
+		n.Body = "Bedrock can't keep the text where you chose — see AI Providers."
 		n.Target = TargetProviders
 	case llm.IsTimeout(err):
 		n.Title = titleTooLong
@@ -112,6 +114,10 @@ func providerLabel(name string) string {
 func describeStatus(e *llm.StatusError) (string, Target) {
 	provider := providerLabel(e.Provider)
 	switch {
+	case e.Status == http.StatusUnauthorized && e.Provider == "AWS Bedrock":
+		// A key in key mode, the computer's credentials in sign-in mode; the
+		// detail on the Fix page says which.
+		return "AWS Bedrock didn't accept the key or credentials.", TargetProviders
 	case e.Status == http.StatusUnauthorized:
 		return fmt.Sprintf("%s didn't accept the API key.", provider), TargetProviders
 	case e.Status == http.StatusForbidden && e.Provider == "AWS Bedrock":

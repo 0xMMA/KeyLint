@@ -132,8 +132,8 @@ export function ResetToDefaults() {
 
 /**
  * Save persists the provided settings to disk — all of them except
- * completed_setup, which keeps its current value: only the welcome service
- * moves it.
+ * completed_setup, which keeps its current value (only the welcome service
+ * moves it), and the AWS Bedrock connection, which only SetBedrock writes.
  * @param {$models.Settings} updated
  * @returns {$CancellablePromise<void>}
  */

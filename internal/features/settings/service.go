@@ -38,6 +38,22 @@ var envVars = map[string]string{
 	"bedrock":    "AWS_BEARER_TOKEN_BEDROCK",
 }
 
+// keyringAccount is the keyring entry a provider's key lives under: the
+// provider ID, except for Bedrock. Until 2026-10-05 the AI Providers page
+// stored an "AWS Secret Access Key" under "bedrock" — half of an IAM key pair,
+// not a Bedrock API key — so the Bedrock API key has its own account and the
+// old entry is never read as one (see legacyBedrockAccount).
+func keyringAccount(provider string) string {
+	if provider == llm.ProviderBedrock {
+		return "bedrock-api-key"
+	}
+	return provider
+}
+
+// legacyBedrockAccount is that old entry. Saving or clearing a Bedrock key
+// removes it, so an IAM secret KeyLint once stored does not linger unseen.
+const legacyBedrockAccount = "bedrock"
+
 // Service handles loading and saving application settings.
 type Service struct {
 	// filePath is empty for a service built with NewServiceFrom: it has no file
@@ -247,8 +263,8 @@ func (s Settings) clone() Settings {
 }
 
 // Save persists the provided settings to disk — all of them except
-// completed_setup, which keeps its current value: only the welcome service
-// moves it.
+// completed_setup, which keeps its current value (only the welcome service
+// moves it), and the AWS Bedrock connection, which only SetBedrock writes.
 func (s *Service) Save(updated Settings) error {
 	// One save at a time, so the file and the in-memory copy end up holding the
 	// same save when two land together.
@@ -269,6 +285,14 @@ func (s *Service) Save(updated Settings) error {
 	// from the frontend's fallback defaults after a failed Get — must not
 	// send a configured user back through the wizard.
 	updated.CompletedSetup = current.CompletedSetup
+	// The Bedrock connection has one writer, SetBedrock, which validates it
+	// and saves it as the card changes. A whole form sent here may carry a
+	// copy from before a SetBedrock landed; it must not undo the routing the
+	// user just chose, nor slip in a value SetBedrock would refuse.
+	updated.Providers.AWSRegion = current.Providers.AWSRegion
+	updated.Providers.BedrockAuth = current.Providers.BedrockAuth
+	updated.Providers.AWSProfile = current.Providers.AWSProfile
+	updated.Providers.BedrockRouting = current.Providers.BedrockRouting
 	return s.persistLocked(updated)
 }
 
@@ -479,7 +503,7 @@ func (s *Service) GetKeyStatus(provider string) KeyStatus {
 			return KeyStatus{IsSet: true, Source: "env"}
 		}
 	}
-	_, err := keyring.Get(appName, provider)
+	_, err := keyring.Get(appName, keyringAccount(provider))
 	if err == nil {
 		return KeyStatus{IsSet: true, Source: "keyring"}
 	}
@@ -498,7 +522,7 @@ func (s *Service) GetKey(provider string) string {
 			return val
 		}
 	}
-	key, err := keyring.Get(appName, provider)
+	key, err := keyring.Get(appName, keyringAccount(provider))
 	if err == nil {
 		return key
 	}
@@ -511,9 +535,10 @@ func (s *Service) SetKey(provider, key string) error {
 	if s.isolated {
 		return errIsolated
 	}
-	if err := keyring.Set(appName, provider, key); err != nil {
+	if err := keyring.Set(appName, keyringAccount(provider), key); err != nil {
 		return err
 	}
+	s.dropLegacyBedrockKey(provider)
 	// Only now: a write that failed leaves the old key in place, and dropping
 	// the list for it would cost a listing round trip that changes nothing.
 	s.keyChanged(provider)
@@ -525,11 +550,24 @@ func (s *Service) DeleteKey(provider string) error {
 	if s.isolated {
 		return errIsolated
 	}
-	if err := keyring.Delete(appName, provider); err != nil {
+	s.dropLegacyBedrockKey(provider)
+	if err := keyring.Delete(appName, keyringAccount(provider)); err != nil {
 		return err
 	}
 	s.keyChanged(provider)
 	return nil
+}
+
+// dropLegacyBedrockKey removes the IAM secret older builds stored under
+// "bedrock", when the user acts on their Bedrock key. Best effort: an entry
+// that is not there is the usual case.
+func (s *Service) dropLegacyBedrockKey(provider string) {
+	if provider != llm.ProviderBedrock {
+		return
+	}
+	if err := keyring.Delete(appName, legacyBedrockAccount); err == nil {
+		logger.Info("settings: removed the AWS secret access key an older KeyLint stored for Bedrock")
+	}
 }
 
 // keyChanged drops what a provider's key decided: its model list. Not
@@ -838,12 +876,8 @@ func (s *Service) runClaudeCodeProbe() (status llm.ClaudeCodeStatus, timedOut bo
 // (region, sign-in, routing) survives for the same reason: without its region
 // Bedrock cannot be called at all.
 func (s *Service) ResetToDefaults() error {
-	current := s.Get()
 	reset := Default()
-	reset.ActiveProvider = current.ActiveProvider
-	reset.Providers.AWSRegion = current.Providers.AWSRegion
-	reset.Providers.BedrockAuth = current.Providers.BedrockAuth
-	reset.Providers.AWSProfile = current.Providers.AWSProfile
-	reset.Providers.BedrockRouting = current.Providers.BedrockRouting
+	reset.ActiveProvider = s.Get().ActiveProvider
+	// Save keeps the Bedrock connection as it is.
 	return s.Save(reset)
 }
