@@ -4,6 +4,7 @@ package clipboard
 
 import (
 	"fmt"
+	"runtime"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -40,6 +41,11 @@ const (
 // Read returns the current clipboard text using the Win32 CF_UNICODETEXT format.
 func (s *Service) Read() (string, error) {
 	logger.Debug("clipboard: Read called")
+	// The open clipboard belongs to the thread that opened it: a goroutine
+	// that moved threads in between would fail to read or close it.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	ret, _, err := clipOpenCB.Call(0)
 	if ret == 0 {
 		logger.Error("clipboard: OpenClipboard failed", "err", err)
@@ -108,6 +114,22 @@ func write(text, html string) error {
 	if err != nil {
 		return fmt.Errorf("UTF16FromString: %w", err)
 	}
+	// Prepared before the clipboard is opened, so it is held only to copy.
+	var htmlID uintptr
+	var htmlData []byte
+	if html != "" {
+		if htmlID, err = htmlFormat(); err != nil {
+			logger.Warn("clipboard: HTML format unavailable, writing the text alone", "err", err)
+		} else {
+			htmlData = append(cfHTML(html), 0)
+		}
+	}
+
+	// The open clipboard belongs to the thread that opened it: a goroutine
+	// that moved threads in between would fail to set data or close it, and
+	// could leave the clipboard locked for every other app.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 
 	ret, _, err := clipOpenCB.Call(0)
 	if ret == 0 {
@@ -122,21 +144,19 @@ func write(text, html string) error {
 		return fmt.Errorf("EmptyClipboard: %w", err)
 	}
 
-	// The terminating NUL is part of both formats' data.
+	// The most descriptive format first: an app that enumerates the formats
+	// takes the first one it knows. The terminating NUL is part of both.
+	if htmlData != nil {
+		if err := setData(htmlID, htmlData); err != nil {
+			logger.Warn("clipboard: HTML not added, the text alone goes on the clipboard", "err", err)
+			htmlData = nil
+		}
+	}
 	if err := setData(cfUnicodeText, unsafe.Slice((*byte)(unsafe.Pointer(&u16[0])), len(u16)*2)); err != nil {
 		logger.Error("clipboard: setting the text failed", "err", err)
 		return err
 	}
-	if html != "" {
-		id, err := htmlFormat()
-		if err == nil {
-			err = setData(id, append(cfHTML(html), 0))
-		}
-		if err != nil {
-			logger.Warn("clipboard: HTML not added, the text alone is on the clipboard", "err", err)
-		}
-	}
-	logger.Debug("clipboard: Write ok", "html", html != "")
+	logger.Debug("clipboard: Write ok", "html", htmlData != nil)
 	return nil
 }
 

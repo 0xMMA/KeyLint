@@ -109,4 +109,42 @@ describe('MarkdownPipe', () => {
       expect(pipe.transform('## **Bold** header')).toBe('<h2><strong>Bold</strong> header</h2>');
     });
   });
+
+  // Send back pastes this HTML into Outlook and Teams, where the user may not
+  // have looked at the Preview first (PR #133 review).
+  describe('what the results use', () => {
+    it('keeps a numbered list whose items are separated by blank lines as one list', () => {
+      expect(pipe.transform('1. first\n\n2. second\n\n3. third'))
+        .toBe('<ol><li>first</li><li>second</li><li>third</li></ol>');
+    });
+
+    it('keeps the numbering of a list a paragraph interrupts', () => {
+      expect(pipe.transform('1. first\nA note\n2. second'))
+        .toBe('<ol><li>first</li></ol><p>A note</p><ol start="2"><li>second</li></ol>');
+    });
+
+    it('keeps a bullet list separated by blank lines as one list', () => {
+      expect(pipe.transform('- a\n\n- b')).toBe('<ul><li>a</li><li>b</li></ul>');
+    });
+
+    it('nests an indented bullet under the item above it', () => {
+      expect(pipe.transform('- parent\n  - child\n\t- child 2\n- next'))
+        .toBe('<ul><li>parent<ul><li>child</li><li>child 2</li></ul></li><li>next</li></ul>');
+      expect(pipe.transform('1. step\n   - detail\n2. step'))
+        .toBe('<ol><li>step<ul><li>detail</li></ul></li><li>step</li></ol>');
+    });
+
+    it('renders a fenced code block as preformatted text, untouched', () => {
+      expect(pipe.transform('Run:\n```sh\nmake a * b <out>\n  **x**\n```\nDone'))
+        .toBe('<p>Run:</p><pre><code>make a * b &lt;out&gt;\n  **x**</code></pre><p>Done</p>');
+    });
+
+    it('closes a code block the text never closes', () => {
+      expect(pipe.transform('```\ncode')).toBe('<pre><code>code</code></pre>');
+    });
+
+    it('leaves an asterisk with spaces around it alone', () => {
+      expect(pipe.transform('3 * 4 * 5')).toBe('<p>3 * 4 * 5</p>');
+    });
+  });
 });

@@ -13,7 +13,9 @@ import "fmt"
 // platform.
 func cfHTML(fragment string) []byte {
 	const header = "Version:0.9\r\nStartHTML:%010d\r\nEndHTML:%010d\r\nStartFragment:%010d\r\nEndFragment:%010d\r\n"
-	const pre = "<html>\r\n<body>\r\n<!--StartFragment-->"
+	// The data is UTF-8 by the format's definition; the meta tag says so to
+	// readers that look at the document instead.
+	const pre = "<html>\r\n<head><meta charset=\"utf-8\"></head>\r\n<body>\r\n<!--StartFragment-->"
 	const post = "<!--EndFragment-->\r\n</body>\r\n</html>"
 
 	startHTML := len(fmt.Sprintf(header, 0, 0, 0, 0))

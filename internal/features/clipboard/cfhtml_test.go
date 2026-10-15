@@ -50,6 +50,9 @@ func TestCFHTMLOffsetsPointAtTheFragment(t *testing.T) {
 		if o["EndHTML"] != len(data) {
 			t.Errorf("EndHTML = %d, want the end of the data (%d)", o["EndHTML"], len(data))
 		}
+		if !strings.Contains(doc, `<meta charset="utf-8">`) {
+			t.Errorf("document does not declare UTF-8:\n%s", doc)
+		}
 		if !strings.HasPrefix(string(data), "Version:0.9\r\n") {
 			t.Errorf("data does not start with the version line:\n%s", data)
 		}
