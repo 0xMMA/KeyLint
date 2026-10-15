@@ -20,6 +20,17 @@ import * as llm$0 from "../../llm/models.js";
 import * as $models from "./models.js";
 
 /**
+ * BedrockRegions lists the regions the AWS Bedrock card offers, with the
+ * geography each keeps the text in. From this build's table: no request.
+ * @returns {$CancellablePromise<llm$0.BedrockRegion[]>}
+ */
+export function BedrockRegions() {
+    return $Call.ByID(2152398669).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType1($result);
+    }));
+}
+
+/**
  * DeleteKey removes an API key for the given provider from the OS keyring.
  * @param {string} provider
  * @returns {$CancellablePromise<void>}
@@ -41,7 +52,7 @@ export function DeleteKey(provider) {
  */
 export function Get() {
     return $Call.ByID(2040733582).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType2($result);
     }));
 }
 
@@ -59,7 +70,7 @@ export function Get() {
  */
 export function GetClaudeCodeStatus(force) {
     return $Call.ByID(3561813659, force).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType1($result);
+        return $$createType3($result);
     }));
 }
 
@@ -82,7 +93,7 @@ export function GetKey(provider) {
  */
 export function GetKeyStatus(provider) {
     return $Call.ByID(1645967871, provider).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType2($result);
+        return $$createType4($result);
     }));
 }
 
@@ -99,7 +110,7 @@ export function GetKeyStatus(provider) {
  */
 export function ListModels(provider) {
     return $Call.ByID(3734180264, provider).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType3($result);
+        return $$createType5($result);
     }));
 }
 
@@ -110,7 +121,9 @@ export function ListModels(provider) {
  * stays complete (see Save), and the active provider stays the one in use.
  * Resetting it to the default (OpenAI) would leave someone on the CLI or the
  * Anthropic API with a hotkey that fails on a key they never had, and with
- * setup complete nothing would put it right.
+ * setup complete nothing would put it right. The AWS Bedrock connection
+ * (region, sign-in, routing) survives for the same reason: without its region
+ * Bedrock cannot be called at all.
  * @returns {$CancellablePromise<void>}
  */
 export function ResetToDefaults() {
@@ -143,6 +156,20 @@ export function SetActiveProvider(provider) {
 }
 
 /**
+ * SetBedrock saves the AWS Bedrock connection and nothing else, straight away.
+ * 
+ * The card saves on change rather than with the page's Save button: the
+ * routing is where the user's text may be processed, so the choice takes
+ * effect the moment it is made, and Test connection then tests what the card
+ * shows. Through Update, so a save landing meanwhile is not overwritten.
+ * @param {$models.BedrockSettings} b
+ * @returns {$CancellablePromise<void>}
+ */
+export function SetBedrock(b) {
+    return $Call.ByID(2908332008, b);
+}
+
+/**
  * SetDeveloperOptions turns the developer options on or off and saves that one
  * field, leaving anything else the settings screen has pending unsaved — the
  * unlock happens by tapping the version, not by pressing Save.
@@ -164,8 +191,20 @@ export function SetKey(provider, key) {
     return $Call.ByID(3799725721, provider, key);
 }
 
+/**
+ * TestBedrock is the AWS Bedrock card's Test connection: one tiny call with
+ * the saved connection and the Fix model, only when the user clicks it. It
+ * returns the model ID the call went to, or the error a fix would show.
+ * @returns {$CancellablePromise<string>}
+ */
+export function TestBedrock() {
+    return $Call.ByID(1967414488);
+}
+
 // Private type creation functions
-const $$createType0 = $models.Settings.createFrom;
-const $$createType1 = llm$0.ClaudeCodeStatus.createFrom;
-const $$createType2 = $models.KeyStatus.createFrom;
-const $$createType3 = llm$0.ModelList.createFrom;
+const $$createType0 = llm$0.BedrockRegion.createFrom;
+const $$createType1 = $Create.Array($$createType0);
+const $$createType2 = $models.Settings.createFrom;
+const $$createType3 = llm$0.ClaudeCodeStatus.createFrom;
+const $$createType4 = $models.KeyStatus.createFrom;
+const $$createType5 = llm$0.ModelList.createFrom;

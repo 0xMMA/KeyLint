@@ -569,6 +569,14 @@ func TestDescribe(t *testing.T) {
 		// key or model setting fixes that, so AI Providers is the wrong place.
 		{"moderation on OpenRouter", openRouterStatusErr(t, http.StatusForbidden), titleNotRun, "OpenRouter's moderation flagged this text.", TargetFix},
 		{"OpenRouter out of credit", openRouterStatusErr(t, http.StatusPaymentRequired), titleNotRun, "The OpenRouter account is out of credit.", TargetFix},
+		// Bedrock: the 403 is model access or credentials, set up in AWS and
+		// checked with the card's Test connection.
+		{"no Bedrock key", &enhance.MissingKeyError{Provider: "AWS Bedrock"}, titleNotRun, "No API key for AWS Bedrock.", TargetProviders},
+		{"Bedrock refused", bedrockStatusErr(t, http.StatusForbidden), titleNotRun, "AWS Bedrock refused the call — check model access and your AWS credentials.", TargetProviders},
+		{"Bedrock key rejected", bedrockStatusErr(t, http.StatusUnauthorized), titleNotRun, "AWS Bedrock didn't accept the API key.", TargetProviders},
+		{"AWS sign-in failed", fmt.Errorf("wrapped: %w", llm.ErrAWSSignIn), titleNotRun, "Couldn't use your AWS sign-in.", TargetProviders},
+		{"no Bedrock region", fmt.Errorf("AWS Bedrock: %w", llm.ErrBedrockNoRegion), titleNotRun, "No AWS region is set for Bedrock.", TargetProviders},
+		{"no route that stays", fmt.Errorf("wrapped: %w", llm.ErrBedrockRoute), titleNotRun, "The model can't stay where you chose — see AI Providers.", TargetProviders},
 		{"provider down", statusErr(t, http.StatusBadGateway), titleNotRun, "Anthropic isn't available right now.", TargetFix},
 		{"provider timed out", statusErr(t, http.StatusRequestTimeout), titleNotRun, "Anthropic timed out — try again.", TargetFix},
 		{"too large", statusErr(t, http.StatusRequestEntityTooLarge), titleNotRun, "The text is too long for the provider — try a shorter selection.", TargetFix},
@@ -599,6 +607,24 @@ func openRouterStatusErr(t *testing.T, status int) error {
 	var se *llm.StatusError
 	if !errors.As(err, &se) || se.Status != status {
 		t.Fatalf("expected an OpenRouter StatusError for %d, got %v", status, err)
+	}
+	return err
+}
+
+// bedrockStatusErr is a real Bedrock StatusError, from a key-mode call.
+func bedrockStatusErr(t *testing.T, status int) error {
+	t.Helper()
+	client, err := llm.New(llm.ProviderBedrock, llm.Config{
+		APIKey: "bedrock-key", BaseURL: newStatusServer(t, status),
+		Bedrock: llm.BedrockConfig{Region: "eu-central-1", Auth: llm.BedrockAuthKey},
+	})
+	if err != nil {
+		t.Fatalf("llm.New: %v", err)
+	}
+	_, err = client.Complete(context.Background(), llm.Request{Model: "anthropic.claude-haiku-5-5", User: "x", MaxTokens: 16})
+	var se *llm.StatusError
+	if !errors.As(err, &se) || se.Status != status {
+		t.Fatalf("expected a Bedrock StatusError for %d, got %v", status, err)
 	}
 	return err
 }

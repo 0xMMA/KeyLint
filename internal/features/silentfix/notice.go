@@ -68,6 +68,16 @@ func describe(err error) Notice {
 	case errors.Is(err, llm.ErrCLINotFound):
 		n.Body = "Claude Code CLI isn't installed."
 		n.Target = TargetProviders
+	case errors.Is(err, llm.ErrAWSSignIn):
+		// The detail (on the Fix page) names the command to run.
+		n.Body = "Couldn't use your AWS sign-in."
+		n.Target = TargetProviders
+	case errors.Is(err, llm.ErrBedrockNoRegion):
+		n.Body = "No AWS region is set for Bedrock."
+		n.Target = TargetProviders
+	case errors.Is(err, llm.ErrBedrockRoute):
+		n.Body = "The model can't stay where you chose — see AI Providers."
+		n.Target = TargetProviders
 	case llm.IsTimeout(err):
 		n.Title = titleTooLong
 		n.Body = "The model took too long — try a shorter selection or a faster model."
@@ -104,6 +114,10 @@ func describeStatus(e *llm.StatusError) (string, Target) {
 	switch {
 	case e.Status == http.StatusUnauthorized:
 		return fmt.Sprintf("%s didn't accept the API key.", provider), TargetProviders
+	case e.Status == http.StatusForbidden && e.Provider == "AWS Bedrock":
+		// Model access or credentials: set up in AWS, checked with the AWS
+		// Bedrock card's Test connection.
+		return "AWS Bedrock refused the call — check model access and your AWS credentials.", TargetProviders
 	case e.Status == http.StatusForbidden && e.Provider == "OpenRouter":
 		// OpenRouter's 403 is its moderation flagging the text, which no
 		// setting on AI Providers changes; the Fix page shows the detail.

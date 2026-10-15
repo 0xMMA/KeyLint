@@ -45,6 +45,60 @@ export class AppPreset {
 }
 
 /**
+ * BedrockSettings is the AWS Bedrock card's connection: where, how to sign in,
+ * and how far the text may travel. The key, in key mode, is stored apart in
+ * the keyring (SetKey).
+ */
+export class BedrockSettings {
+    /**
+     * Creates a new BedrockSettings instance.
+     * @param {Partial<BedrockSettings>} [$$source = {}] - The source object to create the BedrockSettings.
+     */
+    constructor($$source = {}) {
+        if (!("region" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["region"] = "";
+        }
+        if (!("auth" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["auth"] = "";
+        }
+        if (!("profile" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["profile"] = "";
+        }
+        if (!("routing" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["routing"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new BedrockSettings instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {BedrockSettings}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new BedrockSettings(/** @type {Partial<BedrockSettings>} */($$parsedSource));
+    }
+}
+
+/**
  * FeatureModels is the model and effort chosen per feature for one provider.
  * An empty model means "use the built-in default" — see llm.DefaultModel. An
  * empty effort means "send none", which leaves the model on its own default.
@@ -144,7 +198,7 @@ export class KeyStatus {
 /**
  * Provider holds non-secret configuration for AI providers.
  * API keys are stored in the OS keyring, NOT here.
- * OllamaURL and AWSRegion are non-secret and remain in settings.
+ * OllamaURL and the AWS Bedrock connection are non-secret and remain in settings.
  */
 export class Provider {
     /**
@@ -161,10 +215,40 @@ export class Provider {
         }
         if (!("aws_region" in $$source)) {
             /**
+             * AWSRegion is the AWS Bedrock region; "" until the user chooses one.
              * @member
              * @type {string}
              */
             this["aws_region"] = "";
+        }
+        if (!("bedrock_auth" in $$source)) {
+            /**
+             * BedrockAuth is how KeyLint connects to AWS Bedrock: llm.BedrockAuthKey
+             * (a Bedrock API key in the keyring; also what "" means) or
+             * llm.BedrockAuthSignIn (this computer's AWS sign-in; nothing stored).
+             * @member
+             * @type {string}
+             */
+            this["bedrock_auth"] = "";
+        }
+        if (!("aws_profile" in $$source)) {
+            /**
+             * AWSProfile names the AWS profile sign-in mode uses; "" is the default
+             * credential chain.
+             * @member
+             * @type {string}
+             */
+            this["aws_profile"] = "";
+        }
+        if (!("bedrock_routing" in $$source)) {
+            /**
+             * BedrockRouting is where AWS may process the text: llm.BedrockRoutingGeo
+             * (the region's geography; also what "" means) or llm.BedrockRoutingGlobal
+             * (anywhere). The user's explicit choice on the AWS Bedrock card.
+             * @member
+             * @type {string}
+             */
+            this["bedrock_routing"] = "";
         }
 
         Object.assign(this, $$source);
@@ -192,7 +276,7 @@ export class Settings {
     constructor($$source = {}) {
         if (!("active_provider" in $$source)) {
             /**
-             * "openai" | "claude" | "openrouter" | "claude-code" | "ollama" | "bedrock"
+             * "openai" | "claude" | "openrouter" | "bedrock" | "claude-code" | "ollama"
              * @member
              * @type {string}
              */

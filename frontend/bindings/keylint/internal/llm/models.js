@@ -7,6 +7,73 @@
 import { Create as $Create } from "@wailsio/runtime";
 
 /**
+ * BedrockRegion is one region the AWS Bedrock card offers.
+ */
+export class BedrockRegion {
+    /**
+     * Creates a new BedrockRegion instance.
+     * @param {Partial<BedrockRegion>} [$$source = {}] - The source object to create the BedrockRegion.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("label" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["label"] = "";
+        }
+        if (!("geography" in $$source)) {
+            /**
+             * Geography is the profile prefix that keeps the text in GeographyName,
+             * or "" where only worldwide routing exists.
+             * @member
+             * @type {string}
+             */
+            this["geography"] = "";
+        }
+        if (!("geography_name" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["geography_name"] = "";
+        }
+        if (!("geo_models" in $$source)) {
+            /**
+             * GeoModels are the models KeyLint knows that can stay in the geography
+             * from this region — empty where there is no geography.
+             * @member
+             * @type {string[]}
+             */
+            this["geo_models"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new BedrockRegion instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {BedrockRegion}
+     */
+    static createFrom($$source = {}) {
+        const $$createField4_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("geo_models" in $$parsedSource) {
+            $$parsedSource["geo_models"] = $$createField4_0($$parsedSource["geo_models"]);
+        }
+        return new BedrockRegion(/** @type {Partial<BedrockRegion>} */($$parsedSource));
+    }
+}
+
+/**
  * ClaudeCodeStatus is what KeyLint can tell about the locally installed CLI.
  * It deliberately carries no account details: `claude auth status` also prints
  * the user's email and organisation, and none of that is KeyLint's business.
@@ -141,7 +208,7 @@ export class ModelList {
      * @returns {ModelList}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType1;
+        const $$createField0_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("models" in $$parsedSource) {
             $$parsedSource["models"] = $$createField0_0($$parsedSource["models"]);
@@ -151,5 +218,6 @@ export class ModelList {
 }
 
 // Private type creation functions
-const $$createType0 = ModelInfo.createFrom;
-const $$createType1 = $Create.Array($$createType0);
+const $$createType0 = $Create.Array($Create.Any);
+const $$createType1 = ModelInfo.createFrom;
+const $$createType2 = $Create.Array($$createType1);

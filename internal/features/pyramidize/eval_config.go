@@ -44,7 +44,9 @@ func evalTarget(getenv func(string) string) (provider, model string) {
 // a key that is never read cannot be the one that answered.
 func evalNeedsAPIKey(providers ...string) bool {
 	for _, p := range providers {
-		if llm.UsesAPIKey(p) {
+		// "" is Bedrock's default mode, a key: an eval configures no Bedrock
+		// connection, so there is no other mode to read.
+		if llm.UsesAPIKey(p, "") {
 			return true
 		}
 	}

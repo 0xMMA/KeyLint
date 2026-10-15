@@ -233,7 +233,7 @@ func (svc *Service) runJudge(settingsSvc *settings.Service, judge JudgeConfig, r
 
 	// Resolve API key upfront so callAISync has no keyring dependency.
 	apiKey := ""
-	if llm.UsesAPIKey(judge.Provider) {
+	if settingsSvc.Get().UsesAPIKey(judge.Provider) {
 		apiKey = settingsSvc.GetKey(judge.Provider)
 	}
 
