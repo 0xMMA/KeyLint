@@ -23,8 +23,8 @@ export class TextEnhancementService {
     return this.wails.cancelOperation();
   }
 
-  sendBack(text: string): Promise<void> {
-    return this.wails.sendBack(text);
+  sendBack(text: string, html: string): Promise<void> {
+    return this.wails.sendBack(text, html);
   }
 
   getSourceApp(): Promise<string> {

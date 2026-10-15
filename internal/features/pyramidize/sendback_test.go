@@ -14,15 +14,17 @@ import (
 
 type fakeClip struct {
 	written []string
+	html    []string
 	err     error
 	events  *[]string
 }
 
-func (c *fakeClip) Write(text string) error {
+func (c *fakeClip) WriteRich(text, html string) error {
 	if c.err != nil {
 		return c.err
 	}
 	c.written = append(c.written, text)
+	c.html = append(c.html, html)
 	record(c.events, "write")
 	return nil
 }
@@ -103,7 +105,7 @@ func TestSendBackPastesOnceIntoTheSourceWindow(t *testing.T) {
 	c := &fakeClip{}
 	svc, _ := newSendBackService(d, c)
 
-	if err := svc.SendBack("hello"); err != nil {
+	if err := svc.SendBack("hello", "<p>hello</p>"); err != nil {
 		t.Fatalf("SendBack: %v", err)
 	}
 	if len(c.written) != 1 || c.written[0] != "hello" {
@@ -121,11 +123,29 @@ func TestSendBackPastesOnceIntoTheSourceWindow(t *testing.T) {
 	}
 }
 
+func TestSendBackPutsTheTextAndItsHTMLOnTheClipboard(t *testing.T) {
+	// Formatted as in the Preview for an app that takes HTML (Outlook, Teams),
+	// the Markdown for every other one.
+	d := &fakeSendBackDesktop{exists: true, activeAfter: 0}
+	c := &fakeClip{}
+	svc, _ := newSendBackService(d, c)
+
+	if err := svc.SendBack("**Bold**", "<p><strong>Bold</strong></p>"); err != nil {
+		t.Fatalf("SendBack: %v", err)
+	}
+	if len(c.written) != 1 || c.written[0] != "**Bold**" {
+		t.Errorf("text written = %q, want [**Bold**]", c.written)
+	}
+	if len(c.html) != 1 || c.html[0] != "<p><strong>Bold</strong></p>" {
+		t.Errorf("html written = %q, want the Preview's HTML", c.html)
+	}
+}
+
 func TestSendBackWaitsForTheWindowToComeForward(t *testing.T) {
 	d := &fakeSendBackDesktop{exists: true, activeAfter: 4}
 	svc, slept := newSendBackService(d, &fakeClip{})
 
-	if err := svc.SendBack("hello"); err != nil {
+	if err := svc.SendBack("hello", "<p>hello</p>"); err != nil {
 		t.Fatalf("SendBack: %v", err)
 	}
 	if d.pastes != 1 {
@@ -141,7 +161,7 @@ func TestSendBackToAClosedWindowPastesNothing(t *testing.T) {
 	c := &fakeClip{}
 	svc, _ := newSendBackService(d, c)
 
-	err := svc.SendBack("hello")
+	err := svc.SendBack("hello", "<p>hello</p>")
 	if !errors.Is(err, errSourceClosed) {
 		t.Fatalf("err = %v, want errSourceClosed", err)
 	}
@@ -160,7 +180,7 @@ func TestSendBackWhenTheFocusIsRefusedPastesNothing(t *testing.T) {
 	d := &fakeSendBackDesktop{exists: true, activeAfter: -1}
 	svc, slept := newSendBackService(d, &fakeClip{})
 
-	err := svc.SendBack("hello")
+	err := svc.SendBack("hello", "<p>hello</p>")
 	if err == nil {
 		t.Fatal("SendBack succeeded without the focus")
 	}
@@ -183,7 +203,7 @@ func TestSendBackWhenTheFocusMovesBeforeThePastePastesNothing(t *testing.T) {
 	d := &fakeSendBackDesktop{exists: true, activeAfter: 0, loseFocusAt: 2}
 	svc, _ := newSendBackService(d, &fakeClip{})
 
-	if err := svc.SendBack("hello"); err == nil {
+	if err := svc.SendBack("hello", "<p>hello</p>"); err == nil {
 		t.Fatal("SendBack succeeded after the focus moved")
 	}
 	if d.pastes != 0 {
@@ -197,7 +217,7 @@ func TestSendBackWithoutASourceWindowPastesNothing(t *testing.T) {
 	svc, _ := newSendBackService(d, c)
 	svc.sourceWindow = silentfix.Window{}
 
-	if err := svc.SendBack("hello"); !errors.Is(err, errNoSourceWindow) {
+	if err := svc.SendBack("hello", "<p>hello</p>"); !errors.Is(err, errNoSourceWindow) {
 		t.Fatalf("err = %v, want errNoSourceWindow", err)
 	}
 	if d.activations != 0 || d.pastes != 0 {
@@ -212,7 +232,7 @@ func TestSendBackReportsAFailedPaste(t *testing.T) {
 	d := &fakeSendBackDesktop{exists: true, activeAfter: 0, pasteErr: errors.New("SendInput failed")}
 	svc, _ := newSendBackService(d, &fakeClip{})
 
-	err := svc.SendBack("hello")
+	err := svc.SendBack("hello", "<p>hello</p>")
 	if err == nil || !strings.Contains(err.Error(), "Couldn't paste into Untitled - Notepad") {
 		t.Fatalf("err = %v, want a paste failure naming the app", err)
 	}
@@ -225,7 +245,7 @@ func TestSendBackStopsWhenTheClipboardWriteFails(t *testing.T) {
 	d := &fakeSendBackDesktop{exists: true, activeAfter: 0}
 	svc, _ := newSendBackService(d, &fakeClip{err: errors.New("OpenClipboard: access denied")})
 
-	if err := svc.SendBack("hello"); err == nil {
+	if err := svc.SendBack("hello", "<p>hello</p>"); err == nil {
 		t.Fatal("SendBack succeeded with a failed clipboard write")
 	}
 	if d.activations != 0 || d.pastes != 0 {
@@ -235,7 +255,7 @@ func TestSendBackStopsWhenTheClipboardWriteFails(t *testing.T) {
 
 func TestSendBackIsNotAvailableInCLIMode(t *testing.T) {
 	svc := NewService(nil, nil)
-	if err := svc.SendBack("hello"); err == nil {
+	if err := svc.SendBack("hello", "<p>hello</p>"); err == nil {
 		t.Fatal("SendBack succeeded without a clipboard")
 	}
 }
@@ -246,7 +266,7 @@ func TestSendBackIgnoresASecondClickWhileRunning(t *testing.T) {
 	svc.sendingBack.Lock()
 	defer svc.sendingBack.Unlock()
 
-	if err := svc.SendBack("hello"); err != nil {
+	if err := svc.SendBack("hello", "<p>hello</p>"); err != nil {
 		t.Fatalf("SendBack: %v", err)
 	}
 	if d.pastes != 0 {
@@ -259,7 +279,7 @@ func TestSendBackWhenTheWindowClosesBeforeThePastePastesNothing(t *testing.T) {
 	d := &fakeSendBackDesktop{exists: true, activeAfter: 0, closeAt: 2}
 	svc, _ := newSendBackService(d, &fakeClip{})
 
-	if err := svc.SendBack("hello"); err == nil {
+	if err := svc.SendBack("hello", "<p>hello</p>"); err == nil {
 		t.Fatal("SendBack succeeded into a closed window")
 	}
 	if d.pastes != 0 {
@@ -271,7 +291,7 @@ func TestSendBackSaysTheTextIsNotOnTheClipboardWhenTheWriteFails(t *testing.T) {
 	d := &fakeSendBackDesktop{exists: true, activeAfter: 0}
 	svc, _ := newSendBackService(d, &fakeClip{err: errors.New("OpenClipboard: access denied")})
 
-	err := svc.SendBack("hello")
+	err := svc.SendBack("hello", "<p>hello</p>")
 	if !errors.Is(err, errClipboardWrite) {
 		t.Fatalf("err = %v, want errClipboardWrite", err)
 	}

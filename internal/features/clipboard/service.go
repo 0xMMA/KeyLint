@@ -79,3 +79,11 @@ func (s *Service) Write(text string) error {
 		"clipboard write failed: no clipboard tool available — install xclip, xsel, or wl-copy (Wayland)",
 	)
 }
+
+// WriteRich writes the text only. Each of xclip, xsel and wl-copy holds one
+// type per call, so offering text and HTML together would take a clipboard
+// owner of KeyLint's own; Linux is a development platform, and the plain text
+// pastes everywhere. Windows writes both (service_windows.go).
+func (s *Service) WriteRich(text, html string) error {
+	return s.Write(text)
+}

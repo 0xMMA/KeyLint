@@ -4,6 +4,8 @@ package clipboard
 
 import (
 	"fmt"
+	"runtime"
+	"sync"
 	"syscall"
 	"unsafe"
 
@@ -27,6 +29,8 @@ var (
 	clipGlobalLock   = clipKernel32.NewProc("GlobalLock")
 	clipGlobalUnlock = clipKernel32.NewProc("GlobalUnlock")
 	clipGlobalFree   = clipKernel32.NewProc("GlobalFree")
+
+	clipRegisterFormat = clipUser32.NewProc("RegisterClipboardFormatW")
 )
 
 const (
@@ -37,6 +41,11 @@ const (
 // Read returns the current clipboard text using the Win32 CF_UNICODETEXT format.
 func (s *Service) Read() (string, error) {
 	logger.Debug("clipboard: Read called")
+	// The open clipboard belongs to the thread that opened it: a goroutine
+	// that moved threads in between would fail to read or close it.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	ret, _, err := clipOpenCB.Call(0)
 	if ret == 0 {
 		logger.Error("clipboard: OpenClipboard failed", "err", err)
@@ -75,11 +84,52 @@ func (s *Service) Read() (string, error) {
 // Write stores text in the clipboard using CF_UNICODETEXT.
 func (s *Service) Write(text string) error {
 	logger.Debug("clipboard: Write called", "len", len(text))
+	return write(text, "")
+}
+
+// WriteRich stores text as CF_UNICODETEXT and html as CF_HTML in one
+// clipboard transaction: an app that takes formatted text (Outlook, Teams, a
+// browser) pastes the HTML, every other app the text. If the HTML cannot be
+// added, the text is still written and the paste comes out plain.
+func (s *Service) WriteRich(text, html string) error {
+	logger.Debug("clipboard: WriteRich called", "len", len(text), "html_len", len(html))
+	return write(text, html)
+}
+
+// htmlFormat is the format id Windows gives "HTML Format", registered once.
+var htmlFormat = sync.OnceValues(func() (uintptr, error) {
+	name, err := syscall.UTF16PtrFromString("HTML Format")
+	if err != nil {
+		return 0, err
+	}
+	id, _, callErr := clipRegisterFormat.Call(uintptr(unsafe.Pointer(name)))
+	if id == 0 {
+		return 0, fmt.Errorf("RegisterClipboardFormat: %w", callErr)
+	}
+	return id, nil
+})
+
+func write(text, html string) error {
 	u16, err := syscall.UTF16FromString(text)
 	if err != nil {
 		return fmt.Errorf("UTF16FromString: %w", err)
 	}
-	byteLen := uintptr(len(u16) * 2)
+	// Prepared before the clipboard is opened, so it is held only to copy.
+	var htmlID uintptr
+	var htmlData []byte
+	if html != "" {
+		if htmlID, err = htmlFormat(); err != nil {
+			logger.Warn("clipboard: HTML format unavailable, writing the text alone", "err", err)
+		} else {
+			htmlData = append(cfHTML(html), 0)
+		}
+	}
+
+	// The open clipboard belongs to the thread that opened it: a goroutine
+	// that moved threads in between would fail to set data or close it, and
+	// could leave the clipboard locked for every other app.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 
 	ret, _, err := clipOpenCB.Call(0)
 	if ret == 0 {
@@ -94,29 +144,41 @@ func (s *Service) Write(text string) error {
 		return fmt.Errorf("EmptyClipboard: %w", err)
 	}
 
-	handle, _, err := clipGlobalAlloc.Call(gmemMoveable, byteLen)
+	// The most descriptive format first: an app that enumerates the formats
+	// takes the first one it knows. The terminating NUL is part of both.
+	if htmlData != nil {
+		if err := setData(htmlID, htmlData); err != nil {
+			logger.Warn("clipboard: HTML not added, the text alone goes on the clipboard", "err", err)
+			htmlData = nil
+		}
+	}
+	if err := setData(cfUnicodeText, unsafe.Slice((*byte)(unsafe.Pointer(&u16[0])), len(u16)*2)); err != nil {
+		logger.Error("clipboard: setting the text failed", "err", err)
+		return err
+	}
+	logger.Debug("clipboard: Write ok", "html", htmlData != nil)
+	return nil
+}
+
+// setData copies data into global memory and hands it to the open clipboard
+// as format. On success Windows owns the memory; on failure it is freed here.
+func setData(format uintptr, data []byte) error {
+	handle, _, err := clipGlobalAlloc.Call(gmemMoveable, uintptr(len(data)))
 	if handle == 0 {
-		logger.Error("clipboard: GlobalAlloc failed", "err", err)
 		return fmt.Errorf("GlobalAlloc: %w", err)
 	}
-
 	ptr, _, err := clipGlobalLock.Call(handle)
 	if ptr == 0 {
 		clipGlobalFree.Call(handle)
-		logger.Error("clipboard: GlobalLock failed", "err", err)
 		return fmt.Errorf("GlobalLock: %w", err)
 	}
-	copy(unsafe.Slice((*uint16)(globalPointer(ptr)), len(u16)), u16)
+	copy(unsafe.Slice((*byte)(globalPointer(ptr)), len(data)), data)
 	clipGlobalUnlock.Call(handle)
 
-	ret, _, err = clipSetCBData.Call(cfUnicodeText, handle)
-	if ret == 0 {
+	if ret, _, err := clipSetCBData.Call(format, handle); ret == 0 {
 		clipGlobalFree.Call(handle)
-		logger.Error("clipboard: SetClipboardData failed", "err", err)
 		return fmt.Errorf("SetClipboardData: %w", err)
 	}
-	// On success Windows owns the handle; do not free.
-	logger.Debug("clipboard: Write ok")
 	return nil
 }
 

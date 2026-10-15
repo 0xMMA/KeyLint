@@ -35,7 +35,9 @@ type sendBackDesktop interface {
 
 // clipboardWriter is the part of the clipboard Send Back uses.
 type clipboardWriter interface {
-	Write(text string) error
+	// WriteRich puts text and its HTML on the clipboard together (the HTML
+	// on Windows only, see clipboard.Service.WriteRich).
+	WriteRich(text, html string) error
 }
 
 // desktop is the real sendBackDesktop: silentfix's desktop plus the
@@ -87,11 +89,16 @@ func appLabel(app string) string {
 // SendBack writes text to the system clipboard and pastes it into the window
 // the Pyramidize shortcut was pressed in.
 //
+// html is the text as the Preview renders it. It goes on the clipboard next
+// to the text, so an app that takes formatted text (Outlook, Teams) pastes
+// bold and lists rather than raw Markdown, and any other app pastes the text
+// (owner decision 2026-10-11, roadmap E8).
+//
 // The clipboard is written first, so whatever goes wrong afterwards the text
 // is there to paste by hand, and every error says so. The paste goes to the
 // source window only: if it is closed, or does not come to the foreground, or
 // loses the foreground before the keystroke, nothing is pasted anywhere.
-func (svc *Service) SendBack(text string) error {
+func (svc *Service) SendBack(text, html string) error {
 	if svc.clipboard == nil || svc.desktop == nil {
 		return fmt.Errorf("SendBack is not available in CLI mode")
 	}
@@ -109,7 +116,7 @@ func (svc *Service) SendBack(text string) error {
 	// The title can name a document or an email subject: redacted like user text.
 	logger.Info("pyramidize: send back start", "window", source.Handle, "pid", source.PID, "title", logger.Redact(app))
 
-	if err := svc.clipboard.Write(text); err != nil {
+	if err := svc.clipboard.WriteRich(text, html); err != nil {
 		logger.Warn("pyramidize: send back clipboard write failed", "err", err)
 		return errClipboardWrite
 	}
