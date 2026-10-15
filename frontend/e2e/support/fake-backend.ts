@@ -67,8 +67,23 @@ export const CLI_ALIASES: ModelEntry[] = [
   { id: 'fable', label: 'Fable (latest)', resolved: '' },
 ];
 
+/**
+ * A slice of OpenRouter's public catalogue as ListModels hands it over: its
+ * names, explicit vendor/model IDs, no alias (internal/llm/openrouter.go).
+ */
+export const OPENROUTER_MODELS: ModelEntry[] = [
+  { id: 'anthropic/claude-haiku-5.5', label: 'Anthropic: Claude Haiku 5.5', resolved: '' },
+  { id: 'anthropic/claude-sonnet-5.5', label: 'Anthropic: Claude Sonnet 5.5', resolved: '' },
+  { id: 'anthropic/claude-opus-5.5', label: 'Anthropic: Claude Opus 5.5', resolved: '' },
+  { id: 'openai/gpt-6-luna', label: 'OpenAI: GPT-6 Luna', resolved: '' },
+  { id: 'openai/gpt-6-astra', label: 'OpenAI: GPT-6 Astra', resolved: '' },
+  { id: 'google/gemini-3.8-flash', label: 'Google: Gemini 3.8 Flash', resolved: '' },
+  { id: 'deepseek/deepseek-v4.1-flash', label: 'DeepSeek: DeepSeek V4.1 Flash', resolved: '' },
+  { id: 'meta-llama/llama-5-70b-instruct:free', label: 'Meta: Llama 5 70B Instruct (free)', resolved: '' },
+];
+
 /** What the real SetActiveProvider accepts; see selectableProviders in settings/service.go. */
-const SELECTABLE_PROVIDERS = ['openai', 'claude', 'claude-code', 'ollama'];
+const SELECTABLE_PROVIDERS = ['openai', 'claude', 'openrouter', 'claude-code', 'ollama'];
 
 export const BASE_SETTINGS: Record<string, unknown> = {
   active_provider: 'claude',

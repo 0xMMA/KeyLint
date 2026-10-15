@@ -113,6 +113,7 @@ interface ProviderKey {
                   [fixEffort]="effortFor(active, 'fix')"
                   [pyramidizeEffort]="effortFor(active, 'pyramidize')"
                   [editable]="allowsFreeText(active)"
+                  [searchable]="searchesModels(active)"
                   [note]="modelListNote(active)"
                   [showEffort]="effortNoteFor(active) !== null"
                   [effortNote]="effortNoteFor(active)"
@@ -280,7 +281,7 @@ interface ProviderKey {
                 }
                 <p sectionFooter class="detail-hint">
                   Keys are stored in your OS keyring (Windows Credential Manager, libsecret on Linux).
-                  Environment variables (<code>OPENAI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>) take priority and cannot be overridden here.
+                  Environment variables (<code>OPENAI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>, <code>OPENROUTER_API_KEY</code>) take priority and cannot be overridden here.
                 </p>
               </app-settings-section>
               @if (keyError) {
@@ -426,6 +427,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   providerKeys: ProviderKey[] = [
     { id: 'openai', status: null, editing: false, draftKey: '', saving: false },
     { id: 'claude', status: null, editing: false, draftKey: '', saving: false },
+    { id: 'openrouter', status: null, editing: false, draftKey: '', saving: false },
   ];
 
   constructor(
@@ -736,8 +738,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
   /** Whether Fix will ask its model on this provider not to reason first. */
   fixSkipsReasoningFor(provider: string): boolean {
     if (this.effortFor(provider, 'fix') !== '') return false;
-    const model = this.modelFor(provider, 'fix') || (provider === 'claude' || provider === 'openai'
-      ? this.defaultModelId(provider, 'fix') : '');
+    // fixSkipsReasoning knows which providers have the switch at all.
+    const model = this.modelFor(provider, 'fix') || this.defaultModelId(provider, 'fix');
     return fixSkipsReasoning(provider, model);
   }
 
@@ -754,6 +756,15 @@ export class SettingsComponent implements OnInit, OnDestroy {
    */
   allowsFreeText(provider: string): boolean {
     return provider !== 'claude-code';
+  }
+
+  /**
+   * Whether typing in a model field also searches the list. OpenRouter's
+   * catalogue runs to ~450 entries, which nobody scrolls; the other lists are
+   * short enough to read, and keep the picker they had.
+   */
+  searchesModels(provider: string): boolean {
+    return provider === 'openrouter';
   }
 
   /**

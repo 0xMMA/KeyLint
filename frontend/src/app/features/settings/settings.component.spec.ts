@@ -1099,7 +1099,7 @@ describe('SettingsComponent — which provider is in use', () => {
 
     const cards = Array.from(el.querySelectorAll('[data-testid^="provider-card-"]'))
       .map(c => c.getAttribute('data-testid'));
-    expect(cards).toEqual(['provider-card-openai', 'provider-card-claude', 'provider-card-claude-code', 'provider-card-ollama']);
+    expect(cards).toEqual(['provider-card-openai', 'provider-card-claude', 'provider-card-openrouter', 'provider-card-claude-code', 'provider-card-ollama']);
   });
 
   it('switches with one click, saving only the provider', async () => {
@@ -1716,5 +1716,115 @@ describe('SettingsComponent — theme', () => {
     expect(wailsMock.saveSettings).toHaveBeenCalledWith(
       expect.objectContaining({ theme_preference: 'light' }),
     );
+  });
+});
+
+describe('SettingsComponent — OpenRouter', () => {
+  let fixture: ComponentFixture<SettingsComponent>;
+  let component: SettingsComponent;
+  let el: HTMLElement;
+  let wailsMock: ReturnType<typeof createWailsMock>;
+
+  /** OpenRouter's catalogue as ListModels hands it over: its names, explicit IDs. */
+  const CATALOGUE = [
+    { id: 'anthropic/claude-haiku-5.5', label: 'Anthropic: Claude Haiku 5.5', resolved: '' },
+    { id: 'anthropic/claude-sonnet-5.5', label: 'Anthropic: Claude Sonnet 5.5', resolved: '' },
+    { id: 'openai/gpt-6-luna', label: 'OpenAI: GPT-6 Luna', resolved: '' },
+    { id: 'google/gemini-3.8-flash', label: 'Google: Gemini 3.8 Flash', resolved: '' },
+  ];
+
+  async function render(opts: { active?: string; key?: KeyStatus } = {}): Promise<void> {
+    TestBed.resetTestingModule();
+    const settings = { ...defaultSettings, active_provider: opts.active ?? 'openrouter', models: {} };
+    wailsMock = createWailsMock();
+    wailsMock.loadSettings.mockResolvedValue(structuredClone(settings));
+    wailsMock.getKeyStatus.mockImplementation(async (p: string) =>
+      p === 'openrouter' && opts.key ? opts.key : { ...defaultKeyStatus });
+    // The catalogue is public, so it is live whether or not a key is set.
+    wailsMock.listModels.mockImplementation(async (p: string) =>
+      p === 'openrouter' ? { models: CATALOGUE, source: 'live' } : { ...defaultModelList });
+
+    await TestBed.configureTestingModule({
+      imports: [SettingsComponent],
+      providers: [
+        { provide: WailsService, useValue: wailsMock },
+        { provide: ActivatedRoute, useValue: makeActivatedRoute('providers') },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(SettingsComponent);
+    component = fixture.componentInstance;
+    component.settings = structuredClone(settings);
+    el = fixture.nativeElement;
+    fixture.detectChanges();
+    await component.ngOnInit();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  const q = (testid: string) => el.querySelector<HTMLElement>(`[data-testid="${testid}"]`);
+  const listed = () => Array.from(document.querySelectorAll('.cdk-overlay-container [role="option"] .kl-option-label'))
+    .map(l => l.textContent?.trim());
+
+  it('has a connection card that takes a key, like the other API providers', async () => {
+    await render({ active: 'openai' });
+
+    expect(wailsMock.getKeyStatus).toHaveBeenCalledWith('openrouter');
+    expect(wailsMock.listModels).toHaveBeenCalledWith('openrouter');
+    expect(q('provider-heading-openrouter')?.textContent).toContain('OpenRouter');
+    expect(q('key-status-openrouter')?.textContent).toContain('No key yet');
+    expect(q('key-edit-openrouter')).not.toBeNull();
+  });
+
+  it('names OPENROUTER_API_KEY when the key comes from the environment', async () => {
+    await render({ active: 'openai', key: { is_set: true, source: 'env' } });
+
+    expect(q('key-env-hint-openrouter')?.textContent).toContain('OPENROUTER_API_KEY');
+    expect(q('key-edit-openrouter')).toBeNull();
+  });
+
+  it('saves a pasted key to the keyring and lists again', async () => {
+    await render({ active: 'openai' });
+    const pk = component.keyFor('openrouter')!;
+    pk.draftKey = 'sk-or-v1-test';
+    wailsMock.getKeyStatus.mockResolvedValue({ is_set: true, source: 'keyring' });
+    await component.saveKey(pk);
+
+    expect(wailsMock.setKey).toHaveBeenCalledWith('openrouter', 'sk-or-v1-test');
+    expect(pk.status?.is_set).toBe(true);
+  });
+
+  // The catalogue needs no key, so the picker is the real one before the user
+  // has pasted theirs. What it must not do is suggest that the key is fine.
+  it('in use without a key: the catalogue is there, and the missing key is still named', async () => {
+    await render();
+
+    expect(q('active-provider-name')?.textContent).toContain('OpenRouter');
+    expect(q('provider-not-ready-openrouter')?.textContent).toContain('no API key is set');
+    const note = q('models-note-openrouter')?.textContent ?? '';
+    expect(note).toContain("OpenRouter's");
+    expect(note).toMatch(/account/);
+    expect(q('model-fix-openrouter')!.querySelector('input')!.placeholder).toBe('Default: Anthropic: Claude Haiku 5.5');
+    expect(q('model-pyramidize-openrouter')!.querySelector('input')!.placeholder).toBe('Default: Anthropic: Claude Sonnet 5.5');
+  });
+
+  it('searches the catalogue as you type', async () => {
+    await render({ key: { is_set: true, source: 'keyring' } });
+    const input = q('model-pyramidize-openrouter')!.querySelector('input')!;
+    input.value = 'gpt luna';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    expect(listed()).toEqual(['OpenAI: GPT-6 Luna']);
+    document.querySelector<HTMLElement>('.cdk-overlay-container [role="option"]')!.click();
+    fixture.detectChanges();
+    expect(component.modelFor('openrouter', 'pyramidize')).toBe('openai/gpt-6-luna');
+  });
+
+  it('says Fix asks the default Haiku not to reason, and offers effort', async () => {
+    await render({ key: { is_set: true, source: 'keyring' } });
+
+    expect(q('fix-fast-note')?.textContent).toContain('Anthropic: Claude Haiku 5.5');
+    expect(q('effort-fix-openrouter')).not.toBeNull();
+    expect(q('effort-note')?.textContent).toMatch(/reasoning/);
   });
 });

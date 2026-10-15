@@ -1,7 +1,7 @@
 import { Component, computed, input, output, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { SelectComponent, TagComponent } from '../../../shared/ui';
-import { EFFORT_OPTIONS, Feature, ModelOption } from '../model-options';
+import { DEFAULT_MODELS, EFFORT_OPTIONS, Feature, ModelOption } from '../model-options';
 
 /** A model or effort the user picked, for the settings page to store. */
 export interface FeatureChoice {
@@ -69,6 +69,7 @@ const FEATURES: readonly FeatureRow[] = [
               [attr.data-testid]="'model-' + f.key + '-' + providerId()"
               [ariaLabelledBy]="'feature-' + f.key + ' in-use-model-label'"
               [editable]="editable()"
+              [filter]="searchable()"
               [options]="optionsFor(f.key)"
               optionLabel="label"
               optionValue="id"
@@ -159,6 +160,8 @@ export class ActiveProviderComponent {
   readonly pyramidizeEffort = input('');
   /** Whether a model outside the list can be typed. */
   readonly editable = input(true);
+  /** Whether typing in a model field also searches its list: for a catalogue too long to scroll (OpenRouter). */
+  readonly searchable = input(false);
   /** Where the list came from, when that needs saying; see noteForModelSource. */
   readonly note = input('');
   /** Whether this provider does anything with effort. */
@@ -197,11 +200,14 @@ export class ActiveProviderComponent {
   /**
    * The muted line under a picker: the model an alias — chosen, or standing
    * behind the default — resolves to today, where the listing says. The picker
-   * itself already names the alias, so this adds only the ID.
+   * itself already names the alias, so this adds only the ID. A model ID that
+   * is not an alias (OpenRouter's default is one) resolves to itself and gets
+   * no line: "now" would promise a move it never makes.
    */
   effective(feature: Feature): string {
     const value = this.modelFor(feature) || null;
     const option = this.optionsFor(feature).find(o => o.id === value);
-    return option?.secondary && option.secondary !== value ? `Now ${option.secondary}` : '';
+    const id = value ?? DEFAULT_MODELS[this.providerId()]?.[feature];
+    return option?.secondary && option.secondary !== id ? `Now ${option.secondary}` : '';
   }
 }

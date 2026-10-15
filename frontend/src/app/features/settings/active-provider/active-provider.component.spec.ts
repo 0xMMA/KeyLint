@@ -70,6 +70,18 @@ describe('ActiveProviderComponent', () => {
     expect(q('model-effective-pyramidize')).toBeNull();
   });
 
+  // "Now …" says which model an alias stands for today. OpenRouter's default
+  // is an explicit ID that never moves, so the line would suggest an alias
+  // the owner decided against (2026-10-15).
+  it('says nothing about "now" for a default that is an explicit ID, as on OpenRouter', async () => {
+    const catalogue: ModelOption[] = [
+      { id: null, label: '', display: 'Default: Anthropic: Claude Haiku 5.5', secondary: 'anthropic/claude-haiku-5.5' },
+      { id: 'anthropic/claude-haiku-5.5', label: 'anthropic/claude-haiku-5.5', display: 'Anthropic: Claude Haiku 5.5', secondary: 'anthropic/claude-haiku-5.5' },
+    ];
+    await render({ providerId: 'openrouter', fixOptions: catalogue, pyramidizeOptions: catalogue });
+    expect(q('model-effective-fix')).toBeNull();
+  });
+
   it('hides effort where the provider has nothing to send it to', async () => {
     await render({ showEffort: false });
     expect(q('effort-fix-claude')).toBeNull();
@@ -81,6 +93,33 @@ describe('ActiveProviderComponent', () => {
   it('names the Fix model in the no-reasoning note without the "Default:" prefix', async () => {
     await render({ fixFastNote: true });
     expect(q('fix-fast-note')?.textContent).toContain('Fix asks Haiku (latest) to answer');
+  });
+
+  /** The labels of the open list's options, in the overlay on <body>. */
+  const listed = () => Array.from(document.querySelectorAll('.cdk-overlay-container [role="option"] .kl-option-label'))
+    .map(l => l.textContent?.trim());
+
+  function typeInto(testid: string, text: string): void {
+    const input = q(testid)!.querySelector('input')!;
+    input.value = text;
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+  }
+
+  // OpenRouter lists ~450 models; finding one means typing part of its name.
+  it('searches the model list as you type where the provider asks for that', async () => {
+    await render({ searchable: true });
+    typeInto('model-fix-claude', 'sonnet 4.6');
+    expect(listed()).toEqual(['Claude Sonnet 4.6']);
+  });
+
+  it('leaves the other pickers as they were: typing does not narrow their list', async () => {
+    await render({});
+    typeInto('model-fix-claude', 'sonnet 4.6');
+    expect(listed()).toEqual([]);
+    q('model-fix-claude')!.querySelector('button')!.click();
+    fixture.detectChanges();
+    expect(listed().length).toBe(OPTIONS.length);
   });
 
   it('reports a chosen default as an empty value, never as null', async () => {
