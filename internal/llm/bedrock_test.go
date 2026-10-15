@@ -40,6 +40,9 @@ func isolateAWS(t *testing.T) string {
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
 	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+	// A sign-in config cached by one test must not sign another's requests.
+	forgetAWSConfigs()
+	t.Cleanup(forgetAWSConfigs)
 	for _, v := range []string{
 		"AWS_PROFILE", "AWS_DEFAULT_PROFILE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
 		"AWS_SESSION_TOKEN", "AWS_BEARER_TOKEN_BEDROCK", "AWS_REGION", "AWS_DEFAULT_REGION",
@@ -344,9 +347,16 @@ func TestBedrockInvokeID(t *testing.T) {
 		{"anthropic.claude-haiku-5-5", "ap-northeast-3", BedrockRoutingGeo, "jp.anthropic.claude-haiku-5-5", nil},
 		// Worldwide, chosen.
 		{"anthropic.claude-haiku-5-5", "eu-central-1", BedrockRoutingGlobal, "global.anthropic.claude-haiku-5-5", nil},
-		// A region with no geography offers only worldwide; the card says so.
-		{"anthropic.claude-haiku-5-5", "ap-south-1", BedrockRoutingGeo, "global.anthropic.claude-haiku-5-5", nil},
-		{"anthropic.claude-sonnet-5-5", "sa-east-1", "", "global.anthropic.claude-sonnet-5-5", nil},
+		// A region with no geography offers only worldwide routing, and only
+		// when the user chose it: "keep" there is refused, never quietly
+		// turned into worldwide.
+		{"anthropic.claude-haiku-5-5", "ap-south-1", BedrockRoutingGeo, "", ErrBedrockRoute},
+		{"anthropic.claude-sonnet-5-5", "sa-east-1", "", "", ErrBedrockRoute},
+		{"anthropic.claude-haiku-5-5", "ap-south-1", BedrockRoutingGlobal, "global.anthropic.claude-haiku-5-5", nil},
+		// A region this build does not list: its name decides, by the same rule.
+		{"anthropic.claude-haiku-5-5", "eu-central-3", BedrockRoutingGeo, "eu.anthropic.claude-haiku-5-5", nil},
+		{"anthropic.claude-haiku-5-5", "ca-east-9", BedrockRoutingGeo, "us.anthropic.claude-haiku-5-5", nil},
+		{"anthropic.claude-haiku-5-5", "ap-east-9", BedrockRoutingGeo, "", ErrBedrockRoute},
 		// A known model with no route that stays: refused, never quietly global.
 		{"anthropic.claude-sonnet-5-5", "ap-northeast-1", BedrockRoutingGeo, "", ErrBedrockRoute},
 		{"anthropic.claude-haiku-4-5-20251001-v1:0", "ca-west-1", BedrockRoutingGeo, "", ErrBedrockRoute},
@@ -373,6 +383,33 @@ func TestBedrockInvokeID(t *testing.T) {
 		}
 		if err != nil || got != tc.want {
 			t.Errorf("BedrockInvokeID(%q, %q, %q) = %q, %v; want %q", tc.model, tc.region, tc.routing, got, err, tc.want)
+		}
+	}
+}
+
+func TestBedrockWorldwideOnlyRegionNamesTheRegion(t *testing.T) {
+	_, err := BedrockInvokeID("anthropic.claude-haiku-5-5", "ap-south-1", BedrockRoutingGeo)
+	for _, want := range []string{"Asia Pacific (Mumbai)", "only through worldwide routing", "Worldwide", "nothing was sent"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("error %v does not mention %q", err, want)
+		}
+	}
+}
+
+func TestBedrockRoutable(t *testing.T) {
+	for _, tc := range []struct {
+		region, routing string
+		want            bool
+	}{
+		{"eu-central-1", BedrockRoutingGeo, true},
+		{"eu-central-1", BedrockRoutingGlobal, true},
+		{"ap-south-1", BedrockRoutingGeo, false},
+		{"ap-south-1", "", false},
+		{"ap-south-1", BedrockRoutingGlobal, true},
+		{"", BedrockRoutingGlobal, false},
+	} {
+		if got := BedrockRoutable(tc.region, tc.routing); got != tc.want {
+			t.Errorf("BedrockRoutable(%q, %q) = %v, want %v", tc.region, tc.routing, got, tc.want)
 		}
 	}
 }
@@ -433,12 +470,12 @@ func TestBedrockErrorWording(t *testing.T) {
 		{
 			name: "403 without access names model, region and the console", cfg: keyModeConfig,
 			status: http.StatusForbidden, errorType: "AccessDeniedException:http://internal.amazon.com/coral/com.amazon.bedrock/",
-			want: []string{"AWS Bedrock error 403", "eu.anthropic.claude-haiku-5-5", "eu-central-1", "Model access", "bedrock:InvokeModel"},
+			want: []string{"AWS Bedrock error 403", "eu.anthropic.claude-haiku-5-5", "eu-central-1", "Bedrock console", "use-case form", "bedrock:InvokeModel"},
 		},
 		{
 			name: "a 403 of unknown type reads as access", cfg: keyModeConfig,
 			status: http.StatusForbidden,
-			want:   []string{"AWS Bedrock error 403", "eu.anthropic.claude-haiku-5-5", "Model access"},
+			want:   []string{"AWS Bedrock error 403", "eu.anthropic.claude-haiku-5-5", "Bedrock console"},
 		},
 		{
 			name: "a rejected key in key mode", cfg: keyModeConfig,
@@ -760,4 +797,153 @@ func (s staticCreds) Retrieve(context.Context) (aws.Credentials, error) {
 
 func bedrockSDKStaticToken(v string) *bearer.StaticTokenProvider {
 	return &bearer.StaticTokenProvider{Token: bearer.Token{Value: v}}
+}
+
+// TestBedrockRetriesWhenBedrockRefusesOutputConfig: Bedrock's own validation
+// may refuse the field by name ("extraneous key [output_config] is not
+// permitted") rather than the option; that is the same refusal, retried the
+// same way. Unverified against a live call: the wording is a guess, so both
+// shapes are matched.
+func TestBedrockRetriesWhenBedrockRefusesOutputConfig(t *testing.T) {
+	for _, body := range []string{
+		`{"message":"extraneous key [output_config] is not permitted"}`,
+		`{"message":"Malformed input request: #: extraneous key [thinking] is not permitted, please reformat your input and try again."}`,
+	} {
+		isolateAWS(t)
+		var mu sync.Mutex
+		hits := 0
+		url := newRawServer(t, func(w http.ResponseWriter, r *http.Request) {
+			raw, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			hits++
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			if strings.Contains(string(raw), "output_config") || strings.Contains(string(raw), `"thinking"`) {
+				w.WriteHeader(http.StatusBadRequest)
+				io.WriteString(w, body)
+				return
+			}
+			io.WriteString(w, bedrockReply)
+		})
+		if _, err := newBedrock(keyModeConfig(url)).Complete(context.Background(), Request{
+			User: "x", Model: "anthropic.claude-haiku-5-5", MaxTokens: 64, Effort: EffortLow,
+		}); err != nil {
+			t.Errorf("body %s: %v", body, err)
+		}
+		if hits != 2 {
+			t.Errorf("body %s: hits = %d, want a retry", body, hits)
+		}
+	}
+}
+
+// TestBedrockSignInConfigIsReused: an SSO or assume-role profile costs a
+// round trip to AWS for credentials, and a hotkey fix should not pay it every
+// time. The loaded config (with its credential cache) is reused per region
+// and profile, and dropped when the sign-in or the call says it is no good.
+func TestBedrockSignInConfigIsReused(t *testing.T) {
+	isolateAWS(t)
+	t.Setenv("AWS_ACCESS_KEY_ID", "AKIDTEST")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "s")
+	loads := 0
+	original := loadAWSConfig
+	t.Cleanup(func() { loadAWSConfig = original })
+	loadAWSConfig = func(ctx context.Context, opts ...func(*config.LoadOptions) error) (aws.Config, error) {
+		loads++
+		return original(ctx, opts...)
+	}
+	status := http.StatusOK
+	url := newRawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if status != http.StatusOK {
+			w.Header().Set("X-Amzn-Errortype", "UnrecognizedClientException")
+			w.WriteHeader(status)
+			io.WriteString(w, `{"message":"bad"}`)
+			return
+		}
+		io.WriteString(w, bedrockReply)
+	})
+	call := func(cfg Config) error {
+		_, err := newBedrock(cfg).Complete(context.Background(), Request{User: "x", Model: "anthropic.claude-haiku-5-5", MaxTokens: 8})
+		return err
+	}
+	cfg := signInConfig(url)
+	for i := 0; i < 3; i++ {
+		if err := call(cfg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if loads != 1 {
+		t.Errorf("loads = %d after three calls, want 1", loads)
+	}
+	// Another profile is another sign-in.
+	other := cfg
+	other.Bedrock.Profile = "default"
+	writeAWSFile(t, "AWS_SHARED_CREDENTIALS_FILE", "[default]\naws_access_key_id = AKIDDEFAULT\naws_secret_access_key = s\n")
+	if err := call(other); err != nil {
+		t.Fatal(err)
+	}
+	if loads != 2 {
+		t.Errorf("loads = %d, want a load for the other profile", loads)
+	}
+	// Credentials refused: the next call loads afresh (after aws sso login).
+	status = http.StatusForbidden
+	if err := call(cfg); err == nil {
+		t.Fatal("want the 403")
+	}
+	status = http.StatusOK
+	if err := call(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if loads != 3 {
+		t.Errorf("loads = %d, want the refused sign-in loaded again", loads)
+	}
+}
+
+// TestBedrockCredentialFailureMidCallIsASignInError: credentials that were
+// good a moment ago can fail when the signing step fetches them again. That
+// is a sign-in problem, worded as one — never a "request failed" carrying the
+// AWS SDK's text (account IDs, ARNs).
+func TestBedrockCredentialFailureMidCallIsASignInError(t *testing.T) {
+	isolateAWS(t)
+	original := loadAWSConfig
+	t.Cleanup(func() { loadAWSConfig = original })
+	creds := &flakyCreds{}
+	loadAWSConfig = func(context.Context, ...func(*config.LoadOptions) error) (aws.Config, error) {
+		return aws.Config{Region: "eu-central-1", Credentials: creds}, nil
+	}
+	var got capture
+	srv := newServer(t, &got, http.StatusOK, bedrockReply)
+	_, err := newBedrock(signInConfig(srv.URL)).Complete(context.Background(), Request{User: "x", Model: "anthropic.claude-haiku-5-5", MaxTokens: 8})
+	if !errors.Is(err, ErrAWSSignIn) {
+		t.Fatalf("err = %v, want ErrAWSSignIn", err)
+	}
+	if strings.Contains(err.Error(), "arn:aws:iam") {
+		t.Errorf("the AWS SDK's text reached the error: %v", err)
+	}
+	if got.hits != 0 {
+		t.Errorf("hits = %d, want none", got.hits)
+	}
+}
+
+// flakyCreds answers the first Retrieve and fails every later one, as an
+// expiring role session might between the check and the signing.
+type flakyCreds struct{ n int }
+
+func (f *flakyCreds) Retrieve(context.Context) (aws.Credentials, error) {
+	f.n++
+	if f.n == 1 {
+		return aws.Credentials{AccessKeyID: "AKIDONCE", SecretAccessKey: "s", Source: "test"}, nil
+	}
+	return aws.Credentials{}, errors.New("AccessDenied: User: arn:aws:iam::123456789012:user/alice is not authorized")
+}
+
+func TestBedrockSSOAdviceQuotesAProfileWithSpaces(t *testing.T) {
+	isolateAWS(t)
+	writeAWSFile(t, "AWS_CONFIG_FILE", "[profile my corp]\nsso_start_url = https://example.awsapps.com/start\nsso_region = eu-central-1\nsso_account_id = 123456789012\nsso_role_name = Writer\n")
+	cfg := signInConfig("http://127.0.0.1:1")
+	cfg.Bedrock.Profile = "my corp"
+	_, err := newBedrock(cfg).Complete(context.Background(), Request{User: "x", Model: "anthropic.claude-haiku-5-5", MaxTokens: 8})
+	if err == nil || !strings.Contains(err.Error(), `aws sso login --profile "my corp"`) {
+		t.Errorf("err = %v, want the profile quoted", err)
+	}
 }

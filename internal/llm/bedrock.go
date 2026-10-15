@@ -8,7 +8,10 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/bedrock"
@@ -251,13 +254,41 @@ func bedrockGeography(region string) (geo, name string) {
 	case strings.HasPrefix(region, "us-gov-"):
 		return "", ""
 	case strings.HasPrefix(region, "eu-"):
-		geo = "eu"
-	case strings.HasPrefix(region, "us-"), strings.HasPrefix(region, "ca-"):
-		geo = "us"
+		return "eu", geoNames["eu"]
+	case strings.HasPrefix(region, "ca-"):
+		// The us. profile may keep a call in its Canadian source region.
+		return "us", "the US and Canada"
+	case strings.HasPrefix(region, "us-"):
+		return "us", geoNames["us"]
 	default:
 		return "", ""
 	}
-	return geo, geoNames[geo]
+}
+
+// bedrockRegionLabel is how a region is named to the user: its AWS name where
+// this build lists it, else its code.
+func bedrockRegionLabel(region string) string {
+	for _, r := range bedrockRegions {
+		if r.id == region {
+			return r.label
+		}
+	}
+	return region
+}
+
+// BedrockRoutable reports whether a call from region can go out with this
+// routing: worldwide always, "keep" only where the region has a geography.
+// Whether a particular model can stay there is BedrockInvokeID's to say.
+func BedrockRoutable(region, routing string) bool {
+	region = strings.TrimSpace(region)
+	if region == "" {
+		return false
+	}
+	if routing == BedrockRoutingGlobal {
+		return true
+	}
+	geo, _ := bedrockGeography(region)
+	return geo != ""
 }
 
 // BedrockInvokeID is the model ID a request goes to: the stored ID with the
@@ -265,11 +296,12 @@ func bedrockGeography(region string) (geo, name string) {
 //
 // An ID that already carries a routing prefix, or is an ARN (an application
 // inference profile), is the user's own choice of route and is sent
-// unchanged. Worldwide adds global.; geo adds the region's geography. A region
-// with no geography offers only worldwide routing, and the AWS Bedrock card
-// says so where the region is chosen. A model KeyLint knows that has no
-// profile for the geography is refused rather than quietly sent worldwide: the
-// user chose to keep the text there.
+// unchanged; the AWS Bedrock card says where such a model's calls may go.
+// Worldwide adds global.; geo adds the region's geography. Text goes
+// worldwide only when the user chose Worldwide: "keep" in a region with no
+// geography is refused (the card offers that region Worldwide alone, to be
+// chosen), and so is a model KeyLint knows that has no profile for the
+// geography.
 func BedrockInvokeID(model, region, routing string) (string, error) {
 	model = strings.TrimSpace(model)
 	region = strings.TrimSpace(region)
@@ -277,7 +309,7 @@ func BedrockInvokeID(model, region, routing string) (string, error) {
 		return "", fmt.Errorf("%s: %w", bedrockProvider.name, ErrBedrockNoRegion)
 	}
 	if !ValidBedrockRegion(region) {
-		return "", fmt.Errorf("%s: %q is not an AWS region — choose one on the AWS Bedrock card in Settings › AI providers", bedrockProvider.name, region)
+		return "", &badRegionError{region: region}
 	}
 	if strings.HasPrefix(model, "arn:") {
 		return model, nil
@@ -290,7 +322,7 @@ func BedrockInvokeID(model, region, routing string) (string, error) {
 	}
 	geo, name := bedrockGeography(region)
 	if geo == "" {
-		return "global." + model, nil
+		return "", &bedrockRouteError{where: bedrockRegionLabel(region), worldwideOnly: true}
 	}
 	if m, known := findBedrockModel(model); known && !m.staysIn(geo, region) {
 		return "", &bedrockRouteError{model: m.label, where: name}
@@ -298,10 +330,28 @@ func BedrockInvokeID(model, region, routing string) (string, error) {
 	return geo + "." + model, nil
 }
 
+// badRegionError is a region that is not a region code — a hand-edited
+// settings file. It counts as ErrBedrockNoRegion: there is no usable region.
+type badRegionError struct{ region string }
+
+func (e *badRegionError) Error() string {
+	return fmt.Sprintf("%s: %q is not an AWS region — choose one on the AWS Bedrock card in Settings › AI providers", bedrockProvider.name, e.region)
+}
+
+func (e *badRegionError) Is(target error) bool { return target == ErrBedrockNoRegion }
+
 // bedrockRouteError is ErrBedrockRoute with the model and the place named.
-type bedrockRouteError struct{ model, where string }
+type bedrockRouteError struct {
+	model, where string
+	// worldwideOnly: the region itself has no geography to keep the text in.
+	worldwideOnly bool
+}
 
 func (e *bedrockRouteError) Error() string {
+	if e.worldwideOnly {
+		return fmt.Sprintf("%s: in %s AWS serves these models only through worldwide routing, and Worldwide is not chosen, so nothing was sent — choose Worldwide on the AWS Bedrock card in Settings › AI providers, or a region that keeps the text in one place",
+			bedrockProvider.name, e.where)
+	}
 	return fmt.Sprintf("%s: %s cannot be kept in %s on Bedrock, so nothing was sent — choose Worldwide on the AWS Bedrock card in Settings › AI providers, or another model",
 		bedrockProvider.name, e.model, e.where)
 }
@@ -369,10 +419,6 @@ func (c *bedrockClient) Complete(ctx context.Context, req Request) (Response, er
 	if err != nil {
 		return Response{}, err
 	}
-	if geo, _ := bedrockGeography(region); geo == "" && !b.global() && model != strings.TrimSpace(req.Model) {
-		logger.Info("llm: this region offers only worldwide routing", "feature", c.cfg.Feature,
-			"provider", bedrockProvider.id, "region", region, "model", model)
-	}
 
 	effort := req.Effort
 	if effort != "" && !IsEffortLevel(effort) {
@@ -410,11 +456,92 @@ func (c *bedrockClient) Complete(ctx context.Context, req Request) (Response, er
 		effort:     effort,
 		noThinking: noThinking,
 		client:     func(a *httpAttempts) anthropic.Client { return c.client(awsCfg, a) },
+		rejected:   bedrockRejectedOption,
 		mapError: func(attempts *httpAttempts, err error) error {
-			return mapBedrockError(attempts, model, region, b.signIn(), err)
+			return mapBedrockError(attempts, model, region, b.signIn(), strings.TrimSpace(b.Profile), err)
 		},
 	}
-	return call.run(ctx, c.cfg, req)
+	resp, err := call.run(ctx, c.cfg, req)
+	if err != nil && b.signIn() && signInRefused(err) {
+		// After aws sso login (or a fixed profile) the next call must load
+		// the configuration afresh, not reuse the one that just failed.
+		forgetAWSConfig(region, b.Profile)
+	}
+	return resp, err
+}
+
+// signInRefused reports whether a failure says the AWS sign-in is no good:
+// it could not be used, or AWS refused the credentials it gave.
+func signInRefused(err error) bool {
+	var status *StatusError
+	return errors.Is(err, ErrAWSSignIn) ||
+		(errors.As(err, &status) && (status.Status == http.StatusUnauthorized || status.Status == http.StatusForbidden))
+}
+
+// bedrockRejectedOption is rejectedOption, plus the shape Bedrock's own
+// request validation may use, naming the field rather than the option:
+// "extraneous key [output_config] is not permitted". Unverified against a live
+// call — that wording is a guess from Bedrock's validation messages for other
+// fields — so both are matched, and only ever with an option sent.
+func bedrockRejectedOption(err error) bool {
+	if rejectedOption(err) {
+		return true
+	}
+	var apiErr *anthropic.Error
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusBadRequest {
+		return false
+	}
+	body := strings.ToLower(apiErr.RawJSON())
+	return strings.Contains(body, "output_config") || strings.Contains(body, "extraneous key")
+}
+
+// The sign-in configuration cache. An SSO or assume-role profile costs a round
+// trip to AWS for credentials, and a credential_process profile a process
+// spawn; a hotkey fix should not pay that every time. Per region and profile,
+// for as long as a model listing is trusted elsewhere (catalogueTTL); the
+// credential cache inside the config refreshes what expires. Dropped when the
+// sign-in or the call says it is no good (signInRefused).
+type cachedAWSConfig struct {
+	cfg     aws.Config
+	fetched time.Time
+}
+
+var awsConfigCache = struct {
+	sync.Mutex
+	entries map[string]cachedAWSConfig
+}{entries: map[string]cachedAWSConfig{}}
+
+func awsConfigKey(region, profile string) string {
+	return strings.TrimSpace(region) + "\x00" + strings.TrimSpace(profile)
+}
+
+func cachedSignIn(region, profile string) (aws.Config, bool) {
+	awsConfigCache.Lock()
+	defer awsConfigCache.Unlock()
+	c, ok := awsConfigCache.entries[awsConfigKey(region, profile)]
+	if !ok || time.Since(c.fetched) >= catalogueTTL {
+		return aws.Config{}, false
+	}
+	return c.cfg, true
+}
+
+func storeSignIn(region, profile string, cfg aws.Config) {
+	awsConfigCache.Lock()
+	awsConfigCache.entries[awsConfigKey(region, profile)] = cachedAWSConfig{cfg: cfg, fetched: time.Now()}
+	awsConfigCache.Unlock()
+}
+
+func forgetAWSConfig(region, profile string) {
+	awsConfigCache.Lock()
+	delete(awsConfigCache.entries, awsConfigKey(region, profile))
+	awsConfigCache.Unlock()
+}
+
+// forgetAWSConfigs empties the cache.
+func forgetAWSConfigs() {
+	awsConfigCache.Lock()
+	awsConfigCache.entries = map[string]cachedAWSConfig{}
+	awsConfigCache.Unlock()
 }
 
 // loadAWSConfig reads this computer's AWS configuration. A variable so a test
@@ -458,6 +585,9 @@ func (c *bedrockClient) awsConfig(ctx context.Context, region string) (aws.Confi
 	}
 
 	profile := strings.TrimSpace(b.Profile)
+	if cached, ok := cachedSignIn(region, profile); ok {
+		return cached, nil
+	}
 	opts := []func(*config.LoadOptions) error{config.WithRegion(region)}
 	if profile != "" {
 		opts = append(opts, config.WithSharedConfigProfile(profile))
@@ -482,6 +612,7 @@ func (c *bedrockClient) awsConfig(ctx context.Context, region string) (aws.Confi
 	if _, err := awsCfg.Credentials.Retrieve(ctx); err != nil {
 		return aws.Config{}, awsSignInError(ctx, err, profile)
 	}
+	storeSignIn(region, profile, awsCfg)
 	return awsCfg, nil
 }
 
@@ -504,10 +635,15 @@ func awsSignInError(ctx context.Context, err error, profile string) error {
 		// The caller gave up (or the deadline passed): not a sign-in problem.
 		return transportError(bedrockProvider, err)
 	}
+	return signInFailure(err, profile)
+}
+
+// signInFailure is awsSignInError once the caller's own cancellation is ruled out.
+func signInFailure(err error, profile string) error {
 	logger.Debug("llm: AWS sign-in failed", "provider", bedrockProvider.id, "profile", profile, "err", err)
 	flag, whose := "", "this computer's AWS sign-in"
 	if profile != "" {
-		flag = " --profile " + profile
+		flag = " --profile " + shellWord(profile)
 		whose = fmt.Sprintf("the AWS profile %q", profile)
 	}
 	var missing config.SharedConfigProfileNotExistError
@@ -525,6 +661,15 @@ func awsSignInError(ctx context.Context, err error, profile string) error {
 			bedrockProvider.name, whose, flag)
 	}
 	return &signInError{msg: msg, err: err}
+}
+
+// shellWord quotes a profile name for a command the user types, where it
+// would otherwise split: "my corp" stays one word in cmd, PowerShell and sh.
+func shellWord(s string) string {
+	if strings.ContainsAny(s, " \t\"'&|;<>()$`\\") {
+		return strconv.Quote(s)
+	}
+	return s
 }
 
 // signInError is ErrAWSSignIn with KeyLint's wording. It unwraps to the SDK's
@@ -588,7 +733,7 @@ func awsErrorType(apiErr *anthropic.Error) string {
 
 // mapBedrockError words a failed call. The raw body stays out of it, as for
 // every provider (#41); the error class header and the status decide.
-func mapBedrockError(attempts *httpAttempts, model, region string, signIn bool, err error) error {
+func mapBedrockError(attempts *httpAttempts, model, region string, signIn bool, profile string, err error) error {
 	if limited, ok := rateLimitedPastDeadline(bedrockProvider, attempts, model, err); ok {
 		return limited
 	}
@@ -596,6 +741,13 @@ func mapBedrockError(attempts *httpAttempts, model, region string, signIn bool, 
 		return transportError(bedrockProvider, err)
 	}
 	var apiErr *anthropic.Error
+	if signIn && attempts.count == 0 && !errors.As(err, &apiErr) {
+		// Nothing reached the wire: KeyLint's middleware runs after the
+		// adapter has fetched credentials and signed, so a failure before it
+		// is the sign-in — credentials that were good a moment ago and are not
+		// now. Worded as that, never with the AWS SDK's text.
+		return signInFailure(err, profile)
+	}
 	if !errors.As(err, &apiErr) {
 		if status := attempts.statusOrZero(); status >= 400 {
 			return apiErrorForModel(bedrockProvider, status, model, "")
@@ -619,10 +771,10 @@ func mapBedrockError(attempts *httpAttempts, model, region string, signIn bool, 
 		default:
 			// AccessDeniedException, or no class at all: by far the likeliest
 			// cause is model access, which a new account does not have.
-			reason = fmt.Sprintf("access to %s in %s was denied — check that model access is enabled for it in the Bedrock console (Model access) and that your key or role may call bedrock:InvokeModel", model, region)
+			reason = fmt.Sprintf("access to %s in %s was denied — check in the Bedrock console that this model is available to your account (for Anthropic's models the use-case form must be submitted) and that your key or role may call bedrock:InvokeModel", model, region)
 		}
 	case status == http.StatusNotFound:
-		reason = fmt.Sprintf("the model %s was not found in %s — check the model on the AWS Bedrock card, and that Anthropic's first-time use form is submitted (Bedrock console › Model access)", model, region)
+		reason = fmt.Sprintf("the model %s was not found in %s — check the model on the AWS Bedrock card, and in the Bedrock console that Anthropic's use-case form is submitted", model, region)
 	case status == http.StatusBadRequest && strings.Contains(strings.ToLower(apiErr.RawJSON()), "model identifier"):
 		reason = fmt.Sprintf("Bedrock does not know the model %s in %s — check the model ID on the AWS Bedrock card", model, region)
 	default:

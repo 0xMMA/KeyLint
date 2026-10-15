@@ -94,6 +94,9 @@ type messagesCall struct {
 	schema   json.RawMessage
 	client   func(*httpAttempts) anthropic.Client
 	mapError func(*httpAttempts, error) error
+	// rejected says whether a failure is the model refusing the effort or
+	// thinking option. nil means rejectedOption.
+	rejected func(error) bool
 }
 
 func (m messagesCall) run(ctx context.Context, cfg Config, req Request) (Response, error) {
@@ -131,7 +134,11 @@ func (m messagesCall) run(ctx context.Context, cfg Config, req Request) (Respons
 	// The service method has a pointer receiver, so the client needs a variable.
 	client := m.client(attempts)
 	message, err := client.Messages.New(ctx, params)
-	if err != nil && (m.effort != "" || m.noThinking) && rejectedOption(err) {
+	rejected := m.rejected
+	if rejected == nil {
+		rejected = rejectedOption
+	}
+	if err != nil && (m.effort != "" || m.noThinking) && rejected(err) {
 		// Nothing said the model would refuse — the listing did not describe
 		// it or described it wrongly, or there is no listing (Bedrock) — and
 		// it refused the effort or thinking option. Once more
