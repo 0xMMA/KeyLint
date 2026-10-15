@@ -23,7 +23,7 @@ const cliProbeWait = 5 * time.Second
 // order a replacement is picked from. Bedrock is left out: it does not work
 // yet (#22, #23), and its env var, AWS_SECRET_ACCESS_KEY, is on many machines
 // for reasons that have nothing to do with KeyLint.
-var keyProviders = []string{llm.ProviderOpenAI, llm.ProviderClaude}
+var keyProviders = []string{llm.ProviderOpenAI, llm.ProviderClaude, llm.ProviderOpenRouter}
 
 // Service handles first-run detection and setup completion.
 type Service struct {

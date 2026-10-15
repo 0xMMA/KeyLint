@@ -73,6 +73,10 @@ func TestEnvOnlyKeysReadsTheEnvironmentAndNothingElse(t *testing.T) {
 	if got := EnvOnlyKeys("openai"); got != "" {
 		t.Errorf("EnvOnlyKeys(openai) = %q, want empty", got)
 	}
+	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
+	if got := EnvOnlyKeys("openrouter"); got != "sk-or-test" {
+		t.Errorf("EnvOnlyKeys(openrouter) = %q, want OPENROUTER_API_KEY's value", got)
+	}
 	if got := EnvOnlyKeys("ollama"); got != "" {
 		t.Errorf("EnvOnlyKeys(ollama) = %q, want empty — it has no key", got)
 	}

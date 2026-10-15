@@ -378,6 +378,23 @@ func TestOllamaIsAskedWithoutACredential(t *testing.T) {
 	}
 }
 
+// TestOpenRouterIsAskedWithoutACredential: OpenRouter's catalogue is public,
+// so the picker is the real one before a key is pasted — and the key is not
+// read for it, so a machine whose keyring hangs cannot hold the listing up.
+func TestOpenRouterIsAskedWithoutACredential(t *testing.T) {
+	svc := &Service{current: Default(), isolated: true, keys: func(string) string {
+		t.Error("the OpenRouter listing read a key it does not need")
+		return "sk-or-test"
+	}}
+	cfg, ok := svc.modelListConfig(llm.ProviderOpenRouter)
+	if !ok {
+		t.Fatal("OpenRouter needs no key to list and must still be asked")
+	}
+	if cfg.APIKey != "" {
+		t.Errorf("APIKey = %q, want none for the public catalogue", cfg.APIKey)
+	}
+}
+
 // serviceWithUnreachableOllama builds a service whose Ollama URL points at a
 // port nothing listens on, so a fetch fails immediately.
 func serviceWithUnreachableOllama(t *testing.T, cached cachedModelList) *Service {

@@ -85,6 +85,16 @@ func TestIsFirstRun_Matrix(t *testing.T) {
 			wantActive: "claude", wantProbe: true,
 		},
 		{
+			name: "OpenRouter key for the active provider: no probe needed", cfg: cfgWith("openrouter", false),
+			keys: map[string]string{"openrouter": "sk-or-x"}, cli: cliMissingSt,
+			wantActive: "openrouter", wantProbe: false,
+		},
+		{
+			name: "only an OpenRouter key: active moves to it", cfg: cfgWith("openai", false),
+			keys: map[string]string{"openrouter": "sk-or-x"}, cli: cliMissingSt,
+			wantActive: "openrouter", wantProbe: true,
+		},
+		{
 			name: "CLI only: active moves to the CLI", cfg: cfgWith("openai", false),
 			cli: cliSignedInSt, wantActive: "claude-code", wantProbe: true,
 		},

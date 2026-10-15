@@ -88,7 +88,7 @@ func (s Settings) EffortFor(provider, feature string) string {
 
 // Settings is the top-level application settings structure persisted to disk.
 type Settings struct {
-	ActiveProvider         string   `json:"active_provider"` // "openai" | "claude" | "claude-code" | "ollama" | "bedrock"
+	ActiveProvider         string   `json:"active_provider"` // "openai" | "claude" | "openrouter" | "claude-code" | "ollama" | "bedrock"
 	Providers              Provider `json:"providers"`
 	ShortcutKey            string   `json:"shortcut_key"`              // LEGACY — never applied (Ctrl+G was hard-wired); ignored, kept so old files round-trip
 	ShortcutMode           string   `json:"shortcut_mode"`             // "double_tap" | "independent"

@@ -27,9 +27,10 @@ var errIsolated = errors.New("settings: this service has an explicit key source 
 // envVars maps provider ID → environment variable name for the API key.
 // Empty string means no standard env var for that provider.
 var envVars = map[string]string{
-	"openai":  "OPENAI_API_KEY",
-	"claude":  "ANTHROPIC_API_KEY",
-	"bedrock": "AWS_SECRET_ACCESS_KEY",
+	"openai":     "OPENAI_API_KEY",
+	"claude":     "ANTHROPIC_API_KEY",
+	"openrouter": "OPENROUTER_API_KEY",
+	"bedrock":    "AWS_SECRET_ACCESS_KEY",
 }
 
 // Service handles loading and saving application settings.
@@ -318,6 +319,7 @@ func Update(s *Service, mutate func(*Settings)) error {
 var selectableProviders = []string{
 	llm.ProviderOpenAI,
 	llm.ProviderClaude,
+	llm.ProviderOpenRouter,
 	llm.ProviderClaudeCode,
 	llm.ProviderOllama,
 }
@@ -561,6 +563,10 @@ func (s *Service) modelListConfig(provider string) (llm.Config, bool) {
 		}
 	case llm.ProviderOllama:
 		cfg.BaseURL = s.Get().Providers.OllamaURL
+	case llm.ProviderOpenRouter:
+		// The catalogue is public: it is listed without a key, and the key is
+		// not read for it. So the picker is OpenRouter's real one before a key
+		// is pasted — which is why its "live" says nothing about the key.
 	}
 	return cfg, true
 }

@@ -192,7 +192,7 @@ export class Settings {
     constructor($$source = {}) {
         if (!("active_provider" in $$source)) {
             /**
-             * "openai" | "claude" | "claude-code" | "ollama" | "bedrock"
+             * "openai" | "claude" | "openrouter" | "claude-code" | "ollama" | "bedrock"
              * @member
              * @type {string}
              */
