@@ -10,6 +10,7 @@ func TestUsesAPIKey(t *testing.T) {
 	for provider, want := range map[string]bool{
 		ProviderClaude:     true,
 		ProviderOpenAI:     true,
+		ProviderOpenRouter: true,
 		ProviderClaudeCode: false,
 		ProviderOllama:     false,
 		"":                 false,
@@ -83,6 +84,38 @@ func TestSupportsTemperature(t *testing.T) {
 	for _, tc := range cases {
 		if got := SupportsTemperature(tc.provider, tc.model); got != tc.want {
 			t.Errorf("SupportsTemperature(%s, %s) = %v, want %v", tc.provider, tc.model, got, tc.want)
+		}
+	}
+}
+
+// TestIsFastTier: Fix asks a fast-tier model to answer without reasoning
+// first. OpenRouter names the same models with the vendor in front
+// (anthropic/claude-haiku-5.5) and keeps "latest" IDs of its own under a "~";
+// missing them would let Haiku 5.5 spend Fix's 2048 tokens reasoning there, as
+// it did on the Anthropic API. A Pro variant is the same model with more
+// compute — what someone picks it for is the reasoning.
+func TestIsFastTier(t *testing.T) {
+	fast := []string{
+		"haiku", "claude-haiku-5-5", "claude-haiku-4-5-20251001", "gpt-6-luna", "gpt-5.6-luna",
+		"anthropic/claude-haiku-5.5", "anthropic/claude-haiku-4.5", "~anthropic/claude-haiku-latest",
+		"openai/gpt-6-luna", "openai/gpt-5.6-luna", "~openai/gpt-luna-latest",
+	}
+	notFast := []string{
+		"sonnet", "claude-sonnet-5-5", "gpt-6-astra", "",
+		"anthropic/claude-sonnet-5.5", "anthropic/claude-opus-5.5", "openai/gpt-6-astra",
+		"openai/gpt-6-luna-pro", "openai/gpt-5.6-luna-pro", "gpt-6-luna-pro",
+		// Only the vendor's own models: another host's ID that happens to
+		// contain the name is not known to be the same model.
+		"somehost/claude-haiku-5.5", "google/gemini-3.8-flash",
+	}
+	for _, m := range fast {
+		if !IsFastTier(m) {
+			t.Errorf("IsFastTier(%q) = false, want true", m)
+		}
+	}
+	for _, m := range notFast {
+		if IsFastTier(m) {
+			t.Errorf("IsFastTier(%q) = true, want false", m)
 		}
 	}
 }

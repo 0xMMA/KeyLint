@@ -26,6 +26,9 @@ const (
 	// into themselves. KeyLint spawns the unmodified binary and never reads,
 	// stores or forwards their credentials.
 	ProviderClaudeCode = "claude-code"
+	// ProviderOpenRouter is one OpenRouter key for many vendors' models,
+	// through OpenRouter's OpenAI-compatible endpoint (roadmap E10).
+	ProviderOpenRouter = "openrouter"
 )
 
 // provider pairs the stable ID used in settings and logs with the display name
@@ -80,7 +83,9 @@ type Request struct {
 	// leaves an unsupported level out, and both clients retry once without it
 	// if the model rejects it anyway. OpenAI sends it as reasoning_effort, but
 	// only to the model families whose support is documented (see
-	// openAIReasoningModels); Ollama ignores it.
+	// openAIReasoningModels); OpenRouter as reasoning.effort, to models whose
+	// catalogue entry lists the level (see openRouterReasoning); Ollama
+	// ignores it.
 	//
 	// It interacts with MaxTokens: thinking counts against the output limit, so
 	// a high effort on a small limit (Fix's 2048) can end in the
@@ -91,10 +96,11 @@ type Request struct {
 	// Haiku 5.5 reasons by default and spent all of Fix's 2048 tokens doing so
 	// on a 3.8 KB selection (measured 2026-10-08), where Haiku 4.5 — the old
 	// default — never reasoned. The Anthropic API takes it as
-	// thinking: disabled, and OpenAI as reasoning_effort "none" on the models
-	// documented to accept that; the Claude Code CLI has no flag for it and
-	// Ollama ignores it. A model that cannot turn reasoning off (Sonnet 5.5,
-	// Opus 5.5, GPT-6 Astra) is not sent it.
+	// thinking: disabled, OpenAI as reasoning_effort "none" on the models
+	// documented to accept that, and OpenRouter as reasoning.effort "none"
+	// where its catalogue says the model reasons and may stop; the Claude Code
+	// CLI has no flag for it and Ollama ignores it. A model that cannot turn
+	// reasoning off (Sonnet 5.5, Opus 5.5, GPT-6 Astra) is not sent it.
 	NoThinking bool
 }
 
@@ -168,6 +174,7 @@ var factories = map[string]func(Config) Client{
 	ProviderClaude:     newAnthropic,
 	ProviderOllama:     newOllama,
 	ProviderClaudeCode: newClaudeCode,
+	ProviderOpenRouter: newOpenRouter,
 }
 
 // fallbackTimeout bounds requests when the caller passes no HTTP client.

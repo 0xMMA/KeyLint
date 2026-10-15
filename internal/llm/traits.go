@@ -11,7 +11,7 @@ import (
 // and handing one to the CLI would bill a different account (see blockedCLIEnv).
 func UsesAPIKey(provider string) bool {
 	switch provider {
-	case ProviderClaude, ProviderOpenAI:
+	case ProviderClaude, ProviderOpenAI, ProviderOpenRouter:
 		return true
 	default:
 		return false
@@ -29,6 +29,12 @@ func UsesAPIKey(provider string) bool {
 // generation, and an ID this cannot read is treated as new: an eval must record
 // "no pin" rather than claim one that never reached the model, or fail the
 // call with a 400. Other providers are assumed to take one.
+//
+// OpenRouter falls under "assumed", and that is a guess nobody has checked: it
+// passes temperature on to whichever host serves the model, so an
+// anthropic/claude-*-5.5 there is presumably refused as it is on the Anthropic
+// API. It only matters to evals, and OpenRouter is not eval'd until measured
+// (roadmap E10) — whoever measures it decides this from a real call.
 func SupportsTemperature(provider, model string) bool {
 	switch provider {
 	case ProviderClaudeCode:
