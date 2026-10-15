@@ -46,6 +46,11 @@ const (
 	// model endpoint and its aliases are the whole story, so flagging it
 	// as "built-in" would be an alarm nobody can clear.
 	ModelSourceFixed = "fixed"
+	// ModelSourceNotAsked: KeyLint did not ask, on purpose. OpenRouter's
+	// catalogue needs no key, so it could be listed for everyone — but a user
+	// who has not chosen OpenRouter should send openrouter.ai nothing. The
+	// built-in list stands in until it is the provider in use.
+	ModelSourceNotAsked = "not-asked"
 )
 
 // ModelInfo is one entry in a model picker.

@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -378,11 +379,41 @@ func TestOllamaIsAskedWithoutACredential(t *testing.T) {
 	}
 }
 
+// TestOpenRouterIsNotAskedUnlessItIsInUse: OpenRouter's catalogue needs no
+// key, which made it easy to list for every user who opened Settings. A user
+// who has not chosen OpenRouter must send openrouter.ai nothing; once it is
+// the provider in use, it is asked.
+func TestOpenRouterIsNotAskedUnlessItIsInUse(t *testing.T) {
+	asked := 0
+	svc := &Service{current: Default(), listModels: func(_ context.Context, provider string, _ llm.Config) (llm.ModelList, error) {
+		if provider == llm.ProviderOpenRouter {
+			asked++
+		}
+		return llm.ModelList{Models: []llm.ModelInfo{{ID: "anthropic/claude-haiku-5.5"}}, Source: llm.ModelSourceLive}, nil
+	}}
+	svc.current.ActiveProvider = llm.ProviderClaude
+
+	got := svc.ListModels(llm.ProviderOpenRouter)
+	if asked != 0 {
+		t.Fatalf("OpenRouter was asked %d times while another provider is in use", asked)
+	}
+	if got.Source != llm.ModelSourceNotAsked {
+		t.Errorf("source = %q, want %q", got.Source, llm.ModelSourceNotAsked)
+	}
+
+	// Chosen now: the answer above must not have been kept, or the picker
+	// would show the built-in list for the cache's lifetime.
+	svc.current.ActiveProvider = llm.ProviderOpenRouter
+	if got := svc.ListModels(llm.ProviderOpenRouter); asked != 1 || got.Source != llm.ModelSourceLive {
+		t.Errorf("asked %d times, source %q — want one request and the live list once OpenRouter is in use", asked, got.Source)
+	}
+}
+
 // TestOpenRouterIsAskedWithoutACredential: OpenRouter's catalogue is public,
 // so the picker is the real one before a key is pasted — and the key is not
 // read for it, so a machine whose keyring hangs cannot hold the listing up.
 func TestOpenRouterIsAskedWithoutACredential(t *testing.T) {
-	svc := &Service{current: Default(), isolated: true, keys: func(string) string {
+	svc := &Service{current: Settings{ActiveProvider: llm.ProviderOpenRouter}, isolated: true, keys: func(string) string {
 		t.Error("the OpenRouter listing read a key it does not need")
 		return "sk-or-test"
 	}}

@@ -55,6 +55,10 @@ export function noteForModelSource(source: string, provider: string, hasList: bo
     }
     case 'empty':
       return emptyNote(provider);
+    case 'not-asked':
+      // Not shown in practice — only the provider in use has pickers — but a
+      // source with no sentence would leave a built-in list unexplained.
+      return "Showing KeyLint's built-in list — OpenRouter is asked for its models once it is the provider in use.";
     case 'live':
       // OpenRouter's catalogue is listed without a key, so a live list says
       // nothing about whether the user's key can call a model — and at ~450

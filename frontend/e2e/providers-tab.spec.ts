@@ -183,8 +183,15 @@ test.describe('Settings — AI Providers layout', () => {
     await installFakeBackend(page, state);
 
     await page.goto('/settings?tab=providers');
+    // A user on another provider sends openrouter.ai nothing, key or not.
+    await expect.poll(() => state.listModelsCalls).toContain('claude');
+    expect(state.listModelsCalls).not.toContain('openrouter');
+
     await page.getByTestId('provider-use-openrouter').getByRole('button').click();
     await expect(page.getByTestId('active-provider-name')).toHaveText('OpenRouter');
     expect(state.settings['active_provider']).toBe('openrouter');
+    // Chosen: now the catalogue is asked for, and the picker names its default.
+    await expect.poll(() => state.listModelsCalls).toContain('openrouter');
+    await expect(page.getByTestId('model-fix-openrouter').locator('input')).toHaveAttribute('placeholder', 'Default: Anthropic: Claude Haiku 5.5');
   });
 });

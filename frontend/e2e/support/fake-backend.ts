@@ -29,6 +29,8 @@ export interface FakeBackendState {
   modelSources: Partial<Record<string, string>>;
   /** ModelList.models per provider; anything absent answers an empty list. */
   modelLists: Partial<Record<string, ModelEntry[]>>;
+  /** Every provider ListModels was called for, in order: what the app asked a provider for. */
+  listModelsCalls: string[];
   /** Every settings object the app saved (Save, SetActiveProvider or SetDeveloperOptions), oldest first. */
   saves: Record<string, unknown>[];
   /** When set, SetActiveProvider fails with this message, as a failed write would. */
@@ -128,6 +130,7 @@ export function fakeState(opts: {
     // The CLI has no model endpoint; "fixed" is what the real service answers.
     modelSources: { 'claude-code': 'fixed', ...opts.modelSources },
     modelLists: { 'claude-code': CLI_ALIASES, ...opts.modelLists },
+    listModelsCalls: [],
     saves: [],
     completeSetupCalls: 0,
   };
@@ -213,6 +216,7 @@ export async function installFakeBackend(page: Page, state: FakeBackendState): P
       case 'GetClaudeCodeStatus':
         return json(state.claudeCode);
       case 'ListModels':
+        state.listModelsCalls.push(args[0] as string);
         return json({
           models: state.modelLists[args[0] as string] ?? [],
           source: state.modelSources[args[0] as string] ?? 'unreachable',

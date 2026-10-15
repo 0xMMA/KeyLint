@@ -700,6 +700,8 @@ describe('SettingsComponent — model selection', () => {
     for (const provider of ['openai', 'claude', 'claude-code', 'ollama']) {
       expect(wailsMock.listModels).toHaveBeenCalledWith(provider);
     }
+    // Only once it is the provider in use; see the OpenRouter describe.
+    expect(wailsMock.listModels).not.toHaveBeenCalledWith('openrouter');
   });
 
   // Four situations, four sentences. "Not live" as one word would send a user
@@ -1765,11 +1767,15 @@ describe('SettingsComponent — OpenRouter', () => {
   const listed = () => Array.from(document.querySelectorAll('.cdk-overlay-container [role="option"] .kl-option-label'))
     .map(l => l.textContent?.trim());
 
-  it('has a connection card that takes a key, like the other API providers', async () => {
+  // Privacy (review of #134): the catalogue needs no key, so nothing else
+  // would stop every Settings visit from calling openrouter.ai. A user on
+  // another provider sends it nothing.
+  it('has a connection card that takes a key, and asks openrouter.ai nothing while another provider is in use', async () => {
     await render({ active: 'openai' });
 
     expect(wailsMock.getKeyStatus).toHaveBeenCalledWith('openrouter');
-    expect(wailsMock.listModels).toHaveBeenCalledWith('openrouter');
+    expect(wailsMock.listModels).toHaveBeenCalledWith('openai');
+    expect(wailsMock.listModels).not.toHaveBeenCalledWith('openrouter');
     expect(q('provider-heading-openrouter')?.textContent).toContain('OpenRouter');
     expect(q('key-status-openrouter')?.textContent).toContain('No key yet');
     expect(q('key-edit-openrouter')).not.toBeNull();
@@ -1782,15 +1788,32 @@ describe('SettingsComponent — OpenRouter', () => {
     expect(q('key-edit-openrouter')).toBeNull();
   });
 
-  it('saves a pasted key to the keyring and lists again', async () => {
+  it('saves a pasted key to the keyring, still without asking for the catalogue while not in use', async () => {
     await render({ active: 'openai' });
     const pk = component.keyFor('openrouter')!;
     pk.draftKey = 'sk-or-v1-test';
     wailsMock.getKeyStatus.mockResolvedValue({ is_set: true, source: 'keyring' });
     await component.saveKey(pk);
+    await fixture.whenStable();
 
     expect(wailsMock.setKey).toHaveBeenCalledWith('openrouter', 'sk-or-v1-test');
     expect(pk.status?.is_set).toBe(true);
+    expect(wailsMock.listModels).not.toHaveBeenCalledWith('openrouter');
+  });
+
+  it('loads the catalogue the moment OpenRouter is chosen', async () => {
+    await render({ active: 'openai' });
+    expect(wailsMock.listModels).not.toHaveBeenCalledWith('openrouter');
+
+    q('provider-use-openrouter')!.querySelector('button')!.click();
+    await fixture.whenStable();
+    await new Promise(r => setTimeout(r));
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(wailsMock.setActiveProvider).toHaveBeenCalledWith('openrouter');
+    expect(wailsMock.listModels).toHaveBeenCalledWith('openrouter');
+    expect(q('model-fix-openrouter')!.querySelector('input')!.placeholder).toBe('Default: Anthropic: Claude Haiku 5.5');
   });
 
   // The catalogue needs no key, so the picker is the real one before the user

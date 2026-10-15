@@ -63,6 +63,10 @@ describe('noteForModelSource', () => {
     }
   });
 
+  it('says why OpenRouter has not been asked yet', () => {
+    expect(noteForModelSource('not-asked', 'openrouter', true)).toContain('in use');
+  });
+
   it('says nothing for a source it has never heard of', () => {
     expect(noteForModelSource('static', 'openai', true)).toBe('');
   });
