@@ -368,8 +368,8 @@ export class WailsService implements OnDestroy {
     }
   }
 
-  sendBack(text: string): Promise<void> {
-    return PyramidizeService.SendBack(text);
+  sendBack(text: string, html: string): Promise<void> {
+    return PyramidizeService.SendBack(text, html);
   }
 
   getSourceApp(): Promise<string> {

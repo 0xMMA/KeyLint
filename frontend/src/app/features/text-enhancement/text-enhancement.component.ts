@@ -1231,7 +1231,8 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
         sendBackError = SOURCE_MOVED_MESSAGE;
         return;
       }
-      await this.svc.sendBack(target.text);
+      // Formatted as the Preview shows it, for the apps that paste HTML.
+      await this.svc.sendBack(target.text, new MarkdownPipe().transform(target.text));
     } catch (e: unknown) {
       // The backend's message says whether the text is on the clipboard and
       // what to do next.
