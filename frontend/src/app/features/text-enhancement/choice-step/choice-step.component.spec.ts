@@ -174,11 +174,6 @@ describe('ChoiceStepComponent (the Form step)', () => {
     expect(link.getAttribute('href')).toBe('/settings?tab=providers');
   });
 
-  it('explains a provider that cannot run', async () => {
-    await render({ unavailableProvider: 'AWS Bedrock', canRun: false });
-    expect(q('provider-unavailable')?.textContent).toContain('AWS Bedrock is not available yet');
-  });
-
   describe('text pasted into KeyLint', () => {
     it('offers nothing to remember, and tags no card', () => {
       expect(q('remember-checkbox')).toBeNull();

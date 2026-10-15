@@ -6,6 +6,15 @@ describe('noteForModelSource', () => {
     expect(noteForModelSource('live', 'openai', true)).toBe('');
   });
 
+  // Bedrock has no model list to ask (Anthropic's Models API is not offered
+  // there): the picker says so truthfully, and that it takes other IDs.
+  it('says where the Bedrock list comes from, truthfully', () => {
+    const note = noteForModelSource('known', 'bedrock', true);
+    expect(note).toContain('Bedrock has no model list to ask');
+    expect(note).toContain('the Claude models KeyLint knows');
+    expect(note).toMatch(/inference profile ARN/);
+  });
+
   it('says nothing for a provider with no endpoint to ask', () => {
     // The Claude Code CLI's three aliases are the whole list by design, so a
     // note here would be an alarm nobody can clear.

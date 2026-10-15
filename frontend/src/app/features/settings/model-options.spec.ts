@@ -42,4 +42,24 @@ describe('model-options', () => {
     expect(fixSkipsReasoning('claude-code', 'haiku')).toBe(false);
     expect(fixSkipsReasoning('ollama', 'anthropic/claude-haiku-5.5')).toBe(false);
   });
+
+  // Base IDs; the routing prefix is added in Go at call time.
+  it('names the Bedrock defaults as base IDs', () => {
+    expect(DEFAULT_MODELS['bedrock']).toEqual({ fix: 'anthropic.claude-haiku-5-5', pyramidize: 'anthropic.claude-sonnet-5-5' });
+  });
+
+  it('says what effort does on Bedrock', () => {
+    expect(effortNote('bedrock')).toMatch(/reasoning/);
+  });
+
+  // Mirrors IsFastTier for Bedrock IDs, bare or behind a routing prefix.
+  it('knows which Bedrock models Fix asks not to reason', () => {
+    const fast = ['anthropic.claude-haiku-5-5', 'eu.anthropic.claude-haiku-5-5', 'global.anthropic.claude-haiku-4-5-20251001-v1:0'];
+    const notFast = [
+      'anthropic.claude-sonnet-5-5', 'us.anthropic.claude-sonnet-5-5', 'global.anthropic.claude-opus-5-5',
+      'arn:aws:bedrock:eu-central-1:123456789012:application-inference-profile/haiku', 'xx.anthropic.claude-haiku-5-5',
+    ];
+    for (const m of fast) expect(fixSkipsReasoning('bedrock', m), m).toBe(true);
+    for (const m of notFast) expect(fixSkipsReasoning('bedrock', m), m).toBe(false);
+  });
 });

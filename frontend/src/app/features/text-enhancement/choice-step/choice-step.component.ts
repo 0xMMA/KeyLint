@@ -89,12 +89,6 @@ import { FORMS, formLabel, DEFAULT_FORM, type PyramidizeForm } from '../forms';
         />
       </div>
 
-      @if (unavailableProvider(); as name) {
-        <kl-message data-testid="provider-unavailable" severity="warn">
-          {{ name }} is not available yet. Choose another provider in Settings.
-        </kl-message>
-      }
-
       <ng-content />
 
       <div class="pz-footer">
@@ -160,8 +154,6 @@ export class ChoiceStepComponent {
   /** "<model> · <provider> · effort <level>", from Settings. */
   readonly runOn = input('');
   readonly canRun = input(true);
-  /** A provider Settings names that cannot run yet (AWS Bedrock), or null. */
-  readonly unavailableProvider = input<string | null>(null);
 
   readonly docType = model(DEFAULT_FORM);
   /** "Remember <form> for <app>": unticked until the user ticks it, again after every other pick. */

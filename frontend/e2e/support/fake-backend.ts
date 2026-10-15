@@ -31,7 +31,7 @@ export interface FakeBackendState {
   modelLists: Partial<Record<string, ModelEntry[]>>;
   /** Every provider ListModels was called for, in order: what the app asked a provider for. */
   listModelsCalls: string[];
-  /** Every settings object the app saved (Save, SetActiveProvider or SetDeveloperOptions), oldest first. */
+  /** Every settings object the app saved (Save, SetActiveProvider, SetDeveloperOptions or SetBedrock), oldest first. */
   saves: Record<string, unknown>[];
   /** When set, SetActiveProvider fails with this message, as a failed write would. */
   failSetActiveProvider?: string;
@@ -44,6 +44,14 @@ export interface FakeBackendState {
   firstRun?: boolean;
   /** How many times the app called CompleteSetup. */
   completeSetupCalls: number;
+  /** Every connection the app saved through SetBedrock, oldest first. */
+  bedrockSaves: Record<string, string>[];
+  /** How many times the app called TestBedrock: never unless the user clicked. */
+  testBedrockCalls: number;
+  /** When set, TestBedrock fails with this message; otherwise it answers bedrockTestAnswer. */
+  failTestBedrock?: string;
+  /** The model ID TestBedrock reports reaching. */
+  bedrockTestAnswer: string;
 }
 
 /** One picker entry, as internal/llm ModelInfo serialises it. */
@@ -84,13 +92,34 @@ export const OPENROUTER_MODELS: ModelEntry[] = [
   { id: 'meta-llama/llama-5-70b-instruct:free', label: 'Meta: Llama 5 70B Instruct (free)', resolved: '' },
 ];
 
+/** The Bedrock picker as llm.ListModels answers it, source "known" (internal/llm/bedrock.go). */
+export const BEDROCK_MODELS: ModelEntry[] = [
+  { id: 'anthropic.claude-haiku-5-5', label: 'Claude Haiku 5.5', resolved: '' },
+  { id: 'anthropic.claude-sonnet-5-5', label: 'Claude Sonnet 5.5', resolved: '' },
+  { id: 'anthropic.claude-opus-5-5', label: 'Claude Opus 5.5', resolved: '' },
+  { id: 'anthropic.claude-sonnet-5', label: 'Claude Sonnet 5', resolved: '' },
+  { id: 'anthropic.claude-haiku-4-5-20251001-v1:0', label: 'Claude Haiku 4.5', resolved: '' },
+  { id: 'anthropic.claude-opus-4-8', label: 'Claude Opus 4.8', resolved: '' },
+];
+
+const ALL_BEDROCK = BEDROCK_MODELS.map(m => m.id);
+const NO_JP = ['anthropic.claude-sonnet-5-5', 'anthropic.claude-sonnet-5'];
+
+/** A slice of llm.BedrockRegions(): a geography, Japan (where Sonnet cannot stay), and worldwide only. */
+export const BEDROCK_REGIONS = [
+  { id: 'us-east-1', label: 'US East (N. Virginia)', geography: 'us', geography_name: 'the US', geo_models: ALL_BEDROCK },
+  { id: 'eu-central-1', label: 'Europe (Frankfurt)', geography: 'eu', geography_name: 'the EU', geo_models: ALL_BEDROCK },
+  { id: 'ap-northeast-1', label: 'Asia Pacific (Tokyo)', geography: 'jp', geography_name: 'Japan', geo_models: ALL_BEDROCK.filter(m => !NO_JP.includes(m)) },
+  { id: 'ap-south-1', label: 'Asia Pacific (Mumbai)', geography: '', geography_name: '', geo_models: [] },
+];
+
 /** What the real SetActiveProvider accepts; see selectableProviders in settings/service.go. */
-const SELECTABLE_PROVIDERS = ['openai', 'claude', 'openrouter', 'claude-code', 'ollama'];
+const SELECTABLE_PROVIDERS = ['openai', 'claude', 'openrouter', 'bedrock', 'claude-code', 'ollama'];
 
 export const BASE_SETTINGS: Record<string, unknown> = {
   active_provider: 'claude',
   models: {},
-  providers: { ollama_url: '', aws_region: '' },
+  providers: { ollama_url: '', aws_region: '', bedrock_auth: '', aws_profile: '', bedrock_routing: '' },
   shortcut_key: 'ctrl+g',
   shortcut_mode: 'double_tap',
   shortcut_fix: 'ctrl+g',
@@ -128,11 +157,15 @@ export function fakeState(opts: {
     keys: opts.keys ?? {},
     claudeCode: opts.cliSignedIn ? { ...SIGNED_IN_CLI } : { ...NO_CLI },
     // The CLI has no model endpoint; "fixed" is what the real service answers.
-    modelSources: { 'claude-code': 'fixed', ...opts.modelSources },
-    modelLists: { 'claude-code': CLI_ALIASES, ...opts.modelLists },
+    // Bedrock has no list to ask; "known" is the build's own.
+    modelSources: { 'claude-code': 'fixed', bedrock: 'known', ...opts.modelSources },
+    modelLists: { 'claude-code': CLI_ALIASES, bedrock: BEDROCK_MODELS, ...opts.modelLists },
     listModelsCalls: [],
     saves: [],
     completeSetupCalls: 0,
+    bedrockSaves: [],
+    testBedrockCalls: 0,
+    bedrockTestAnswer: 'eu.anthropic.claude-haiku-5-5',
   };
 }
 
@@ -215,6 +248,33 @@ export async function installFakeBackend(page: Page, state: FakeBackendState): P
         return empty();
       case 'GetClaudeCodeStatus':
         return json(state.claudeCode);
+      case 'BedrockRegions':
+        return json(BEDROCK_REGIONS);
+      case 'SetBedrock': {
+        // The real SetBedrock's checks (settings/service.go), so a spec
+        // cannot pass on a connection the backend would refuse.
+        const b = args[0] as Record<string, string>;
+        const fail = (why: string) => route.fulfill({ status: 500, contentType: 'text/plain', body: `settings: ${why}` });
+        if (b['region'] && !/^[a-z]{2}(-[a-z]+)+-[0-9]+$/.test(b['region'])) return fail(`"${b['region']}" is not an AWS region`);
+        if (!['api-key', 'aws-signin'].includes(b['auth'])) return fail(`"${b['auth']}" is not a way to connect to AWS Bedrock`);
+        if (!['geo', 'global'].includes(b['routing'])) return fail(`"${b['routing']}" is not a Bedrock routing`);
+        state.bedrockSaves.push({ ...b });
+        state.settings = {
+          ...state.settings,
+          providers: {
+            ...(state.settings['providers'] as Record<string, string>),
+            aws_region: b['region'].trim(), bedrock_auth: b['auth'], aws_profile: (b['profile'] ?? '').trim(), bedrock_routing: b['routing'],
+          },
+        };
+        state.saves.push(state.settings);
+        return empty();
+      }
+      case 'TestBedrock':
+        state.testBedrockCalls++;
+        if (state.failTestBedrock) {
+          return route.fulfill({ status: 500, contentType: 'text/plain', body: state.failTestBedrock });
+        }
+        return json(state.bedrockTestAnswer);
       case 'ListModels':
         state.listModelsCalls.push(args[0] as string);
         return json({

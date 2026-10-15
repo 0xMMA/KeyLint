@@ -15,10 +15,11 @@ import { Settings, KeyStatus } from '../../../bindings/keylint/internal/features
 import { UpdateInfo, InstallResult } from '../../../bindings/keylint/internal/features/updater/models.js';
 import type { BuildIdentity, DevBuild, DevChannel } from '../../../bindings/keylint/internal/features/updater/models.js';
 import type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset, SourcePreset } from '../../../bindings/keylint/internal/features/pyramidize/models.js';
-import type { ClaudeCodeStatus, ModelList, ModelInfo } from '../../../bindings/keylint/internal/llm/models.js';
+import type { BedrockRegion, ClaudeCodeStatus, ModelList, ModelInfo } from '../../../bindings/keylint/internal/llm/models.js';
+import type { BedrockConnection } from './bedrock';
 import type { Notice as SilentFixNotice } from '../../../bindings/keylint/internal/features/silentfix/models.js';
 
-export type { Settings, KeyStatus, UpdateInfo, InstallResult, ClaudeCodeStatus, ModelList, ModelInfo };
+export type { Settings, KeyStatus, UpdateInfo, InstallResult, ClaudeCodeStatus, ModelList, ModelInfo, BedrockRegion };
 export type { BuildIdentity, DevBuild, DevChannel };
 export type { PyramidizeRequest, PyramidizeResult, RefineGlobalRequest, RefineGlobalResult, SpliceRequest, SpliceResult, AppPreset, SourcePreset };
 export type { SilentFixNotice };
@@ -28,7 +29,7 @@ export type { SilentFixNotice };
 const BROWSER_MODE_DEFAULTS: Settings = {
   active_provider: 'claude',
   models: {},
-  providers: { ollama_url: '', aws_region: '' },
+  providers: { ollama_url: '', aws_region: '', bedrock_auth: '', aws_profile: '', bedrock_routing: '' },
   shortcut_key: 'ctrl+g',
   shortcut_mode: 'double_tap',
   shortcut_fix: 'ctrl+g',
@@ -247,6 +248,33 @@ export class WailsService implements OnDestroy {
     } catch {
       return Promise.resolve(emptyModelList());
     }
+  }
+
+  /**
+   * Saves the AWS Bedrock connection (region, sign-in, routing) and nothing
+   * else. Rejects with the backend's error, so the card can keep what was
+   * saved before.
+   */
+  setBedrock(connection: BedrockConnection): Promise<void> {
+    return SettingsService.SetBedrock(connection);
+  }
+
+  /** The regions the AWS Bedrock card offers, from the build. No network call. */
+  getBedrockRegions(): Promise<BedrockRegion[]> {
+    try {
+      return SettingsService.BedrockRegions().catch(() => []);
+    } catch {
+      return Promise.resolve([]);
+    }
+  }
+
+  /**
+   * The AWS Bedrock card's Test connection: one tiny call with the saved
+   * connection. Resolves with the model ID it reached; rejects with the error
+   * a fix would show. Only ever on the user's click.
+   */
+  testBedrock(): Promise<string> {
+    return SettingsService.TestBedrock();
   }
 
   /**
