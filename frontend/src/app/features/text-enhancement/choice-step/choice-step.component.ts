@@ -1,7 +1,7 @@
 import { Component, ElementRef, afterNextRender, computed, inject, input, model, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { ButtonComponent, CheckboxComponent, IconComponent, InputDirective, MessageComponent } from '../../../shared/ui';
+import { ButtonComponent, CheckboxComponent, IconComponent, InputDirective } from '../../../shared/ui';
 import { FORMS, formLabel, DEFAULT_FORM, type PyramidizeForm } from '../forms';
 
 /**
@@ -25,7 +25,7 @@ import { FORMS, formLabel, DEFAULT_FORM, type PyramidizeForm } from '../forms';
 @Component({
   selector: 'app-choice-step',
   standalone: true,
-  imports: [FormsModule, RouterLink, ButtonComponent, CheckboxComponent, IconComponent, InputDirective, MessageComponent],
+  imports: [FormsModule, RouterLink, ButtonComponent, CheckboxComponent, IconComponent, InputDirective],
   host: {
     class: 'pz-choice',
     '(document:keydown)': 'onDocumentKeydown($event)',
