@@ -409,6 +409,37 @@ func TestOpenRouterIsNotAskedUnlessItIsInUse(t *testing.T) {
 	}
 }
 
+// TestOpenRouterHasOneCatalogueCache: the catalogue is cached once, in llm,
+// where every completion reads it too. A second copy here would outlive what
+// the completion path knows and be thrown away by a key change that has
+// nothing to do with it — the catalogue is the same for every key.
+func TestOpenRouterHasOneCatalogueCache(t *testing.T) {
+	asked := 0
+	svc := &Service{current: Settings{ActiveProvider: llm.ProviderOpenRouter}, listModels: func(context.Context, string, llm.Config) (llm.ModelList, error) {
+		asked++
+		return llm.ModelList{Models: []llm.ModelInfo{{ID: "anthropic/claude-haiku-5.5"}}, Source: llm.ModelSourceLive}, nil
+	}}
+	svc.ListModels(llm.ProviderOpenRouter)
+	svc.ListModels(llm.ProviderOpenRouter)
+	if asked != 2 {
+		t.Errorf("llm was asked %d times, want every listing to go to its cache", asked)
+	}
+	if _, kept := svc.models[llm.ProviderOpenRouter]; kept {
+		t.Error("settings keeps a second copy of the OpenRouter catalogue")
+	}
+
+	// A key saved or cleared does not touch it; the generation is the
+	// invalidation a key change would make.
+	svc.keyChanged(llm.ProviderOpenRouter)
+	if svc.modelGeneration[llm.ProviderOpenRouter] != 0 {
+		t.Error("a key change invalidated the OpenRouter catalogue, which does not depend on the key")
+	}
+	svc.keyChanged(llm.ProviderClaude)
+	if svc.modelGeneration[llm.ProviderClaude] != 1 {
+		t.Error("a key change must still invalidate a listing that depends on the key")
+	}
+}
+
 // TestOpenRouterIsAskedWithoutACredential: OpenRouter's catalogue is public,
 // so the picker is the real one before a key is pasted — and the key is not
 // read for it, so a machine whose keyring hangs cannot hold the listing up.

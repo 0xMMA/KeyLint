@@ -50,6 +50,9 @@ type chatExtras struct {
 	// get it — their wire format predates Request.MaxTokens and stayed as it
 	// was (TestOpenAIIgnoresUnsupportedFields).
 	maxTokens int
+	// noResponseFormat leaves response_format out even when the request asks
+	// for JSON: the model does not take it (OpenRouter's catalogue says so).
+	noResponseFormat bool
 }
 
 // reasoningSent reports whether the request carries a reasoning option, which
@@ -76,6 +79,7 @@ func completeViaOpenAI(ctx context.Context, cfg Config, p provider, baseURL stri
 		params.Temperature = openai.Float(*req.Temperature)
 	}
 	switch {
+	case extras.noResponseFormat:
 	case len(req.JSONSchema) > 0:
 		schema, err := schemaObject(req.JSONSchema)
 		if err != nil {

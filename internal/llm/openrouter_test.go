@@ -39,7 +39,13 @@ const orCatalogue = `{"data":[
 	{"id":"vendor/pictures","name":"Vendor: Pictures Only",
 	 "architecture":{"output_modalities":["image"]}},
 	{"id":"vendor/free-model:free","name":"Vendor: Free Model (free)",
-	 "architecture":{"output_modalities":["text"]}}
+	 "architecture":{"output_modalities":["text"]}},
+	{"id":"vendor/short-answers","name":"Vendor: Short Answers",
+	 "architecture":{"output_modalities":["text"]},"supported_parameters":["max_tokens","response_format"],
+	 "top_provider":{"context_length":32768,"max_completion_tokens":8192}},
+	{"id":"vendor/plain-text","name":"Vendor: Plain Text",
+	 "architecture":{"output_modalities":["text"]},"supported_parameters":["max_tokens","temperature"],
+	 "top_provider":{"max_completion_tokens":null}}
 ]}`
 
 const orOK = `{"id":"gen-1","model":"%MODEL%","choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"fixed"}}]}`
@@ -174,9 +180,85 @@ func TestOpenRouterCompleteRequestShape(t *testing.T) {
 	if len(messages) != 2 {
 		t.Fatalf("messages = %v, want system and user", body["messages"])
 	}
-	// No option set, so the catalogue was not needed and not asked.
-	if f.listed != 0 {
-		t.Errorf("listed the catalogue %d times for a call that needed nothing from it", f.listed)
+	// Every call reads the model's entry — OpenRouter is the provider in use,
+	// so asking is consented — and the cache serves the next one.
+	if f.listed != 1 {
+		t.Errorf("listed the catalogue %d times, want once", f.listed)
+	}
+}
+
+// TestOpenRouterClampsMaxTokensToTheModelsCeiling: 41 chat models in the
+// catalogue cap their output below Pyramidize's 16000, and asking for more
+// than the cap is a request the model's host can refuse.
+func TestOpenRouterClampsMaxTokensToTheModelsCeiling(t *testing.T) {
+	cases := []struct {
+		model string
+		ask   int
+		want  float64
+	}{
+		{"vendor/short-answers", 16000, 8192},
+		{"vendor/short-answers", 2048, 2048},
+		{"vendor/plain-text", 16000, 16000}, // ceiling null: nothing to clamp to
+		{"vendor/not-listed", 16000, 16000},
+	}
+	for _, c := range cases {
+		f := newFakeOpenRouter(t, orCatalogue)
+		if _, err := f.client().Complete(context.Background(), Request{Model: c.model, User: "x", MaxTokens: c.ask}); err != nil {
+			t.Fatalf("%s: %v", c.model, err)
+		}
+		if got := f.last(t)["max_tokens"]; got != c.want {
+			t.Errorf("%s asked %d: max_tokens = %v, want %v", c.model, c.ask, got, c.want)
+		}
+	}
+}
+
+// TestOpenRouterSkipsJSONModeWhereTheModelHasNone: Pyramidize always asks for
+// a JSON object and parses defensively. A model that lists neither
+// response_format nor structured_outputs does not take the field, so it is
+// left out; a model that does, or one whose parameters are unknown, gets it.
+func TestOpenRouterSkipsJSONModeWhereTheModelHasNone(t *testing.T) {
+	cases := []struct {
+		model string
+		want  bool
+	}{
+		{"vendor/plain-text", false},
+		{"vendor/short-answers", true},
+		{"anthropic/claude-haiku-5.5", true},
+		{"meta/no-reasoning", true}, // no supported_parameters: unknown, kept
+		{"vendor/not-listed", true}, // not in the catalogue: unknown, kept
+	}
+	for _, c := range cases {
+		for _, req := range []Request{
+			{Model: c.model, User: "x", JSONMode: true},
+			{Model: c.model, User: "x", JSONMode: true, JSONSchema: []byte(testSchema)},
+		} {
+			f := newFakeOpenRouter(t, orCatalogue)
+			if _, err := f.client().Complete(context.Background(), req); err != nil {
+				t.Fatalf("%s: %v", c.model, err)
+			}
+			if _, got := f.last(t)["response_format"]; got != c.want {
+				t.Errorf("%s (schema %v): response_format sent = %v, want %v", c.model, req.JSONSchema != nil, got, c.want)
+			}
+		}
+	}
+}
+
+// TestOpenRouterHasOneCatalogue: the settings listing and a completion read
+// the same cache, keyed by endpoint only — the catalogue is the same for every
+// key, so saving or clearing a key does not send for it again.
+func TestOpenRouterHasOneCatalogue(t *testing.T) {
+	f := newFakeOpenRouter(t, orCatalogue)
+	if _, err := f.client().Complete(context.Background(), Request{Model: "anthropic/claude-haiku-5.5", User: "x"}); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	for _, key := range []string{"", "sk-or-first", "sk-or-second"} {
+		list, err := ListModels(context.Background(), ProviderOpenRouter, Config{APIKey: key, BaseURL: f.baseURL})
+		if err != nil || list.Source != ModelSourceLive {
+			t.Fatalf("ListModels(key %q) = %v, %v", key, list.Source, err)
+		}
+	}
+	if f.listed != 1 {
+		t.Errorf("listed %d times across a completion and three listings with different keys, want once", f.listed)
 	}
 }
 
@@ -230,10 +312,14 @@ func (u *urlTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	u.mu.Lock()
 	u.urls = append(u.urls, req.URL.Scheme+"://"+req.URL.Host+req.URL.Path)
 	u.mu.Unlock()
+	body := u.body
+	if strings.HasSuffix(req.URL.Path, "/models") {
+		body = `{"data":[{"id":"anthropic/claude-haiku-5.5","name":"Anthropic: Claude Haiku 5.5"}]}`
+	}
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body:       io.NopCloser(strings.NewReader(u.body)),
+		Body:       io.NopCloser(strings.NewReader(body)),
 		Request:    req,
 	}, nil
 }
@@ -245,22 +331,30 @@ func (u *urlTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 func TestOpenRouterProductionEndpoint(t *testing.T) {
 	t.Setenv("OPENAI_BASE_URL", "http://redirected.invalid")
 
+	// The production cache entry belongs to this test alone.
+	resetOpenRouterCatalogueCache(t)
 	chat := &urlTransport{body: `{"choices":[{"finish_reason":"stop","message":{"content":"ok"}}]}`}
 	c := newOpenRouter(Config{APIKey: "sk-or-test", HTTPClient: &http.Client{Transport: chat}})
 	if _, err := c.Complete(context.Background(), Request{Model: "anthropic/claude-sonnet-5.5", User: "x"}); err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
-	if len(chat.urls) != 1 || chat.urls[0] != "https://openrouter.ai/api/v1/chat/completions" {
-		t.Errorf("chat went to %v, want https://openrouter.ai/api/v1/chat/completions", chat.urls)
+	want := []string{"https://openrouter.ai/api/v1/models", "https://openrouter.ai/api/v1/chat/completions"}
+	if strings.Join(chat.urls, " ") != strings.Join(want, " ") {
+		t.Errorf("requests went to %v, want %v", chat.urls, want)
 	}
+}
 
-	list := &urlTransport{body: `{"data":[{"id":"anthropic/claude-haiku-5.5","name":"Anthropic: Claude Haiku 5.5"}]}`}
-	if _, err := ListModels(context.Background(), ProviderOpenRouter, Config{HTTPClient: &http.Client{Transport: list}}); err != nil {
-		t.Fatalf("ListModels: %v", err)
+// resetOpenRouterCatalogueCache empties the catalogue cache for a test that
+// uses the production endpoint, whose key every such test shares.
+func resetOpenRouterCatalogueCache(t *testing.T) {
+	t.Helper()
+	clear := func() {
+		openRouterCatalogueCache.Lock()
+		delete(openRouterCatalogueCache.entries, defaultOpenRouterBaseURL)
+		openRouterCatalogueCache.Unlock()
 	}
-	if len(list.urls) != 1 || list.urls[0] != "https://openrouter.ai/api/v1/models" {
-		t.Errorf("catalogue came from %v, want https://openrouter.ai/api/v1/models", list.urls)
-	}
+	clear()
+	t.Cleanup(clear)
 }
 
 // TestOpenRouterReasoningFollowsTheCatalogue: OpenRouter takes reasoning as
@@ -468,7 +562,7 @@ func TestListModelsOpenRouterReadsThePublicCatalogue(t *testing.T) {
 			t.Errorf("%s resolves to %q; OpenRouter IDs are explicit, there is no alias", m.ID, m.Resolved)
 		}
 	}
-	want := "anthropic/claude-haiku-5.5,anthropic/claude-sonnet-5.5,openai/gpt-6-luna,deepseek/any-effort,vendor/picky,meta/no-reasoning,vendor/free-model:free"
+	want := "anthropic/claude-haiku-5.5,anthropic/claude-sonnet-5.5,openai/gpt-6-luna,deepseek/any-effort,vendor/picky,meta/no-reasoning,vendor/free-model:free,vendor/short-answers,vendor/plain-text"
 	if strings.Join(ids, ",") != want {
 		t.Errorf("models = %v\nwant     %s\n(:batch is OpenRouter's asynchronous Batch API, not a chat model; image-only output cannot answer)", ids, want)
 	}

@@ -57,28 +57,45 @@ func (c *openRouterClient) Complete(ctx context.Context, req Request) (Response,
 		effort = ""
 	}
 
-	// The catalogue is only needed to decide a reasoning option, so a call
-	// with neither an effort nor NoThinking — Pyramidize on its default —
-	// never asks for it. Fix on a fast-tier model does, and pays at most one
-	// listing per cache lifetime.
-	reasoning := ""
-	if effort != "" || req.NoThinking {
-		catalogue, live := openRouterCatalogue(ctx, c.cfg)
-		entry, known := openRouterModel{}, false
-		if live {
-			entry, known = findOpenRouterModel(catalogue, req.Model)
+	// Every call reads the model's catalogue entry: OpenRouter is the provider
+	// in use here, so asking openrouter.ai is consented, and the cache spares
+	// the next hotkey press the round trip. The first read is bounded by
+	// catalogueTimeout; without it every model counts as unknown.
+	catalogue, err := openRouterCatalogue(ctx, c.cfg)
+	entry, known := openRouterModel{}, false
+	if err == nil {
+		entry, known = findOpenRouterModel(catalogue, req.Model)
+	}
+	extras := chatExtras{maxTokens: req.MaxTokens}
+
+	extras.reasoning = openRouterReasoning(effort, req.NoThinking, entry, known)
+	if effort != "" && extras.reasoning != effort {
+		// Info, not Warn: the user chose a level and a model that does not
+		// take it, and the request is still the right one to send.
+		logger.Info("llm: effort not supported by this model, sent without it",
+			"feature", c.cfg.Feature, "provider", openRouterProvider.id, "model", req.Model, "effort", effort)
+	}
+	if known {
+		// 41 chat models cap their output below Pyramidize's 16000 (catalogue,
+		// 2026-10-15); asking for more than the cap is a request its host can
+		// refuse.
+		if ceiling := entry.maxCompletionTokens; ceiling > 0 && extras.maxTokens > ceiling {
+			logger.Info("llm: output limit lowered to the model's ceiling", "feature", c.cfg.Feature,
+				"provider", openRouterProvider.id, "model", req.Model, "asked", extras.maxTokens, "ceiling", ceiling)
+			extras.maxTokens = ceiling
 		}
-		reasoning = openRouterReasoning(effort, req.NoThinking, entry, known)
-		if effort != "" && reasoning != effort {
-			// Info, not Warn: the user chose a level and a model that does not
-			// take it, and the request is still the right one to send.
-			logger.Info("llm: effort not supported by this model, sent without it",
-				"feature", c.cfg.Feature, "provider", openRouterProvider.id, "model", req.Model, "effort", effort)
+		// A model that lists neither does not take response_format; the
+		// caller parses the reply defensively either way.
+		if (req.JSONMode || len(req.JSONSchema) > 0) && entry.params != nil &&
+			!slices.Contains(entry.params, "response_format") && !slices.Contains(entry.params, "structured_outputs") {
+			logger.Info("llm: model takes no response_format, sent without it", "feature", c.cfg.Feature,
+				"provider", openRouterProvider.id, "model", req.Model)
+			extras.noResponseFormat = true
 		}
 	}
 
 	base := resolveBaseURL(c.cfg.BaseURL, defaultOpenRouterBaseURL)
-	return completeViaOpenAI(ctx, c.cfg, openRouterProvider, base, req, chatExtras{reasoning: reasoning, maxTokens: req.MaxTokens})
+	return completeViaOpenAI(ctx, c.cfg, openRouterProvider, base, req, extras)
 }
 
 // openRouterReasoning is the reasoning effort to send, or "" for none.
@@ -117,6 +134,11 @@ type openRouterModel struct {
 	outputs []string
 	// reasoning is nil when the model exposes no effort selection.
 	reasoning *openRouterReasoningInfo
+	// params is supported_parameters; nil when the entry does not say.
+	params []string
+	// maxCompletionTokens is top_provider.max_completion_tokens; 0 when the
+	// entry gives none.
+	maxCompletionTokens int
 }
 
 // openRouterReasoningInfo is a catalogue entry's "reasoning" object.
@@ -188,7 +210,11 @@ func fetchOpenRouterCatalogue(ctx context.Context, cfg Config) ([]openRouterMode
 			Architecture struct {
 				OutputModalities []string `json:"output_modalities"`
 			} `json:"architecture"`
-			Reasoning *openRouterReasoningInfo `json:"reasoning"`
+			Reasoning           *openRouterReasoningInfo `json:"reasoning"`
+			SupportedParameters []string                 `json:"supported_parameters"`
+			TopProvider         struct {
+				MaxCompletionTokens *int `json:"max_completion_tokens"`
+			} `json:"top_provider"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxOpenRouterCatalogueBytes)).Decode(&payload); err != nil {
@@ -199,12 +225,17 @@ func fetchOpenRouterCatalogue(ctx context.Context, cfg Config) ([]openRouterMode
 		if entry.ID == "" {
 			continue
 		}
-		models = append(models, openRouterModel{
+		m := openRouterModel{
 			ID:        entry.ID,
 			Name:      entry.Name,
 			outputs:   entry.Architecture.OutputModalities,
 			reasoning: entry.Reasoning,
-		})
+			params:    entry.SupportedParameters,
+		}
+		if ceiling := entry.TopProvider.MaxCompletionTokens; ceiling != nil {
+			m.maxCompletionTokens = *ceiling
+		}
+		models = append(models, m)
 	}
 	return models, nil
 }
@@ -214,13 +245,12 @@ func fetchOpenRouterCatalogue(ctx context.Context, cfg Config) ([]openRouterMode
 // ("Anthropic: Claude Haiku 5.5"). IDs are explicit vendor/model; there is no
 // family alias here (owner decision 2026-10-15).
 func listOpenRouterModels(ctx context.Context, cfg Config) ([]ModelInfo, int, error) {
-	catalogue, err := fetchOpenRouterCatalogue(ctx, cfg)
+	// Through the one cache a completion reads too: the settings screen and
+	// the next hotkey press share a single listing, whatever key either holds.
+	catalogue, err := openRouterCatalogue(ctx, cfg)
 	if err != nil {
 		return nil, 0, err
 	}
-	// The settings screen asking is also what a completion would ask for, so
-	// the next hotkey press is spared the round trip.
-	storeOpenRouterCatalogue(cfg, catalogue, true)
 
 	var models []ModelInfo
 	for _, entry := range catalogue {
@@ -236,13 +266,14 @@ func listOpenRouterModels(ctx context.Context, cfg Config) ([]ModelInfo, int, er
 	return models, len(catalogue), nil
 }
 
-// The completion path's catalogue cache, on the Anthropic catalogue's pattern
-// and lifetimes (catalogueTTL, catalogueFailureTTL): a hotkey press must not
-// pay a 0.8 MB listing every time. Keyed by endpoint only — the catalogue is
-// public and the same for every key.
+// The catalogue cache — the only one: the settings listing and every
+// completion read it. On the Anthropic catalogue's pattern and lifetimes
+// (catalogueTTL, catalogueFailureTTL): a hotkey press must not pay a 0.8 MB
+// listing every time. Keyed by endpoint only — the catalogue is public and the
+// same for every key, so a key saved or cleared leaves it alone.
 type cachedOpenRouterCatalogue struct {
 	models  []openRouterModel
-	ok      bool
+	err     error // nil when the listing worked
 	fetched time.Time
 }
 
@@ -255,26 +286,27 @@ func openRouterCatalogueKey(cfg Config) string {
 	return resolveBaseURL(cfg.BaseURL, defaultOpenRouterBaseURL)
 }
 
-func storeOpenRouterCatalogue(cfg Config, models []openRouterModel, ok bool) {
+func storeOpenRouterCatalogue(cfg Config, models []openRouterModel, err error) {
 	openRouterCatalogueCache.Lock()
-	openRouterCatalogueCache.entries[openRouterCatalogueKey(cfg)] = cachedOpenRouterCatalogue{models: models, ok: ok, fetched: time.Now()}
+	openRouterCatalogueCache.entries[openRouterCatalogueKey(cfg)] = cachedOpenRouterCatalogue{models: models, err: err, fetched: time.Now()}
 	openRouterCatalogueCache.Unlock()
 }
 
-// openRouterCatalogue returns the catalogue, from cache when fresh. ok is false
-// when it could not be had; the caller then treats every model as unknown.
-func openRouterCatalogue(ctx context.Context, cfg Config) (models []openRouterModel, ok bool) {
+// openRouterCatalogue returns the catalogue, from cache when fresh, or why it
+// could not be had — a completion then treats every model as unknown, a
+// listing falls back to the built-in list.
+func openRouterCatalogue(ctx context.Context, cfg Config) ([]openRouterModel, error) {
 	key := openRouterCatalogueKey(cfg)
 	openRouterCatalogueCache.Lock()
 	cached, found := openRouterCatalogueCache.entries[key]
 	openRouterCatalogueCache.Unlock()
 	if found {
 		ttl := catalogueFailureTTL
-		if cached.ok {
+		if cached.err == nil {
 			ttl = catalogueTTL
 		}
 		if time.Since(cached.fetched) < ttl {
-			return cached.models, cached.ok
+			return cached.models, cached.err
 		}
 	}
 
@@ -284,12 +316,11 @@ func openRouterCatalogue(ctx context.Context, cfg Config) (models []openRouterMo
 	if err != nil {
 		// The caller's own cancellation is not a fact about the endpoint.
 		if ctx.Err() == nil {
-			storeOpenRouterCatalogue(cfg, nil, false)
+			storeOpenRouterCatalogue(cfg, nil, err)
 		}
-		logger.Info("llm: OpenRouter catalogue unavailable, reasoning options decided without it",
-			"feature", cfg.Feature, "err", err)
-		return nil, false
+		logger.Info("llm: OpenRouter catalogue unavailable", "feature", cfg.Feature, "err", err)
+		return nil, err
 	}
-	storeOpenRouterCatalogue(cfg, models, true)
-	return models, true
+	storeOpenRouterCatalogue(cfg, models, nil)
+	return models, nil
 }

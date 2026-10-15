@@ -421,7 +421,7 @@ func (s *Service) SetKey(provider, key string) error {
 	}
 	// Only now: a write that failed leaves the old key in place, and dropping
 	// the list for it would cost a listing round trip that changes nothing.
-	s.forgetModelList(provider)
+	s.keyChanged(provider)
 	return nil
 }
 
@@ -433,8 +433,18 @@ func (s *Service) DeleteKey(provider string) error {
 	if err := keyring.Delete(appName, provider); err != nil {
 		return err
 	}
-	s.forgetModelList(provider)
+	s.keyChanged(provider)
 	return nil
+}
+
+// keyChanged drops what a provider's key decided: its model list. Not
+// OpenRouter's — its catalogue is public, the same for every key, and kept in
+// llm's cache alone (see ListModels).
+func (s *Service) keyChanged(provider string) {
+	if provider == llm.ProviderOpenRouter {
+		return
+	}
+	s.forgetModelList(provider)
 }
 
 // modelListFailureTTL is how long a failed listing is remembered. Short,
@@ -469,8 +479,11 @@ func (s *Service) ListModels(provider string) llm.ModelList {
 	// OpenRouter's catalogue needs no key, so nothing else would stop every
 	// Settings visit from calling openrouter.ai. KeyLint contacts it only once
 	// the user has chosen it. Not cached: the answer changes the moment they do.
-	if provider == llm.ProviderOpenRouter && s.Get().ActiveProvider != llm.ProviderOpenRouter {
-		return llm.CuratedModels(provider, llm.ModelSourceNotAsked)
+	if provider == llm.ProviderOpenRouter {
+		if s.Get().ActiveProvider != llm.ProviderOpenRouter {
+			return llm.CuratedModels(provider, llm.ModelSourceNotAsked)
+		}
+		return s.listOpenRouter()
 	}
 
 	// Two attempts, because an invalidation that lands mid-listing retires the
@@ -522,6 +535,22 @@ func (s *Service) ListModels(provider string) llm.ModelList {
 	// keeps the picker usable and expires in 30 seconds, by which time whatever
 	// they are typing has settled.
 	return llm.CuratedModels(provider, llm.ModelSourceUnreachable)
+}
+
+// listOpenRouter lists OpenRouter's catalogue without a cache of its own: llm
+// keeps the one cache, which every completion reads as well, so a listing and
+// the next hotkey press share one request — and its lifetimes follow the same
+// rule as ttl's (a settled answer ten minutes, a failure thirty seconds).
+func (s *Service) listOpenRouter() llm.ModelList {
+	cfg, _ := s.modelListConfig(llm.ProviderOpenRouter)
+	ctx, cancel := context.WithTimeout(context.Background(), modelListTimeout)
+	defer cancel()
+	list, err := s.lister()(ctx, llm.ProviderOpenRouter, cfg)
+	if err != nil {
+		logger.Info("settings: model list unavailable, using the built-in one",
+			"provider", llm.ProviderOpenRouter, "err", err)
+	}
+	return list
 }
 
 // lister is the listing call: the test seam, else llm.ListModels.
