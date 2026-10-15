@@ -161,11 +161,17 @@ func completeViaOpenAI(ctx context.Context, cfg Config, p provider, baseURL stri
 		// Usage carries no user text, so it may be logged at Warn: it is what
 		// tells a reader whether the budget went on reasoning or on the answer.
 		reasoningTokens := completion.Usage.CompletionTokensDetails.ReasoningTokens
-		logger.Warn("llm: output limit reached", "feature", cfg.Feature, "provider", p.id,
-			"model", req.Model, "max_tokens", extras.maxTokens, "output_tokens", completion.Usage.CompletionTokens,
+		attrs := []any{"feature", cfg.Feature, "provider", p.id, "model", req.Model}
+		if extras.maxTokens > 0 {
+			// Only a limit that was sent: OpenAI and Ollama get none, and
+			// "max_tokens=0" would read as a limit of nothing.
+			attrs = append(attrs, "max_tokens", extras.maxTokens)
+		}
+		attrs = append(attrs, "output_tokens", completion.Usage.CompletionTokens,
 			"reasoning_tokens", reasoningTokens, "answer_bytes", len(text))
+		logger.Warn("llm: output limit reached", attrs...)
 		if reasoningTokens > 0 {
-			return Response{}, fmt.Errorf("%s: %w", p.name, ErrOutputLimitThinking)
+			return Response{}, fmt.Errorf("%s: %w", p.name, errOutputLimitReasoning)
 		}
 		return Response{}, fmt.Errorf("%s: %w", p.name, ErrOutputLimit)
 	}

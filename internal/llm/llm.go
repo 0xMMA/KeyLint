@@ -465,6 +465,11 @@ const outputLimitMessage = "the result exceeded the output limit — try a short
 // works is a Haiku with no effort set, which Fix asks not to reason at all.
 const outputLimitThinkingMessage = "the model spent most of the output limit reasoning and was cut off — use a model that does not reason first (a Haiku with the effort on Model default), or shorten the text"
 
+// outputLimitReasoningMessage is the same cut-off in words for the
+// OpenAI-dialect providers (OpenAI, OpenRouter, Ollama), whose pickers have no
+// model called a Haiku to point at.
+const outputLimitReasoningMessage = "the model spent most of the output limit reasoning and was cut off — use a model that does not reason first (a fast one, with the effort on Model default), or shorten the text"
+
 // schemaName labels the schema for providers that require a name for it. It is
 // never shown to a user.
 const schemaName = "keylint_result"

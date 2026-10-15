@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"keylint/internal/logger"
 )
 
 // orCatalogue is a models endpoint answer in the shape OpenRouter serves at
@@ -578,6 +581,11 @@ func TestOpenRouterCutOffWhileReasoning(t *testing.T) {
 	if !errors.Is(err, ErrOutputLimitThinking) {
 		t.Errorf("err = %v, want ErrOutputLimitThinking", err)
 	}
+	// "A Haiku" is advice for Anthropic's and the CLI's pickers; on OpenRouter
+	// and OpenAI it names nothing the user can pick by that name.
+	if err != nil && (strings.Contains(err.Error(), "Haiku") || !strings.Contains(err.Error(), "does not reason first")) {
+		t.Errorf("err = %q, want provider-neutral advice", err)
+	}
 
 	g := newFakeOpenRouter(t, orCatalogue)
 	g.reply = `{"model":"%MODEL%","choices":[{"finish_reason":"length","message":{"role":"assistant","content":"They are going to the"}}],
@@ -696,5 +704,50 @@ func TestOpenRouterDefaultsAndFallback(t *testing.T) {
 	// 2048 tokens on reasoning as Haiku 5.5 did on the Anthropic API.
 	if !IsFastTier(DefaultModel(ProviderOpenRouter, FeatureFix)) {
 		t.Error("the Fix default is not recognised as the fast tier")
+	}
+}
+
+// TestOpenAICutOffWhileReasoningNamesNoHaiku: the same on OpenAI itself, and
+// the Warn line names no output limit for a provider that sends none.
+func TestOpenAICutOffWhileReasoningNamesNoHaiku(t *testing.T) {
+	var logs bytes.Buffer
+	logger.InitWithWriter(&logs, "warning", false)
+	t.Cleanup(func() { logger.InitWithWriter(io.Discard, "off", false) })
+
+	var got capture
+	srv := newServer(t, &got, http.StatusOK, `{"model":"gpt-6-astra","choices":[{"finish_reason":"length","message":{"role":"assistant","content":""}}],
+		"usage":{"completion_tokens":4096,"completion_tokens_details":{"reasoning_tokens":4096}}}`)
+	_, err := newOpenAI(Config{APIKey: "sk-test", BaseURL: srv.URL}).Complete(context.Background(), Request{Model: "gpt-6-astra", User: "x", MaxTokens: 2048})
+	if !errors.Is(err, ErrOutputLimitThinking) {
+		t.Fatalf("err = %v, want ErrOutputLimitThinking", err)
+	}
+	if strings.Contains(err.Error(), "Haiku") {
+		t.Errorf("err = %q tells an OpenAI user to pick a Haiku", err)
+	}
+	line := logs.String()
+	if !strings.Contains(line, "output limit reached") || !strings.Contains(line, "reasoning_tokens=4096") {
+		t.Errorf("log = %q, want the cut-off with its usage", line)
+	}
+	if strings.Contains(line, "max_tokens") {
+		t.Errorf("log = %q names an output limit OpenAI was never sent", line)
+	}
+
+	// The Anthropic API keeps its own advice: there, a Haiku is in the picker.
+	if !strings.Contains(ErrOutputLimitThinking.Error(), "Haiku") {
+		t.Error("the Anthropic wording lost its Haiku advice")
+	}
+}
+
+// TestOpenRouterCutOffLogNamesTheLimitItSent: OpenRouter does send one.
+func TestOpenRouterCutOffLogNamesTheLimitItSent(t *testing.T) {
+	var logs bytes.Buffer
+	logger.InitWithWriter(&logs, "warning", false)
+	t.Cleanup(func() { logger.InitWithWriter(io.Discard, "off", false) })
+
+	f := newFakeOpenRouter(t, orCatalogue)
+	f.reply = `{"model":"%MODEL%","choices":[{"finish_reason":"length","message":{"role":"assistant","content":""}}],"usage":{"completion_tokens":2048,"completion_tokens_details":{"reasoning_tokens":2048}}}`
+	_, _ = f.client().Complete(context.Background(), Request{Model: "anthropic/claude-sonnet-5.5", User: "x", MaxTokens: 2048})
+	if !strings.Contains(logs.String(), "max_tokens=2048") {
+		t.Errorf("log = %q, want the limit that was sent", logs.String())
 	}
 }
