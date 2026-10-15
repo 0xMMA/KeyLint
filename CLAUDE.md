@@ -139,13 +139,14 @@ EVAL_JUDGE_MODEL=... ./scripts/eval.sh                 # a single judge instead 
 
 ## Why (The Context)
 
-KeyLint is a desktop app that fixes/enhances clipboard text via AI (OpenAI, Anthropic, the installed Claude Code CLI, Ollama). A global hotkey silently grabs clipboard text, enhances it, and writes it back. The main UI provides manual fix and advanced enhancement modes.
+KeyLint is a desktop app that fixes/enhances clipboard text via AI (OpenAI, Anthropic, OpenRouter, the installed Claude Code CLI, Ollama). A global hotkey silently grabs clipboard text, enhances it, and writes it back. The main UI provides manual fix and advanced enhancement modes.
 
 **Architecture decisions:**
 - AI API calls go through the Go backend (`internal/features/enhance/service.go:1`) — WebKitGTK on Linux blocks external HTTPS fetch from the webview
 - API keys stored in OS keyring (`github.com/zalando/go-keyring`); env vars take priority over keyring — see `internal/features/settings/service.go`
 - The welcome wizard is a custom `@switch`-based component (`welcome-wizard.component.ts`): it replaced PrimeNG's Stepper, whose StepPanel animations broke DOM visibility. PrimeNG itself is gone since E11 (`docs/ui/primeng-replacement.md`)
 - CLI mode (`-fix`, `-pyramidize`) dispatches before Wails boots in `main.go`, uses the same service layer with manual wiring (no Wire/Wails). Prompts are identical between CLI and GUI — output formatting is the caller's concern.
+- The `openrouter` provider (`internal/llm/openrouter.go`) is one OpenRouter key for many vendors' models, over OpenRouter's OpenAI-compatible endpoint. Its catalogue is public: listed without a key (the key is never sent to it) and searched as you type. IDs are explicit `vendor/model`, no family alias. Reasoning goes as `reasoning: {effort}` per the model's catalogue entry, never as OpenAI's `reasoning_effort`. No app-attribution headers (`HTTP-Referer`, `X-Title`) — the same stance as the stripped SDK fingerprint headers. Not eval'd (roadmap E10).
 - The `claude-code` provider spawns the user's installed Claude Code CLI (`internal/llm/claudecode.go`) instead of calling an HTTP API. Anthropic's terms allow running the unmodified binary the user installed and signed in to themselves — so KeyLint never reads, stores or forwards credentials, never offers a login, and never uses the Claude Code or Anthropic name as part of a KeyLint feature name. Never pass `--bare`: it skips credential reads and makes a signed-in user look signed out.
 - Evaluation tests use `//go:build eval` build tag to isolate from normal `go test` runs. They make real API calls and write results to `test-data/eval-runs/<timestamp>/`.
 
