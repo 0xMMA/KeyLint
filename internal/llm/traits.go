@@ -9,10 +9,17 @@ import (
 // KeyLint supplies. The Claude Code CLI uses the account the user signed in
 // with, and Ollama needs nothing; asking for a key for either would be wrong,
 // and handing one to the CLI would bill a different account (see blockedCLIEnv).
-func UsesAPIKey(provider string) bool {
+//
+// Bedrock depends on how the user connects it, so bedrockAuth is the mode from
+// settings (providers.bedrock_auth): a key in key mode, none with this
+// computer's AWS sign-in — whether that sign-in works can only be known by
+// trying. Key mode is the default. Every other provider ignores bedrockAuth.
+func UsesAPIKey(provider, bedrockAuth string) bool {
 	switch provider {
 	case ProviderClaude, ProviderOpenAI, ProviderOpenRouter:
 		return true
+	case ProviderBedrock:
+		return bedrockAuth != BedrockAuthSignIn
 	default:
 		return false
 	}
@@ -41,6 +48,12 @@ func SupportsTemperature(provider, model string) bool {
 		return false
 	case ProviderClaude:
 		major, minor, ok := claudeGeneration(model)
+		return ok && (major < 4 || (major == 4 && minor <= 6))
+	case ProviderBedrock:
+		// The same models under Bedrock's IDs; an ARN says nothing, so it
+		// counts as new.
+		_, base := splitBedrockPrefix(model)
+		major, minor, ok := claudeGeneration(strings.TrimPrefix(base, "anthropic."))
 		return ok && (major < 4 || (major == 4 && minor <= 6))
 	default:
 		return true

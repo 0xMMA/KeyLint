@@ -29,6 +29,9 @@ const (
 	// ProviderOpenRouter is one OpenRouter key for many vendors' models,
 	// through OpenRouter's OpenAI-compatible endpoint (roadmap E10).
 	ProviderOpenRouter = "openrouter"
+	// ProviderBedrock is Anthropic's models from the user's own AWS account,
+	// on bedrock-runtime (roadmap E6); see bedrock.go.
+	ProviderBedrock = "bedrock"
 )
 
 // provider pairs the stable ID used in settings and logs with the display name
@@ -62,7 +65,8 @@ type Request struct {
 	// OpenAI-compatible Ollama endpoint through response_format, Anthropic
 	// through output_config, the Claude Code CLI through --json-schema — but
 	// none of them is a parser: a caller still unmarshals the text it gets back,
-	// and should still do so defensively.
+	// and should still do so defensively. Bedrock never gets it: its model
+	// cards list structured outputs as not supported for these models.
 	JSONSchema json.RawMessage
 	// Temperature pins the sampling temperature. nil leaves it to the provider,
 	// which is what the product wants — a fix or a restructure reads better with
@@ -76,12 +80,14 @@ type Request struct {
 	// levels. "" sends nothing, which leaves the model on its own default and is
 	// what everyone gets who has not touched the setting.
 	//
-	// The Anthropic API takes it as output_config.effort and the Claude Code CLI
-	// as --effort. Not every model accepts every level (Haiku 4.5 takes none,
+	// The Anthropic API and Bedrock take it as output_config.effort and the
+	// Claude Code CLI as --effort. Not every model accepts every level (Haiku 4.5 takes none,
 	// the 4.6 generation no xhigh), and a level the model refuses is a 400 —
 	// so the Anthropic client checks the account's model listing first and
 	// leaves an unsupported level out, and both clients retry once without it
-	// if the model rejects it anyway. OpenAI sends it as reasoning_effort, but
+	// if the model rejects it anyway. Bedrock has no listing; it leaves out
+	// what a known model's card says it does not take (bedrockModels) and
+	// retries the same way. OpenAI sends it as reasoning_effort, but
 	// only to the model families whose support is documented (see
 	// openAIReasoningModels); OpenRouter as reasoning.effort, to models whose
 	// catalogue entry lists the level (see openRouterReasoning); Ollama
@@ -165,6 +171,9 @@ type Config struct {
 	// HTTP endpoint (Claude Code). Empty means "find it on this machine"; tests
 	// set it to a stub binary.
 	CLIPath string
+	// Bedrock is AWS Bedrock's region, sign-in and routing. Zero for every
+	// other provider.
+	Bedrock BedrockConfig
 }
 
 // factories is the provider registry: provider ID → client constructor. It is
@@ -175,6 +184,7 @@ var factories = map[string]func(Config) Client{
 	ProviderOllama:     newOllama,
 	ProviderClaudeCode: newClaudeCode,
 	ProviderOpenRouter: newOpenRouter,
+	ProviderBedrock:    newBedrock,
 }
 
 // fallbackTimeout bounds requests when the caller passes no HTTP client.

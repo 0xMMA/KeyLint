@@ -15,8 +15,27 @@ func TestUsesAPIKey(t *testing.T) {
 		ProviderOllama:     false,
 		"":                 false,
 	} {
-		if got := UsesAPIKey(provider); got != want {
-			t.Errorf("UsesAPIKey(%q) = %v, want %v", provider, got, want)
+		// The Bedrock mode means nothing to any other provider.
+		for _, mode := range []string{"", BedrockAuthKey, BedrockAuthSignIn} {
+			if got := UsesAPIKey(provider, mode); got != want {
+				t.Errorf("UsesAPIKey(%q, %q) = %v, want %v", provider, mode, got, want)
+			}
+		}
+	}
+}
+
+// TestUsesAPIKeyFollowsTheBedrockMode: a Bedrock key in key mode, none when
+// the computer's AWS sign-in is used. Key mode is the default, so a settings
+// file that names no mode asks for a key rather than reading ~/.aws.
+func TestUsesAPIKeyFollowsTheBedrockMode(t *testing.T) {
+	for mode, want := range map[string]bool{
+		"":                true,
+		BedrockAuthKey:    true,
+		BedrockAuthSignIn: false,
+		"something-else":  true,
+	} {
+		if got := UsesAPIKey(ProviderBedrock, mode); got != want {
+			t.Errorf("UsesAPIKey(bedrock, %q) = %v, want %v", mode, got, want)
 		}
 	}
 }
@@ -78,6 +97,14 @@ func TestSupportsTemperature(t *testing.T) {
 		// A family alias resolves to the newest generation.
 		{ProviderClaude, "sonnet", false},
 		{ProviderClaude, "something-else", false},
+		// Bedrock serves the same models under its own IDs, with or without
+		// a routing prefix.
+		{ProviderBedrock, "anthropic.claude-haiku-4-5-20251001-v1:0", true},
+		{ProviderBedrock, "eu.anthropic.claude-haiku-4-5-20251001-v1:0", true},
+		{ProviderBedrock, "anthropic.claude-haiku-5-5", false},
+		{ProviderBedrock, "global.anthropic.claude-sonnet-5-5", false},
+		{ProviderBedrock, "anthropic.claude-opus-4-8", false},
+		{ProviderBedrock, "arn:aws:bedrock:eu-central-1:123456789012:application-inference-profile/abc", false},
 		{ProviderOpenAI, "gpt-4.1", true},
 		{ProviderOllama, "llama3", true},
 	}

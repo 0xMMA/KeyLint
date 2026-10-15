@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -65,10 +66,41 @@ func (c *anthropicClient) Complete(ctx context.Context, req Request) (Response, 
 		}
 	}
 
+	call := messagesCall{
+		p:          anthropicProvider,
+		model:      model,
+		effort:     effort,
+		noThinking: noThinking,
+		schema:     req.JSONSchema,
+		client:     c.client,
+		mapError: func(attempts *httpAttempts, err error) error {
+			return mapAnthropicError(attempts, model, err)
+		},
+	}
+	return call.run(ctx, c.cfg, req)
+}
+
+// messagesCall is one Messages API request once the model and its options are
+// decided. The Anthropic API and Bedrock take the same request and give the
+// same reply; they differ in how the model is named, how the client reaches
+// the endpoint, and how a failure is worded.
+type messagesCall struct {
+	p provider
+	// model is the ID as it goes on the wire.
+	model      string
+	effort     string
+	noThinking bool
+	// schema is enforced through output_config.format. nil sends none.
+	schema   json.RawMessage
+	client   func(*httpAttempts) anthropic.Client
+	mapError func(*httpAttempts, error) error
+}
+
+func (m messagesCall) run(ctx context.Context, cfg Config, req Request) (Response, error) {
 	params := anthropic.MessageNewParams{
 		// anthropic.Model is a string alias: the caller's ID goes through as is,
 		// so a model released after this SDK version still works.
-		Model:     anthropic.Model(model),
+		Model:     anthropic.Model(m.model),
 		MaxTokens: int64(req.MaxTokens),
 		System:    []anthropic.TextBlockParam{{Text: req.System}},
 		Messages: []anthropic.MessageParam{
@@ -78,43 +110,44 @@ func (c *anthropicClient) Complete(ctx context.Context, req Request) (Response, 
 	if req.Temperature != nil {
 		params.Temperature = anthropic.Float(*req.Temperature)
 	}
-	if len(req.JSONSchema) > 0 {
-		schema, err := schemaObject(req.JSONSchema)
+	if len(m.schema) > 0 {
+		schema, err := schemaObject(m.schema)
 		if err != nil {
-			return Response{}, fmt.Errorf("%s: %w", anthropicProvider.name, err)
+			return Response{}, fmt.Errorf("%s: %w", m.p.name, err)
 		}
 		params.OutputConfig.Format = anthropic.JSONOutputFormatParam{Schema: schema}
 	}
-	if effort != "" {
-		params.OutputConfig.Effort = anthropic.OutputConfigEffort(effort)
+	if m.effort != "" {
+		params.OutputConfig.Effort = anthropic.OutputConfigEffort(m.effort)
 	}
-	if noThinking {
+	if m.noThinking {
 		disabled := anthropic.NewThinkingConfigDisabledParam()
 		params.Thinking = anthropic.ThinkingConfigParamUnion{OfDisabled: &disabled}
 	}
 
-	logRequest(c.cfg, anthropicProvider, model, params)
+	logRequest(cfg, m.p, m.model, params)
 
-	attempts := newHTTPAttempts(ctx, c.cfg, anthropicProvider)
+	attempts := newHTTPAttempts(ctx, cfg, m.p)
 	// The service method has a pointer receiver, so the client needs a variable.
-	client := c.client(attempts)
+	client := m.client(attempts)
 	message, err := client.Messages.New(ctx, params)
-	if err != nil && (effort != "" || noThinking) && rejectedOption(err) {
-		// The listing did not describe this model, or described it wrongly,
-		// and the model refused the effort or thinking option. Once more
+	if err != nil && (m.effort != "" || m.noThinking) && rejectedOption(err) {
+		// Nothing said the model would refuse — the listing did not describe
+		// it or described it wrongly, or there is no listing (Bedrock) — and
+		// it refused the effort or thinking option. Once more
 		// without them: the user's text still gets fixed, on the model's own
 		// default, rather than failing on a setting they may not remember
 		// making. Warn, because the setting is now silently doing nothing.
 		logger.Warn("llm: model rejected the effort or thinking option, retried without it",
-			"feature", c.cfg.Feature, "model", model, "effort", effort, "no_thinking", noThinking)
+			"feature", cfg.Feature, "provider", m.p.id, "model", m.model, "effort", m.effort, "no_thinking", m.noThinking)
 		params.OutputConfig.Effort = ""
 		params.Thinking = anthropic.ThinkingConfigParamUnion{}
-		attempts = newHTTPAttempts(ctx, c.cfg, anthropicProvider)
-		client = c.client(attempts)
+		attempts = newHTTPAttempts(ctx, cfg, m.p)
+		client = m.client(attempts)
 		message, err = client.Messages.New(ctx, params)
 	}
 	if err != nil {
-		return Response{}, mapAnthropicError(attempts, model, err)
+		return Response{}, m.mapError(attempts, err)
 	}
 
 	// A reply can arrive as several text blocks; taking only the first would
@@ -138,23 +171,23 @@ func (c *anthropicClient) Complete(ctx context.Context, req Request) (Response, 
 	case anthropic.StopReasonMaxTokens, anthropic.StopReasonModelContextWindowExceeded:
 		// Usage carries no user text, so it may be logged at Warn: it is what
 		// tells a reader whether the budget went on thinking or on the answer.
-		logger.Warn("llm: output limit reached", "feature", c.cfg.Feature, "provider", anthropicProvider.id,
-			"model", model, "stop_reason", string(message.StopReason), "max_tokens", req.MaxTokens,
+		logger.Warn("llm: output limit reached", "feature", cfg.Feature, "provider", m.p.id,
+			"model", m.model, "stop_reason", string(message.StopReason), "max_tokens", req.MaxTokens,
 			"output_tokens", message.Usage.OutputTokens, "thinking", thinking, "answer_bytes", len(text))
 		if message.StopReason == anthropic.StopReasonMaxTokens && thinking {
-			return Response{}, fmt.Errorf("%s: %w", anthropicProvider.name, ErrOutputLimitThinking)
+			return Response{}, fmt.Errorf("%s: %w", m.p.name, ErrOutputLimitThinking)
 		}
-		return Response{}, fmt.Errorf("%s: %w", anthropicProvider.name, ErrOutputLimit)
+		return Response{}, fmt.Errorf("%s: %w", m.p.name, ErrOutputLimit)
 	case anthropic.StopReasonRefusal:
-		return Response{}, fmt.Errorf("%s declined the request", anthropicProvider.name)
+		return Response{}, fmt.Errorf("%s declined the request", m.p.name)
 	}
 	if strings.TrimSpace(text) == "" {
-		return Response{}, fmt.Errorf("%s returned no text content", anthropicProvider.name)
+		return Response{}, fmt.Errorf("%s returned no text content", m.p.name)
 	}
-	logResponse(c.cfg, anthropicProvider, text)
+	logResponse(cfg, m.p, text)
 	answered := string(message.Model)
 	if answered == "" {
-		answered = model
+		answered = m.model
 	}
 	return Response{Text: text, Model: answered}, nil
 }
