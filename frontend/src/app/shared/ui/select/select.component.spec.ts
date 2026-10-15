@@ -53,6 +53,46 @@ class ModelPickerHost {
   readonly emitted: Array<string | null> = [];
 }
 
+/** A long catalogue in OpenRouter's shape: a name, and the vendor/model ID under it. */
+const CATALOGUE: ModelOption[] = [
+  { id: null, label: '', display: 'Default: Anthropic: Claude Haiku 5.5', secondary: 'anthropic/claude-haiku-5.5' },
+  ...[
+    ['anthropic/claude-haiku-5.5', 'Anthropic: Claude Haiku 5.5'],
+    ['anthropic/claude-sonnet-5.5', 'Anthropic: Claude Sonnet 5.5'],
+    ['openai/gpt-6-luna', 'OpenAI: GPT-6 Luna'],
+    ['google/gemini-3.8-flash', 'Google: Gemini 3.8 Flash'],
+    ['anthropic/claude-haiku-4.5', 'Anthropic: Claude Haiku 4.5'],
+  ].map(([id, label]) => toModelOption({ id, label, resolved: '' })),
+];
+
+/** A model picker that searches as you type: OpenRouter's, with its ~450 entries. */
+@Component({
+  standalone: true,
+  imports: [SelectComponent, FormsModule],
+  changeDetection: ChangeDetectionStrategy.Eager,
+  template: `
+    <kl-select
+      data-testid="search"
+      editable
+      filter
+      [options]="options"
+      optionLabel="label"
+      optionValue="id"
+      optionDisplay="display"
+      optionDescription="secondary"
+      [placeholder]="options[0].display"
+      ariaLabel="Fix model"
+      [ngModel]="stored() || null"
+      (ngModelChange)="emitted.push($event); stored.set($event ?? '')"
+    />
+  `,
+})
+class SearchHost {
+  readonly options = CATALOGUE;
+  readonly stored = signal('');
+  readonly emitted: Array<string | null> = [];
+}
+
 const LEVELS = [
   { label: 'Off', value: 'off' },
   { label: 'Debug', value: 'debug' },
@@ -325,6 +365,86 @@ describe('kl-select, editable: the model picker semantics', () => {
     expect(trigger.tagName).toBe('BUTTON');
     expect(trigger.textContent).toContain('Default: Haiku (latest)');
   });
+});
+
+describe('kl-select, editable with filter: searching a long list', () => {
+  let fixture: ComponentFixture<SearchHost>;
+  let host: SearchHost;
+  let input: HTMLInputElement;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({ imports: [SearchHost] }).compileComponents();
+    fixture = TestBed.createComponent(SearchHost);
+    host = fixture.componentInstance;
+    await settle(fixture);
+    input = fixture.nativeElement.querySelector('[data-testid="search"] input[role="combobox"]');
+  });
+
+  const names = () => options().map(o => o.querySelector('.kl-option-label')?.textContent?.trim());
+
+  it('opens on typing and keeps the options whose name or ID holds every typed word, in any case', async () => {
+    type(input, 'HAIKU');
+    await settle(fixture);
+    expect(listbox()).toBeTruthy();
+    expect(names()).toEqual(['Default: Anthropic: Claude Haiku 5.5', 'Anthropic: Claude Haiku 5.5', 'Anthropic: Claude Haiku 4.5']);
+
+    type(input, 'haiku 4.5');
+    await settle(fixture);
+    expect(names()).toEqual(['Anthropic: Claude Haiku 4.5']);
+
+    // The ID, shown on the second line, is searched too.
+    type(input, 'openai/');
+    await settle(fixture);
+    expect(names()).toEqual(['OpenAI: GPT-6 Luna']);
+  });
+
+  it('shows the whole list when opened on a stored model, so the choice can be browsed', async () => {
+    host.stored.set('openai/gpt-6-luna');
+    await settle(fixture);
+    key(input, 'ArrowDown');
+    await settle(fixture);
+    expect(options().length).toBe(CATALOGUE.length);
+    expect(input.getAttribute('aria-activedescendant')).toBe(options()[3].id);
+  });
+
+  it('takes the first match with ArrowDown and Enter, writing its ID into the field', async () => {
+    type(input, 'gemini');
+    key(input, 'ArrowDown');
+    await settle(fixture);
+    key(input, 'Enter');
+    await settle(fixture);
+    expect(host.stored()).toBe('google/gemini-3.8-flash');
+    expect(input.value).toBe('google/gemini-3.8-flash');
+    expect(listbox()).toBeNull();
+  });
+
+  it('takes the clicked match, not the option that was at that position before filtering', async () => {
+    type(input, 'sonnet');
+    await settle(fixture);
+    options()[0].click();
+    await settle(fixture);
+    expect(host.stored()).toBe('anthropic/claude-sonnet-5.5');
+  });
+
+  it('still keeps free text: Enter on a search that names no option keeps what was typed', async () => {
+    type(input, 'vendor/brand-new-model');
+    await settle(fixture);
+    expect(names()).toEqual([]);
+    expect(document.querySelector('.kl-option-empty')?.textContent?.trim()).toBe('No matches');
+    key(input, 'Enter');
+    await settle(fixture);
+    expect(host.stored()).toBe('vendor/brand-new-model');
+    expect(listbox()).toBeNull();
+  });
+
+  it('marks the option the typed ID names as selected and active, at its place in the filtered list', async () => {
+    type(input, 'anthropic/claude-haiku-4.5');
+    await settle(fixture);
+    expect(names()).toEqual(['Anthropic: Claude Haiku 4.5']);
+    expect(options()[0].getAttribute('aria-selected')).toBe('true');
+    expect(input.getAttribute('aria-activedescendant')).toBe(options()[0].id);
+  });
+
 });
 
 describe('kl-select, fixed list', () => {
