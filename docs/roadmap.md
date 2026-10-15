@@ -1,6 +1,6 @@
 # KeyLint Roadmap
 
-> Last updated: 2026-10-15 (`v4.8.0-beta` tagged; English input came back in German, fixed in #132; Send back pastes formatted text, #133) · Owner: Michael · Source of truth for priorities.
+> Last updated: 2026-10-15 (`v4.8.0-beta` released; English input came back in German, fixed in #132; Send back pastes formatted text, #133) · Owner: Michael · Source of truth for priorities.
 > Tracking: each epic links to a GitHub issue. This file holds the *why* and the order; issues hold the *what*.
 
 ---
@@ -231,7 +231,7 @@ The Fix page redesign (#36, E5) is the natural first screen for the new look.
 | `v4.6.1-beta` | ✅ released 2026-10-10: Wails v3 beta.25 (#95) · October dependency bumps, openai-go held at 3.68 (#117, #116) · Send Back fixed, closes #114 (#119) |
 | `v4.7.0-beta` | ✅ released 2026-10-11: E11 own UI on CDK + Tailwind, new look incl. Fix page redesign, PrimeNG out (#121, #123) · Pyramidize effort picker, quality threshold removed (#123) |
 | `v4.7.1-beta` | ✅ released 2026-10-11: Pyramidize options fit the default window again (#124) |
-| `v4.8.0-beta` | tagged 2026-10-15 (draft release): E3 Pyramidize v3: user picks the form, one call, new choice page, two judges · English input stays English (#132) · E4 upgrade wave (Angular 22 in with #125, Windows run done 2026-10-14) |
+| `v4.8.0-beta` | ✅ released 2026-10-15: E3 Pyramidize v3: user picks the form, one call, new choice page, two judges · English input stays English (#132) · E4 upgrade wave (Angular 22 in with #125, Windows run done 2026-10-14) |
 | `v4.9.0-beta` | E3 reviewer (findings on single passages) · ~~Send back pastes rich text (E8)~~ on main since #133 |
 | `v5.0.0` | first stable release · Bedrock UI · light theme · Codex/Gemini CLI providers · OpenRouter (E10) · website update (#126, draft) ships with the first stable 4.x/5.x |
 
