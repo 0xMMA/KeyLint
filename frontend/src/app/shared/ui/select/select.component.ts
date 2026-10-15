@@ -108,6 +108,10 @@ type Option = unknown;
           [disabled]="isDisabled()" (mousedown)="$event.preventDefault()" (click)="toggle()">
           <kl-icon [name]="isOpen() ? 'chevron-up' : 'chevron-down'" />
         </button>
+        @if (searches()) {
+          <!-- In the DOM before anything is typed, so the first count is heard. -->
+          <span class="kl-select-status" aria-live="polite">{{ searchStatus() }}</span>
+        }
       </div>
     } @else {
       <button
@@ -199,6 +203,10 @@ type Option = unknown;
       color: var(--kl-muted); background: transparent; border: 0; border-radius: var(--kl-radius-sm); cursor: pointer;
     }
     .kl-select-chevron:disabled { cursor: not-allowed; }
+    .kl-select-status {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+    }
 
     .kl-select-panel {
       width: 100%; max-height: 18rem; overflow-y: auto; padding: 4px;
@@ -270,7 +278,13 @@ export class SelectComponent implements ControlValueAccessor, OnDestroy {
   /** With `filter`: the search in the field, not yet a value; null when the field shows the value. */
   private readonly draft = signal<string | null>(null);
   /** Whether typing searches rather than sets the value. */
-  private readonly searches = computed(() => this.filter() && this.editable());
+  protected readonly searches = computed(() => this.filter() && this.editable());
+  /** What a screen reader hears when a search narrows the list. */
+  protected readonly searchStatus = computed(() => {
+    if (!this.isOpen() || !this.searching()) return '';
+    const n = this.shown().length;
+    return n === 0 ? 'No matches' : n === 1 ? '1 match' : `${n} matches`;
+  });
   protected readonly searching = computed(() => this.searches() && this.query().trim() !== '');
   /**
    * The options the open list shows. Every index into the list — the active

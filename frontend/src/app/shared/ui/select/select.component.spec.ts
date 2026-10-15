@@ -348,6 +348,10 @@ describe('kl-select, editable: the model picker semantics', () => {
     expect(listbox()).toBeNull();
   });
 
+  it('has no search status: it does not search', () => {
+    expect(fixture.nativeElement.querySelector('[data-testid="picker"] [aria-live]')).toBeNull();
+  });
+
   it('Escape closes the list and keeps the typed text', async () => {
     type(input, 'custom');
     key(input, 'ArrowDown');
@@ -450,6 +454,28 @@ describe('kl-select, editable with filter: searching a long list', () => {
     key(input, 'Enter');
     await settle(fixture);
     expect(host.emitted).toEqual(['anthropic/claude-haiku-4.5']);
+  });
+
+  // A narrowed list changes under a screen reader user's cursor without a
+  // sound; the count is what tells them the search did something.
+  it('tells a screen reader how many options match, and when none do', async () => {
+    const status = () => fixture.nativeElement.querySelector('[data-testid="search"] [aria-live="polite"]') as HTMLElement | null;
+    expect(status(), 'the live region is there before anything is typed').not.toBeNull();
+    expect(status()!.textContent?.trim()).toBe('');
+
+    type(input, 'haiku');
+    await settle(fixture);
+    expect(status()!.textContent?.trim()).toBe('3 matches');
+    type(input, 'haiku 4.5');
+    await settle(fixture);
+    expect(status()!.textContent?.trim()).toBe('1 match');
+    type(input, 'zzz');
+    await settle(fixture);
+    expect(status()!.textContent?.trim()).toBe('No matches');
+
+    key(input, 'Escape');
+    await settle(fixture);
+    expect(status()!.textContent?.trim()).toBe('');
   });
 
   // Review of #134: with every keystroke committed, a search the user gave up
