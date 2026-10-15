@@ -179,6 +179,11 @@ func completeViaOpenAI(ctx context.Context, cfg Config, p provider, baseURL stri
 	if strings.TrimSpace(text) == "" {
 		return Response{}, fmt.Errorf("%s returned an empty result", p.name)
 	}
+	// Usage carries no user text. reasoning_tokens is how a log shows whether
+	// a model asked not to reason (Fix on a fast tier) actually did not.
+	logger.Debug("llm: usage", "feature", cfg.Feature, "provider", p.id, "model", completion.Model,
+		"output_tokens", completion.Usage.CompletionTokens,
+		"reasoning_tokens", completion.Usage.CompletionTokensDetails.ReasoningTokens)
 	logResponse(cfg, p, text)
 	return Response{Text: text, Model: completion.Model}, nil
 }

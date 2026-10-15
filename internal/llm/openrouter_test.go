@@ -754,3 +754,25 @@ func TestOpenRouterCutOffLogNamesTheLimitItSent(t *testing.T) {
 		t.Errorf("log = %q, want the limit that was sent", logs.String())
 	}
 }
+
+// TestOpenRouterLogsUsageAtDebug: whether Fix's "don't reason" reached the
+// model shows in reasoning_tokens, so a Debug log has to carry it for a
+// successful call too — the only way to check it against a live key. Usage
+// carries no user text.
+func TestOpenRouterLogsUsageAtDebug(t *testing.T) {
+	var logs bytes.Buffer
+	logger.InitWithWriter(&logs, "debug", false)
+	t.Cleanup(func() { logger.InitWithWriter(io.Discard, "off", false) })
+
+	f := newFakeOpenRouter(t, orCatalogue)
+	f.reply = `{"model":"%MODEL%","choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"fixed"}}],"usage":{"completion_tokens":312,"completion_tokens_details":{"reasoning_tokens":0}}}`
+	if _, err := f.client().Complete(context.Background(), Request{Model: "anthropic/claude-haiku-5.5", User: "USER-SECRET-1", NoThinking: true, MaxTokens: 2048}); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	line := logs.String()
+	for _, want := range []string{"llm: usage", "provider=openrouter", "output_tokens=312", "reasoning_tokens=0"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("log lacks %q:\n%s", want, line)
+		}
+	}
+}
