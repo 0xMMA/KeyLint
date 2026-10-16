@@ -1105,7 +1105,7 @@ describe('SettingsComponent — which provider is in use', () => {
 
     const cards = Array.from(el.querySelectorAll('[data-testid^="provider-card-"]'))
       .map(c => c.getAttribute('data-testid'));
-    expect(cards).toEqual(['provider-card-openai', 'provider-card-claude', 'provider-card-openrouter', 'provider-card-bedrock', 'provider-card-claude-code', 'provider-card-ollama']);
+    expect(cards).toEqual(['provider-card-openai', 'provider-card-claude', 'provider-card-claude-code', 'provider-card-openrouter', 'provider-card-bedrock', 'provider-card-ollama']);
   });
 
   it('switches with one click, saving only the provider', async () => {
@@ -1627,12 +1627,12 @@ describe('SettingsComponent — AWS Bedrock', () => {
     fixture.detectChanges();
   }
 
-  it('lists AWS Bedrock between OpenRouter and the CLI, and switches to it with one click', async () => {
+  it('lists AWS Bedrock after OpenRouter, and switches to it with one click', async () => {
     await render({ active: 'openai' });
 
     const cards = Array.from(el.querySelectorAll('[data-testid^="provider-card-"]'))
       .map(c => c.getAttribute('data-testid')!.replace('provider-card-', ''));
-    expect(cards).toEqual(['openai', 'claude', 'openrouter', 'bedrock', 'claude-code', 'ollama']);
+    expect(cards).toEqual(['openai', 'claude', 'claude-code', 'openrouter', 'bedrock', 'ollama']);
     expect(q('provider-heading-bedrock')?.textContent).toContain('AWS Bedrock');
 
     q('provider-use-bedrock')!.querySelector('button')!.click();

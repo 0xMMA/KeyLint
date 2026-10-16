@@ -9,9 +9,10 @@ import { bedrockConnectionOf, usesBedrockKey } from './bedrock';
 export const PROVIDER_OPTIONS: ReadonlyArray<{ label: string; value: string }> = [
   { label: 'OpenAI', value: 'openai' },
   { label: 'Anthropic API', value: 'claude' },
+  // Next to the Anthropic API: the other way to reach Claude.
+  { label: 'Claude Code (installed CLI)', value: 'claude-code' },
   { label: 'OpenRouter', value: 'openrouter' },
   { label: 'AWS Bedrock', value: 'bedrock' },
-  { label: 'Claude Code (installed CLI)', value: 'claude-code' },
   { label: 'Ollama (local)', value: 'ollama' },
 ];
 

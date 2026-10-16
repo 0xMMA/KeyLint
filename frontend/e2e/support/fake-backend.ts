@@ -114,7 +114,7 @@ export const BEDROCK_REGIONS = [
 ];
 
 /** What the real SetActiveProvider accepts; see selectableProviders in settings/service.go. */
-const SELECTABLE_PROVIDERS = ['openai', 'claude', 'openrouter', 'bedrock', 'claude-code', 'ollama'];
+const SELECTABLE_PROVIDERS = ['openai', 'claude', 'claude-code', 'openrouter', 'bedrock', 'ollama'];
 
 export const BASE_SETTINGS: Record<string, unknown> = {
   active_provider: 'claude',
