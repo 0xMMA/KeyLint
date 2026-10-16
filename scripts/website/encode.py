@@ -1,8 +1,7 @@
 """Turns the raw captures in scripts/website/out/ into the files keylint.io uses.
 
 Run by capture.sh after the captures (`encode.py [name...]`, all by default):
-- stills (fix, providers, pyramidize) become WebP, and the hero's peeks
-  (CROPS) are cut from them,
+- stills (fix, providers, pyramidize) become WebP,
 - each demo clip becomes a WebM (VP8) with the recorded frame timing, plus a
   WebP poster (also what reduced-motion visitors see): the frame at the scene's
   "poster" mark, else its last frame. A "start" mark trims the clip to begin
@@ -41,16 +40,6 @@ def still(name: str) -> None:
     dest = IMG / f"{name}.webp"
     im.save(dest, "WEBP", quality=88, method=6)
     print(f"{dest.name}: {im.width}x{im.height}, {dest.stat().st_size // 1024} KB")
-
-
-def crop(name: str) -> None:
-    source, (x0, y0, x1, y1) = CROPS[name]
-    im = Image.open(OUT / f"{source}.png").convert("RGB")
-    k = im.width / 1264  # the capture's device scale factor
-    part = im.crop(tuple(round(v * k) for v in (x0, y0, x1, y1)))
-    dest = IMG / f"{name}.webp"
-    part.save(dest, "WEBP", quality=86, method=6)
-    print(f"{dest.name}: {part.width}x{part.height} (shown at {x1 - x0}x{y1 - y0}), {dest.stat().st_size // 1024} KB")
 
 
 def playwright_ffmpeg() -> str:
@@ -108,13 +97,6 @@ def clip(name: str) -> None:
 
 
 STILLS = ("fix", "providers", "pyramidize")
-# Readable details of the stills for the hero's peeks, at the app's own size:
-# name -> (still, box in CSS pixels of the 1264x740 window). Kept at the
-# capture's 2x, so they are sharp where the page shows them at 1x.
-CROPS = {
-    "peek-fix": ("fix", (736, 90, 1220, 300)),
-    "peek-pyramidize": ("pyramidize", (245, 134, 770, 470)),
-}
 CLIPS = ("demo-fix", "demo-pyramidize")
 
 
@@ -124,9 +106,6 @@ def main(names: list[str]) -> int:
     for name in names or [*STILLS, *CLIPS]:
         if name in STILLS:
             still(name)
-            for peek, (source, _) in CROPS.items():
-                if source == name:
-                    crop(peek)
         elif name in CLIPS:
             clip(name)
         else:

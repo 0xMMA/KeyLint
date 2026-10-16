@@ -96,47 +96,35 @@ nav .container {
   position: relative;
 }
 
-/* The app, peeking in: readable details of the Fix page and a Pyramidize
-   email at the app's own size, half see-through, sliding in from the page's
-   edges like the neighbours in a carousel, faded where they leave. */
-.hero-peek {
+/* The app, glimpsed: two screenshots either side of the headline, tilted
+   towards it and faded out at their edges, never competing with the text. */
+.hero-ghost {
   position: absolute;
-  background: center / 100% 100% no-repeat;
+  top: 88px;
+  width: 440px;
+  aspect-ratio: 1600 / 937;
+  background: center / cover no-repeat;
   border-radius: 10px;
-  opacity: 0.55;
+  opacity: 0.16;
   pointer-events: none;
-  -webkit-mask-composite: source-in;
-  mask-composite: intersect;
+  -webkit-mask-image: radial-gradient(ellipse 70% 70% at center, #000 35%, transparent 100%);
+  mask-image: radial-gradient(ellipse 70% 70% at center, #000 35%, transparent 100%);
 }
 
-.hero-peek-left {
-  top: 132px;
-  width: 484px;
-  height: 210px;
-  right: calc(50% + 300px);
-  background-image: url(img/peek-fix.webp);
-  transform: perspective(1400px) rotateY(10deg);
-  -webkit-mask-image: linear-gradient(to right, transparent, #000 40%, #000 92%, transparent),
-    linear-gradient(to bottom, transparent, #000 12%, #000 70%, transparent);
-  mask-image: linear-gradient(to right, transparent, #000 40%, #000 92%, transparent),
-    linear-gradient(to bottom, transparent, #000 12%, #000 70%, transparent);
+.hero-ghost-left {
+  right: calc(50% + 230px);
+  background-image: url(img/fix.webp);
+  transform: perspective(1400px) rotateY(16deg);
 }
 
-.hero-peek-right {
-  top: 104px;
-  width: 525px;
-  height: 336px;
-  left: calc(50% + 300px);
-  background-image: url(img/peek-pyramidize.webp);
-  transform: perspective(1400px) rotateY(-10deg);
-  -webkit-mask-image: linear-gradient(to left, transparent, #000 40%, #000 92%, transparent),
-    linear-gradient(to bottom, transparent, #000 10%, #000 70%, transparent);
-  mask-image: linear-gradient(to left, transparent, #000 40%, #000 92%, transparent),
-    linear-gradient(to bottom, transparent, #000 10%, #000 70%, transparent);
+.hero-ghost-right {
+  left: calc(50% + 230px);
+  background-image: url(img/pyramidize.webp);
+  transform: perspective(1400px) rotateY(-16deg);
 }
 
 @media (max-width: 1100px) {
-  .hero-peek {
+  .hero-ghost {
     display: none;
   }
 }

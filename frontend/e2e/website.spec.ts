@@ -143,34 +143,28 @@ test.describe('website', () => {
     expect(order, 'the Pyramidize clip comes before the features').toBeTruthy();
   });
 
-  // Owner, 2026-10-16: the app peeking in either side of the headline — a
-  // detail of the Fix page and of a Pyramidize email. A first try (whole
-  // screens, small, 16 % opacity) was unreadable: they are shown at the
-  // app's own size and see-through, not ghosted out.
-  test('lets readable app details peek in beside the headline, only where there is room', async ({ page }) => {
+  // Owner, 2026-10-16: small, strongly faded glimpses of the Fix page and a
+  // Pyramidize result either side of the headline — backdrop, not content.
+  test('frames the headline with faded app glimpses, only where there is room', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(url('index.html'));
-    const peeks = page.locator('.hero-peek');
-    await expect(peeks).toHaveCount(2);
-    for (const peek of await peeks.all()) {
-      await expect(peek).toBeVisible();
-      await expect(peek).toHaveAttribute('aria-hidden', 'true');
-      const style = await peek.evaluate(async (el) => {
+    const ghosts = page.locator('.hero-ghost');
+    await expect(ghosts).toHaveCount(2);
+    for (const ghost of await ghosts.all()) {
+      await expect(ghost).toBeVisible();
+      await expect(ghost).toHaveAttribute('aria-hidden', 'true');
+      const style = await ghost.evaluate((el) => {
         const cs = getComputedStyle(el);
-        const src = /url\("?([^")]+)"?\)/.exec(cs.backgroundImage)![1];
-        const img = new Image();
-        img.src = src;
-        await img.decode();
-        return { opacity: Number(cs.opacity), src, shown: el.offsetWidth, natural: img.naturalWidth };
+        return { opacity: Number(cs.opacity), image: cs.backgroundImage, width: el.getBoundingClientRect().width };
       });
-      expect(style.opacity, 'see-through but readable').toBeGreaterThanOrEqual(0.4);
-      expect(style.opacity, 'still a backdrop').toBeLessThanOrEqual(0.75);
-      // Cut from a 2x capture: shown at half its pixels is the app's own size.
-      expect(style.shown, `${style.src} at the app's size`).toBeGreaterThanOrEqual(style.natural / 2 - 2);
+      expect(style.opacity, 'strongly faded').toBeLessThanOrEqual(0.25);
+      expect(style.width, 'not full size').toBeLessThan(600);
+      const file = /img\/[\w-]+\.webp/.exec(style.image)?.[0];
+      expect(file && fs.existsSync(path.join(SITE, file)), `${style.image} is on disk`).toBe(true);
     }
     await page.setViewportSize({ width: 375, height: 800 });
-    for (const peek of await peeks.all()) {
-      await expect(peek).toBeHidden();
+    for (const ghost of await ghosts.all()) {
+      await expect(ghost).toBeHidden();
     }
   });
 
