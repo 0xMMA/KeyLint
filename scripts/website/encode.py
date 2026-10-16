@@ -2,7 +2,8 @@
 
 Run by capture.sh after the captures (`encode.py [name...]`, all by default):
 - stills (fix, providers) become WebP,
-- each demo clip becomes a WebM (VP8) with the recorded frame timing, plus a
+- each demo clip becomes a WebM (VP8) with the recorded frame timing (the
+  Silent Fix clip also an animated WebP for the README, ANIMATED), plus a
   WebP poster (also what reduced-motion visitors see): the frame at the scene's
   "poster" mark, else its last frame. A "start" mark trims the clip to begin
   START_LEAD seconds before it.
@@ -40,6 +41,20 @@ def still(name: str) -> None:
     dest = IMG / f"{name}.webp"
     im.save(dest, "WEBP", quality=88, method=6)
     print(f"{dest.name}: {im.width}x{im.height}, {dest.stat().st_size // 1024} KB")
+
+
+def animated(name: str, frames: list, start: float, total: float) -> None:
+    """The clip as a looping animated WebP, sampled at ANIM_FPS."""
+    images, current = [], -1
+    for n in range(round(total * ANIM_FPS)):
+        t = start + n / ANIM_FPS
+        while current + 1 < len(frames) and frames[current + 1]["t"] <= t:
+            current += 1
+        images.append(resized(Image.open(frames[max(current, 0)]["file"]), ANIM_WIDTH))
+    dest = IMG / f"{ANIMATED[name]}.webp"
+    images[0].save(dest, "WEBP", save_all=True, append_images=images[1:], duration=1000 // ANIM_FPS,
+                   loop=0, quality=70, method=6)
+    print(f"{dest.name}: {ANIM_WIDTH}px, {len(images)} frames, {dest.stat().st_size // 1024} KB")
 
 
 def playwright_ffmpeg() -> str:
@@ -87,6 +102,9 @@ def clip(name: str) -> None:
     if proc.wait() != 0:
         sys.exit(f"ffmpeg failed for {name}")
 
+    if name in ANIMATED:
+        animated(name, frames, start, total)
+
     poster = IMG / f"{name}.webp"
     at = marks.get("poster")
     pick = frames[-1] if at is None else frames[max(i for i, f in enumerate(frames) if f["t"] <= at)]
@@ -95,6 +113,12 @@ def clip(name: str) -> None:
     print(f"{dest.name}: {last.width}x{last.height}, {total:.1f} s, {dest.stat().st_size // 1024} KB; "
           f"{poster.name}: {poster.stat().st_size // 1024} KB")
 
+
+# An animated WebP of a clip, for places that show images but cannot play
+# video — the README on GitHub. Smaller and slower than the WebM.
+ANIMATED = {"demo-fix": "readme-demo"}
+ANIM_WIDTH = 960
+ANIM_FPS = 10
 
 STILLS = ("fix", "providers")
 CLIPS = ("demo-fix", "demo-pyramidize")
