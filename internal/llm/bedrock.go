@@ -101,6 +101,10 @@ var (
 	// KeyLint sends Anthropic's request format, which Bedrock answers for
 	// those with a bare 400. Nothing is sent; see notClaudeError.
 	ErrBedrockNotClaude = errors.New("KeyLint calls only Anthropic's Claude models on Bedrock")
+	// ErrBedrockModelUnavailable: AWS does not offer the model to this
+	// account at all ("is not available for this account") — a per-account
+	// gate on some models, which no console setting lifts.
+	ErrBedrockModelUnavailable = errors.New("AWS does not offer this model to the account")
 )
 
 // bedrockRegion is one region KeyLint offers, and the geography a geographic
@@ -789,6 +793,13 @@ func mapBedrockError(attempts *httpAttempts, model, region string, signIn bool, 
 		case "ExpiredTokenException":
 			reason = "the AWS credentials have expired — sign in again (for SSO: aws sso login), then try again"
 		default:
+			if strings.Contains(strings.ToLower(apiErr.RawJSON()), "not available for this account") {
+				// The 5.5 models are gated per account; the form and the
+				// console do not help, a model every account has does.
+				return &StatusError{Provider: bedrockProvider.name, Status: status, err: ErrBedrockModelUnavailable,
+					msg: fmt.Sprintf("%s error %d: %s is not available to this AWS account — AWS decides which accounts may use it. Choose %s on the AWS Bedrock card, which every account can use, or ask AWS for access to this one",
+						bedrockProvider.name, status, model, openBedrockAlternative(model))}
+			}
 			// AccessDeniedException, or no class at all: by far the likeliest
 			// cause is model access, which a new account does not have.
 			reason = fmt.Sprintf("access to %s in %s was denied — check in the Bedrock console that this model is available to your account (for Anthropic's models the use-case form must be submitted) and that your key or role may call bedrock:InvokeModel", model, region)
@@ -802,6 +813,15 @@ func mapBedrockError(attempts *httpAttempts, model, region string, signIn bool, 
 	}
 	return &StatusError{Provider: bedrockProvider.name, Status: status,
 		msg: fmt.Sprintf("%s error %d: %s", bedrockProvider.name, status, reason)}
+}
+
+// openBedrockAlternative is a model every Bedrock account can use, in the
+// same tier as model: Haiku 4.5 for a Haiku, Sonnet 5 for anything larger.
+func openBedrockAlternative(model string) string {
+	if _, base := splitBedrockPrefix(model); strings.HasPrefix(base, "anthropic.claude-haiku-") {
+		return "Claude Haiku 4.5"
+	}
+	return "Claude Sonnet 5"
 }
 
 func credentialsRejected(signIn bool) string {

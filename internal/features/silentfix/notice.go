@@ -80,6 +80,10 @@ func describe(err error) Notice {
 		// Worldwide is not chosen.
 		n.Body = "Bedrock can't keep the text where you chose — see AI Providers."
 		n.Target = TargetProviders
+	case errors.Is(err, llm.ErrBedrockModelUnavailable):
+		// The detail names a model every account can use.
+		n.Body = "Your AWS account can't use this Bedrock model — see AI Providers."
+		n.Target = TargetProviders
 	case errors.Is(err, llm.ErrBedrockNotClaude):
 		// A Nova or Llama ID in the model field; nothing was sent.
 		n.Body = "Bedrock runs only Claude models in KeyLint — see AI Providers."

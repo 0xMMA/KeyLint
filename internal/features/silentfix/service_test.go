@@ -581,6 +581,7 @@ func TestDescribe(t *testing.T) {
 		{"malformed Bedrock region", bedrockRegionErr(t, "x.evil.example/"), titleNotRun, "Bedrock needs a valid AWS region — see AI Providers.", TargetProviders},
 		{"no route that stays", fmt.Errorf("wrapped: %w", llm.ErrBedrockRoute), titleNotRun, "Bedrock can't keep the text where you chose — see AI Providers.", TargetProviders},
 		{"worldwide-only region kept", bedrockRegionErr(t, "ap-south-1"), titleNotRun, "Bedrock can't keep the text where you chose — see AI Providers.", TargetProviders},
+		{"model not offered to the account", fmt.Errorf("wrapped: %w", llm.ErrBedrockModelUnavailable), titleNotRun, "Your AWS account can't use this Bedrock model — see AI Providers.", TargetProviders},
 		{"another vendor's model", fmt.Errorf("wrapped: %w", llm.ErrBedrockNotClaude), titleNotRun, "Bedrock runs only Claude models in KeyLint — see AI Providers.", TargetProviders},
 		{"provider down", statusErr(t, http.StatusBadGateway), titleNotRun, "Anthropic isn't available right now.", TargetFix},
 		{"provider timed out", statusErr(t, http.StatusRequestTimeout), titleNotRun, "Anthropic timed out — try again.", TargetFix},
