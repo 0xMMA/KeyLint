@@ -125,6 +125,16 @@ test.describe('website', () => {
     expect(chips.map((c) => c.trim())).toEqual(appLabels);
   });
 
+  // Four provider cards fell into three and one left over at full width.
+  test('lays the provider cards out in full rows at desktop width', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(url('index.html'));
+    const tops = await page.locator('.provider-grid > .feature-card').evaluateAll((cards) =>
+      cards.map((c) => Math.round(c.getBoundingClientRect().top)));
+    const perRow = [...tops.reduce((rows, top) => rows.set(top, (rows.get(top) ?? 0) + 1), new Map<number, number>()).values()];
+    expect(new Set(perRow).size, `cards per row: ${perRow.join(', ')}`).toBe(1);
+  });
+
   test('every download link is exactly /releases/latest', async ({ page }) => {
     for (const name of PAGES) {
       await page.goto(url(name));
