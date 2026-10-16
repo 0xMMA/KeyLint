@@ -68,6 +68,26 @@ func describe(err error) Notice {
 	case errors.Is(err, llm.ErrCLINotFound):
 		n.Body = "Claude Code CLI isn't installed."
 		n.Target = TargetProviders
+	case errors.Is(err, llm.ErrAWSSignIn):
+		// The detail (on the Fix page) names the command to run.
+		n.Body = "Couldn't use your AWS sign-in."
+		n.Target = TargetProviders
+	case errors.Is(err, llm.ErrBedrockNoRegion):
+		n.Body = "Bedrock needs a valid AWS region — see AI Providers."
+		n.Target = TargetProviders
+	case errors.Is(err, llm.ErrBedrockRoute):
+		// A model with no route there, or a region with no geography while
+		// Worldwide is not chosen.
+		n.Body = "Bedrock can't keep the text where you chose — see AI Providers."
+		n.Target = TargetProviders
+	case errors.Is(err, llm.ErrBedrockModelUnavailable):
+		// The detail names a model every account can use.
+		n.Body = "Your AWS account can't use this Bedrock model — see AI Providers."
+		n.Target = TargetProviders
+	case errors.Is(err, llm.ErrBedrockNotClaude):
+		// A Nova or Llama ID in the model field; nothing was sent.
+		n.Body = "Bedrock runs only Claude models in KeyLint — see AI Providers."
+		n.Target = TargetProviders
 	case llm.IsTimeout(err):
 		n.Title = titleTooLong
 		n.Body = "The model took too long — try a shorter selection or a faster model."
@@ -102,8 +122,16 @@ func providerLabel(name string) string {
 func describeStatus(e *llm.StatusError) (string, Target) {
 	provider := providerLabel(e.Provider)
 	switch {
+	case e.Status == http.StatusUnauthorized && e.Provider == "AWS Bedrock":
+		// A key in key mode, the computer's credentials in sign-in mode; the
+		// detail on the Fix page says which.
+		return "AWS Bedrock didn't accept the key or credentials.", TargetProviders
 	case e.Status == http.StatusUnauthorized:
 		return fmt.Sprintf("%s didn't accept the API key.", provider), TargetProviders
+	case e.Status == http.StatusForbidden && e.Provider == "AWS Bedrock":
+		// Model access or credentials: set up in AWS, checked with the AWS
+		// Bedrock card's Test connection.
+		return "AWS Bedrock refused the call — check model access and your AWS credentials.", TargetProviders
 	case e.Status == http.StatusForbidden && e.Provider == "OpenRouter":
 		// OpenRouter's 403 is its moderation flagging the text, which no
 		// setting on AI Providers changes; the Fix page shows the detail.

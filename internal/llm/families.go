@@ -316,7 +316,13 @@ func familyAliasesFor(models []anthropicModel) []ModelInfo {
 // Only those two vendors count: another vendor's ID that contains the name is
 // not known to be the same model. A Pro variant is not the fast tier — it is
 // the same model with more compute, and reasoning is what it is chosen for.
+//
+// Bedrock names them anthropic.claude-haiku-…, bare or behind a routing prefix
+// (eu.anthropic.claude-haiku-5-5). An ARN is opaque and is not.
 func IsFastTier(model string) bool {
+	if _, base := splitBedrockPrefix(model); strings.HasPrefix(base, "anthropic.") {
+		return strings.HasPrefix(strings.TrimPrefix(base, "anthropic."), familyPrefix(FamilyHaiku))
+	}
 	if vendor, name, ok := strings.Cut(strings.TrimPrefix(model, "~"), "/"); ok {
 		switch vendor {
 		case "anthropic":

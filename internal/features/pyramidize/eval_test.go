@@ -126,7 +126,7 @@ func TestEvalPyramidize(t *testing.T) {
 		llm.Config{APIKey: settingsSvc.GetKey(provider), Feature: "eval"})
 
 	for _, p := range []string{provider, judgeProvider} {
-		if llm.UsesAPIKey(p) && settingsSvc.GetKey(p) == "" {
+		if evalSettings.UsesAPIKey(p) && settingsSvc.GetKey(p) == "" {
 			t.Fatalf("no API key for %q in the environment or .env — the eval reads no keyring", p)
 		}
 	}

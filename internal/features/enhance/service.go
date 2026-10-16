@@ -222,8 +222,18 @@ func (s *Service) providerConfig(cfg settings.Settings) (llm.Config, string, err
 		// The user signed in to the CLI themselves; KeyLint needs no key and
 		// never touches their credentials.
 		return llm.Config{Feature: logFeature}, cfg.ModelFor(llm.ProviderClaudeCode, llm.FeatureFix), nil
-	case "bedrock":
-		return llm.Config{}, "", fmt.Errorf("AWS Bedrock is not yet supported. Please select a different provider")
+	case llm.ProviderBedrock:
+		// A key in key mode; with this computer's AWS sign-in none is read,
+		// and whether the sign-in works is found out by the call. The region
+		// is checked there too, before anything is sent.
+		clientCfg := llm.Config{HTTPClient: s.client, Feature: logFeature, Bedrock: cfg.Bedrock()}
+		if cfg.UsesAPIKey(llm.ProviderBedrock) {
+			clientCfg.APIKey = s.resolveKey(llm.ProviderBedrock)
+			if clientCfg.APIKey == "" {
+				return llm.Config{}, "", &MissingKeyError{Provider: "AWS Bedrock", msg: "AWS Bedrock API key is not configured. Go to Settings → AI Providers and set a key on the AWS Bedrock card, or choose this computer's AWS sign-in there"}
+			}
+		}
+		return clientCfg, cfg.ModelFor(llm.ProviderBedrock, llm.FeatureFix), nil
 	default:
 		return llm.Config{}, "", fmt.Errorf("unknown provider: %q", cfg.ActiveProvider)
 	}
@@ -234,7 +244,7 @@ func (s *Service) providerConfig(cfg settings.Settings) (llm.Config, string, err
 // the user at AI Providers without reading the wording.
 type MissingKeyError struct {
 	// Provider is the name the user knows the key by ("Anthropic", "OpenAI",
-	// "OpenRouter").
+	// "OpenRouter", "AWS Bedrock").
 	Provider string
 	msg      string
 }

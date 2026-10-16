@@ -6,6 +6,18 @@ describe('noteForModelSource', () => {
     expect(noteForModelSource('live', 'openai', true)).toBe('');
   });
 
+  // Bedrock has no model list to ask (Anthropic's Models API is not offered
+  // there): the picker says so truthfully, and that it takes other IDs.
+  it('says where the Bedrock list comes from, truthfully', () => {
+    const note = noteForModelSource('known', 'bedrock', true);
+    // Bedrock does list foundation models; what KeyLint does not do is ask.
+    expect(note).toContain('KeyLint does not ask AWS for a model list');
+    expect(note).toContain('the Claude models KeyLint knows');
+    expect(note).toMatch(/inference profile ARN/);
+    // A Nova ID got a bare 400 on the first live test (2026-10-16).
+    expect(note).toContain("other vendors' models (Nova, Llama, …) don't work");
+  });
+
   it('says nothing for a provider with no endpoint to ask', () => {
     // The Claude Code CLI's three aliases are the whole list by design, so a
     // note here would be an alarm nobody can clear.

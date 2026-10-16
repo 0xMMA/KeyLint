@@ -230,12 +230,17 @@ test.describe('Pyramidize — flow', () => {
     await screenshot(page, '09-error');
   });
 
-  test('explains a saved provider that cannot run, and keeps Pyramidize off', async ({ page }) => {
+  // AWS Bedrock with no region yet: the banner says what to set, the line
+  // under the forms names it, and nothing is held back — the run's own error
+  // says the same if the user goes ahead.
+  test('says when AWS Bedrock has no region yet', async ({ page }) => {
     await open(page, {}, 'bedrock');
     await toForm(page);
-    await expect(page.getByTestId('provider-unavailable')).toContainText('AWS Bedrock is not available yet');
-    await expect(page.getByTestId('pyramidize-btn').getByRole('button')).toBeDisabled();
-    await screenshot(page, '10-provider-unavailable');
+    await expect(page.getByTestId('api-key-banner-message')).toContainText('No AWS region is set for Bedrock');
+    await expect(page.getByTestId('run-settings')).toContainText('AWS Bedrock');
+    await expect(page.getByTestId('provider-unavailable')).toHaveCount(0);
+    await expect(page.getByTestId('pyramidize-btn').getByRole('button')).toBeEnabled();
+    await screenshot(page, '10-bedrock-no-region');
   });
 
   test('brings text from an app with the shortcut, remembers its form, and sends the result back', async ({ page }) => {

@@ -58,7 +58,7 @@ func RunJudge(settingsSvc *settings.Service, judge JudgeConfig, newClient func(s
 	// No key for a provider that does not take one: the CLI signs in as the
 	// user, and handing it a key would bill a different account.
 	apiKey := ""
-	if llm.UsesAPIKey(judge.Provider) {
+	if settingsSvc.Get().UsesAPIKey(judge.Provider) {
 		apiKey = settingsSvc.GetKey(judge.Provider)
 	}
 	client, err := newClient(judge.Provider, llm.Config{APIKey: apiKey, Feature: "eval-judge"})

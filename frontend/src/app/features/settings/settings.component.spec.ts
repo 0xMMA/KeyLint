@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { ChangeDetectorRef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
@@ -7,7 +8,9 @@ import { SettingsComponent } from './settings.component';
 import { SettingsAboutComponent } from './settings-about/settings-about.component';
 import { AppPresetsComponent } from './app-presets/app-presets.component';
 import { WailsService, ClaudeCodeStatus, KeyStatus } from '../../core/wails.service';
-import { createWailsMock, defaultSettings, defaultKeyStatus, defaultUpdateInfo, defaultClaudeCodeStatus, defaultModelList } from '../../../testing/wails-mock';
+import { createWailsMock, defaultSettings, defaultKeyStatus, defaultUpdateInfo, defaultClaudeCodeStatus, defaultModelList, bedrockModelList } from '../../../testing/wails-mock';
+
+type AppSettingsProviders = typeof defaultSettings.providers;
 
 function makeActivatedRoute(tab?: string): Partial<ActivatedRoute> {
   return {
@@ -688,7 +691,8 @@ describe('SettingsComponent — model selection', () => {
   });
 
   it('shows no pickers when no provider is in use', async () => {
-    await render('live', {}, 'bedrock');
+    // A value written by a newer build: no card here carries it.
+    await render('live', {}, 'vertex');
 
     expect(q('active-provider')).toBeNull();
     expect(q('providers-summary')?.textContent).toContain('No provider is in use');
@@ -1101,7 +1105,7 @@ describe('SettingsComponent — which provider is in use', () => {
 
     const cards = Array.from(el.querySelectorAll('[data-testid^="provider-card-"]'))
       .map(c => c.getAttribute('data-testid'));
-    expect(cards).toEqual(['provider-card-openai', 'provider-card-claude', 'provider-card-openrouter', 'provider-card-claude-code', 'provider-card-ollama']);
+    expect(cards).toEqual(['provider-card-claude', 'provider-card-claude-code', 'provider-card-openrouter', 'provider-card-openai', 'provider-card-bedrock', 'provider-card-ollama']);
   });
 
   it('switches with one click, saving only the provider', async () => {
@@ -1413,7 +1417,7 @@ describe('SettingsComponent — which provider is in use', () => {
   });
 
   it('focuses the error after a failed switch when no card is in use', async () => {
-    await render({ active: 'bedrock', ...BOTH });
+    await render({ active: 'vertex', ...BOTH });
     document.body.appendChild(el);
     wailsMock.setActiveProvider.mockRejectedValueOnce(new Error('disk full'));
 
@@ -1566,105 +1570,241 @@ describe('SettingsComponent — which provider is in use', () => {
 });
 
 
-// Bedrock is a stub that only returns an error (#22) until #23 implements it.
-describe('SettingsComponent — AWS Bedrock is not offered yet', () => {
+// AWS Bedrock (roadmap E6, #22/#23): a key or this computer's AWS sign-in, a
+// region, and the routing — the user's explicit choice (owner decision
+// 2026-10-15). The connection saves on change; the key goes to the keyring.
+describe('SettingsComponent — AWS Bedrock', () => {
   let fixture: ComponentFixture<SettingsComponent>;
   let component: SettingsComponent;
   let el: HTMLElement;
   let wailsMock: ReturnType<typeof createWailsMock>;
 
-  async function render(activeProvider: string, tab?: string): Promise<void> {
+  interface Setup {
+    active?: string;
+    tab?: string;
+    providers?: Partial<AppSettingsProviders>;
+    key?: KeyStatus;
+  }
+
+  async function render(setup: Setup = {}): Promise<void> {
     TestBed.resetTestingModule();
+    const settings = {
+      ...defaultSettings,
+      active_provider: setup.active ?? 'bedrock',
+      models: {},
+      providers: { ...defaultSettings.providers, ...setup.providers },
+    };
     wailsMock = createWailsMock();
-    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, active_provider: activeProvider });
-    wailsMock.getKeyStatus.mockResolvedValue({ ...defaultKeyStatus });
+    wailsMock.loadSettings.mockImplementation(async () => structuredClone(settings));
+    wailsMock.getKeyStatus.mockImplementation(async (p: string) =>
+      p === 'bedrock' && setup.key ? setup.key : { ...defaultKeyStatus });
+    wailsMock.listModels.mockImplementation(async (p: string) =>
+      p === 'bedrock' ? structuredClone(bedrockModelList) : { ...defaultModelList });
 
     await TestBed.configureTestingModule({
       imports: [SettingsComponent],
       providers: [
         { provide: WailsService, useValue: wailsMock },
-        { provide: ActivatedRoute, useValue: makeActivatedRoute(tab) },
+        { provide: ActivatedRoute, useValue: makeActivatedRoute(setup.tab ?? 'providers') },
       ],
     }).compileComponents();
-
     fixture = TestBed.createComponent(SettingsComponent);
     component = fixture.componentInstance;
-    component.settings = { ...defaultSettings, active_provider: activeProvider };
+    component.settings = structuredClone(settings);
     el = fixture.nativeElement;
     fixture.detectChanges();
-    await fixture.whenStable();
+    await component.ngOnInit();
     await fixture.whenStable();
     fixture.detectChanges();
   }
 
-  it('offers no Bedrock card among the providers', async () => {
-    await render('openai', 'providers');
+  const q = (testid: string) => el.querySelector<HTMLElement>(`[data-testid="${testid}"]`);
+  const radio = (testid: string) => el.querySelector<HTMLInputElement>(`[data-testid="${testid}"]`)!;
 
-    // Positive first, so an unrendered tab cannot pass the absence check.
-    expect(el.querySelector('[data-testid="provider-card-openai"]')).not.toBeNull();
-    expect(el.querySelector('[data-testid="provider-card-bedrock"]')).toBeNull();
-    expect(el.querySelector('[data-testid="provider-use-bedrock"]')).toBeNull();
-  });
-
-  it('has no AWS key field on the AI Providers tab', async () => {
-    await render('openai', 'providers');
-
-    // Positive first, so an unrendered tab cannot pass the absence checks.
-    expect(el.querySelector('[data-testid="key-status-openai"]')).not.toBeNull();
-    expect(el.querySelector('[data-testid="key-status-claude"]')).not.toBeNull();
-    expect(el.textContent).not.toMatch(/AWS/);
-    expect(wailsMock.getKeyStatus).not.toHaveBeenCalledWith('bedrock');
-  });
-
-  it('says nothing about availability when the saved provider works', async () => {
-    await render('openai');
-
-    expect(el.querySelector('[data-testid="provider-unavailable"]')).toBeNull();
-  });
-
-  // A user who picked Bedrock before it was hidden. The dropdown cannot show
-  // it any more, so the empty field needs a reason next to it.
-  it('explains an empty provider field when Bedrock was saved', async () => {
-    await render('bedrock');
-
-    const note = el.querySelector('[data-testid="provider-unavailable"]');
-    expect(note).not.toBeNull();
-    expect(note!.textContent).toContain('AWS Bedrock is saved but not available yet');
-    expect(el.querySelector('[data-testid="provider-pointer-text"]')!.textContent).toContain('No provider in use');
-  });
-
-  // No card can carry the marker, so the tab itself has to say why.
-  it('says on the AI Providers tab that no offered provider is in use', async () => {
-    await render('bedrock', 'providers');
-
-    expect(el.querySelector('[data-testid="providers-tab-unavailable"]')?.textContent)
-      .toContain('AWS Bedrock');
-    expect(el.querySelector('[data-testid^="provider-in-use-"]')).toBeNull();
-  });
-
-  // Switching on the user's behalf would send their text to a service they
-  // never chose, so the saved value stays until they pick one.
-  it('does not switch a saved Bedrock provider behind the user\'s back', async () => {
-    await render('bedrock');
-
-    await component.save();
-
-    expect(wailsMock.saveSettings).toHaveBeenCalledWith(
-      expect.objectContaining({ active_provider: 'bedrock' }),
-    );
-  });
-
-  it('drops the explanation once the user picks a provider', async () => {
-    await render('bedrock', 'providers');
-
-    el.querySelector<HTMLElement>('[data-testid="provider-use-openai"] button')!.click();
+  async function settle(): Promise<void> {
     await fixture.whenStable();
     await new Promise(r => setTimeout(r));
     fixture.detectChanges();
+  }
 
-    expect(el.querySelector('[data-testid="provider-unavailable"]')).toBeNull();
-    expect(el.querySelector('[data-testid="providers-tab-unavailable"]')).toBeNull();
-    expect(wailsMock.setActiveProvider).toHaveBeenCalledWith('openai');
+  it('lists AWS Bedrock after OpenAI, and switches to it with one click', async () => {
+    await render({ active: 'openai' });
+
+    const cards = Array.from(el.querySelectorAll('[data-testid^="provider-card-"]'))
+      .map(c => c.getAttribute('data-testid')!.replace('provider-card-', ''));
+    expect(cards).toEqual(['claude', 'claude-code', 'openrouter', 'openai', 'bedrock', 'ollama']);
+    expect(q('provider-heading-bedrock')?.textContent).toContain('AWS Bedrock');
+
+    q('provider-use-bedrock')!.querySelector('button')!.click();
+    await settle();
+    expect(wailsMock.setActiveProvider).toHaveBeenCalledWith('bedrock');
+    expect(q('provider-in-use-bedrock')).not.toBeNull();
+  });
+
+  // Privacy: opening Settings sends AWS nothing. The regions and the models
+  // come from the build; no test call is made unless the user clicks.
+  it('asks AWS nothing on opening', async () => {
+    await render();
+
+    expect(wailsMock.getBedrockRegions).toHaveBeenCalled();
+    expect(wailsMock.testBedrock).not.toHaveBeenCalled();
+    // Nor is anything saved just by looking.
+    expect(wailsMock.setBedrock).not.toHaveBeenCalled();
+  });
+
+  it('says what is missing: a region first, then the key', async () => {
+    await render();
+    expect(q('bedrock-status')!.textContent).toContain('No region chosen yet');
+    expect(q('provider-not-ready-bedrock')!.textContent).toContain('choose a region');
+
+    await render({ providers: { aws_region: 'eu-central-1' } });
+    expect(q('bedrock-status')!.textContent).toContain('No key yet');
+    expect(q('bedrock-status')!.textContent).toContain('Europe (Frankfurt)');
+    expect(q('provider-not-ready-bedrock')!.textContent).toContain('no API key');
+    expect(q('key-edit-bedrock')).not.toBeNull();
+  });
+
+  // Whether the sign-in works can only be known by trying; a region is enough.
+  it("treats this computer's AWS sign-in as set up without a key", async () => {
+    await render({ providers: { aws_region: 'us-east-1', bedrock_auth: 'aws-signin', aws_profile: 'work' } });
+
+    expect(q('bedrock-status')!.textContent).toContain("This computer's AWS sign-in");
+    expect(q('bedrock-status')!.textContent).toContain('profile work');
+    expect(q('provider-not-ready-bedrock')).toBeNull();
+    expect(q('key-edit-bedrock')).toBeNull();
+  });
+
+  it('saves a change to the connection at once, and a later Save keeps it', async () => {
+    await render({ providers: { aws_region: 'eu-central-1' } });
+
+    radio('bedrock-routing-global').click();
+    await settle();
+    expect(wailsMock.setBedrock).toHaveBeenCalledWith({ region: 'eu-central-1', auth: 'api-key', profile: '', routing: 'global' });
+    expect(q('bedrock-saved')?.textContent).toContain('Saved');
+
+    q('save-btn')!.querySelector('button')!.click();
+    await settle();
+    expect(wailsMock.saveSettings).toHaveBeenCalledWith(expect.objectContaining({
+      providers: expect.objectContaining({ aws_region: 'eu-central-1', bedrock_routing: 'global' }),
+    }));
+  });
+
+  // After a failure the card shows what the backend has — read back, not
+  // assumed: an earlier save may have landed meanwhile (review of the PR).
+  it('shows the saved connection, read back, when saving fails', async () => {
+    await render({ providers: { aws_region: 'eu-central-1' } });
+    wailsMock.setBedrock.mockRejectedValueOnce(new Error('disk full'));
+    wailsMock.loadSettings.mockResolvedValueOnce({
+      ...defaultSettings, active_provider: 'bedrock',
+      providers: { ...defaultSettings.providers, aws_region: 'eu-central-1', bedrock_auth: 'aws-signin' },
+    });
+
+    radio('bedrock-routing-global').click();
+    await settle();
+
+    expect(q('bedrock-save-error')!.textContent).toContain('disk full');
+    expect(radio('bedrock-routing-geo').checked).toBe(true);
+    expect(radio('bedrock-auth-signin').checked).toBe(true);
+    expect(component.settings!.providers.bedrock_routing).not.toBe('global');
+    expect(component.settings!.providers.bedrock_auth).toBe('aws-signin');
+  });
+
+  it('asks for Worldwide in a region that routes only worldwide', async () => {
+    await render({ providers: { aws_region: 'ap-south-1', bedrock_auth: 'aws-signin' } });
+    expect(q('provider-not-ready-bedrock')!.textContent).toContain('choose Worldwide');
+    expect(q('bedrock-test')!.querySelector('button')!.disabled).toBe(true);
+
+    radio('bedrock-routing-global').click();
+    await settle();
+    expect(wailsMock.setBedrock).toHaveBeenCalledWith({ region: 'ap-south-1', auth: 'aws-signin', profile: '', routing: 'global' });
+    expect(q('provider-not-ready-bedrock')).toBeNull();
+  });
+
+  it('forgets an old test result once a Bedrock model changes', async () => {
+    await render({ providers: { aws_region: 'eu-central-1', bedrock_auth: 'aws-signin' } });
+    q('bedrock-test')!.querySelector('button')!.click();
+    await settle();
+    expect(q('bedrock-test-result')).not.toBeNull();
+
+    // Called as the picker's event would; a plain field set from a test is
+    // marked first (testing.md, zoneless).
+    component.onModelChange('bedrock', { feature: 'fix', value: 'anthropic.claude-sonnet-5-5' });
+    fixture.debugElement.injector.get(ChangeDetectorRef).markForCheck();
+    fixture.detectChanges();
+    expect(q('bedrock-test-result')).toBeNull();
+  });
+
+  it('tests the connection only when asked, and says where the call went', async () => {
+    await render({ providers: { aws_region: 'eu-central-1' }, key: { is_set: true, source: 'keyring' } });
+    expect(wailsMock.testBedrock).not.toHaveBeenCalled();
+
+    q('bedrock-test')!.querySelector('button')!.click();
+    await settle();
+
+    expect(wailsMock.testBedrock).toHaveBeenCalledTimes(1);
+    expect(q('bedrock-test-result')!.textContent).toContain('Connected');
+    expect(q('bedrock-test-result')!.dataset['state']).toBe('ok');
+    expect(q('bedrock-test-result')!.textContent).toContain('eu.anthropic.claude-haiku-5-5');
+  });
+
+  it('shows why a test failed, in the backend\'s words', async () => {
+    await render({ providers: { aws_region: 'eu-central-1', bedrock_auth: 'aws-signin' } });
+    wailsMock.testBedrock.mockRejectedValueOnce(new Error('AWS Bedrock error 403: access to eu.anthropic.claude-haiku-5-5 in eu-central-1 was denied'));
+
+    q('bedrock-test')!.querySelector('button')!.click();
+    await settle();
+
+    expect(q('bedrock-test-result')!.textContent).toContain('403');
+    expect(q('bedrock-test-result')!.dataset['state']).toBe('error');
+  });
+
+  it('cannot test before there is anything to test', async () => {
+    await render();
+
+    expect(q('bedrock-test')!.querySelector('button')!.disabled).toBe(true);
+  });
+
+  it('forgets an old test result once the connection changes', async () => {
+    await render({ providers: { aws_region: 'eu-central-1', bedrock_auth: 'aws-signin' } });
+    q('bedrock-test')!.querySelector('button')!.click();
+    await settle();
+    expect(q('bedrock-test-result')).not.toBeNull();
+
+    radio('bedrock-routing-global').click();
+    await settle();
+    expect(q('bedrock-test-result')).toBeNull();
+  });
+
+  it('offers the known models, says where they come from, and takes other IDs', async () => {
+    await render({ providers: { aws_region: 'eu-central-1' } });
+
+    expect(q('model-fix-bedrock')!.querySelector('input')!.placeholder).toBe('Default: Claude Haiku 5.5');
+    expect(q('model-pyramidize-bedrock')!.querySelector('input')!.placeholder).toBe('Default: Claude Sonnet 5.5');
+    expect(el.textContent).toContain('KeyLint does not ask AWS for a model list');
+    expect(q('fix-fast-note')).not.toBeNull();
+  });
+
+  it('names AWS_BEARER_TOKEN_BEDROCK as a key from the environment', async () => {
+    await render({ providers: { aws_region: 'eu-central-1' }, key: { is_set: true, source: 'env' } });
+
+    expect(q('bedrock-status')!.textContent).toContain('AWS_BEARER_TOKEN_BEDROCK');
+    expect(q('key-edit-bedrock')).toBeNull();
+    expect(el.textContent).toContain('AWS_BEARER_TOKEN_BEDROCK');
+  });
+
+  it("repeats what is missing on the General tab's pointer", async () => {
+    await render({ tab: 'general' });
+
+    expect(q('provider-pointer-text')!.textContent).toContain('AWS Bedrock');
+    expect(q('provider-pointer-problem')!.textContent).toContain('choose a region');
+  });
+
+  it('keeps the connection across a reset, and says so before asking', async () => {
+    await render({ providers: { aws_region: 'eu-central-1' } });
+
+    q('reset-btn')!.querySelector('button')!.click();
+    fixture.detectChanges();
+    expect(q('reset-confirm-detail')!.textContent).toContain('the AWS Bedrock connection');
   });
 });
 

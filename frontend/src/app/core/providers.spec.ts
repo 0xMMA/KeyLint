@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { ENV_KEY_VARS, KEY_PROVIDERS, PROVIDER_OPTIONS, isKeyProvider, keyPlaceholder, providerShortLabel } from './providers';
+import { ENV_KEY_VARS, KEY_PROVIDERS, PROVIDER_OPTIONS, isKeyProvider, keyPlaceholder, needsKey, providerShortLabel } from './providers';
+import { defaultSettings } from '../../testing/wails-mock';
 
 describe('providers', () => {
   // OpenRouter (roadmap E10): one key for many vendors' models, set up like
@@ -12,8 +13,11 @@ describe('providers', () => {
     expect(providerShortLabel('openrouter')).toBe('OpenRouter');
   });
 
-  it('lists the key providers together, ahead of the CLI and the local daemon', () => {
-    expect(PROVIDER_OPTIONS.map(o => o.value)).toEqual(['openai', 'claude', 'openrouter', 'claude-code', 'ollama']);
+  // Both ways to reach Claude sit side by side, so a user choosing between
+  // a key and the subscription sees them together; OpenAI after OpenRouter
+  // (owner, 2026-10-16).
+  it('lists the Anthropic API and Claude Code first, OpenAI after OpenRouter, the local daemon last', () => {
+    expect(PROVIDER_OPTIONS.map(o => o.value)).toEqual(['claude', 'claude-code', 'openrouter', 'openai', 'bedrock', 'ollama']);
   });
 
   // The source of truth is envVars in internal/features/settings/service.go.
@@ -23,5 +27,27 @@ describe('providers', () => {
 
   it('shows the shape of an OpenRouter key in an empty key field', () => {
     expect(keyPlaceholder('openrouter')).toBe('sk-or-…');
+  });
+
+  // AWS Bedrock (roadmap E6): a key in key mode, nothing with this computer's
+  // AWS sign-in. A key alone does not make it work (it needs a region too),
+  // so it is not one of the providers that work with a key alone.
+  it('offers AWS Bedrock, which needs a key only in key mode', () => {
+    expect(PROVIDER_OPTIONS.find(o => o.value === 'bedrock')?.label).toBe('AWS Bedrock');
+    expect(providerShortLabel('bedrock')).toBe('AWS Bedrock');
+    expect(isKeyProvider('bedrock')).toBe(false);
+    const keyMode = { ...defaultSettings, providers: { ...defaultSettings.providers, bedrock_auth: 'api-key' } };
+    const signIn = { ...defaultSettings, providers: { ...defaultSettings.providers, bedrock_auth: 'aws-signin' } };
+    expect(needsKey('bedrock', keyMode)).toBe(true);
+    expect(needsKey('bedrock', defaultSettings)).toBe(true);
+    expect(needsKey('bedrock', signIn)).toBe(false);
+    expect(needsKey('openai', signIn)).toBe(true);
+    expect(needsKey('claude-code', keyMode)).toBe(false);
+  });
+
+  // AWS's own variable for a Bedrock key; AWS_SECRET_ACCESS_KEY is not one.
+  it('names AWS_BEARER_TOKEN_BEDROCK for the Bedrock key', () => {
+    expect(ENV_KEY_VARS['bedrock']).toBe('AWS_BEARER_TOKEN_BEDROCK');
+    expect(keyPlaceholder('bedrock')).toBe('Bedrock API key');
   });
 });

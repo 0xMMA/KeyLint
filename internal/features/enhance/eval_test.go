@@ -146,7 +146,7 @@ func TestEvalFix(t *testing.T) {
 	settingsSvc := settings.NewServiceFrom(evalSettings, settings.EnvOnlyKeys)
 
 	for _, p := range []string{provider, judgeProvider} {
-		if llm.UsesAPIKey(p) && settingsSvc.GetKey(p) == "" {
+		if evalSettings.UsesAPIKey(p) && settingsSvc.GetKey(p) == "" {
 			t.Fatalf("no API key for %q in the environment or .env — the eval reads no keyring", p)
 		}
 	}

@@ -434,6 +434,16 @@ func (svc *Service) resolveAPIKey(provider string) (string, error) {
 			return "", fmt.Errorf("OpenRouter API key is not configured — go to Settings → AI Providers")
 		}
 		return key, nil
+	case llm.ProviderBedrock:
+		// With this computer's AWS sign-in there is no key, and none is read.
+		if !svc.settings.Get().UsesAPIKey(llm.ProviderBedrock) {
+			return "", nil
+		}
+		key := svc.settings.GetKey(llm.ProviderBedrock)
+		if key == "" {
+			return "", fmt.Errorf("AWS Bedrock API key is not configured — go to Settings → AI Providers, or choose this computer's AWS sign-in there")
+		}
+		return key, nil
 	default:
 		return "", nil
 	}
@@ -503,6 +513,9 @@ func (svc *Service) providerConfig(provider string, cfg settings.Settings, apiKe
 		return llm.Config{APIKey: apiKey, HTTPClient: svc.client, Feature: logFeature}, model, nil
 	case llm.ProviderClaude, llm.ProviderOpenRouter:
 		return llm.Config{APIKey: apiKey, HTTPClient: svc.client, Feature: logFeature}, model, nil
+	case llm.ProviderBedrock:
+		// apiKey is "" with this computer's AWS sign-in; see resolveAPIKey.
+		return llm.Config{APIKey: apiKey, HTTPClient: svc.client, Feature: logFeature, Bedrock: cfg.Bedrock()}, model, nil
 	case llm.ProviderClaudeCode:
 		// The user signed in to the CLI themselves; KeyLint needs no key and
 		// never touches their credentials.

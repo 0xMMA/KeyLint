@@ -51,6 +51,11 @@ const (
 	// who has not chosen OpenRouter should send openrouter.ai nothing. The
 	// built-in list stands in until it is the provider in use.
 	ModelSourceNotAsked = "not-asked"
+	// ModelSourceKnown: the provider has no model list to ask, and these are
+	// the models KeyLint knows on it. Bedrock: Anthropic's Models API is not
+	// offered there. Unlike "fixed" the list is not the whole story — the
+	// picker takes any other ID or an inference profile ARN.
+	ModelSourceKnown = "known"
 )
 
 // ModelInfo is one entry in a model picker.
@@ -111,6 +116,13 @@ var defaultModels = map[string]map[string]string{
 	ProviderOpenRouter: {
 		FeatureFix:        "anthropic/claude-haiku-5.5",
 		FeaturePyramidize: "anthropic/claude-sonnet-5.5",
+	},
+	// Bedrock (roadmap E6): base IDs; the routing prefix is added at call time
+	// from region and routing (BedrockInvokeID). Same models as OpenRouter's
+	// defaults, and Fix asks Haiku not to reason here too (IsFastTier).
+	ProviderBedrock: {
+		FeatureFix:        "anthropic.claude-haiku-5-5",
+		FeaturePyramidize: "anthropic.claude-sonnet-5-5",
 	},
 }
 
@@ -175,6 +187,9 @@ var curatedModels = map[string][]ModelInfo{
 		{ID: "openai/gpt-6-astra", Label: "OpenAI: GPT-6 Astra"},
 		{ID: "google/gemini-3.8-flash", Label: "Google: Gemini 3.8 Flash"},
 	},
+	// Bedrock has no model list to ask; these are the models KeyLint knows
+	// there, each checked against its AWS model card (bedrockModels).
+	ProviderBedrock: bedrockCuratedModels(),
 }
 
 // claudeCodeAliases are what the CLI picker offers. They are aliases by
@@ -258,6 +273,10 @@ func ListModels(ctx context.Context, provider string, cfg Config) (ModelList, er
 	case ProviderClaudeCode:
 		// The CLI has no model endpoint, and these aliases are the whole story.
 		return ModelList{Models: slices.Clone(claudeCodeAliases), Source: ModelSourceFixed}, nil
+	case ProviderBedrock:
+		// Nothing to ask, so nothing is asked — opening Settings sends AWS no
+		// request.
+		return CuratedModels(provider, ModelSourceKnown), nil
 	default:
 		return CuratedModels(provider, ModelSourceUnreachable), fmt.Errorf("unsupported provider: %q", provider)
 	}

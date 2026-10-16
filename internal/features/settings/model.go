@@ -8,10 +8,47 @@ import (
 
 // Provider holds non-secret configuration for AI providers.
 // API keys are stored in the OS keyring, NOT here.
-// OllamaURL and AWSRegion are non-secret and remain in settings.
+// OllamaURL and the AWS Bedrock connection are non-secret and remain in settings.
 type Provider struct {
 	OllamaURL string `json:"ollama_url"`
+	// AWSRegion is the AWS Bedrock region; "" until the user chooses one.
 	AWSRegion string `json:"aws_region"`
+	// BedrockAuth is how KeyLint connects to AWS Bedrock: llm.BedrockAuthKey
+	// (a Bedrock API key in the keyring; also what "" means) or
+	// llm.BedrockAuthSignIn (this computer's AWS sign-in; nothing stored).
+	BedrockAuth string `json:"bedrock_auth"`
+	// AWSProfile names the AWS profile sign-in mode uses; "" is the default
+	// credential chain.
+	AWSProfile string `json:"aws_profile"`
+	// BedrockRouting is where AWS may process the text: llm.BedrockRoutingGeo
+	// (the region's geography; also what "" means) or llm.BedrockRoutingGlobal
+	// (anywhere). The user's explicit choice on the AWS Bedrock card.
+	BedrockRouting string `json:"bedrock_routing"`
+}
+
+// Bedrock is the AWS Bedrock connection as the llm client takes it, with the
+// defaults filled in: key mode, keep in the geography.
+func (s Settings) Bedrock() llm.BedrockConfig {
+	p := s.Providers
+	b := llm.BedrockConfig{
+		Region:  strings.TrimSpace(p.AWSRegion),
+		Auth:    llm.BedrockAuthKey,
+		Profile: strings.TrimSpace(p.AWSProfile),
+		Routing: llm.BedrockRoutingGeo,
+	}
+	if p.BedrockAuth == llm.BedrockAuthSignIn {
+		b.Auth = llm.BedrockAuthSignIn
+	}
+	if p.BedrockRouting == llm.BedrockRoutingGlobal {
+		b.Routing = llm.BedrockRoutingGlobal
+	}
+	return b
+}
+
+// UsesAPIKey reports whether the provider needs a key as these settings
+// configure it — for Bedrock that follows the connection mode.
+func (s Settings) UsesAPIKey(provider string) bool {
+	return llm.UsesAPIKey(provider, s.Bedrock().Auth)
 }
 
 // KeyStatus describes whether a key is configured and where it comes from.
@@ -88,7 +125,7 @@ func (s Settings) EffortFor(provider, feature string) string {
 
 // Settings is the top-level application settings structure persisted to disk.
 type Settings struct {
-	ActiveProvider         string   `json:"active_provider"` // "openai" | "claude" | "openrouter" | "claude-code" | "ollama" | "bedrock"
+	ActiveProvider         string   `json:"active_provider"` // "openai" | "claude" | "openrouter" | "bedrock" | "claude-code" | "ollama"
 	Providers              Provider `json:"providers"`
 	ShortcutKey            string   `json:"shortcut_key"`              // LEGACY — never applied (Ctrl+G was hard-wired); ignored, kept so old files round-trip
 	ShortcutMode           string   `json:"shortcut_mode"`             // "double_tap" | "independent"
