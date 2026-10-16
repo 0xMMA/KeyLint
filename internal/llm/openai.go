@@ -31,13 +31,41 @@ type openAIClient struct {
 func newOpenAI(cfg Config) Client { return &openAIClient{cfg: cfg} }
 
 func (c *openAIClient) Complete(ctx context.Context, req Request) (Response, error) {
-	return completeViaOpenAI(ctx, c.cfg, openAIProvider, resolveBaseURL(c.cfg.BaseURL, defaultOpenAIBaseURL), req)
+	extras := chatExtras{reasoningEffort: openAIReasoningEffort(req)}
+	return completeViaOpenAI(ctx, c.cfg, openAIProvider, resolveBaseURL(c.cfg.BaseURL, defaultOpenAIBaseURL), req, extras)
 }
 
+// chatExtras are the parts of a chat completion on which the OpenAI-compatible
+// providers differ. Each client decides its own; the zero value sends none of
+// them, which is what Ollama gets.
+type chatExtras struct {
+	// reasoningEffort is OpenAI's top-level reasoning_effort. Only OpenAI
+	// itself sends it: an Ollama model behind the same dialect has no
+	// reasoning switch, and OpenRouter documents the reasoning object instead.
+	reasoningEffort string
+	// reasoning is OpenRouter's "reasoning" object — {"effort": …} or
+	// {"enabled": false}; nil sends none.
+	reasoning map[string]any
+	// onReasoningRejected runs when the model refused the reasoning option
+	// and the call was retried without it, so the caller can stop asking.
+	onReasoningRejected func()
+	// maxTokens is sent as max_tokens when positive. OpenAI and Ollama do not
+	// get it — their wire format predates Request.MaxTokens and stayed as it
+	// was (TestOpenAIIgnoresUnsupportedFields).
+	maxTokens int
+	// noResponseFormat leaves response_format out even when the request asks
+	// for JSON: the model does not take it (OpenRouter's catalogue says so).
+	noResponseFormat bool
+}
+
+// reasoningSent reports whether the request carries a reasoning option, which
+// is what a 400 about reasoning is retried without.
+func (e chatExtras) reasoningSent() bool { return e.reasoningEffort != "" || e.reasoning != nil }
+
 // completeViaOpenAI serves both OpenAI itself and every OpenAI-compatible
-// endpoint — today that is Ollama, which speaks this dialect under /v1. The
-// base URL is always explicit; see defaultOpenAIBaseURL.
-func completeViaOpenAI(ctx context.Context, cfg Config, p provider, baseURL string, req Request) (Response, error) {
+// endpoint — today Ollama, which speaks this dialect under /v1, and OpenRouter.
+// The base URL is always explicit; see defaultOpenAIBaseURL.
+func completeViaOpenAI(ctx context.Context, cfg Config, p provider, baseURL string, req Request, extras chatExtras) (Response, error) {
 	if req.Model == "" {
 		return Response{}, fmt.Errorf("%s: model is required", p.name)
 	}
@@ -54,6 +82,7 @@ func completeViaOpenAI(ctx context.Context, cfg Config, p provider, baseURL stri
 		params.Temperature = openai.Float(*req.Temperature)
 	}
 	switch {
+	case extras.noResponseFormat:
 	case len(req.JSONSchema) > 0:
 		schema, err := schemaObject(req.JSONSchema)
 		if err != nil {
@@ -78,12 +107,16 @@ func completeViaOpenAI(ctx context.Context, cfg Config, p provider, baseURL stri
 			OfJSONObject: &shared.ResponseFormatJSONObjectParam{},
 		}
 	}
-	// Only OpenAI itself: an Ollama model behind the same dialect has no
-	// reasoning switch, and the field would be an unknown parameter there.
-	if p == openAIProvider {
-		if effort := openAIReasoningEffort(req); effort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(effort)
-		}
+	if extras.reasoningEffort != "" {
+		params.ReasoningEffort = shared.ReasoningEffort(extras.reasoningEffort)
+	}
+	if extras.reasoning != nil {
+		// openai-go has no field for it: the reasoning object belongs to the
+		// Responses API there, so it travels as an extra field.
+		params.SetExtraFields(map[string]any{"reasoning": extras.reasoning})
+	}
+	if extras.maxTokens > 0 {
+		params.MaxTokens = openai.Int(int64(extras.maxTokens))
 	}
 	logRequest(cfg, p, req.Model, params)
 
@@ -91,13 +124,19 @@ func completeViaOpenAI(ctx context.Context, cfg Config, p provider, baseURL stri
 	// The service method has a pointer receiver, so the client needs a variable.
 	client := openAISDKClient(cfg, baseURL, attempts)
 	completion, err := client.Chat.Completions.New(ctx, params)
-	if err != nil && params.ReasoningEffort != "" && openAIRejectedEffort(err) {
-		// The documented support below was wrong for this model, or has
-		// changed. Once more on the model's own default rather than failing
-		// the user's fix over a setting; Warn, because it is now doing nothing.
-		logger.Warn("llm: model rejected reasoning_effort, retried without it",
-			"feature", cfg.Feature, "provider", p.id, "model", req.Model, "reasoning_effort", string(params.ReasoningEffort))
+	if err != nil && extras.reasoningSent() && openAIRejectedEffort(err) {
+		// The documented support was wrong for this model, or has changed, or
+		// (OpenRouter) the catalogue did not describe it. Once more on the
+		// model's own default rather than failing the user's fix over a
+		// setting; Warn, because it is now doing nothing.
+		logger.Warn("llm: model rejected the reasoning option, retried without it",
+			"feature", cfg.Feature, "provider", p.id, "model", req.Model,
+			"reasoning_effort", extras.reasoningEffort, "reasoning", extras.reasoning)
 		params.ReasoningEffort = ""
+		params.SetExtraFields(nil)
+		if extras.onReasoningRejected != nil {
+			extras.onReasoningRejected()
+		}
 		attempts = newHTTPAttempts(ctx, cfg, p)
 		client = openAISDKClient(cfg, baseURL, attempts)
 		completion, err = client.Chat.Completions.New(ctx, params)
@@ -115,16 +154,36 @@ func completeViaOpenAI(ctx context.Context, cfg Config, p provider, baseURL stri
 	if refusal := strings.TrimSpace(choice.Message.Refusal); refusal != "" {
 		return Response{}, fmt.Errorf("%s declined the request: %s", p.name, refusal)
 	}
+	text := choice.Message.Content
 	// A truncated answer would be pasted over the user's selection as a
 	// half-written sentence — the same call the Claude Code client makes.
 	if choice.FinishReason == "length" {
+		// Usage carries no user text, so it may be logged at Warn: it is what
+		// tells a reader whether the budget went on reasoning or on the answer.
+		reasoningTokens := completion.Usage.CompletionTokensDetails.ReasoningTokens
+		attrs := []any{"feature", cfg.Feature, "provider", p.id, "model", req.Model}
+		if extras.maxTokens > 0 {
+			// Only a limit that was sent: OpenAI and Ollama get none, and
+			// "max_tokens=0" would read as a limit of nothing.
+			attrs = append(attrs, "max_tokens", extras.maxTokens)
+		}
+		attrs = append(attrs, "output_tokens", completion.Usage.CompletionTokens,
+			"reasoning_tokens", reasoningTokens, "answer_bytes", len(text))
+		logger.Warn("llm: output limit reached", attrs...)
+		if reasoningTokens > 0 {
+			return Response{}, fmt.Errorf("%s: %w", p.name, errOutputLimitReasoning)
+		}
 		return Response{}, fmt.Errorf("%s: %w", p.name, ErrOutputLimit)
 	}
 
-	text := choice.Message.Content
 	if strings.TrimSpace(text) == "" {
 		return Response{}, fmt.Errorf("%s returned an empty result", p.name)
 	}
+	// Usage carries no user text. reasoning_tokens is how a log shows whether
+	// a model asked not to reason (Fix on a fast tier) actually did not.
+	logger.Debug("llm: usage", "feature", cfg.Feature, "provider", p.id, "model", completion.Model,
+		"output_tokens", completion.Usage.CompletionTokens,
+		"reasoning_tokens", completion.Usage.CompletionTokensDetails.ReasoningTokens)
 	logResponse(cfg, p, text)
 	return Response{Text: text, Model: completion.Model}, nil
 }

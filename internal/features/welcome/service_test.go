@@ -49,6 +49,14 @@ func cfgWith(active string, completed bool) settings.Settings {
 	return c
 }
 
+// bedrockWith is an active Bedrock with a region (or none) and a mode.
+func bedrockWith(region, auth string) settings.Settings {
+	c := cfgWith(llm.ProviderBedrock, false)
+	c.Providers.AWSRegion = region
+	c.Providers.BedrockAuth = auth
+	return c
+}
+
 func TestIsFirstRun_Matrix(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -83,6 +91,16 @@ func TestIsFirstRun_Matrix(t *testing.T) {
 			name: "key for another provider: active moves to it", cfg: cfgWith("openai", false),
 			keys: map[string]string{"claude": "sk-ant-x"}, cli: cliMissingSt,
 			wantActive: "claude", wantProbe: true,
+		},
+		{
+			name: "OpenRouter key for the active provider: no probe needed", cfg: cfgWith("openrouter", false),
+			keys: map[string]string{"openrouter": "sk-or-x"}, cli: cliMissingSt,
+			wantActive: "openrouter", wantProbe: false,
+		},
+		{
+			name: "only an OpenRouter key: active moves to it", cfg: cfgWith("openai", false),
+			keys: map[string]string{"openrouter": "sk-or-x"}, cli: cliMissingSt,
+			wantActive: "openrouter", wantProbe: true,
 		},
 		{
 			name: "CLI only: active moves to the CLI", cfg: cfgWith("openai", false),
@@ -124,9 +142,34 @@ func TestIsFirstRun_Matrix(t *testing.T) {
 			cli: cliMissingSt, wantActive: "openai", wantProbe: false,
 		},
 		{
-			name: "unavailable saved provider is explained, never switched", cfg: cfgWith("bedrock", false),
+			name: "active Bedrock with a region and a key: no probe needed", cfg: bedrockWith("eu-central-1", llm.BedrockAuthKey),
+			keys: map[string]string{"bedrock": "bedrock-key"}, cli: cliMissingSt,
+			wantActive: "bedrock", wantProbe: false,
+		},
+		{
+			// Whether the sign-in works can only be known by trying; chosen
+			// with a region is configured.
+			name: "active Bedrock with a region on the AWS sign-in: needs no key", cfg: bedrockWith("us-west-2", llm.BedrockAuthSignIn),
+			cli: cliMissingSt, wantActive: "bedrock", wantProbe: false,
+		},
+		{
+			// Mumbai routes these models only worldwide; "keep" there cannot
+			// run until the user chooses Worldwide on the card.
+			name: "active Bedrock keeping the text in a worldwide-only region, nothing else", cfg: bedrockWith("ap-south-1", llm.BedrockAuthSignIn),
+			cli: cliMissingSt, wantWizard: true, wantActive: "bedrock", wantProbe: true,
+		},
+		{
+			name: "active Bedrock with no region, key stored elsewhere: usable, choice kept", cfg: bedrockWith("", llm.BedrockAuthSignIn),
 			keys: map[string]string{"openai": "sk-x"}, cli: cliMissingSt,
 			wantActive: "bedrock", wantProbe: true,
+		},
+		{
+			name: "active Bedrock in key mode without a key, CLI signed in: usable, choice kept", cfg: bedrockWith("eu-central-1", llm.BedrockAuthKey),
+			cli: cliSignedInSt, wantActive: "bedrock", wantProbe: true,
+		},
+		{
+			name: "active Bedrock in key mode without a key, nothing else", cfg: bedrockWith("eu-central-1", llm.BedrockAuthKey),
+			cli: cliMissingSt, wantWizard: true, wantActive: "bedrock", wantProbe: true,
 		},
 		{
 			name: "a provider this build does not know moves to what works", cfg: cfgWith("some-future-provider", false),
@@ -138,8 +181,9 @@ func TestIsFirstRun_Matrix(t *testing.T) {
 			cli: cliSignedInSt, wantActive: "claude-code", wantProbe: true,
 		},
 		{
-			name: "a Bedrock env key alone does not count", cfg: cfgWith("openai", false),
-			keys: map[string]string{"bedrock": "aws-secret"}, cli: cliMissingSt,
+			// A Bedrock key needs a region too, so it is not a replacement.
+			name: "a Bedrock key alone does not count", cfg: cfgWith("openai", false),
+			keys: map[string]string{"bedrock": "bedrock-key"}, cli: cliMissingSt,
 			wantWizard: true, wantActive: "openai", wantProbe: true,
 		},
 	}

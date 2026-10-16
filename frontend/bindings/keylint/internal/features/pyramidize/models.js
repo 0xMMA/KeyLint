@@ -83,7 +83,7 @@ export class PyramidizeRequest {
         }
         if (!("provider" in $$source)) {
             /**
-             * optional override: "claude"|"openai"|"ollama" — falls back to settings.ActiveProvider
+             * optional override: "claude"|"claude-code"|"openai"|"openrouter"|"bedrock"|"ollama" — falls back to settings.ActiveProvider
              * @member
              * @type {string}
              */

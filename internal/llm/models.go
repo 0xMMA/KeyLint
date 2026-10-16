@@ -46,6 +46,16 @@ const (
 	// model endpoint and its aliases are the whole story, so flagging it
 	// as "built-in" would be an alarm nobody can clear.
 	ModelSourceFixed = "fixed"
+	// ModelSourceNotAsked: KeyLint did not ask, on purpose. OpenRouter's
+	// catalogue needs no key, so it could be listed for everyone — but a user
+	// who has not chosen OpenRouter should send openrouter.ai nothing. The
+	// built-in list stands in until it is the provider in use.
+	ModelSourceNotAsked = "not-asked"
+	// ModelSourceKnown: the provider has no model list to ask, and these are
+	// the models KeyLint knows on it. Bedrock: Anthropic's Models API is not
+	// offered there. Unlike "fixed" the list is not the whole story — the
+	// picker takes any other ID or an inference profile ARN.
+	ModelSourceKnown = "known"
 )
 
 // ModelInfo is one entry in a model picker.
@@ -77,7 +87,7 @@ type ModelList struct {
 // than the pinned IDs, and the reasoning counts against the output limit. An
 // explicit ID saved in settings is untouched by any of this.
 //
-// OpenAI and Ollama have no family aliases and keep explicit IDs.
+// OpenAI, Ollama and OpenRouter have no family aliases and keep explicit IDs.
 var defaultModels = map[string]map[string]string{
 	ProviderClaude: {
 		FeatureFix:        FamilyHaiku,
@@ -97,6 +107,22 @@ var defaultModels = map[string]map[string]string{
 	ProviderClaudeCode: {
 		FeatureFix:        FamilyHaiku,
 		FeaturePyramidize: FamilySonnet,
+	},
+	// OpenRouter (owner decision 2026-10-15): explicit vendor/model IDs, no
+	// family alias. Haiku 5.5 reasons by default, so Fix asks it not to
+	// (IsFastTier); Sonnet 5.5's reasoning is mandatory there as everywhere.
+	// Not eval'd through OpenRouter — the same model can be served by
+	// different hosts (roadmap E10).
+	ProviderOpenRouter: {
+		FeatureFix:        "anthropic/claude-haiku-5.5",
+		FeaturePyramidize: "anthropic/claude-sonnet-5.5",
+	},
+	// Bedrock (roadmap E6): base IDs; the routing prefix is added at call time
+	// from region and routing (BedrockInvokeID). Same models as OpenRouter's
+	// defaults, and Fix asks Haiku not to reason here too (IsFastTier).
+	ProviderBedrock: {
+		FeatureFix:        "anthropic.claude-haiku-5-5",
+		FeaturePyramidize: "anthropic.claude-sonnet-5-5",
 	},
 }
 
@@ -149,6 +175,21 @@ var curatedModels = map[string][]ModelInfo{
 		{ID: "qwen2.5", Label: "qwen2.5"},
 	},
 	ProviderClaudeCode: claudeCodeAliases,
+	// OpenRouter's catalogue is public and normally live; this stands in only
+	// when it cannot be reached. Every ID is in the catalogue as served on
+	// 2026-10-15, with OpenRouter's own names. A few vendors' current models,
+	// the defaults first — the picker stays editable for anything else.
+	ProviderOpenRouter: {
+		{ID: "anthropic/claude-haiku-5.5", Label: "Anthropic: Claude Haiku 5.5"},
+		{ID: "anthropic/claude-sonnet-5.5", Label: "Anthropic: Claude Sonnet 5.5"},
+		{ID: "anthropic/claude-opus-5.5", Label: "Anthropic: Claude Opus 5.5"},
+		{ID: "openai/gpt-6-luna", Label: "OpenAI: GPT-6 Luna"},
+		{ID: "openai/gpt-6-astra", Label: "OpenAI: GPT-6 Astra"},
+		{ID: "google/gemini-3.8-flash", Label: "Google: Gemini 3.8 Flash"},
+	},
+	// Bedrock has no model list to ask; these are the models KeyLint knows
+	// there, each checked against its AWS model card (bedrockModels).
+	ProviderBedrock: bedrockCuratedModels(),
 }
 
 // claudeCodeAliases are what the CLI picker offers. They are aliases by
@@ -227,9 +268,15 @@ func ListModels(ctx context.Context, provider string, cfg Config) (ModelList, er
 		models, listed, err = listOpenAIModels(ctx, cfg)
 	case ProviderOllama:
 		models, listed, err = listOllamaModels(ctx, cfg)
+	case ProviderOpenRouter:
+		models, listed, err = listOpenRouterModels(ctx, cfg)
 	case ProviderClaudeCode:
 		// The CLI has no model endpoint, and these aliases are the whole story.
 		return ModelList{Models: slices.Clone(claudeCodeAliases), Source: ModelSourceFixed}, nil
+	case ProviderBedrock:
+		// Nothing to ask, so nothing is asked — opening Settings sends AWS no
+		// request.
+		return CuratedModels(provider, ModelSourceKnown), nil
 	default:
 		return CuratedModels(provider, ModelSourceUnreachable), fmt.Errorf("unsupported provider: %q", provider)
 	}
@@ -255,9 +302,10 @@ func ListModels(ctx context.Context, provider string, cfg Config) (ModelList, er
 }
 
 // The listers return the models this app can use and, separately, how many the
-// provider actually listed. The two differ only for OpenAI, whose account
-// listing carries far more than chat models — and the difference matters:
-// "listed nothing" and "listed nothing we can call" are different sentences.
+// provider actually listed. The two differ for OpenAI, whose account listing
+// carries far more than chat models, and for OpenRouter, whose catalogue
+// carries Batch API variants — and the difference matters: "listed nothing"
+// and "listed nothing we can call" are different sentences.
 func listAnthropicModels(ctx context.Context, cfg Config) ([]ModelInfo, int, error) {
 	catalogue, err := fetchAnthropicCatalogue(ctx, cfg)
 	if err != nil {

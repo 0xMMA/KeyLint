@@ -199,11 +199,25 @@ func TestSetActiveProvider_ChangesOnlyTheProvider(t *testing.T) {
 	}
 }
 
+// Every provider the AI Providers tab offers can be made the one in use.
+func TestSetActiveProvider_AcceptsEveryOfferedProvider(t *testing.T) {
+	svc := newServiceAt(t, t.TempDir())
+	for _, p := range []string{"openai", "claude", "openrouter", "bedrock", "claude-code", "ollama"} {
+		if err := svc.SetActiveProvider(p); err != nil {
+			t.Errorf("SetActiveProvider(%q): %v", p, err)
+			continue
+		}
+		if got := svc.Get().ActiveProvider; got != p {
+			t.Errorf("active_provider = %q, want %q", got, p)
+		}
+	}
+}
+
 func TestSetActiveProvider_RejectsProvidersItCannotUse(t *testing.T) {
 	svc := newServiceAt(t, t.TempDir())
 	before := svc.Get().ActiveProvider
 
-	for _, p := range []string{"", "bedrock", "gemini", "toString"} {
+	for _, p := range []string{"", "vertex", "gemini", "toString"} {
 		if err := svc.SetActiveProvider(p); err == nil {
 			t.Errorf("SetActiveProvider(%q): want an error", p)
 		}

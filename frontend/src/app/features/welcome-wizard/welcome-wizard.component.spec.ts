@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { WelcomeWizardComponent } from './welcome-wizard.component';
 import { WailsService, ClaudeCodeStatus, KeyStatus, Settings } from '../../core/wails.service';
-import { createWailsMock, defaultSettings, defaultClaudeCodeStatus, WailsMock } from '../../../testing/wails-mock';
+import { createWailsMock, defaultSettings, defaultClaudeCodeStatus, WailsMock, bedrockModelList } from '../../../testing/wails-mock';
 
 const SIGNED_IN: ClaudeCodeStatus = { installed: true, path: '/usr/local/bin/claude', version: '2.1.0', loggedIn: true };
 const SIGNED_OUT: ClaudeCodeStatus = { ...SIGNED_IN, loggedIn: false };
@@ -220,6 +220,143 @@ describe('WelcomeWizardComponent', () => {
       expect(wails.setActiveProvider).toHaveBeenCalledWith('openai');
       expect(wails.setKey).toHaveBeenCalledWith('openai', 'sk-test');
       expect(wails.completeSetup).toHaveBeenCalled();
+    });
+
+    it('offers OpenRouter as a key provider and saves its key', async () => {
+      await render();
+      await toProviders();
+      expect(q('wizard-option-openrouter')?.textContent).toContain('OpenRouter');
+      await pick('openrouter');
+      expect(finishButton().disabled).toBe(true);
+
+      const input = q('wizard-key-input') as HTMLInputElement;
+      expect(input.placeholder).toBe('sk-or-…');
+      input.value = 'sk-or-v1-test';
+      input.dispatchEvent(new Event('input'));
+      await settle();
+
+      wails.getKeyStatus.mockResolvedValue({ is_set: true, source: 'keyring' });
+      await click('wizard-finish');
+      expect(wails.setKey).toHaveBeenCalledWith('openrouter', 'sk-or-v1-test');
+      expect(wails.setActiveProvider).toHaveBeenCalledWith('openrouter');
+    });
+
+    // AWS Bedrock (roadmap E6): a region, and a key or this computer's AWS
+    // sign-in. The routing keeps the text in the region's geography unless
+    // the user chooses worldwide, on this screen or later in Settings.
+    describe('AWS Bedrock', () => {
+      async function chooseRegion(id: string): Promise<void> {
+        q('bedrock-region')!.querySelector<HTMLElement>('button')!.click();
+        fixture.detectChanges();
+        Array.from(document.querySelectorAll<HTMLElement>('.cdk-overlay-container [role="option"]'))
+          .find(o => o.textContent?.includes(id))!.click();
+        await settle();
+      }
+
+      async function typeKey(value: string): Promise<void> {
+        const input = q('wizard-key-input') as HTMLInputElement;
+        input.value = value;
+        input.dispatchEvent(new Event('input'));
+        await settle();
+      }
+
+      afterEach(() => document.querySelector('.cdk-overlay-container')?.replaceChildren());
+
+      it('needs a region and a key in key mode, and saves the key, then the connection, then the choice', async () => {
+        await render();
+        wails.listModels.mockResolvedValue(structuredClone(bedrockModelList));
+        await toProviders();
+        expect(q('wizard-option-bedrock')?.textContent).toContain('AWS Bedrock');
+        await pick('bedrock');
+        expect(q('wizard-detail-bedrock')!.querySelector('[data-testid="bedrock-options"]')).not.toBeNull();
+        expect(finishButton().disabled).toBe(true);
+
+        await chooseRegion('eu-central-1');
+        expect(finishButton().disabled).toBe(true);
+        expect((q('wizard-key-input') as HTMLInputElement).placeholder).toBe('Bedrock API key');
+        await typeKey('bedrock-api-key');
+        expect(finishButton().disabled).toBe(false);
+
+        wails.getKeyStatus.mockResolvedValue({ is_set: true, source: 'keyring' });
+        await click('wizard-finish');
+        expect(wails.setKey).toHaveBeenCalledWith('bedrock', 'bedrock-api-key');
+        expect(wails.setBedrock).toHaveBeenCalledWith({ region: 'eu-central-1', auth: 'api-key', profile: '', routing: 'geo' });
+        expect(wails.setActiveProvider).toHaveBeenCalledWith('bedrock');
+        expect(wails.setKey.mock.invocationCallOrder[0]).toBeLessThan(wails.setBedrock.mock.invocationCallOrder[0]);
+        expect(wails.setBedrock.mock.invocationCallOrder[0]).toBeLessThan(wails.setActiveProvider.mock.invocationCallOrder[0]);
+        await vi.waitFor(() => expect(wails.completeSetup).toHaveBeenCalled());
+      });
+
+      it("needs no key with this computer's AWS sign-in, and stores none", async () => {
+        await render();
+        await toProviders();
+        await pick('bedrock');
+        (q('bedrock-auth-signin') as HTMLInputElement).click();
+        await settle();
+        expect(q('wizard-key-input')).toBeNull();
+        await chooseRegion('us-east-1');
+        expect(finishButton().disabled).toBe(false);
+
+        await click('wizard-finish');
+        expect(wails.setKey).not.toHaveBeenCalled();
+        expect(wails.setBedrock).toHaveBeenCalledWith({ region: 'us-east-1', auth: 'aws-signin', profile: '', routing: 'geo' });
+        expect(wails.setActiveProvider).toHaveBeenCalledWith('bedrock');
+      });
+
+      it('saves worldwide routing when the user chooses it', async () => {
+        await render();
+        await toProviders();
+        await pick('bedrock');
+        (q('bedrock-auth-signin') as HTMLInputElement).click();
+        await settle();
+        await chooseRegion('eu-central-1');
+        expect(q('bedrock-routing')!.textContent).toContain('Keep in the EU');
+        (q('bedrock-routing-global') as HTMLInputElement).click();
+        await settle();
+
+        await click('wizard-finish');
+        expect(wails.setBedrock).toHaveBeenCalledWith({ region: 'eu-central-1', auth: 'aws-signin', profile: '', routing: 'global' });
+      });
+
+      it('needs Worldwide chosen in a region that routes only worldwide', async () => {
+        await render();
+        await toProviders();
+        await pick('bedrock');
+        (q('bedrock-auth-signin') as HTMLInputElement).click();
+        await settle();
+        await chooseRegion('ap-south-1');
+        expect(finishButton().disabled).toBe(true);
+        (q('bedrock-routing-global') as HTMLInputElement).click();
+        await settle();
+        expect(finishButton().disabled).toBe(false);
+      });
+
+      it('preselects a saved Bedrock that is set up', async () => {
+        await render({ settings: { active_provider: 'bedrock', providers: { ...defaultSettings.providers, aws_region: 'eu-west-1', bedrock_auth: 'aws-signin' } } });
+        await toProviders();
+        expect(radio('bedrock').checked).toBe(true);
+      });
+
+      it('does not make Bedrock the provider when its connection could not be saved', async () => {
+        await render();
+        await toProviders();
+        await pick('bedrock');
+        (q('bedrock-auth-signin') as HTMLInputElement).click();
+        await settle();
+        await chooseRegion('us-east-1');
+        wails.setBedrock.mockRejectedValueOnce(new Error('disk full'));
+
+        await click('wizard-finish');
+        expect(q('wizard-error')?.textContent).toContain('disk full');
+        expect(wails.setActiveProvider).not.toHaveBeenCalled();
+        expect(wails.completeSetup).not.toHaveBeenCalled();
+      });
+    });
+
+    it('preselects OpenRouter when its key is the one stored', async () => {
+      await render({ keys: { openrouter: { is_set: true, source: 'keyring' } } });
+      await toProviders();
+      expect(radio('openrouter').checked).toBe(true);
     });
 
     it('does not finish when the keyring refused the key, and says so', async () => {

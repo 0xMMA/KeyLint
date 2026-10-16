@@ -45,7 +45,7 @@ func TestEvalLanguage(t *testing.T) {
 	evalSettings := settings.Default()
 	evalSettings.ActiveProvider = provider
 	settingsSvc := settings.NewServiceFrom(evalSettings, settings.EnvOnlyKeys)
-	if llm.UsesAPIKey(provider) && settingsSvc.GetKey(provider) == "" {
+	if evalSettings.UsesAPIKey(provider) && settingsSvc.GetKey(provider) == "" {
 		t.Fatalf("no API key for %q in the environment or .env — the eval reads no keyring", provider)
 	}
 	model := llm.ResolveModel(context.Background(), provider, requestedModel,

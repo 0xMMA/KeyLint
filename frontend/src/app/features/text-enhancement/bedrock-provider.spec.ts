@@ -19,11 +19,10 @@ function makeEnhancementServiceMock() {
   };
 }
 
-// A settings file that still names AWS Bedrock (#22): Settings offers no way to
-// pick it, so the page says why nothing can run instead of failing later with a
-// raw backend error. The value is not switched for the user: provider, model
-// and effort are Settings' business only.
-describe('TextEnhancementComponent — Settings name a provider that is not available yet', () => {
+// AWS Bedrock in use (roadmap E6): the banner says what is missing — a region,
+// or a key in key mode — and nothing at all with this computer's AWS sign-in,
+// whose working can only be known by trying. Pyramidize is never held back.
+describe('TextEnhancementComponent — AWS Bedrock in use', () => {
   let fixture: ComponentFixture<TextEnhancementComponent>;
   let el: HTMLElement;
   let wailsMock: ReturnType<typeof createWailsMock>;
@@ -38,11 +37,13 @@ describe('TextEnhancementComponent — Settings name a provider that is not avai
     }
   }
 
-  beforeEach(async () => {
+  async function render(providers: Record<string, string>): Promise<void> {
     resetPyramidizeSession();
     TestBed.resetTestingModule();
     wailsMock = createWailsMock();
-    wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, active_provider: 'bedrock' });
+    wailsMock.loadSettings.mockResolvedValue({
+      ...defaultSettings, active_provider: 'bedrock', providers: { ...defaultSettings.providers, ...providers },
+    });
     wailsMock.getKeyStatus.mockResolvedValue({ is_set: false, source: 'none' });
     svcMock = makeEnhancementServiceMock();
     await TestBed.configureTestingModule({
@@ -60,28 +61,41 @@ describe('TextEnhancementComponent — Settings name a provider that is not avai
     fixture.componentInstance.goToStep('choice');
     fixture.detectChanges();
     await settle();
-  });
+  }
 
   afterEach(() => {
     fixture.destroy();
     resetPyramidizeSession();
   });
 
-  it('says why nothing can run, and shows no key banner', () => {
-    expect(el.querySelector('[data-testid="provider-unavailable"]')?.textContent).toContain('AWS Bedrock is not available yet');
+  it('names AWS Bedrock and its model on the line under the form choice', async () => {
+    await render({ aws_region: 'eu-central-1', bedrock_auth: 'aws-signin' });
+    expect(el.querySelector('[data-testid="run-settings"]')?.textContent).toContain('anthropic.claude-sonnet-5-5 · AWS Bedrock');
+    expect(el.querySelector('[data-testid="provider-unavailable"]')).toBeNull();
+  });
+
+  it('says when no region is set', async () => {
+    await render({ bedrock_auth: 'aws-signin' });
+    expect(el.querySelector('[data-testid="api-key-banner-message"]')?.textContent).toContain('No AWS region is set for Bedrock');
+  });
+
+  it('says when the region routes only worldwide and Worldwide is not chosen', async () => {
+    await render({ aws_region: 'ap-south-1', bedrock_auth: 'aws-signin' });
+    expect(el.querySelector('[data-testid="api-key-banner-message"]')?.textContent).toContain('routes Bedrock only worldwide');
+  });
+
+  it('asks for the key in key mode', async () => {
+    await render({ aws_region: 'eu-central-1' });
+    expect(wailsMock.getKeyStatus).toHaveBeenCalledWith('bedrock');
+    expect(el.querySelector('[data-testid="api-key-banner-message"]')?.textContent).toContain('No AI API key configured');
+  });
+
+  it("asks for nothing with this computer's AWS sign-in, and runs", async () => {
+    await render({ aws_region: 'eu-central-1', bedrock_auth: 'aws-signin' });
     expect(el.querySelector('[data-testid="api-key-banner"]')).toBeNull();
-    expect(el.querySelector('[data-testid="run-settings"]')?.textContent).toContain('AWS Bedrock');
-  });
-
-  it('does not ask the backend about a provider it cannot use', () => {
-    expect(wailsMock.getKeyStatus).not.toHaveBeenCalled();
-  });
-
-  it('keeps Pyramidize off, by button and by Enter', async () => {
-    expect(el.querySelector<HTMLButtonElement>('[data-testid="pyramidize-btn"] button')!.disabled).toBe(true);
-    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(wailsMock.getKeyStatus).not.toHaveBeenCalledWith('bedrock');
+    expect(el.querySelector<HTMLButtonElement>('[data-testid="pyramidize-btn"] button')!.disabled).toBe(false);
     await fixture.componentInstance.pyramidize();
-    await settle();
-    expect(svcMock.pyramidize).not.toHaveBeenCalled();
+    expect(svcMock.pyramidize).toHaveBeenCalled();
   });
 });

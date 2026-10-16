@@ -39,5 +39,7 @@ func (c *ollamaClient) Complete(ctx context.Context, req Request) (Response, err
 	// a user pastes into the settings field. The client appends /v1 itself, and
 	// /v1/v1/chat/completions is a 404 nobody can diagnose from the message.
 	base = strings.TrimSuffix(base, "/v1")
-	return completeViaOpenAI(ctx, cfg, ollamaProvider, base, req)
+	// No extras: max_tokens and the reasoning options stay off the wire the
+	// way they always were for a local model.
+	return completeViaOpenAI(ctx, cfg, ollamaProvider, base, req, chatExtras{})
 }

@@ -6,6 +6,18 @@ describe('noteForModelSource', () => {
     expect(noteForModelSource('live', 'openai', true)).toBe('');
   });
 
+  // Bedrock has no model list to ask (Anthropic's Models API is not offered
+  // there): the picker says so truthfully, and that it takes other IDs.
+  it('says where the Bedrock list comes from, truthfully', () => {
+    const note = noteForModelSource('known', 'bedrock', true);
+    // Bedrock does list foundation models; what KeyLint does not do is ask.
+    expect(note).toContain('KeyLint does not ask AWS for a model list');
+    expect(note).toContain('the Claude models KeyLint knows');
+    expect(note).toMatch(/inference profile ARN/);
+    // A Nova ID got a bare 400 on the first live test (2026-10-16).
+    expect(note).toContain("other vendors' models (Nova, Llama, …) don't work");
+  });
+
   it('says nothing for a provider with no endpoint to ask', () => {
     // The Claude Code CLI's three aliases are the whole list by design, so a
     // note here would be an alarm nobody can clear.
@@ -42,6 +54,29 @@ describe('noteForModelSource', () => {
       // ...and must not promise a list that is not on screen.
       expect(note, source).not.toContain('built-in list');
     }
+  });
+
+  // OpenRouter's catalogue is public: the list is live before any key is
+  // set, and it is OpenRouter's, not the account's. The note has to say both,
+  // and how to find one model among four hundred.
+  it('calls the OpenRouter list the whole catalogue, searchable, and not a promise about the key', () => {
+    const note = noteForModelSource('live', 'openrouter', true);
+    expect(note).toContain("OpenRouter's");
+    expect(note).toMatch(/type/i);
+    expect(note).toMatch(/account/);
+  });
+
+  it('never calls OpenRouter\'s catalogue "this account\'s"', () => {
+    for (const source of ['empty', 'unusable']) {
+      const note = noteForModelSource(source, 'openrouter', source === 'unusable');
+      expect(note, source).not.toContain('This account');
+      expect(note, source).not.toContain("this account's");
+      expect(note, source).toContain('OpenRouter');
+    }
+  });
+
+  it('says why OpenRouter has not been asked yet', () => {
+    expect(noteForModelSource('not-asked', 'openrouter', true)).toContain('in use');
   });
 
   it('says nothing for a source it has never heard of', () => {

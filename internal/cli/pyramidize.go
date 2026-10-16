@@ -34,7 +34,7 @@ func runPyramidizeWith(args []string, stdout io.Writer, stderr io.Writer, svc py
 	// app", and a command line has no source app — it would be email anyway.
 	docType := fs.String("type", "email", "Document type: email|chat|memo|wiki|powerpoint (presentation = powerpoint; auto = email, as the CLI has no source app)")
 	jsonOut := fs.Bool("json", false, "Output full result as JSON")
-	provider := fs.String("provider", "", "AI provider override: claude|claude-code|openai|ollama")
+	provider := fs.String("provider", "", "AI provider override: claude|claude-code|openai|openrouter|bedrock|ollama (bedrock uses the region and connection from Settings)")
 	model := fs.String("model", "", "Model override (e.g. claude-sonnet-4-6)")
 	instructions := fs.String("instructions", "", "Your own instructions for this text, e.g. \"more formal\" or \"in English\" (the app's Instructions field)")
 	// Accepted and ignored since the choice page (roadmap E3 phase 3): no

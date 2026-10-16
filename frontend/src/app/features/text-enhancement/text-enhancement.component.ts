@@ -5,7 +5,6 @@ import { CdkScrollable } from '@angular/cdk/scrolling';
 import { Subscription } from 'rxjs';
 import { WailsService, type Settings, type SourcePreset } from '../../core/wails.service';
 import { describeError } from '../../core/error-message';
-import { unavailableProviderName } from '../../core/constants';
 import {
   ButtonComponent, InputDirective, MessageComponent, SegmentedComponent, SpinnerComponent,
   TooltipDirective, type SegmentOption,
@@ -22,6 +21,7 @@ import { ChoiceStepComponent } from './choice-step/choice-step.component';
 import { ResultHeaderComponent } from './result-header/result-header.component';
 import { DEFAULT_FORM, formLabel } from './forms';
 import { EFFORT_OPTIONS, effectiveModel, effortNote, modelName } from '../settings/model-options';
+import { BedrockConnection, bedrockConnectionOf, bedrockRoutable, usesBedrockKey } from '../../core/bedrock';
 
 // Same names as Settings › AI Providers, so the line under the form choice
 // names the provider the user sees there.
@@ -29,6 +29,8 @@ const PROVIDER_LABELS: Readonly<Record<string, string>> = {
   claude: 'Anthropic API',
   'claude-code': 'Claude Code (installed CLI)',
   openai: 'OpenAI',
+  openrouter: 'OpenRouter',
+  bedrock: 'AWS Bedrock',
   ollama: 'Ollama (local)',
 };
 
@@ -42,6 +44,9 @@ const MISSING_KEY_MESSAGE = 'No AI API key configured.';
 const CLI_NOT_INSTALLED_MESSAGE = 'Claude Code CLI not found on this machine.';
 const CLI_NOT_SIGNED_IN_MESSAGE =
   'Claude Code is installed but not signed in. Open a terminal, run `claude`, and sign in.';
+const BEDROCK_NO_REGION_MESSAGE = 'No AWS region is set for Bedrock. Choose one in Settings › AI providers.';
+const BEDROCK_WORLDWIDE_ONLY_MESSAGE =
+  'This AWS region routes Bedrock only worldwide, and Worldwide is not chosen. Choose it, or another region, in Settings › AI providers.';
 
 /** Send back refuses when the backend's window is no longer the result's (PR #130 review). */
 const SOURCE_MOVED_MESSAGE =
@@ -304,7 +309,6 @@ function traceOriginal(): void {
                   [rememberedDocType]="rememberedDocTypeView"
                   [runOn]="runOnView"
                   [canRun]="canRun"
-                  [unavailableProvider]="unavailableProviderView"
                   [docType]="docTypeView"
                   (docTypeChange)="docTypeView = $event"
                   [remember]="rememberView"
@@ -358,7 +362,6 @@ function traceOriginal(): void {
                       [style.top.px]="bubbleY"
                       [style.left.px]="bubbleX"
                       [(instruction)]="selectionInstruction"
-                      [disabled]="!!unavailableProviderView"
                       (apply)="applySelectionInstruction()"
                       (closed)="dismissSelectionBubble()"
                     />
@@ -395,8 +398,8 @@ function traceOriginal(): void {
                 <kl-button
                   data-testid="apply-instruction-btn"
                   size="lg"
-                  [variant]="globalInstruction.trim() && !unavailableProviderView ? 'primary' : 'quiet'"
-                  [disabled]="!globalInstruction.trim() || !canvasTextView.trim() || isLoading || !!unavailableProviderView"
+                  [variant]="globalInstruction.trim() ? 'primary' : 'quiet'"
+                  [disabled]="!globalInstruction.trim() || !canvasTextView.trim() || isLoading"
                   (click)="applyGlobalInstruction()"
                 >Apply<span klButtonEnd><kbd>Ctrl</kbd> <kbd>Enter</kbd></span></kl-button>
               </div>
@@ -615,15 +618,11 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
 
   get activeResultView(): number { return activeResult; }
 
-  /** Name of a provider Settings names but nothing can use yet (#22). */
-  get unavailableProviderView(): string | null { return unavailableProviderName(this.settingsProvider); }
-
   /** "<model> · <provider> · effort <level>", all from Settings. */
   get runOnView(): string {
     const provider = this.settingsProvider;
     if (!provider) return '';
-    const providerLabel = PROVIDER_LABELS[provider] ?? unavailableProviderName(provider) ?? provider;
-    if (unavailableProviderName(provider)) return providerLabel;
+    const providerLabel = PROVIDER_LABELS[provider] ?? provider;
     const stored = this.settingsModels?.[provider];
     const parts = [modelName(effectiveModel(provider, 'pyramidize', stored?.pyramidize), []), providerLabel].filter(Boolean);
     // Only where the provider does something with effort (not Ollama).
@@ -637,7 +636,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
 
   /** Whether "Pyramidize as …" (and its Enter) can run now. */
   get canRun(): boolean {
-    return !!originalText.trim() && !this.isLoading && !this.unavailableProviderView;
+    return !!originalText.trim() && !this.isLoading;
   }
 
   /** The history toggle's label, with how many snapshots there are. */
@@ -650,6 +649,8 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   /** The provider Settings names, read on every visit. */
   settingsProvider = '';
   private settingsModels: Settings['models'] | null = null;
+  /** The AWS Bedrock connection from Settings, for the banner. */
+  private bedrock: BedrockConnection = bedrockConnectionOf(null);
   sendingBack = false;
   apiKeySet = true;
   /** Set on destroy so a late answer does not refresh a dead view. */
@@ -738,6 +739,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
     const settings = await this.wails.loadSettings();
     this.settingsProvider = settings.active_provider ?? '';
     this.settingsModels = settings.models ?? null;
+    this.bedrock = bedrockConnectionOf(settings);
 
     // Not awaited: for the claude-code provider this probes the CLI, which
     // spawns processes — and the page has a banner slot for the answer, so it
@@ -827,8 +829,17 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
       const status = await this.wails.getClaudeCodeStatus().catch(() => null);
       ok = !!status?.installed && !!status.loggedIn;
       message = status?.installed ? CLI_NOT_SIGNED_IN_MESSAGE : CLI_NOT_INSTALLED_MESSAGE;
-    } else if (KEYLESS_PROVIDERS.has(provider) || unavailableProviderName(provider)) {
-      // An unavailable provider has its own note; a key banner would mislead.
+    } else if (KEYLESS_PROVIDERS.has(provider)) {
+      ok = true;
+    } else if (provider === 'bedrock' && !this.bedrock.region) {
+      ok = false;
+      message = BEDROCK_NO_REGION_MESSAGE;
+    } else if (provider === 'bedrock' && !bedrockRoutable(this.bedrock, await this.wails.getBedrockRegions().catch(() => []))) {
+      ok = false;
+      message = BEDROCK_WORLDWIDE_ONLY_MESSAGE;
+    } else if (provider === 'bedrock' && !usesBedrockKey(this.bedrock)) {
+      // This computer's AWS sign-in: whether it works is known only by
+      // trying, and the error then says what to do.
       ok = true;
     } else {
       const keyStatus = await this.wails.getKeyStatus(provider);
@@ -1009,7 +1020,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
   /** A whole-text change of one result, against the text that result was made from. */
   async refine(resultId: string, instruction: string): Promise<void> {
     const target = results.find(r => r.id === resultId);
-    if (!target || inFlight || this.unavailableProviderView) return; // the note explains why (#22)
+    if (!target || inFlight) return;
 
     const seq = ++runSeq;
     wasCancelled = false;
@@ -1097,7 +1108,7 @@ export class TextEnhancementComponent implements OnInit, OnDestroy {
    */
   async splice(resultId: string, start: number, selectedText: string, instruction: string): Promise<void> {
     const target = results.find(r => r.id === resultId);
-    if (!target || inFlight || this.unavailableProviderView) return; // the note explains why (#22)
+    if (!target || inFlight) return;
 
     const seq = ++runSeq;
     wasCancelled = false;

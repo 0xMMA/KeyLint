@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,11 +27,32 @@ var errIsolated = errors.New("settings: this service has an explicit key source 
 
 // envVars maps provider ID → environment variable name for the API key.
 // Empty string means no standard env var for that provider.
+//
+// Bedrock's is AWS_BEARER_TOKEN_BEDROCK, the variable AWS's own SDKs read a
+// Bedrock API key from — not AWS_SECRET_ACCESS_KEY, which is half of an IAM
+// key pair and on many machines for other tools.
 var envVars = map[string]string{
-	"openai":  "OPENAI_API_KEY",
-	"claude":  "ANTHROPIC_API_KEY",
-	"bedrock": "AWS_SECRET_ACCESS_KEY",
+	"openai":     "OPENAI_API_KEY",
+	"claude":     "ANTHROPIC_API_KEY",
+	"openrouter": "OPENROUTER_API_KEY",
+	"bedrock":    "AWS_BEARER_TOKEN_BEDROCK",
 }
+
+// keyringAccount is the keyring entry a provider's key lives under: the
+// provider ID, except for Bedrock. Until 2026-10-05 the AI Providers page
+// stored an "AWS Secret Access Key" under "bedrock" — half of an IAM key pair,
+// not a Bedrock API key — so the Bedrock API key has its own account and the
+// old entry is never read as one (see legacyBedrockAccount).
+func keyringAccount(provider string) string {
+	if provider == llm.ProviderBedrock {
+		return "bedrock-api-key"
+	}
+	return provider
+}
+
+// legacyBedrockAccount is that old entry. Saving or clearing a Bedrock key
+// removes it, so an IAM secret KeyLint once stored does not linger unseen.
+const legacyBedrockAccount = "bedrock"
 
 // Service handles loading and saving application settings.
 type Service struct {
@@ -73,9 +95,18 @@ type Service struct {
 	// loaded records how the settings file was read; see LoadOutcome.
 	loaded LoadInfo
 
+	// listModels asks a provider for its models, swappable so a test can see
+	// whether a provider was asked at all. nil means llm.ListModels.
+	listModels func(context.Context, string, llm.Config) (llm.ModelList, error)
+
 	// models caches per-provider listings; see ListModels.
 	modelsMu sync.Mutex
 	models   map[string]cachedModelList
+	// checkBedrock is the AWS Bedrock card's connection check, swappable so a
+	// test sees what it was asked without calling AWS. nil means
+	// llm.CheckBedrock.
+	checkBedrock func(context.Context, llm.Config, string) (string, error)
+
 	// modelGeneration counts invalidations per provider. A listing that started
 	// before one must not write its result afterwards; see ListModels and
 	// forgetModelList. Per provider rather than global, so pasting an OpenAI key
@@ -232,8 +263,8 @@ func (s Settings) clone() Settings {
 }
 
 // Save persists the provided settings to disk — all of them except
-// completed_setup, which keeps its current value: only the welcome service
-// moves it.
+// completed_setup, which keeps its current value (only the welcome service
+// moves it), and the AWS Bedrock connection, which only SetBedrock writes.
 func (s *Service) Save(updated Settings) error {
 	// One save at a time, so the file and the in-memory copy end up holding the
 	// same save when two land together.
@@ -254,6 +285,14 @@ func (s *Service) Save(updated Settings) error {
 	// from the frontend's fallback defaults after a failed Get — must not
 	// send a configured user back through the wizard.
 	updated.CompletedSetup = current.CompletedSetup
+	// The Bedrock connection has one writer, SetBedrock, which validates it
+	// and saves it as the card changes. A whole form sent here may carry a
+	// copy from before a SetBedrock landed; it must not undo the routing the
+	// user just chose, nor slip in a value SetBedrock would refuse.
+	updated.Providers.AWSRegion = current.Providers.AWSRegion
+	updated.Providers.BedrockAuth = current.Providers.BedrockAuth
+	updated.Providers.AWSProfile = current.Providers.AWSProfile
+	updated.Providers.BedrockRouting = current.Providers.BedrockRouting
 	return s.persistLocked(updated)
 }
 
@@ -314,12 +353,98 @@ func Update(s *Service, mutate func(*Settings)) error {
 }
 
 // selectableProviders are the providers SetActiveProvider accepts: the ones the
-// settings screen offers. AWS Bedrock is left out until it works (#22, #23).
+// settings screen offers.
 var selectableProviders = []string{
 	llm.ProviderOpenAI,
 	llm.ProviderClaude,
+	llm.ProviderOpenRouter,
+	llm.ProviderBedrock,
 	llm.ProviderClaudeCode,
 	llm.ProviderOllama,
+}
+
+// BedrockSettings is the AWS Bedrock card's connection: where, how to sign in,
+// and how far the text may travel. The key, in key mode, is stored apart in
+// the keyring (SetKey).
+type BedrockSettings struct {
+	Region  string `json:"region"`
+	Auth    string `json:"auth"`
+	Profile string `json:"profile"`
+	Routing string `json:"routing"`
+}
+
+// maxAWSProfileLength bounds a profile name; AWS's own are short words.
+const maxAWSProfileLength = 128
+
+// SetBedrock saves the AWS Bedrock connection and nothing else, straight away.
+//
+// The card saves on change rather than with the page's Save button: the
+// routing is where the user's text may be processed, so the choice takes
+// effect the moment it is made, and Test connection then tests what the card
+// shows. Through Update, so a save landing meanwhile is not overwritten.
+func (s *Service) SetBedrock(b BedrockSettings) error {
+	b.Region = strings.TrimSpace(b.Region)
+	b.Profile = strings.TrimSpace(b.Profile)
+	if b.Region != "" && !llm.ValidBedrockRegion(b.Region) {
+		return fmt.Errorf("settings: %q is not an AWS region", b.Region)
+	}
+	if b.Auth != llm.BedrockAuthKey && b.Auth != llm.BedrockAuthSignIn {
+		return fmt.Errorf("settings: %q is not a way to connect to AWS Bedrock", b.Auth)
+	}
+	if b.Routing != llm.BedrockRoutingGeo && b.Routing != llm.BedrockRoutingGlobal {
+		return fmt.Errorf("settings: %q is not a Bedrock routing", b.Routing)
+	}
+	if len(b.Profile) > maxAWSProfileLength || strings.ContainsFunc(b.Profile, func(r rune) bool { return r < ' ' || r == 0x7f }) {
+		return fmt.Errorf("settings: that is not an AWS profile name")
+	}
+	if err := Update(s, func(c *Settings) {
+		c.Providers.AWSRegion = b.Region
+		c.Providers.BedrockAuth = b.Auth
+		c.Providers.AWSProfile = b.Profile
+		c.Providers.BedrockRouting = b.Routing
+	}); err != nil {
+		return err
+	}
+	logger.Info("settings: Bedrock connection set", "region", b.Region, "auth", b.Auth,
+		"profile_set", b.Profile != "", "routing", b.Routing)
+	return nil
+}
+
+// BedrockRegions lists the regions the AWS Bedrock card offers, with the
+// geography each keeps the text in. From this build's table: no request.
+func (s *Service) BedrockRegions() []llm.BedrockRegion {
+	return llm.BedrockRegions()
+}
+
+// bedrockCheckTimeout bounds the card's connection check.
+const bedrockCheckTimeout = 30 * time.Second
+
+// TestBedrock is the AWS Bedrock card's Test connection: one tiny call with
+// the saved connection and the Fix model, only when the user clicks it. It
+// returns the model ID the call went to, or the error a fix would show.
+func (s *Service) TestBedrock() (string, error) {
+	cfg := s.Get()
+	b := cfg.Bedrock()
+	clientCfg := llm.Config{Feature: "settings", Bedrock: b}
+	if cfg.UsesAPIKey(llm.ProviderBedrock) {
+		clientCfg.APIKey = s.GetKey(llm.ProviderBedrock)
+		if clientCfg.APIKey == "" {
+			return "", errors.New("AWS Bedrock: no API key is set — add one on this card, or choose this computer's AWS sign-in")
+		}
+	}
+	check := s.checkBedrock
+	if check == nil {
+		check = llm.CheckBedrock
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), bedrockCheckTimeout)
+	defer cancel()
+	id, err := check(ctx, clientCfg, cfg.ModelFor(llm.ProviderBedrock, llm.FeatureFix))
+	if err != nil {
+		logger.Info("settings: Bedrock connection check failed", "region", b.Region, "auth", b.Auth, "err", err)
+		return "", err
+	}
+	logger.Info("settings: Bedrock connection check passed", "region", b.Region, "auth", b.Auth, "model", id)
+	return id, nil
 }
 
 // persistLocked writes updated to disk and then makes it the live settings.
@@ -378,7 +503,7 @@ func (s *Service) GetKeyStatus(provider string) KeyStatus {
 			return KeyStatus{IsSet: true, Source: "env"}
 		}
 	}
-	_, err := keyring.Get(appName, provider)
+	_, err := keyring.Get(appName, keyringAccount(provider))
 	if err == nil {
 		return KeyStatus{IsSet: true, Source: "keyring"}
 	}
@@ -397,7 +522,7 @@ func (s *Service) GetKey(provider string) string {
 			return val
 		}
 	}
-	key, err := keyring.Get(appName, provider)
+	key, err := keyring.Get(appName, keyringAccount(provider))
 	if err == nil {
 		return key
 	}
@@ -410,12 +535,13 @@ func (s *Service) SetKey(provider, key string) error {
 	if s.isolated {
 		return errIsolated
 	}
-	if err := keyring.Set(appName, provider, key); err != nil {
+	if err := keyring.Set(appName, keyringAccount(provider), key); err != nil {
 		return err
 	}
+	s.dropLegacyBedrockKey(provider)
 	// Only now: a write that failed leaves the old key in place, and dropping
 	// the list for it would cost a listing round trip that changes nothing.
-	s.forgetModelList(provider)
+	s.keyChanged(provider)
 	return nil
 }
 
@@ -424,11 +550,34 @@ func (s *Service) DeleteKey(provider string) error {
 	if s.isolated {
 		return errIsolated
 	}
-	if err := keyring.Delete(appName, provider); err != nil {
+	s.dropLegacyBedrockKey(provider)
+	if err := keyring.Delete(appName, keyringAccount(provider)); err != nil {
 		return err
 	}
-	s.forgetModelList(provider)
+	s.keyChanged(provider)
 	return nil
+}
+
+// dropLegacyBedrockKey removes the IAM secret older builds stored under
+// "bedrock", when the user acts on their Bedrock key. Best effort: an entry
+// that is not there is the usual case.
+func (s *Service) dropLegacyBedrockKey(provider string) {
+	if provider != llm.ProviderBedrock {
+		return
+	}
+	if err := keyring.Delete(appName, legacyBedrockAccount); err == nil {
+		logger.Info("settings: removed the AWS secret access key an older KeyLint stored for Bedrock")
+	}
+}
+
+// keyChanged drops what a provider's key decided: its model list. Not
+// OpenRouter's — its catalogue is public, the same for every key, and kept in
+// llm's cache alone (see ListModels).
+func (s *Service) keyChanged(provider string) {
+	if provider == llm.ProviderOpenRouter {
+		return
+	}
+	s.forgetModelList(provider)
 }
 
 // modelListFailureTTL is how long a failed listing is remembered. Short,
@@ -460,6 +609,16 @@ type cachedModelList struct {
 // happened, so the picker can explain itself; ttl decides how long that answer
 // is worth keeping.
 func (s *Service) ListModels(provider string) llm.ModelList {
+	// OpenRouter's catalogue needs no key, so nothing else would stop every
+	// Settings visit from calling openrouter.ai. KeyLint contacts it only once
+	// the user has chosen it. Not cached: the answer changes the moment they do.
+	if provider == llm.ProviderOpenRouter {
+		if s.Get().ActiveProvider != llm.ProviderOpenRouter {
+			return llm.CuratedModels(provider, llm.ModelSourceNotAsked)
+		}
+		return s.listOpenRouter()
+	}
+
 	// Two attempts, because an invalidation that lands mid-listing retires the
 	// answer on its way back: the key or the URL it asked with is gone. Asking
 	// once more with what replaced it is the only way to return a list that
@@ -483,7 +642,7 @@ func (s *Service) ListModels(provider string) llm.ModelList {
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), modelListTimeout)
-		list, err := llm.ListModels(ctx, provider, cfg)
+		list, err := s.lister()(ctx, provider, cfg)
 		cancel()
 		if err != nil {
 			logger.Info("settings: model list unavailable, using the built-in one",
@@ -511,6 +670,30 @@ func (s *Service) ListModels(provider string) llm.ModelList {
 	return llm.CuratedModels(provider, llm.ModelSourceUnreachable)
 }
 
+// listOpenRouter lists OpenRouter's catalogue without a cache of its own: llm
+// keeps the one cache, which every completion reads as well, so a listing and
+// the next hotkey press share one request — and its lifetimes follow the same
+// rule as ttl's (a settled answer ten minutes, a failure thirty seconds).
+func (s *Service) listOpenRouter() llm.ModelList {
+	cfg, _ := s.modelListConfig(llm.ProviderOpenRouter)
+	ctx, cancel := context.WithTimeout(context.Background(), modelListTimeout)
+	defer cancel()
+	list, err := s.lister()(ctx, llm.ProviderOpenRouter, cfg)
+	if err != nil {
+		logger.Info("settings: model list unavailable, using the built-in one",
+			"provider", llm.ProviderOpenRouter, "err", err)
+	}
+	return list
+}
+
+// lister is the listing call: the test seam, else llm.ListModels.
+func (s *Service) lister() func(context.Context, string, llm.Config) (llm.ModelList, error) {
+	if s.listModels != nil {
+		return s.listModels
+	}
+	return llm.ListModels
+}
+
 // ttl is how long this entry stays valid.
 //
 // Read off the source rather than stored alongside it, so the two cannot drift
@@ -524,7 +707,7 @@ func (s *Service) ListModels(provider string) llm.ModelList {
 // towards asking again rather than towards a stale picker.
 func (c cachedModelList) ttl() time.Duration {
 	switch c.list.Source {
-	case llm.ModelSourceLive, llm.ModelSourceFixed:
+	case llm.ModelSourceLive, llm.ModelSourceFixed, llm.ModelSourceKnown:
 		return modelListTTL
 	default:
 		return modelListFailureTTL
@@ -561,6 +744,14 @@ func (s *Service) modelListConfig(provider string) (llm.Config, bool) {
 		}
 	case llm.ProviderOllama:
 		cfg.BaseURL = s.Get().Providers.OllamaURL
+	case llm.ProviderOpenRouter:
+		// The catalogue is public: it is listed without a key, and the key is
+		// not read for it. So the picker is OpenRouter's real one before a key
+		// is pasted — which is why its "live" says nothing about the key. It is
+		// asked only while OpenRouter is the provider in use; see ListModels.
+	case llm.ProviderBedrock:
+		// Bedrock has no model list to ask: llm answers from the build, with
+		// no key and no request.
 	}
 	return cfg, true
 }
@@ -681,9 +872,12 @@ func (s *Service) runClaudeCodeProbe() (status llm.ClaudeCodeStatus, timedOut bo
 // stays complete (see Save), and the active provider stays the one in use.
 // Resetting it to the default (OpenAI) would leave someone on the CLI or the
 // Anthropic API with a hotkey that fails on a key they never had, and with
-// setup complete nothing would put it right.
+// setup complete nothing would put it right. The AWS Bedrock connection
+// (region, sign-in, routing) survives for the same reason: without its region
+// Bedrock cannot be called at all.
 func (s *Service) ResetToDefaults() error {
 	reset := Default()
 	reset.ActiveProvider = s.Get().ActiveProvider
+	// Save keeps the Bedrock connection as it is.
 	return s.Save(reset)
 }

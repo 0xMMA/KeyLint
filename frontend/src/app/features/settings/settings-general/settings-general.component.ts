@@ -29,9 +29,7 @@ import { ShortcutRecorderComponent } from '../shortcut-recorder/shortcut-recorde
       <app-settings-section>
         <app-setting-row data-testid="provider-pointer" label="AI provider">
           <span hint data-testid="provider-pointer-text">
-            @if (unavailableProvider()) {
-              No provider in use
-            } @else if (providerLabel(); as label) {
+            @if (providerLabel(); as label) {
               Using: <strong class="font-semibold text-fg">{{ label }}</strong>
             } @else {
               No provider chosen yet
@@ -39,11 +37,7 @@ import { ShortcutRecorderComponent } from '../shortcut-recorder/shortcut-recorde
           </span>
           <!-- An action, not a link: it switches the tab, so it is a button. -->
           <kl-button data-testid="provider-pointer-link" size="sm" (click)="openProviders.emit()">Change under AI providers</kl-button>
-          @if (unavailableProvider(); as name) {
-            <kl-message below class="basis-full" data-testid="provider-unavailable" severity="warn">
-              {{ name }} is saved but not available yet, so KeyLint has no provider in use. Pick another one under AI Providers.
-            </kl-message>
-          } @else if (providerProblem(); as why) {
+          @if (providerProblem(); as why) {
             <kl-message below class="basis-full" data-testid="provider-pointer-problem" severity="warn">{{ why }}</kl-message>
           }
         </app-setting-row>
@@ -124,8 +118,6 @@ export class SettingsGeneralComponent {
   readonly settings = input.required<AppSettings>();
   /** The provider in use, as the AI Providers tab names it; null when none of the offered ones is. */
   readonly providerLabel = input<string | null>(null);
-  /** A saved provider that is not offered yet (Bedrock), by name. */
-  readonly unavailableProvider = input<string | null>(null);
   /** Why the provider in use cannot work right now. */
   readonly providerProblem = input<string | null>(null);
 

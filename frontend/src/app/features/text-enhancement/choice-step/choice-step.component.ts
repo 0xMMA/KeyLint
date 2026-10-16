@@ -1,7 +1,7 @@
 import { Component, ElementRef, afterNextRender, computed, inject, input, model, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { ButtonComponent, CheckboxComponent, IconComponent, InputDirective, MessageComponent } from '../../../shared/ui';
+import { ButtonComponent, CheckboxComponent, IconComponent, InputDirective } from '../../../shared/ui';
 import { FORMS, formLabel, DEFAULT_FORM, type PyramidizeForm } from '../forms';
 
 /**
@@ -25,7 +25,7 @@ import { FORMS, formLabel, DEFAULT_FORM, type PyramidizeForm } from '../forms';
 @Component({
   selector: 'app-choice-step',
   standalone: true,
-  imports: [FormsModule, RouterLink, ButtonComponent, CheckboxComponent, IconComponent, InputDirective, MessageComponent],
+  imports: [FormsModule, RouterLink, ButtonComponent, CheckboxComponent, IconComponent, InputDirective],
   host: {
     class: 'pz-choice',
     '(document:keydown)': 'onDocumentKeydown($event)',
@@ -88,12 +88,6 @@ import { FORMS, formLabel, DEFAULT_FORM, type PyramidizeForm } from '../forms';
           (keydown.enter)="onInstructionsEnter($event)"
         />
       </div>
-
-      @if (unavailableProvider(); as name) {
-        <kl-message data-testid="provider-unavailable" severity="warn">
-          {{ name }} is not available yet. Choose another provider in Settings.
-        </kl-message>
-      }
 
       <ng-content />
 
@@ -160,8 +154,6 @@ export class ChoiceStepComponent {
   /** "<model> · <provider> · effort <level>", from Settings. */
   readonly runOn = input('');
   readonly canRun = input(true);
-  /** A provider Settings names that cannot run yet (AWS Bedrock), or null. */
-  readonly unavailableProvider = input<string | null>(null);
 
   readonly docType = model(DEFAULT_FORM);
   /** "Remember <form> for <app>": unticked until the user ticks it, again after every other pick. */

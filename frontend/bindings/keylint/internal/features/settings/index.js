@@ -9,6 +9,7 @@ export {
 
 export {
     AppPreset,
+    BedrockSettings,
     FeatureModels,
     KeyStatus,
     Provider,

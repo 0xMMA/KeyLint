@@ -216,7 +216,7 @@ describe('FixComponent', () => {
     again.destroy();
   });
 
-  it('names a saved provider that is not available yet by its name, not its ID', async () => {
+  it('names AWS Bedrock by its name, not its ID', async () => {
     wailsMock.loadSettings.mockResolvedValue({ ...defaultSettings, active_provider: 'bedrock' });
     const again = TestBed.createComponent(FixComponent);
     again.detectChanges();

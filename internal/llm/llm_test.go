@@ -59,7 +59,7 @@ func newServer(t *testing.T, got *capture, status int, reply string) *httptest.S
 }
 
 func TestNewReturnsClientPerProvider(t *testing.T) {
-	for _, provider := range []string{ProviderOpenAI, ProviderClaude, ProviderOllama} {
+	for _, provider := range []string{ProviderOpenAI, ProviderClaude, ProviderOllama, ProviderOpenRouter, ProviderBedrock} {
 		client, err := New(provider, Config{})
 		if err != nil {
 			t.Fatalf("New(%q): %v", provider, err)
@@ -71,11 +71,11 @@ func TestNewReturnsClientPerProvider(t *testing.T) {
 }
 
 func TestNewUnknownProvider(t *testing.T) {
-	_, err := New("bedrock", Config{})
+	_, err := New("vertex", Config{})
 	if err == nil {
 		t.Fatal("expected an error for an unregistered provider")
 	}
-	if !strings.Contains(err.Error(), `unsupported provider: "bedrock"`) {
+	if !strings.Contains(err.Error(), `unsupported provider: "vertex"`) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }

@@ -146,6 +146,31 @@ func TestEnhanceClaude(t *testing.T) {
 	}
 }
 
+func TestEnhanceOpenRouter(t *testing.T) {
+	cfg := settings.Default()
+	cfg.ActiveProvider = "openrouter"
+	svc, rec := newTestService(t, cfg, map[string]string{"openrouter": "sk-or-test"})
+
+	if _, err := svc.Enhance("text"); err != nil {
+		t.Fatalf("Enhance: %v", err)
+	}
+	if rec.provider != llm.ProviderOpenRouter {
+		t.Errorf("provider = %q, want %q", rec.provider, llm.ProviderOpenRouter)
+	}
+	if rec.cfg.APIKey != "sk-or-test" {
+		t.Errorf("APIKey = %q, want sk-or-test", rec.cfg.APIKey)
+	}
+	if rec.cfg.HTTPClient != svc.client {
+		t.Error("the service HTTP client must be handed to the provider client")
+	}
+	if rec.cfg.BaseURL != "" {
+		t.Errorf("BaseURL = %q, want OpenRouter's own", rec.cfg.BaseURL)
+	}
+	if rec.client.gotRequest.Model != "anthropic/claude-haiku-5.5" {
+		t.Errorf("Model = %q, want the OpenRouter Fix default", rec.client.gotRequest.Model)
+	}
+}
+
 func TestEnhanceOllamaNeedsNoKey(t *testing.T) {
 	cfg := settings.Default()
 	cfg.ActiveProvider = "ollama"
@@ -174,11 +199,15 @@ func TestEnhanceMissingKey(t *testing.T) {
 	}{
 		{"openai", "OpenAI API key is not configured", "OpenAI"},
 		{"claude", "Anthropic API key is not configured", "Anthropic"},
+		{"openrouter", "OpenRouter API key is not configured", "OpenRouter"},
+		// Key mode is Bedrock's default.
+		{"bedrock", "AWS Bedrock API key is not configured", "AWS Bedrock"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.provider, func(t *testing.T) {
 			cfg := settings.Default()
 			cfg.ActiveProvider = tc.provider
+			cfg.Providers.AWSRegion = "eu-central-1"
 			svc, rec := newTestService(t, cfg, nil)
 
 			_, err := svc.Enhance("text")
@@ -204,7 +233,6 @@ func TestEnhanceUnsupportedProviders(t *testing.T) {
 		provider string
 		wantErr  string
 	}{
-		{"bedrock is a stub", "bedrock", "AWS Bedrock is not yet supported"},
 		{"unknown provider", "mystery", `unknown provider: "mystery"`},
 	}
 	for _, tc := range tests {
@@ -244,6 +272,10 @@ func TestEnhanceDefaultsUnchanged(t *testing.T) {
 		llm.ProviderClaude:     "haiku",
 		llm.ProviderOllama:     "llama3.2",
 		llm.ProviderClaudeCode: "haiku",
+		// The owner's choice for OpenRouter (2026-10-15), not eval'd there.
+		llm.ProviderOpenRouter: "anthropic/claude-haiku-5.5",
+		// The same model on Bedrock (roadmap E6), not eval'd there either.
+		llm.ProviderBedrock: "anthropic.claude-haiku-5-5",
 	}
 	for provider, model := range want {
 		if got := llm.DefaultModel(provider, llm.FeatureFix); got != model {
@@ -271,6 +303,12 @@ func TestFixAsksTheFastTierNotToReason(t *testing.T) {
 		{"pinned haiku 4.5", llm.ProviderClaude, settings.FeatureModels{Fix: "claude-haiku-4-5-20251001"}, true, ""},
 		{"default openai luna", llm.ProviderOpenAI, settings.FeatureModels{}, true, ""},
 		{"claude code haiku", llm.ProviderClaudeCode, settings.FeatureModels{}, true, ""},
+		{"default openrouter haiku", llm.ProviderOpenRouter, settings.FeatureModels{}, true, ""},
+		{"openrouter luna", llm.ProviderOpenRouter, settings.FeatureModels{Fix: "openai/gpt-6-luna"}, true, ""},
+		{"openrouter sonnet keeps its default", llm.ProviderOpenRouter, settings.FeatureModels{Fix: "anthropic/claude-sonnet-5.5"}, false, ""},
+		{"default bedrock haiku", llm.ProviderBedrock, settings.FeatureModels{}, true, ""},
+		{"routed bedrock haiku", llm.ProviderBedrock, settings.FeatureModels{Fix: "eu.anthropic.claude-haiku-4-5-20251001-v1:0"}, true, ""},
+		{"bedrock sonnet keeps its default", llm.ProviderBedrock, settings.FeatureModels{Fix: "anthropic.claude-sonnet-5-5"}, false, ""},
 		{"effort chosen", llm.ProviderClaude, settings.FeatureModels{FixEffort: "low"}, false, "low"},
 		{"sonnet keeps its default", llm.ProviderClaude, settings.FeatureModels{Fix: "sonnet"}, false, ""},
 		{"pinned sonnet 5 keeps its default", llm.ProviderClaude, settings.FeatureModels{Fix: "claude-sonnet-5"}, false, ""},
@@ -280,7 +318,7 @@ func TestFixAsksTheFastTierNotToReason(t *testing.T) {
 			cfg := settings.Default()
 			cfg.ActiveProvider = c.provider
 			cfg.Models = map[string]settings.FeatureModels{c.provider: c.models}
-			svc, rec := newTestService(t, cfg, map[string]string{llm.ProviderClaude: "k", llm.ProviderOpenAI: "k"})
+			svc, rec := newTestService(t, cfg, map[string]string{llm.ProviderClaude: "k", llm.ProviderOpenAI: "k", llm.ProviderOpenRouter: "k", llm.ProviderBedrock: "k"})
 			if _, err := svc.Enhance(fakeInput); err != nil {
 				t.Fatalf("Enhance: %v", err)
 			}
@@ -418,5 +456,56 @@ func TestEnhanceBoundsTheCall(t *testing.T) {
 	}
 	if svc.client.Timeout == 0 {
 		t.Error("the HTTP client has no timeout")
+	}
+}
+
+// TestEnhanceBedrockKeyMode: the key, the region and the routing reach the
+// client; the model is the stored base ID — the routing prefix is the
+// client's business.
+func TestEnhanceBedrockKeyMode(t *testing.T) {
+	cfg := settings.Default()
+	cfg.ActiveProvider = llm.ProviderBedrock
+	cfg.Providers.AWSRegion = "eu-central-1"
+	cfg.Providers.BedrockRouting = llm.BedrockRoutingGlobal
+	svc, rec := newTestService(t, cfg, map[string]string{llm.ProviderBedrock: "bedrock-key"})
+
+	if _, err := svc.Enhance("text"); err != nil {
+		t.Fatalf("Enhance: %v", err)
+	}
+	if rec.provider != llm.ProviderBedrock {
+		t.Errorf("provider = %q", rec.provider)
+	}
+	want := llm.BedrockConfig{Region: "eu-central-1", Auth: llm.BedrockAuthKey, Routing: llm.BedrockRoutingGlobal}
+	if rec.cfg.APIKey != "bedrock-key" || rec.cfg.Bedrock != want {
+		t.Errorf("cfg = %+v, want key and %+v", rec.cfg, want)
+	}
+	if rec.cfg.HTTPClient == nil {
+		t.Error("no HTTP client: a dead endpoint would hang the hotkey")
+	}
+	if rec.client.gotRequest.Model != "anthropic.claude-haiku-5-5" {
+		t.Errorf("Model = %q", rec.client.gotRequest.Model)
+	}
+}
+
+// TestEnhanceBedrockSignInNeedsNoKey: with this computer's AWS sign-in there
+// is no key to ask for, and none is read — whether the sign-in works is the
+// client's to find out by trying.
+func TestEnhanceBedrockSignInNeedsNoKey(t *testing.T) {
+	cfg := settings.Default()
+	cfg.ActiveProvider = llm.ProviderBedrock
+	cfg.Providers = settings.Provider{AWSRegion: "us-west-2", BedrockAuth: llm.BedrockAuthSignIn, AWSProfile: "work"}
+	svc, rec := newTestService(t, cfg, nil)
+	read := false
+	svc.getKey = func(string) string { read = true; return "" }
+
+	if _, err := svc.Enhance("text"); err != nil {
+		t.Fatalf("Enhance: %v", err)
+	}
+	if read {
+		t.Error("sign-in mode read a key")
+	}
+	want := llm.BedrockConfig{Region: "us-west-2", Auth: llm.BedrockAuthSignIn, Profile: "work", Routing: llm.BedrockRoutingGeo}
+	if rec.cfg.APIKey != "" || rec.cfg.Bedrock != want {
+		t.Errorf("cfg = %+v, want no key and %+v", rec.cfg, want)
 	}
 }

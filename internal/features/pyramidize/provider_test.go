@@ -67,6 +67,7 @@ func TestCallAISyncModelDefaults(t *testing.T) {
 		{"openai", llm.DefaultModel(llm.ProviderOpenAI, llm.FeaturePyramidize)},
 		{"claude", llm.DefaultModel(llm.ProviderClaude, llm.FeaturePyramidize)},
 		{"ollama", llm.DefaultModel(llm.ProviderOllama, llm.FeaturePyramidize)},
+		{"openrouter", llm.DefaultModel(llm.ProviderOpenRouter, llm.FeaturePyramidize)},
 	}
 	for _, tc := range tests {
 		t.Run(tc.provider, func(t *testing.T) {
@@ -155,10 +156,10 @@ func TestCallAISyncOllamaConfig(t *testing.T) {
 func TestCallAISyncUnsupportedProvider(t *testing.T) {
 	svc, _ := newTestService()
 	cfg := settings.Default()
-	cfg.ActiveProvider = "bedrock"
+	cfg.ActiveProvider = "vertex"
 
 	_, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "", "system", "user", documentSchemaV3)
-	if err == nil || !strings.Contains(err.Error(), `unsupported provider: "bedrock"`) {
+	if err == nil || !strings.Contains(err.Error(), `unsupported provider: "vertex"`) {
 		t.Fatalf("error = %v, want an unsupported-provider error", err)
 	}
 }
@@ -172,6 +173,32 @@ func TestCallAISyncPropagatesProviderError(t *testing.T) {
 	_, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "key", "system", "user", documentSchemaV3)
 	if err == nil || !strings.Contains(err.Error(), "Claude error 429") {
 		t.Fatalf("error = %v, want the provider error", err)
+	}
+}
+
+// TestOpenRouterTakesItsKey: OpenRouter is a key provider like OpenAI and
+// Anthropic — its key is read and handed on, and a missing one is named.
+func TestOpenRouterTakesItsKey(t *testing.T) {
+	keys := map[string]string{"openrouter": "sk-or-test"}
+	svc := &Service{settings: settings.NewServiceFrom(settings.Default(), func(p string) string { return keys[p] })}
+	key, err := svc.resolveAPIKey("openrouter")
+	if err != nil || key != "sk-or-test" {
+		t.Fatalf("resolveAPIKey(openrouter) = %q, %v — want the stored key", key, err)
+	}
+
+	delete(keys, "openrouter")
+	if _, err := svc.resolveAPIKey("openrouter"); err == nil || !strings.Contains(err.Error(), "OpenRouter API key is not configured") {
+		t.Errorf("err = %v, want the missing key named", err)
+	}
+
+	rsvc, rec := newTestService()
+	cfg := settings.Default()
+	cfg.ActiveProvider = "openrouter"
+	if _, err := rsvc.callAISync(context.Background(), cfg, aiOpts{}, "sk-or-test", "system", "user", documentSchemaV3); err != nil {
+		t.Fatalf("callAISync: %v", err)
+	}
+	if rec.cfg.APIKey != "sk-or-test" || rec.cfg.HTTPClient != rsvc.client || rec.cfg.Feature != logFeature {
+		t.Errorf("cfg = %+v, want the key, the service HTTP client and the feature", rec.cfg)
 	}
 }
 
@@ -196,6 +223,8 @@ func TestPyramidizeDefaultsUnchanged(t *testing.T) {
 		llm.ProviderClaude:     "sonnet",
 		llm.ProviderOllama:     "llama3.2",
 		llm.ProviderClaudeCode: "sonnet",
+		// The owner's choice for OpenRouter (2026-10-15), not eval'd there.
+		llm.ProviderOpenRouter: "anthropic/claude-sonnet-5.5",
 	}
 	for provider, model := range want {
 		if got := llm.DefaultModel(provider, llm.FeaturePyramidize); got != model {
@@ -493,5 +522,56 @@ func TestTheRequestEffortReachesEveryPanelCall(t *testing.T) {
 	want := []string{"max", "low", "", "high"}
 	if strings.Join(client.efforts, ",") != strings.Join(want, ",") {
 		t.Errorf("efforts = %q, want %q", client.efforts, want)
+	}
+}
+
+// TestBedrockKeyFollowsTheConnectionMode: a key in key mode (the default),
+// named when missing; none read with this computer's AWS sign-in.
+func TestBedrockKeyFollowsTheConnectionMode(t *testing.T) {
+	keys := map[string]string{"bedrock": "bedrock-key"}
+	read := 0
+	lookup := func(p string) string { read++; return keys[p] }
+
+	svc := &Service{settings: settings.NewServiceFrom(settings.Default(), lookup)}
+	if key, err := svc.resolveAPIKey(llm.ProviderBedrock); err != nil || key != "bedrock-key" {
+		t.Fatalf("key mode: %q, %v", key, err)
+	}
+	delete(keys, "bedrock")
+	if _, err := svc.resolveAPIKey(llm.ProviderBedrock); err == nil || !strings.Contains(err.Error(), "AWS Bedrock API key is not configured") {
+		t.Errorf("key mode without a key: err = %v", err)
+	}
+
+	signIn := settings.Default()
+	signIn.Providers.BedrockAuth = llm.BedrockAuthSignIn
+	read = 0
+	svc = &Service{settings: settings.NewServiceFrom(signIn, lookup)}
+	if key, err := svc.resolveAPIKey(llm.ProviderBedrock); err != nil || key != "" {
+		t.Errorf("sign-in mode: %q, %v", key, err)
+	}
+	if read != 0 {
+		t.Error("sign-in mode read a key")
+	}
+}
+
+// TestCallAISyncBedrockConfig: region, mode and routing reach the client with
+// the key, on Pyramidize's HTTP client, and the default model is Sonnet 5.5's
+// base ID. The JSON schema is still handed on: dropping it is the Bedrock
+// client's decision, made where it is tested.
+func TestCallAISyncBedrockConfig(t *testing.T) {
+	svc, rec := newTestService()
+	cfg := settings.Default()
+	cfg.ActiveProvider = llm.ProviderBedrock
+	cfg.Providers = settings.Provider{AWSRegion: "ap-southeast-2", BedrockAuth: llm.BedrockAuthKey}
+
+	if _, err := svc.callAISync(context.Background(), cfg, aiOpts{}, "bedrock-key", "system", "user", documentSchemaV3); err != nil {
+		t.Fatalf("callAISync: %v", err)
+	}
+	want := llm.BedrockConfig{Region: "ap-southeast-2", Auth: llm.BedrockAuthKey, Routing: llm.BedrockRoutingGeo}
+	if rec.provider != llm.ProviderBedrock || rec.cfg.APIKey != "bedrock-key" || rec.cfg.Bedrock != want ||
+		rec.cfg.HTTPClient != svc.client || rec.cfg.Feature != logFeature {
+		t.Errorf("provider %q, cfg %+v", rec.provider, rec.cfg)
+	}
+	if rec.client.gotRequest.Model != "anthropic.claude-sonnet-5-5" {
+		t.Errorf("Model = %q", rec.client.gotRequest.Model)
 	}
 }

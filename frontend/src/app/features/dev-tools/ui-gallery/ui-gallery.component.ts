@@ -13,6 +13,19 @@ const LISTED: ModelOption[] = [
   toModelOption({ id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', resolved: '' }),
 ];
 
+/** A slice of OpenRouter's catalogue, for the searchable picker. */
+const CATALOGUE: ModelOption[] = [
+  ['anthropic/claude-haiku-5.5', 'Anthropic: Claude Haiku 5.5'],
+  ['anthropic/claude-sonnet-5.5', 'Anthropic: Claude Sonnet 5.5'],
+  ['anthropic/claude-opus-5.5', 'Anthropic: Claude Opus 5.5'],
+  ['openai/gpt-6-luna', 'OpenAI: GPT-6 Luna'],
+  ['openai/gpt-6-astra', 'OpenAI: GPT-6 Astra'],
+  ['google/gemini-3.8-flash', 'Google: Gemini 3.8 Flash'],
+  ['deepseek/deepseek-v4.1-flash', 'DeepSeek: DeepSeek V4.1 Flash'],
+  ['mistralai/mistral-large-3', 'Mistral: Mistral Large 3'],
+  ['meta-llama/llama-5-70b-instruct:free', 'Meta: Llama 5 70B Instruct (free)'],
+].map(([id, label]) => toModelOption({ id, label, resolved: '' }));
+
 /**
  * Every shared UI primitive in its states, on one page (/dev-tools/ui), for
  * checking the look against docs/ui/design.md and for screenshots. Not linked
@@ -102,6 +115,12 @@ const LISTED: ModelOption[] = [
               optionLabel="label" optionValue="id" optionDisplay="display" optionDescription="secondary"
               [placeholder]="models[0].display" [ngModel]="model() || null" (ngModelChange)="model.set($event ?? '')" />
           </div>
+          <div class="field">
+            <span id="g-search">Searchable select (type to narrow, OpenRouter)</span>
+            <kl-select data-testid="gallery-searchable" ariaLabelledBy="g-search" editable filter [options]="catalogue"
+              optionLabel="label" optionValue="id" optionDisplay="display" optionDescription="secondary"
+              [placeholder]="catalogue[0].display" [ngModel]="searched() || null" (ngModelChange)="searched.set($event ?? '')" />
+          </div>
         </div>
       </section>
 
@@ -161,6 +180,8 @@ export class UiGalleryComponent {
   effortValue = 'high';
   readonly effort = EFFORT_OPTIONS;
   readonly models: ModelOption[] = [defaultOption('claude', 'fix', LISTED), ...LISTED];
+  readonly searched = signal('');
+  readonly catalogue: ModelOption[] = [defaultOption('openrouter', 'fix', CATALOGUE), ...CATALOGUE];
   readonly views = [{ value: 'changes', label: 'Show changes' }, { value: 'clean', label: 'Clean text' }];
   readonly icons = Object.keys(ICONS) as IconName[];
 }

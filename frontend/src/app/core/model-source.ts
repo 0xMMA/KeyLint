@@ -12,9 +12,19 @@ function emptyNote(provider: string): string {
   // Ollama is the case this exists for: `ollama serve` with nothing pulled is
   // a running daemon, so "could not be reached" would send the user hunting
   // for a problem that is not there.
-  return provider === 'ollama'
-    ? 'No models pulled yet — pull one with `ollama pull`.'
-    : 'This account lists no models.';
+  switch (provider) {
+    case 'ollama': return 'No models pulled yet — pull one with `ollama pull`.';
+    case 'openrouter': return 'OpenRouter lists no models right now.';
+    default: return 'This account lists no models.';
+  }
+}
+
+/**
+ * Whose list it is. OpenRouter's catalogue is public — the same for everyone
+ * and listed without a key — so calling it "this account's" would be false.
+ */
+function listOwner(provider: string): string {
+  return provider === 'openrouter' ? "OpenRouter's" : "this account's";
 }
 
 /**
@@ -35,17 +45,35 @@ export function noteForModelSource(source: string, provider: string, hasList: bo
       return hasList
         ? "Showing KeyLint's built-in list — add a key to load the provider's own."
         : 'Add a key to load this provider\'s models.';
-    case 'unusable':
+    case 'unusable': {
       // The provider did list models; this app just cannot call any of them.
       // Saying "lists no models" here would be false.
+      const owner = listOwner(provider);
       return hasList
-        ? "Showing KeyLint's built-in list — none of this account's models can be used here."
-        : "None of this account's models can be used here.";
+        ? `Showing KeyLint's built-in list — none of ${owner} models can be used here.`
+        : `None of ${owner} models can be used here.`;
+    }
     case 'empty':
       return emptyNote(provider);
+    case 'known':
+      // Bedrock: Anthropic's Models API is not offered there, and KeyLint does
+      // not ask AWS's own listings either. The list is curated, not
+      // exhaustive — say both.
+      return "KeyLint does not ask AWS for a model list; these are the Claude models KeyLint knows. Type another Claude model ID or an inference profile ARN to use one that isn't here; other vendors' models (Nova, Llama, …) don't work with KeyLint on Bedrock.";
+    case 'not-asked':
+      // Not shown in practice — only the provider in use has pickers — but a
+      // source with no sentence would leave a built-in list unexplained.
+      return "Showing KeyLint's built-in list — OpenRouter is asked for its models once it is the provider in use.";
+    case 'live':
+      // OpenRouter's catalogue is listed without a key, so a live list says
+      // nothing about whether the user's key can call a model — and at ~450
+      // entries the picker needs saying that it searches.
+      return provider === 'openrouter'
+        ? "OpenRouter's whole catalogue — type in a model field to search it. Which models your key can call depends on your OpenRouter account and credit."
+        : '';
     default:
-      // "live" needs no note, and "fixed" — the Claude Code CLI, which has no
-      // model endpoint — would be an alarm nobody can clear.
+      // "fixed" — the Claude Code CLI, which has no model endpoint — would be
+      // an alarm nobody can clear.
       return '';
   }
 }

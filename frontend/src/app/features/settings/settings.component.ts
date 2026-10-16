@@ -1,4 +1,5 @@
 import { Component, OnInit, OnDestroy, ChangeDetectorRef, ElementRef, ChangeDetectionStrategy } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
 import { Subscription, filter } from 'rxjs';
@@ -6,6 +7,7 @@ import {
   ButtonComponent, InputDirective, MessageComponent, TabComponent, TabPanelComponent, TabsComponent,
 } from '../../shared/ui';
 import { ProviderCardComponent } from './provider-card/provider-card.component';
+import { BedrockOptionsComponent } from './bedrock-options/bedrock-options.component';
 import { ActiveProviderComponent, FeatureChoice } from './active-provider/active-provider.component';
 import { SettingsSectionComponent } from './settings-section/settings-section.component';
 import { SettingsGeneralComponent } from './settings-general/settings-general.component';
@@ -13,9 +15,11 @@ import { AppPresetsComponent } from './app-presets/app-presets.component';
 import { SettingsAboutComponent } from './settings-about/settings-about.component';
 import { DEFAULT_MODELS, Feature, ModelOption, defaultOption, effortNote, fixSkipsReasoning, toModelOption } from './model-options';
 import { SilentFixNoticeService } from '../fix/silent-fix-notice.service';
-import { WailsService, type SilentFixNotice, Settings as AppSettings, KeyStatus, ClaudeCodeStatus, ModelInfo, BuildIdentity } from '../../core/wails.service';
+import { WailsService, type SilentFixNotice, Settings as AppSettings, KeyStatus, ClaudeCodeStatus, ModelInfo, BuildIdentity, BedrockRegion } from '../../core/wails.service';
 import { noteForModelSource } from '../../core/model-source';
-import { unavailableProviderName } from '../../core/constants';
+import {
+  BedrockConnection, bedrockConnectionOf, bedrockProblem, bedrockReady, usesBedrockKey, withBedrockConnection,
+} from '../../core/bedrock';
 import { LogService } from '../../core/log.service';
 import { ENV_KEY_VARS, PROVIDER_OPTIONS, keyPlaceholder } from '../../core/providers';
 
@@ -47,9 +51,9 @@ interface ProviderKey {
   selector: 'app-settings',
   standalone: true,
   imports: [
-    FormsModule,
+    FormsModule, NgTemplateOutlet,
     ButtonComponent, InputDirective, MessageComponent, TabComponent, TabPanelComponent, TabsComponent,
-    ProviderCardComponent, ActiveProviderComponent, SettingsSectionComponent,
+    ProviderCardComponent, ActiveProviderComponent, SettingsSectionComponent, BedrockOptionsComponent,
     SettingsGeneralComponent, AppPresetsComponent, SettingsAboutComponent,
   ],
   changeDetection: ChangeDetectionStrategy.Eager,
@@ -68,7 +72,6 @@ interface ProviderKey {
               <app-settings-general
                 [settings]="settings"
                 [providerLabel]="activeProviderLabel"
-                [unavailableProvider]="unavailableProvider"
                 [providerProblem]="activeProviderProblem"
                 (openProviders)="openProvidersTab()"
               />
@@ -83,11 +86,6 @@ interface ProviderKey {
               @if (silentFixNote; as note) {
                 <kl-message data-testid="silent-fix-note" severity="warn" closable (closed)="silentFixNote = null">
                   <span><strong>{{ note.title }}:</strong> {{ note.body }}</span>
-                </kl-message>
-              }
-              @if (unavailableProvider; as name) {
-                <kl-message data-testid="providers-tab-unavailable" severity="warn">
-                  {{ name }} is saved but not available yet, so KeyLint has no provider in use.
                 </kl-message>
               }
               <!-- Screen readers hear a switch land; the marker itself only moves. -->
@@ -113,6 +111,7 @@ interface ProviderKey {
                   [fixEffort]="effortFor(active, 'fix')"
                   [pyramidizeEffort]="effortFor(active, 'pyramidize')"
                   [editable]="allowsFreeText(active)"
+                  [searchable]="searchesModels(active)"
                   [note]="modelListNote(active)"
                   [showEffort]="effortNoteFor(active) !== null"
                   [effortNote]="effortNoteFor(active)"
@@ -175,6 +174,8 @@ interface ProviderKey {
                         </div>
                       } @else if (p.value === 'ollama') {
                         <span data-testid="ollama-status-tag" [class.text-warn]="modelSource['ollama'] === 'empty'">{{ ollamaSummary }}</span>
+                      } @else if (p.value === 'bedrock') {
+                        <span data-testid="bedrock-status">{{ bedrockSummary }}</span>
                       } @else if (keyFor(p.value); as pk) {
                         @if (pk.status?.source === 'env') {
                           <span [attr.data-testid]="'key-env-hint-' + pk.id">
@@ -201,7 +202,8 @@ interface ProviderKey {
                           (click)="recheckClaudeCode(true)"
                         >Check again</kl-button>
                       } @else if (keyFor(p.value); as pk) {
-                        @if (!pk.editing && pk.status?.source !== 'env') {
+                        <!-- Bedrock takes a key only in key mode. -->
+                        @if (!pk.editing && pk.status?.source !== 'env' && (pk.id !== 'bedrock' || bedrockKeyMode)) {
                           <kl-button
                             [attr.data-testid]="'key-edit-' + pk.id"
                             size="sm"
@@ -247,40 +249,82 @@ interface ProviderKey {
                         />
                         <small class="detail-hint">Leave empty for a local Ollama on the default port. Saved with the Save button below; <em>Use this</em> only switches the provider.</small>
                       </div>
+                    } @else if (p.value === 'bedrock') {
+                      <!-- Saved as it changes (SetBedrock): the routing decides where
+                           the text may be processed, and Test connection tests what
+                           this shows. -->
+                      <app-bedrock-options
+                        idPrefix="bedrock"
+                        [connection]="bedrockConnection"
+                        [regions]="bedrockRegions"
+                        [knownModels]="modelOptions['bedrock'] ?? noModels"
+                        [fixModel]="modelFor('bedrock', 'fix') || defaultModelFor('bedrock', 'fix')"
+                        [pyramidizeModel]="modelFor('bedrock', 'pyramidize') || defaultModelFor('bedrock', 'pyramidize')"
+                        [envToken]="keyFor('bedrock')?.status?.source === 'env'"
+                        (connectionChange)="saveBedrock($event)"
+                      />
+                      <div class="sr-only" aria-live="polite" data-testid="bedrock-saved">{{ bedrockSaved }}</div>
+                      @if (bedrockSaveError) {
+                        <kl-message data-testid="bedrock-save-error" severity="error" [text]="bedrockSaveError" />
+                      }
+                      @if (bedrockKeyMode && keyFor('bedrock'); as pk) {
+                        @if (pk.editing) {
+                          <ng-container *ngTemplateOutlet="keyEditor; context: { $implicit: pk, label: p.label }" />
+                        }
+                      }
+                      <div class="flex flex-wrap items-center gap-3">
+                        <kl-button
+                          data-testid="bedrock-test"
+                          size="sm"
+                          icon="zap"
+                          loadingLabel="Testing…"
+                          [loading]="bedrockTesting"
+                          [disabled]="!bedrockCanTest"
+                          (click)="testBedrock()"
+                        >Test connection</kl-button>
+                        <small class="detail-hint">One short request with your saved Fix model; nothing of yours is sent.</small>
+                      </div>
+                      @if (bedrockTest; as result) {
+                        <kl-message data-testid="bedrock-test-result" [attr.data-state]="result.ok ? 'ok' : 'error'"
+                          [severity]="result.ok ? 'success' : 'error'" [text]="result.text" />
+                      }
                     } @else if (keyFor(p.value); as pk) {
                       @if (pk.editing) {
-                        <div class="flex flex-wrap items-center gap-2">
-                          <input
-                            klInput
-                            type="password"
-                            class="min-w-48 flex-1"
-                            autocomplete="off"
-                            spellcheck="false"
-                            [attr.data-testid]="'key-input-' + pk.id"
-                            [attr.aria-label]="p.label + ' API key'"
-                            [(ngModel)]="pk.draftKey"
-                            [placeholder]="keyPlaceholder(pk.id)"
-                            (keydown.enter)="saveKey(pk)"
-                            (keydown.escape)="cancelEdit(pk)"
-                          />
-                          <kl-button
-                            [attr.data-testid]="'key-save-' + pk.id"
-                            variant="primary"
-                            icon="check"
-                            loadingLabel="Saving…"
-                            [loading]="pk.saving"
-                            [disabled]="!pk.draftKey"
-                            (click)="saveKey(pk)"
-                          >Save key</kl-button>
-                          <kl-button [attr.data-testid]="'key-cancel-' + pk.id" variant="ghost" (click)="cancelEdit(pk)">Cancel</kl-button>
-                        </div>
+                        <ng-container *ngTemplateOutlet="keyEditor; context: { $implicit: pk, label: p.label }" />
                       }
                     }
                   </app-provider-card>
                 }
+                <ng-template #keyEditor let-pk let-label="label">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <input
+                      klInput
+                      type="password"
+                      class="min-w-48 flex-1"
+                      autocomplete="off"
+                      spellcheck="false"
+                      [attr.data-testid]="'key-input-' + pk.id"
+                      [attr.aria-label]="label + ' API key'"
+                      [(ngModel)]="pk.draftKey"
+                      [placeholder]="keyPlaceholder(pk.id)"
+                      (keydown.enter)="saveKey(pk)"
+                      (keydown.escape)="cancelEdit(pk)"
+                    />
+                    <kl-button
+                      [attr.data-testid]="'key-save-' + pk.id"
+                      variant="primary"
+                      icon="check"
+                      loadingLabel="Saving…"
+                      [loading]="pk.saving"
+                      [disabled]="!pk.draftKey"
+                      (click)="saveKey(pk)"
+                    >Save key</kl-button>
+                    <kl-button [attr.data-testid]="'key-cancel-' + pk.id" variant="ghost" (click)="cancelEdit(pk)">Cancel</kl-button>
+                  </div>
+                </ng-template>
                 <p sectionFooter class="detail-hint">
                   Keys are stored in your OS keyring (Windows Credential Manager, libsecret on Linux).
-                  Environment variables (<code>OPENAI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>) take priority and cannot be overridden here.
+                  Environment variables (<code>OPENAI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>, <code>OPENROUTER_API_KEY</code>, <code>AWS_BEARER_TOKEN_BEDROCK</code>) take priority and cannot be overridden here.
                 </p>
               </app-settings-section>
               @if (keyError) {
@@ -324,7 +368,7 @@ interface ProviderKey {
               <p class="mt-1 mb-4 text-sm text-muted" data-testid="reset-confirm-detail">
                 Shortcuts, models and effort, app presets, the Ollama address, logging, update and
                 developer options go back to their defaults.
-                <strong class="text-soft">Kept:</strong> your API keys in the OS keyring, the provider in use, and your completed setup.
+                <strong class="text-soft">Kept:</strong> your API keys in the OS keyring, the AWS Bedrock connection, the provider in use, and your completed setup.
               </p>
               <div class="flex gap-4">
                 <kl-button data-testid="reset-confirm-btn" variant="danger" icon="rotate-ccw" [disabled]="switchingTo !== null || formBusy" (click)="confirmReset()">Reset</kl-button>
@@ -426,7 +470,29 @@ export class SettingsComponent implements OnInit, OnDestroy {
   providerKeys: ProviderKey[] = [
     { id: 'openai', status: null, editing: false, draftKey: '', saving: false },
     { id: 'claude', status: null, editing: false, draftKey: '', saving: false },
+    { id: 'openrouter', status: null, editing: false, draftKey: '', saving: false },
+    // Used only in key mode; see bedrockKeyMode.
+    { id: 'bedrock', status: null, editing: false, draftKey: '', saving: false },
   ];
+
+  /**
+   * The AWS Bedrock connection the card shows: what is saved, kept as its own
+   * object so the card's controls get the same one on every check, and handed
+   * back as a new one when a save fails, so they show the saved state again.
+   */
+  bedrockConnection: BedrockConnection = bedrockConnectionOf(null);
+  /** The regions the card offers, from the build (no network call). */
+  bedrockRegions: BedrockRegion[] = [];
+  /** What the live region last said about a Bedrock save. */
+  bedrockSaved = '';
+  bedrockSaveError = '';
+  bedrockTesting = false;
+  /** The last Test connection's answer, until something it tested changes. */
+  bedrockTest: { ok: boolean; text: string } | null = null;
+  /** Counts Bedrock saves, so a slower answer cannot overwrite a newer choice. */
+  private bedrockSaveRound = 0;
+  /** A stable empty list for the card's model names before the list arrives. */
+  readonly noModels: ModelInfo[] = [];
 
   constructor(
     private readonly route: ActivatedRoute,
@@ -469,7 +535,15 @@ export class SettingsComponent implements OnInit, OnDestroy {
     }));
     this.settings = await this.wails.loadSettings();
     this.savedOllamaURL = this.settings?.providers?.ollama_url ?? '';
+    this.bedrockConnection = bedrockConnectionOf(this.settings);
     this.log.info('settings: loaded');
+    // From the build, so it costs no request; not awaited all the same.
+    // Marked, not drawn: drawing here would put the page up before the key
+    // statuses are in.
+    void this.wails.getBedrockRegions().then(regions => {
+      this.bedrockRegions = regions;
+      this.cdr.markForCheck();
+    });
     await this.refreshKeyStatuses();
     this.appVersion = await this.wails.getVersion();
     this.buildIdentity = await this.wails.getBuildIdentity();
@@ -477,7 +551,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
     // Detection spawns processes, so the rest of the screen must not wait for it.
     void this.recheckClaudeCode();
-    // Same for the model lists: four providers, each a round trip.
+    // Same for the model lists: a round trip per provider (OpenRouter's only
+    // while it is the one in use; see listsNow).
     void this.loadModelOptions();
   }
 
@@ -496,11 +571,6 @@ export class SettingsComponent implements OnInit, OnDestroy {
     if (!this.silentFixNote) return;
     this.silentFixNote = null;
     this.cdr.markForCheck();
-  }
-
-  /** See UNAVAILABLE_PROVIDERS: the saved value is explained, not switched. */
-  get unavailableProvider(): string | null {
-    return unavailableProviderName(this.settings?.active_provider);
   }
 
   /** The active provider's display name, or null when none of the offered ones is saved. */
@@ -544,6 +614,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
         if (!cli.loggedIn) return "Won't work yet: the Claude Code CLI is not signed in.";
         return null;
       }
+      case 'bedrock':
+        return bedrockProblem(this.bedrockConnection, this.keyFor('bedrock')?.status, this.bedrockRegions);
       case 'ollama': {
         const where = this.savedOllamaURL || DEFAULT_OLLAMA_URL;
         switch (this.modelSource['ollama']) {
@@ -565,7 +637,87 @@ export class SettingsComponent implements OnInit, OnDestroy {
     switch (provider) {
       case 'claude-code': return !!this.claudeCodeStatus?.installed && !!this.claudeCodeStatus.loggedIn;
       case 'ollama': return this.modelSource['ollama'] === 'live';
+      case 'bedrock': return bedrockReady(this.bedrockConnection, this.keyFor('bedrock')?.status, this.bedrockRegions);
       default: return !!this.keyFor(provider)?.status?.is_set;
+    }
+  }
+
+  /** Whether the Bedrock card takes a key: its connection is key mode. */
+  get bedrockKeyMode(): boolean {
+    return usesBedrockKey(this.bedrockConnection);
+  }
+
+  /** Something to test: a region, and a key unless the AWS sign-in is used. */
+  get bedrockCanTest(): boolean {
+    return !this.bedrockTesting && bedrockReady(this.bedrockConnection, this.keyFor('bedrock')?.status, this.bedrockRegions);
+  }
+
+  /** The Bedrock card's status line: how it connects, and where. */
+  get bedrockSummary(): string {
+    const c = this.bedrockConnection;
+    let how: string;
+    if (!usesBedrockKey(c)) {
+      how = c.profile ? `This computer's AWS sign-in (profile ${c.profile})` : "This computer's AWS sign-in";
+    } else {
+      const status = this.keyFor('bedrock')?.status;
+      if (!status) how = '';
+      else if (status.source === 'env') how = 'Key from AWS_BEARER_TOKEN_BEDROCK';
+      else if (status.is_set) how = 'Key saved in your system keyring';
+      else how = 'No key yet';
+    }
+    const region = this.bedrockRegions.find(r => r.id === c.region);
+    const where = !c.region ? 'No region chosen yet' : region ? `${region.label} (${region.id})` : c.region;
+    return how ? `${how} · ${where}` : where;
+  }
+
+  /**
+   * Saves the Bedrock card's connection at once (SetBedrock), and nothing
+   * else on the page. The page's copy follows only once the backend has it,
+   * so a later Save sends what is saved; a failure puts the card back.
+   */
+  async saveBedrock(connection: BedrockConnection): Promise<void> {
+    if (!this.settings) return;
+    const round = ++this.bedrockSaveRound;
+    this.bedrockSaveError = '';
+    this.bedrockSaved = '';
+    // What it tested is no longer what is saved.
+    this.bedrockTest = null;
+    try {
+      await this.wails.setBedrock(connection);
+      if (round !== this.bedrockSaveRound) return;
+      this.bedrockConnection = connection;
+      this.settings.providers = withBedrockConnection(this.settings, connection).providers;
+      this.bedrockSaved = 'Saved.';
+      this.log.info('settings: Bedrock connection saved');
+    } catch (e) {
+      if (round !== this.bedrockSaveRound) return;
+      this.bedrockSaveError = `Could not save the Bedrock connection: ${e instanceof Error ? e.message : String(e)}`;
+      // Read back, not assumed: an earlier save may have landed meanwhile.
+      // A new object either way, so the card's controls follow it.
+      const saved = await this.wails.loadSettings().catch(() => null);
+      if (round !== this.bedrockSaveRound) return;
+      const connection = bedrockConnectionOf(saved ?? this.settings);
+      this.bedrockConnection = { ...connection };
+      this.settings.providers = withBedrockConnection(this.settings, connection).providers;
+    } finally {
+      if (!this.destroyed) this.cdr.detectChanges();
+    }
+  }
+
+  /** Test connection: one tiny call with the saved connection, only on this click. */
+  async testBedrock(): Promise<void> {
+    if (!this.bedrockCanTest) return;
+    this.bedrockTesting = true;
+    this.bedrockTest = null;
+    this.cdr.detectChanges();
+    try {
+      const id = await this.wails.testBedrock();
+      this.bedrockTest = { ok: true, text: `Connected: your Fix model answered through ${id}.` };
+    } catch (e) {
+      this.bedrockTest = { ok: false, text: e instanceof Error ? e.message : String(e) };
+    } finally {
+      this.bedrockTesting = false;
+      if (!this.destroyed) this.cdr.detectChanges();
     }
   }
 
@@ -624,8 +776,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.cdr.detectChanges();
     // The pressed button is gone (on success it became the "In use" mark) or
     // no longer the point (on failure). Focus goes to the heading of the row
-    // in use now; after a failure with no row in use (a saved Bedrock, or
-    // nothing saved), to the error that explains it.
+    // in use now; after a failure with no row in use (a value this build
+    // does not know, or nothing saved), to the error that explains it.
     const inUse = this.activeProviderLabel ? this.settings?.active_provider : null;
     if (inUse) {
       this.focusCardHeading(inUse);
@@ -648,6 +800,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
     } else if (provider === 'ollama') {
       void this.loadModelOptions();
     } else {
+      // Chosen just now, so this is the moment openrouter.ai may be asked.
+      if (provider === 'openrouter') void this.loadModelList(provider, this.modelLoadRound);
       const pk = this.keyFor(provider);
       if (!pk) return;
       void this.wails.getKeyStatus(provider).then(status => {
@@ -693,6 +847,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   onModelChange(provider: string, choice: FeatureChoice): void {
     this.setModel(provider, choice.feature, choice.value);
+    // What the Bedrock test said was about the other model.
+    if (provider === 'bedrock') this.bedrockTest = null;
   }
 
   onEffortChange(provider: string, choice: FeatureChoice): void {
@@ -736,13 +892,18 @@ export class SettingsComponent implements OnInit, OnDestroy {
   /** Whether Fix will ask its model on this provider not to reason first. */
   fixSkipsReasoningFor(provider: string): boolean {
     if (this.effortFor(provider, 'fix') !== '') return false;
-    const model = this.modelFor(provider, 'fix') || (provider === 'claude' || provider === 'openai'
-      ? this.defaultModelId(provider, 'fix') : '');
+    // fixSkipsReasoning knows which providers have the switch at all.
+    const model = this.modelFor(provider, 'fix') || this.defaultModelId(provider, 'fix');
     return fixSkipsReasoning(provider, model);
   }
 
   private defaultModelId(provider: string, feature: Feature): string {
     return DEFAULT_MODELS[provider]?.[feature] ?? '';
+  }
+
+  /** KeyLint's default model for a feature, for the template. */
+  defaultModelFor(provider: string, feature: Feature): string {
+    return this.defaultModelId(provider, feature);
   }
 
   /**
@@ -754,6 +915,15 @@ export class SettingsComponent implements OnInit, OnDestroy {
    */
   allowsFreeText(provider: string): boolean {
     return provider !== 'claude-code';
+  }
+
+  /**
+   * Whether typing in a model field also searches the list. OpenRouter's
+   * catalogue runs to ~450 entries, which nobody scrolls; the other lists are
+   * short enough to read, and keep the picker they had.
+   */
+  searchesModels(provider: string): boolean {
+    return provider === 'openrouter';
   }
 
   /**
@@ -780,25 +950,40 @@ export class SettingsComponent implements OnInit, OnDestroy {
    */
   private modelLoadRound = 0;
 
-  /** Fetches every provider's model list in parallel; failures fall back. */
+  /**
+   * Whether a provider's model list may be asked for now. OpenRouter's
+   * catalogue needs no key, so without this every visit here would call
+   * openrouter.ai, for users who never chose it. It is asked once it is the
+   * provider in use (the Go side refuses otherwise too; see ListModels).
+   */
+  private listsNow(provider: string): boolean {
+    return provider !== 'openrouter' || this.settings?.active_provider === 'openrouter';
+  }
+
+  /** Fetches the model lists in parallel; failures fall back. */
   private async loadModelOptions(): Promise<void> {
     const round = ++this.modelLoadRound;
     // Rendered as each provider answers: one that is wedged would otherwise
-    // leave all four pickers empty for as long as its timeout.
-    await Promise.all(this.modelProviders.map(async mp => {
-      const list = await this.wails.listModels(mp.id).catch(() => null);
-      if (round !== this.modelLoadRound) return;
-      this.modelOptions[mp.id] = list?.models ?? [];
-      const listed = (list?.models ?? []).map(toModelOption);
-      this.modelSelectOptions[mp.id] = {
-        fix: [defaultOption(mp.id, 'fix', listed), ...listed],
-        pyramidize: [defaultOption(mp.id, 'pyramidize', listed), ...listed],
-      };
-      this.modelSource[mp.id] = list?.source ?? 'unreachable';
-      if (!this.destroyed) {
-        this.cdr.detectChanges();
-      }
-    }));
+    // leave every picker empty for as long as its timeout.
+    await Promise.all(this.modelProviders
+      .filter(mp => this.listsNow(mp.id))
+      .map(mp => this.loadModelList(mp.id, round)));
+  }
+
+  /** One provider's list, dropped if a newer round of loadModelOptions started meanwhile. */
+  private async loadModelList(provider: string, round: number): Promise<void> {
+    const list = await this.wails.listModels(provider).catch(() => null);
+    if (round !== this.modelLoadRound) return;
+    this.modelOptions[provider] = list?.models ?? [];
+    const listed = (list?.models ?? []).map(toModelOption);
+    this.modelSelectOptions[provider] = {
+      fix: [defaultOption(provider, 'fix', listed), ...listed],
+      pyramidize: [defaultOption(provider, 'pyramidize', listed), ...listed],
+    };
+    this.modelSource[provider] = list?.source ?? 'unreachable';
+    if (!this.destroyed) {
+      this.cdr.detectChanges();
+    }
   }
 
   /**
@@ -835,6 +1020,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
     await Promise.all(
       this.providerKeys.map(async pk => {
         pk.status = await this.wails.getKeyStatus(pk.id);
+        // A plain field the cards read: marked, so a tick that something
+        // else schedules meanwhile (a signal in the Bedrock card) refreshes
+        // this view too instead of finding its bindings stale (NG0100).
+        this.cdr.markForCheck();
       }),
     );
   }
@@ -867,6 +1056,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       pk.status = await this.wails.getKeyStatus(pk.id);
       this.log.info(`settings: key saved for ${pk.id}`);
       this.dropSilentFixNote();
+      if (pk.id === 'bedrock') this.bedrockTest = null;
     } catch (e) {
       this.keyError = `Failed to save key: ${e instanceof Error ? e.message : String(e)}`;
     } finally {
@@ -884,6 +1074,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       await this.wails.deleteKey(pk.id);
       pk.status = await this.wails.getKeyStatus(pk.id);
       this.log.info(`settings: key cleared for ${pk.id}`);
+      if (pk.id === 'bedrock') this.bedrockTest = null;
     } catch (e) {
       this.keyError = `Failed to clear key: ${e instanceof Error ? e.message : String(e)}`;
     } finally {
@@ -962,6 +1153,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
       if (!this.destroyed) this.cdr.detectChanges();
     }
     this.savedOllamaURL = this.settings?.providers?.ollama_url ?? '';
+    // A reset keeps the Bedrock connection; read it back all the same.
+    this.bedrockConnection = bedrockConnectionOf(this.settings);
     this.switchError = '';
     delete this.modelSource['ollama'];
     // A reset puts the Ollama URL back to its default, so the pickers are now

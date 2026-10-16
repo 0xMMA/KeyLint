@@ -13,7 +13,7 @@ func TestDefaultModelPerFeature(t *testing.T) {
 	//
 	// Ollama is absent on purpose and covered by its own test below — see
 	// TestOllamaDeliberatelyUsesOneModelForBothFeatures.
-	for _, provider := range []string{ProviderClaude, ProviderOpenAI, ProviderClaudeCode} {
+	for _, provider := range []string{ProviderClaude, ProviderOpenAI, ProviderClaudeCode, ProviderOpenRouter} {
 		fix := DefaultModel(provider, FeatureFix)
 		pyramidize := DefaultModel(provider, FeaturePyramidize)
 		if fix == "" || pyramidize == "" {

@@ -1,14 +1,20 @@
 import { Component, OnInit, computed, signal, ChangeDetectionStrategy } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { Router } from '@angular/router';
 import { ButtonComponent, InputDirective, MessageComponent, SpinnerComponent, TagComponent } from '../../shared/ui';
-import { WailsService, ClaudeCodeStatus, KeyStatus, Settings } from '../../core/wails.service';
+import { WailsService, BedrockRegion, ClaudeCodeStatus, KeyStatus, ModelInfo, Settings } from '../../core/wails.service';
 import { ENV_KEY_VARS, KEY_PROVIDERS, PROVIDER_OPTIONS, cliTag, isKeyProvider, keyPlaceholder, keyTag } from '../../core/providers';
+import { BedrockConnection, bedrockConnectionOf, bedrockReady, bedrockRoutable, usesBedrockKey } from '../../core/bedrock';
+import { BedrockOptionsComponent } from '../settings/bedrock-options/bedrock-options.component';
+import { effectiveModel } from '../settings/model-options';
 import { comboKeys } from '../../core/shortcut-format';
 
 /** One line under each provider's name: what it is, in the user's terms. */
 const PROVIDER_BLURBS: Readonly<Record<string, string>> = {
   'openai': 'Pay as you go with an OpenAI API key.',
   'claude': 'Pay as you go with an Anthropic API key.',
+  'openrouter': 'Pay as you go with one OpenRouter key, for models from many vendors.',
+  'bedrock': "Your own AWS account, with a Bedrock API key or this computer's AWS sign-in.",
   'claude-code': 'Uses your Claude subscription through the installed Claude Code CLI. No key needed.',
   'ollama': 'Runs on this computer. Free, no key, needs Ollama installed.',
 };
@@ -27,7 +33,7 @@ type Screen = 'welcome' | 'provider';
 @Component({
   selector: 'app-welcome-wizard',
   standalone: true,
-  imports: [ButtonComponent, InputDirective, MessageComponent, SpinnerComponent, TagComponent],
+  imports: [NgTemplateOutlet, ButtonComponent, InputDirective, MessageComponent, SpinnerComponent, TagComponent, BedrockOptionsComponent],
   changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <main class="wizard">
@@ -131,36 +137,25 @@ type Screen = 'welcome' | 'provider';
                           @case ('ollama') {
                             <p class="note">Make sure Ollama is running. KeyLint looks for it at <code>localhost:11434</code>; a different address goes in Settings.</p>
                           }
-                          @default {
-                            @if (keys()[p.value]?.source === 'env' && !replacing()) {
-                              <p class="note" data-testid="wizard-key-stored">
-                                Using the key from the <code>{{ envVar(p.value) }}</code> environment variable.
-                              </p>
-                            } @else if (keys()[p.value]?.is_set && !replacing()) {
-                              <p class="note" data-testid="wizard-key-stored">
-                                A key is already saved for {{ p.label }}.
-                                <button type="button" class="inline-action" data-testid="wizard-replace-key" (click)="startReplacing()">Replace it</button>
-                              </p>
-                            } @else {
-                              <label class="text-[13px] font-semibold text-soft" for="wizard-key">Paste your API key</label>
-                              <input
-                                klInput
-                                id="wizard-key"
-                                data-testid="wizard-key-input"
-                                type="password"
-                                autocomplete="off"
-                                spellcheck="false"
-                                [placeholder]="keyPlaceholder(p.value)"
-                                [value]="apiKey()"
-                                (input)="typeKey($any($event.target).value)"
-                              />
-                              <p class="note">
-                                Saved in your system's keyring, never in a file.
-                                @if (replacing()) {
-                                  <button type="button" class="inline-action" data-testid="wizard-keep-key" (click)="keepSavedKey()">Keep the saved key</button>
-                                }
-                              </p>
+                          @case ('bedrock') {
+                            <!-- Saved on Start, with the choice; Settings saves it as it changes. -->
+                            <app-bedrock-options
+                              class="w-full"
+                              idPrefix="wizard-bedrock"
+                              [connection]="bedrock()"
+                              [regions]="bedrockRegions()"
+                              [knownModels]="bedrockModels()"
+                              [fixModel]="bedrockModelFor('fix')"
+                              [pyramidizeModel]="bedrockModelFor('pyramidize')"
+                              [envToken]="keys()['bedrock']?.source === 'env'"
+                              (connectionChange)="setBedrock($event)"
+                            />
+                            @if (bedrockKeyMode()) {
+                              <ng-container *ngTemplateOutlet="keyEntry; context: { $implicit: p }" />
                             }
+                          }
+                          @default {
+                            <ng-container *ngTemplateOutlet="keyEntry; context: { $implicit: p }" />
                           }
                         }
                       </div>
@@ -168,6 +163,38 @@ type Screen = 'welcome' | 'provider';
                   </div>
                 }
               </div>
+
+              <ng-template #keyEntry let-p>
+                @if (keys()[p.value]?.source === 'env' && !replacing()) {
+                  <p class="note" data-testid="wizard-key-stored">
+                    Using the key from the <code>{{ envVar(p.value) }}</code> environment variable.
+                  </p>
+                } @else if (keys()[p.value]?.is_set && !replacing()) {
+                  <p class="note" data-testid="wizard-key-stored">
+                    A key is already saved for {{ p.label }}.
+                    <button type="button" class="inline-action" data-testid="wizard-replace-key" (click)="startReplacing()">Replace it</button>
+                  </p>
+                } @else {
+                  <label class="text-[13px] font-semibold text-soft" for="wizard-key">Paste your API key</label>
+                  <input
+                    klInput
+                    id="wizard-key"
+                    data-testid="wizard-key-input"
+                    type="password"
+                    autocomplete="off"
+                    spellcheck="false"
+                    [placeholder]="keyPlaceholder(p.value)"
+                    [value]="apiKey()"
+                    (input)="typeKey($any($event.target).value)"
+                  />
+                  <p class="note">
+                    Saved in your system's keyring, never in a file.
+                    @if (replacing()) {
+                      <button type="button" class="inline-action" data-testid="wizard-keep-key" (click)="keepSavedKey()">Keep the saved key</button>
+                    }
+                  </p>
+                }
+              </ng-template>
 
               <div class="actions">
                 <kl-button data-testid="wizard-back" variant="ghost" size="lg" icon="chevron-left" (click)="screen.set('welcome')">Back</kl-button>
@@ -276,6 +303,12 @@ export class WelcomeWizardComponent implements OnInit {
   readonly finishing = signal(false);
   readonly skipping = signal(false);
   readonly error = signal<string | null>(null);
+  /** AWS Bedrock's connection as chosen here; saved on Start. */
+  readonly bedrock = signal<BedrockConnection>(bedrockConnectionOf(null));
+  readonly bedrockRegions = signal<BedrockRegion[]>([]);
+  /** The models KeyLint knows on Bedrock, for the card's notes. From the build. */
+  readonly bedrockModels = signal<ModelInfo[]>([]);
+  readonly bedrockKeyMode = computed(() => usesBedrockKey(this.bedrock()));
 
   /** Once the user picks something, the defaults stop moving the selection. */
   private userPicked = false;
@@ -298,7 +331,13 @@ export class WelcomeWizardComponent implements OnInit {
   readonly canFinish = computed(() => {
     const p = this.selected();
     if (!p) return false;
-    if (!isKeyProvider(p)) return true;
+    if (p === 'bedrock') {
+      // A region whose routing is settled always; a key only in key mode.
+      if (!bedrockRoutable(this.bedrock(), this.bedrockRegions())) return false;
+      if (!this.bedrockKeyMode()) return true;
+    } else if (!isKeyProvider(p)) {
+      return true;
+    }
     if (this.apiKey().trim()) return true;
     return !!this.keys()[p]?.is_set && !this.replacing();
   });
@@ -311,10 +350,17 @@ export class WelcomeWizardComponent implements OnInit {
   ngOnInit(): void {
     // Independent, so a slow CLI probe cannot hold up the keys or the
     // shortcut on the first screen.
-    void this.wails.loadSettings().then(s => { this.settings.set(s); this.applyDefault(); }).catch(() => {});
+    void this.wails.loadSettings().then(s => {
+      this.settings.set(s);
+      this.bedrock.set(bedrockConnectionOf(s));
+      this.applyDefault();
+    }).catch(() => {});
     void Promise.all(
-      KEY_PROVIDERS.map(async p => [p, await this.wails.getKeyStatus(p)] as const),
+      [...KEY_PROVIDERS, 'bedrock'].map(async p => [p, await this.wails.getKeyStatus(p)] as const),
     ).then(entries => { this.keys.set(Object.fromEntries(entries)); this.applyDefault(); }).catch(() => {});
+    // Both answered from the build: no request reaches AWS.
+    void this.wails.getBedrockRegions().then(r => this.bedrockRegions.set(r)).catch(() => {});
+    void this.wails.listModels('bedrock').then(l => this.bedrockModels.set(l.models ?? [])).catch(() => {});
     void this.wails.getClaudeCodeStatus().then(st => { this.cli.set(st); this.applyDefault(); }).catch(() => {});
   }
 
@@ -345,6 +391,7 @@ export class WelcomeWizardComponent implements OnInit {
       if (isKeyProvider(saved) && keys[saved]?.is_set) return saved;
       if (saved === 'claude-code' && this.cliReady()) return saved;
       if (saved === 'ollama') return saved;
+      if (saved === 'bedrock' && bedrockReady(this.bedrock(), keys['bedrock'], this.bedrockRegions())) return saved;
     }
     if (this.cliReady()) return 'claude-code';
     return KEY_PROVIDERS.find(p => keys[p]?.is_set) ?? null;
@@ -364,6 +411,17 @@ export class WelcomeWizardComponent implements OnInit {
   keepSavedKey(): void {
     this.replacing.set(false);
     this.apiKey.set('');
+  }
+
+  /** A change on the Bedrock options: a choice, so detection must not move it. */
+  setBedrock(connection: BedrockConnection): void {
+    this.userPicked = true;
+    this.bedrock.set(connection);
+  }
+
+  /** The model a feature runs on with Bedrock: as saved, else KeyLint's default. */
+  bedrockModelFor(feature: 'fix' | 'pyramidize'): string {
+    return effectiveModel('bedrock', feature, this.settings()?.models?.['bedrock']?.[feature]);
   }
 
   envVar(provider: string): string {
@@ -388,7 +446,8 @@ export class WelcomeWizardComponent implements OnInit {
       // The key first: if the keyring refuses it, nothing has moved yet, and
       // "Set up later" leaves the previous provider in place.
       const key = this.apiKey().trim();
-      if (key && isKeyProvider(provider)) {
+      const takesKey = isKeyProvider(provider) || (provider === 'bedrock' && this.bedrockKeyMode());
+      if (key && takesKey) {
         // Rejects when the keyring refuses; the status check below also catches
         // a backend that reports success without storing anything.
         await this.wails.setKey(provider, key);
@@ -399,6 +458,10 @@ export class WelcomeWizardComponent implements OnInit {
         this.keys.update(k => ({ ...k, [provider]: status }));
         this.apiKey.set('');
         this.replacing.set(false);
+      }
+      // Bedrock's connection next, so it is never the provider without one.
+      if (provider === 'bedrock') {
+        await this.wails.setBedrock(this.bedrock());
       }
       // The one field, not a whole Settings object: a save of everything would
       // write back whatever this screen happened to load.

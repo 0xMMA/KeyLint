@@ -20,10 +20,10 @@ import (
 const cliProbeWait = 5 * time.Second
 
 // keyProviders are the providers that work with an API key alone, in the
-// order a replacement is picked from. Bedrock is left out: it does not work
-// yet (#22, #23), and its env var, AWS_SECRET_ACCESS_KEY, is on many machines
-// for reasons that have nothing to do with KeyLint.
-var keyProviders = []string{llm.ProviderOpenAI, llm.ProviderClaude}
+// order a replacement is picked from. AWS Bedrock is left out: it needs a
+// region as well, and with this computer's AWS sign-in no key at all, so a
+// Bedrock key is never a reason to switch to it (bedrockUsable).
+var keyProviders = []string{llm.ProviderOpenAI, llm.ProviderClaude, llm.ProviderOpenRouter}
 
 // Service handles first-run detection and setup completion.
 type Service struct {
@@ -174,11 +174,27 @@ func (s *Service) decide(cfg settings.Settings) decision {
 		// to walk them through setup again.
 		d.use, d.reason = active, "active provider is Ollama, which needs no key"
 		return d
+	case active == llm.ProviderBedrock && s.bedrockUsable(cfg):
+		d.use, d.reason = active, "active provider is AWS Bedrock, with a region and a way to sign in"
+		return d
 	}
 
 	// Everything left depends on the CLI: either it is the saved provider, or
 	// it comes first among the replacements, as it does in the wizard.
 	d.cli = s.probeCLI()
+
+	if active == llm.ProviderBedrock {
+		// Chosen — it is never the default — but missing its region or its
+		// key. Something else that works completes the setup; the choice of
+		// Bedrock stays the user's, as a chosen CLI's does: no switch.
+		switch {
+		case d.cli == cliSignedIn:
+			d.use, d.reason = llm.ProviderClaudeCode, "the Claude Code CLI is signed in (active AWS Bedrock is not set up)"
+		case len(withKey) > 0:
+			d.use, d.reason = withKey[0], "a key is stored (active AWS Bedrock is not set up)"
+		}
+		return d
+	}
 
 	if active == llm.ProviderClaudeCode {
 		switch d.cli {
@@ -202,8 +218,7 @@ func (s *Service) decide(cfg settings.Settings) decision {
 	// The saved provider is a key provider with no key, or a value this build
 	// does not know (empty, or written by a newer build): it cannot work as it
 	// is, so the active provider moves to what does — the same default the
-	// wizard would preselect. Bedrock alone is kept: it is a choice the
-	// settings page names and explains, not a value it cannot read.
+	// wizard would preselect.
 	switch {
 	case d.cli == cliSignedIn:
 		d.use, d.reason = llm.ProviderClaudeCode, "the Claude Code CLI is signed in"
@@ -212,15 +227,25 @@ func (s *Service) decide(cfg settings.Settings) decision {
 	default:
 		return d
 	}
-	if active != providerBedrock {
-		d.switchTo = d.use
-	}
+	d.switchTo = d.use
 	return d
 }
 
-// providerBedrock is a provider settings can name but no build offers yet
-// (#22, #23); see UNAVAILABLE_PROVIDERS in frontend/src/app/core/constants.ts.
-const providerBedrock = "bedrock"
+// bedrockUsable reports whether AWS Bedrock is set up enough to try: a region
+// whose routing the user has settled (a worldwide-only region needs Worldwide
+// chosen), and a key unless this computer's AWS sign-in is used — whether that
+// sign-in works can only be known by trying, which the AWS Bedrock card's Test
+// connection does when the user asks. Never a key's value, only its presence.
+func (s *Service) bedrockUsable(cfg settings.Settings) bool {
+	b := cfg.Bedrock()
+	if !llm.BedrockRoutable(b.Region, b.Routing) {
+		return false
+	}
+	if !cfg.UsesAPIKey(llm.ProviderBedrock) {
+		return true
+	}
+	return s.settings.GetKeyStatus(llm.ProviderBedrock).IsSet
+}
 
 // probeCLI asks for the CLI's status, waiting at most probeWait. A probe that
 // is still running counts as unknown; it carries on in the background.

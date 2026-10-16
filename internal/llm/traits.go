@@ -9,10 +9,17 @@ import (
 // KeyLint supplies. The Claude Code CLI uses the account the user signed in
 // with, and Ollama needs nothing; asking for a key for either would be wrong,
 // and handing one to the CLI would bill a different account (see blockedCLIEnv).
-func UsesAPIKey(provider string) bool {
+//
+// Bedrock depends on how the user connects it, so bedrockAuth is the mode from
+// settings (providers.bedrock_auth): a key in key mode, none with this
+// computer's AWS sign-in — whether that sign-in works can only be known by
+// trying. Key mode is the default. Every other provider ignores bedrockAuth.
+func UsesAPIKey(provider, bedrockAuth string) bool {
 	switch provider {
-	case ProviderClaude, ProviderOpenAI:
+	case ProviderClaude, ProviderOpenAI, ProviderOpenRouter:
 		return true
+	case ProviderBedrock:
+		return bedrockAuth != BedrockAuthSignIn
 	default:
 		return false
 	}
@@ -29,12 +36,24 @@ func UsesAPIKey(provider string) bool {
 // generation, and an ID this cannot read is treated as new: an eval must record
 // "no pin" rather than claim one that never reached the model, or fail the
 // call with a 400. Other providers are assumed to take one.
+//
+// OpenRouter falls under "assumed", and that is a guess nobody has checked: it
+// passes temperature on to whichever host serves the model, so an
+// anthropic/claude-*-5.5 there is presumably refused as it is on the Anthropic
+// API. It only matters to evals, and OpenRouter is not eval'd until measured
+// (roadmap E10) — whoever measures it decides this from a real call.
 func SupportsTemperature(provider, model string) bool {
 	switch provider {
 	case ProviderClaudeCode:
 		return false
 	case ProviderClaude:
 		major, minor, ok := claudeGeneration(model)
+		return ok && (major < 4 || (major == 4 && minor <= 6))
+	case ProviderBedrock:
+		// The same models under Bedrock's IDs; an ARN says nothing, so it
+		// counts as new.
+		_, base := splitBedrockPrefix(model)
+		major, minor, ok := claudeGeneration(strings.TrimPrefix(base, "anthropic."))
 		return ok && (major < 4 || (major == 4 && minor <= 6))
 	default:
 		return true
