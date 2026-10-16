@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Mail (demo scene)</title>
+<!-- A generic webmail compose view in a generic browser window, for the
+     Pyramidize demo: no real product, names or colours. The KeyLint window
+     is the real app (production build) in an iframe. -->
+<link rel="stylesheet" href="stage.css" />
+<style>
+  .browser { position: absolute; inset: 0 0 40px 0; display: flex; flex-direction: column; background: #f4f5f7; }
+  .tabs { height: 38px; background: #24272d; display: flex; align-items: flex-end; padding: 0 10px; gap: 6px; }
+  .tab { background: #3a3e46; color: #e8eaed; font-size: 13px; padding: 8px 16px; border-radius: 8px 8px 0 0; width: 220px; display: flex; gap: 8px; align-items: center; }
+  .tab i { width: 14px; height: 14px; border-radius: 3px; background: #4aa79a; display: inline-block; }
+  .wctl { margin-left: auto; color: #b9bdc4; font-size: 15px; display: flex; gap: 22px; padding: 0 8px 10px; }
+  .bar { height: 42px; background: #3a3e46; display: flex; align-items: center; padding: 0 14px; gap: 14px; color: #c9ccd2; }
+  .url { flex: 1; background: #24272d; border-radius: 16px; padding: 7px 16px; font-size: 14px; color: #d9dce1; }
+  .mail { flex: 1; display: flex; min-height: 0; }
+  .nav { width: 210px; background: #eceef2; border-right: 1px solid #dde0e5; padding: 16px 12px; color: #30343b; }
+  .newbtn { background: #0f766e; color: #fff; border-radius: 10px; padding: 10px 14px; font-weight: 700; font-size: 14px; margin-bottom: 14px; text-align: center; }
+  .nav .f { padding: 8px 12px; border-radius: 8px; font-size: 14px; display: flex; justify-content: space-between; }
+  .nav .f.on { background: #dfe3e9; font-weight: 700; }
+  .list { width: 250px; border-right: 1px solid #dde0e5; background: #fafbfc; padding: 12px 0; }
+  .row { padding: 10px 16px; border-bottom: 1px solid #eceef1; font-size: 13px; color: #555b64; }
+  .row b { display: block; color: #22262c; font-size: 14px; margin-bottom: 2px; }
+  .row.on { background: #e6f2f0; box-shadow: inset 3px 0 0 #0f766e; }
+  .compose { flex: 1; display: flex; flex-direction: column; background: #fff; padding: 18px 28px; min-width: 0; }
+  .field { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #e3e6ea; padding: 9px 0; font-size: 15px; color: #6b717a; }
+  .field label { width: 64px; }
+  .chip { background: #eef1f4; color: #2b3036; border-radius: 12px; padding: 3px 10px; font-size: 14px; }
+  #subject { flex: 1; border: 0; outline: 0; font: 600 16px 'Liberation Sans', Arial, sans-serif; color: #1f2328; background: transparent; }
+  .toolbar { display: flex; gap: 16px; color: #59606a; font-size: 14px; padding: 10px 0; border-bottom: 1px solid #eef0f2; }
+  .toolbar b, .toolbar i, .toolbar u { width: 22px; text-align: center; }
+  #body {
+    flex: 1; outline: 0; padding: 12px 2px; font: 14px/1.42 'Liberation Sans', Arial, sans-serif; color: #1f2328;
+    overflow: hidden;
+  }
+  #body p { margin: 0; }
+  #body ul { margin: 2px 0 2px 22px; }
+  #body li { margin: 0; }
+  #body ::selection, #subject::selection { background: #b6d4fe; }
+  .actions { display: flex; gap: 10px; padding-top: 10px; }
+  .send { background: #0f766e; color: #fff; border-radius: 8px; padding: 9px 22px; font-weight: 700; font-size: 14px; }
+  .discard { color: #59606a; padding: 9px 12px; font-size: 14px; }
+
+  /* The KeyLint window: the real app at its default size, scaled to fit. */
+  .klwin {
+    position: absolute; left: 96px; top: 50px; width: 1088px; z-index: 20;
+    border-radius: 10px; overflow: hidden; border: 1px solid #3f3f46;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+    opacity: 0; visibility: hidden; transform: scale(0.98); transition: opacity 220ms, transform 220ms, visibility 0s 220ms;
+  }
+  .klwin.show { opacity: 1; visibility: visible; transform: none; transition: opacity 220ms, transform 220ms; }
+  .klwin .title { height: 30px; background: #18181b; color: #e4e4e7; font-size: 13px; display: flex; align-items: center; gap: 8px; padding: 0 12px; }
+  .klwin .title img { width: 16px; height: 16px; }
+  .klwin .title .wctl { padding: 0; font-size: 13px; gap: 20px; color: #a1a1aa; }
+  .klwin .viewport { width: 1088px; height: 637px; overflow: hidden; background: #1f1f23; }
+  .klwin iframe { width: 1264px; height: 740px; border: 0; transform: scale(0.8608); transform-origin: 0 0; display: block; }
+</style>
+</head>
+<body>
+  <div class="browser">
+    <div class="tabs">
+      <div class="tab"><i></i>New message – Webmail</div>
+      <div class="wctl"><span>–</span><span>□</span><span>×</span></div>
+    </div>
+    <div class="bar"><span>←</span><span>→</span><span>⟳</span><div class="url">mail.example.com/compose</div></div>
+    <div class="mail">
+      <nav class="nav">
+        <div class="newbtn">New message</div>
+        <div class="f on">Drafts<span>1</span></div>
+        <div class="f">Inbox<span>4</span></div>
+        <div class="f">Sent</div>
+        <div class="f">Archive</div>
+      </nav>
+      <section class="list">
+        <div class="row on"><b>(no subject)</b>Draft</div>
+        <div class="row"><b>Ines Okafor</b>Onboarding checklist</div>
+        <div class="row"><b>Facilities</b>Desk plan for March</div>
+        <div class="row"><b>Theo Brandt</b>Re: vendor call</div>
+      </section>
+      <section class="compose">
+        <div class="field"><label>To</label><span class="chip">team@example.com</span></div>
+        <div class="field"><label>Subject</label><input id="subject" spellcheck="false" /></div>
+        <div class="toolbar"><b>B</b><i>I</i><u>U</u><span>• List</span><span>Link</span></div>
+        <div id="body" contenteditable="true" spellcheck="false"></div>
+        <div class="actions"><span class="send">Send</span><span class="discard">Discard</span></div>
+      </section>
+    </div>
+  </div>
+
+  <div class="klwin" id="klwin">
+    <div class="title"><img src="/build/appicon.png" alt="" />KeyLint<span class="wctl" style="margin-left:auto"><span>–</span><span>□</span><span>×</span></span></div>
+    <div class="viewport"><iframe id="app" src="/enhance" title="KeyLint"></iframe></div>
+  </div>
+
+  <div class="taskbar">
+    <svg class="glyph" viewBox="0 0 24 24"><path d="M2 9a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0" stroke="#c9ced6" stroke-width="2" fill="none" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.5" fill="#c9ced6"/></svg>
+    <svg class="glyph" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z" fill="#c9ced6"/><path d="M16 9a4 4 0 0 1 0 6" stroke="#c9ced6" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+    <span class="tray-keylint" title="KeyLint"><img src="/build/appicon.png" alt="" /><span class="busy"></span></span>
+    <span class="clock">10:12</span>
+  </div>
+  <script src="stage.js"></script>
+</body>
+</html>

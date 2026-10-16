@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KeyLint — Fix text instantly with AI | One hotkey, perfect writing</title>
-  <meta name="description" content="KeyLint fixes your text instantly with one hotkey. Perfect for emails, chat messages, documents, and social media posts. Supports OpenAI, Anthropic, and Ollama. For Windows. Free." />
+  <meta name="description" content="Fix any text with one hotkey. Free for Windows. Works with Anthropic, OpenRouter, OpenAI, AWS Bedrock, Ollama, or the Claude Code CLI you already use." />
   <meta name="theme-color" content="#f97316" />
   <meta property="og:title" content="KeyLint — Fix text instantly with AI" />
   <meta property="og:description" content="One hotkey. Perfect text. Fixes grammar, tone, and style silently in the background." />
@@ -17,6 +17,9 @@
   <link rel="canonical" href="https://keylint.io/" />
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="stylesheet" href="style.css" />
+  <!-- Download links use /releases/latest on purpose. It only works once a
+       non-prerelease 4.x exists (GitHub skips pre-releases there), which is
+       why this page ships with the first stable 4.x. -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -31,7 +34,6 @@
     },
     "url": "https://keylint.io",
     "downloadUrl": "https://github.com/0xMMA/KeyLint/releases/latest",
-    "softwareVersion": "4.1.5-alpha",
     "author": {
       "@type": "Organization",
       "name": "0xMMA",
@@ -49,6 +51,7 @@
       <span class="nav-brand">Key<span>Lint</span></span>
       <ul class="nav-links">
         <li><a href="#features">Features</a></li>
+        <li><a href="#providers">AI providers</a></li>
         <li><a href="https://github.com/0xMMA/KeyLint/releases/latest">Download</a></li>
         <li><a href="https://github.com/0xMMA/KeyLint">GitHub</a></li>
       </ul>
@@ -72,6 +75,48 @@
       </div>
     </section>
 
+    <section class="hero-shot">
+      <div class="container">
+        <!-- The first thing a visitor sees is the hotkey at work, in another
+             app: what KeyLint is for. It starts on its own (muted, looped)
+             while on screen, unless the visitor asked for reduced motion. -->
+        <figure class="shot">
+          <video class="demo-video" muted loop playsinline preload="auto" width="1600" height="1000"
+            poster="img/demo-fix.webp"
+            aria-label="A chat app: a message with typos is selected, Ctrl+G is pressed, KeyLint's tray icon shows it is working, the corrected message replaces it and is sent">
+            <source src="img/demo-fix.webm" type="video/webm" />
+          </video>
+          <figcaption>Silent Fix in a chat app: select, press <kbd>Ctrl+G</kbd>, done. Staged demo; the correction is what KeyLint actually returned.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="demo" id="demo">
+      <div class="container">
+        <div class="section-label">See it work</div>
+        <h2>Right where you write</h2>
+        <p class="section-lead">The chat app above and the mail client below are mock-ups made for this page. The KeyLint parts are the real app, and the correction and the email are what KeyLint actually returned.</p>
+
+        <h3 class="demo-title">Pyramidize from a mail client</h3>
+        <p class="demo-text">Hold <kbd>Ctrl</kbd> and tap <kbd>G</kbd> twice on your notes. KeyLint opens with them, you pick the form, and it puts the point first. Copy the result as rich text and paste it back as a formatted email.</p>
+        <figure class="shot">
+          <video class="demo-video" muted loop playsinline preload="none" width="1600" height="1000"
+            poster="img/demo-pyramidize.webp"
+            aria-label="A webmail draft: notes are selected, the shortcut is pressed twice, KeyLint opens on its choice of forms with Email selected and writes the notes as an email, which Send back pastes into the draft over the notes, formatted; its first line is then moved into the subject">
+            <source src="img/demo-pyramidize.webm" type="video/webm" />
+          </video>
+          <figcaption>Staged demo with the real KeyLint window. The email is what KeyLint actually returned; its first line is the suggested subject.</figcaption>
+        </figure>
+
+        <h3 class="demo-title">See every change on the Fix page</h3>
+        <p class="demo-text">Want to check before you send? Paste the text into KeyLint's Fix page: the original on the left, the corrected text on the right with every change marked.</p>
+        <figure class="shot">
+          <img src="img/fix.webp" width="1600" height="937" loading="lazy"
+            alt="KeyLint's Fix page: the original text on the left, the corrected text on the right with new words underlined in orange and removed words struck through" />
+        </figure>
+      </div>
+    </section>
+
     <section class="features" id="features">
       <div class="container">
         <div class="section-label">Features</div>
@@ -82,21 +127,21 @@
               <span class="feature-icon">⚡</span>
               <h3>Silent Fix</h3>
             </div>
-            <p>Select text in any app. Press the hotkey. Your clipboard text is fixed and written back — no window, no interruption, no copy-paste loop.</p>
+            <p>Select text in any app and press <kbd>Ctrl+G</kbd>. The corrected text replaces your selection — no window, no interruption, no copy-paste loop.</p>
           </div>
           <div class="feature-card">
             <div class="feature-head">
               <span class="feature-icon">✍️</span>
-              <h3>Deep Enhance</h3>
+              <h3>Pyramidize</h3>
             </div>
-            <p>Open the enhancement panel to rewrite for tone, brevity, or formality. Preview the result before it replaces your text.</p>
+            <p>Hold <kbd>Ctrl</kbd> and tap <kbd>G</kbd> twice to turn rough notes into a clear email, chat message, memo, wiki page or slide outline — main point first. You pick the form, add an instruction if you want one, then copy the result as rich text or send it back.</p>
           </div>
           <div class="feature-card">
             <div class="feature-head">
               <span class="feature-icon">🤖</span>
-              <h3>BYOK</h3>
+              <h3>Bring your own AI</h3>
             </div>
-            <p>Bring your own API key — OpenAI, Anthropic, or Ollama. Keys stay in your OS keyring and never leave your machine.</p>
+            <p>An Anthropic, OpenRouter or OpenAI API key, your own AWS account through Bedrock, a local model through Ollama — or the Claude Code CLI you're already signed in to, with no key at all. <a href="#providers">How that works</a></p>
           </div>
           <div class="feature-card">
             <div class="feature-head">
@@ -117,27 +162,55 @@
               <span class="feature-icon">🔒</span>
               <h3>Private</h3>
             </div>
-            <p>All API calls go through the local Go backend on your machine. No telemetry, no cloud sync, no clipboard history stored.</p>
+            <p>Your text goes from your PC straight to the provider you picked — no KeyLint server in between. No telemetry, no cloud sync, no clipboard history stored, and logging is off by default. Besides the providers you set up, KeyLint only contacts GitHub, to check for updates when it starts.</p>
           </div>
         </div>
       </div>
     </section>
 
-    <section class="providers">
+    <section class="providers" id="providers">
       <div class="container">
-        <p>Works with the AI providers you already use</p>
+        <div class="section-label">AI providers</div>
+        <h2>Use the AI you already have</h2>
         <div class="provider-list">
+          <span class="provider-chip">Anthropic API</span>
+          <span class="provider-chip">Claude Code (installed CLI)</span>
+          <span class="provider-chip">OpenRouter</span>
           <span class="provider-chip">OpenAI</span>
-          <span class="provider-chip">Anthropic</span>
+          <span class="provider-chip">AWS Bedrock</span>
           <span class="provider-chip">Ollama (local)</span>
         </div>
+        <div class="provider-grid">
+          <div class="feature-card">
+            <h3>An API key</h3>
+            <p>Anthropic, OpenRouter or OpenAI: paste your key once. It is kept in your operating system's keyring and only ever sent to the provider it belongs to. One OpenRouter key reaches models from many vendors.</p>
+          </div>
+          <div class="feature-card provider-card-highlight">
+            <h3>No key: the Claude Code CLI</h3>
+            <p>Already signed in to Claude Code on this PC? Then you need no API key. KeyLint runs your installed <code>claude</code> command, unmodified, so usage counts against your own Claude account. KeyLint never reads, stores or forwards your credentials and never asks you to log in: you sign in to Claude Code in your own terminal.</p>
+          </div>
+          <div class="feature-card">
+            <h3>Your AWS account: Bedrock</h3>
+            <p>Claude models in your own AWS account, with a Bedrock API key or the AWS sign-in already on this PC, which KeyLint does not store. You choose whether your text stays in your region's geography or may be processed worldwide.</p>
+          </div>
+          <div class="feature-card">
+            <h3>Local: Ollama</h3>
+            <p>Run a model on your own machine with Ollama. With a local model, your text stays on your PC.</p>
+          </div>
+        </div>
+        <figure class="shot">
+          <img src="img/providers.webp" width="1600" height="2042" loading="lazy"
+            alt="KeyLint Settings, AI providers tab: the installed Claude Code CLI is in use and signed in, with model choices for Fix and Pyramidize; the Anthropic API, OpenRouter, OpenAI, AWS Bedrock and a local Ollama are listed as other connections" />
+          <figcaption>Set up as many as you like. Fix and Pyramidize both use the one in use. The setup wizard picks a signed-in CLI by itself when nothing else is set up.</figcaption>
+        </figure>
+        <p class="fine-print">Claude Code is Anthropic's product. KeyLint is an independent project and is not affiliated with or endorsed by Anthropic, OpenRouter, OpenAI or Amazon Web Services.</p>
       </div>
     </section>
 
     <section class="cta">
       <div class="container">
         <h2>Fix your writing in 60 seconds</h2>
-        <p>Download, add your API key, press <kbd>Ctrl+G</kbd>.</p>
+        <p>Download, pick your AI, press <kbd>Ctrl+G</kbd>.</p>
         <a class="btn btn-primary" href="https://github.com/0xMMA/KeyLint/releases/latest">
           Download for Windows
         </a>
@@ -158,5 +231,25 @@
     </div>
   </footer>
 
+  <script>
+    // Demo videos: they load and play only while on screen, and only when the
+    // visitor has not asked for reduced motion; then they show controls and
+    // their poster instead. A click pauses or resumes.
+    (function () {
+      var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      var videos = document.querySelectorAll('video.demo-video');
+      videos.forEach(function (v) {
+        if (reduce) { v.controls = true; return; }
+        v.addEventListener('click', function () { if (v.paused) { v.play(); } else { v.pause(); } });
+      });
+      if (reduce) return;
+      function play(v) { v.play().catch(function () { v.controls = true; }); }
+      if (!('IntersectionObserver' in window)) { videos.forEach(play); return; }
+      var seen = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) { if (e.isIntersecting) { play(e.target); } else { e.target.pause(); } });
+      }, { threshold: 0.4 });
+      videos.forEach(function (v) { seen.observe(v); });
+    })();
+  </script>
 </body>
 </html>

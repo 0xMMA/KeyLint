@@ -1,0 +1,58 @@
+/* Shared by the demo scenes: keystroke captions, pointer, taskbar. */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+/* Recorded at 2x: the viewport is 2560×1600 and the scene is zoomed, because
+   the screencast delivers CSS-pixel frames whatever the device scale. */
+html { zoom: 2; }
+html, body { width: 1280px; height: 800px; overflow: hidden; }
+body { font-family: 'Liberation Sans', 'Nimbus Sans', Arial, sans-serif; background: #0b0d10; }
+
+/* Taskbar: a plain strip, the tray with KeyLint's icon on the right. */
+.taskbar {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 40px;
+  background: #15181d; border-top: 1px solid #262a31;
+  display: flex; align-items: center; justify-content: flex-end; gap: 16px; padding: 0 18px;
+  color: #c9ced6; font-size: 13px; z-index: 50;
+}
+.taskbar .glyph { width: 16px; height: 16px; opacity: 0.75; }
+.tray-keylint { position: relative; width: 20px; height: 20px; }
+.tray-keylint img { width: 20px; height: 20px; display: block; }
+/* The busy mark, as internal/features/tray/busy.go draws it: amber dot, dark ring. */
+.tray-keylint .busy {
+  position: absolute; right: -3px; bottom: -3px; width: 10px; height: 10px; border-radius: 50%;
+  background: #F5A623; border: 2px solid #1B2636; opacity: 0; transition: opacity 120ms;
+}
+.tray-keylint.is-busy .busy { opacity: 1; }
+.clock { font-variant-numeric: tabular-nums; }
+
+/* Keystroke caption, subtitle-style. */
+#keys {
+  position: absolute; left: 50%; bottom: 64px; transform: translate(-50%, 8px);
+  display: flex; align-items: center; gap: 10px;
+  background: rgba(10, 12, 15, 0.88); border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px; padding: 12px 20px; z-index: 100; pointer-events: none;
+  color: #f4f4f5; font-size: 20px; opacity: 0; transition: opacity 160ms, transform 160ms;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45); white-space: nowrap;
+}
+#keys.show { opacity: 1; transform: translate(-50%, 0); }
+#keys .cap {
+  display: inline-block; min-width: 40px; text-align: center;
+  font: 600 20px 'Liberation Mono', 'DejaVu Sans Mono', monospace;
+  padding: 6px 12px; border-radius: 8px; color: #fafafa;
+  background: linear-gradient(#3a3f47, #2a2e35); border: 1px solid #4b515b; border-bottom-width: 3px;
+}
+#keys .cap.tap { animation: tap 260ms ease-out; }
+@keyframes tap { 0% { transform: translateY(2px); background: #f97316; } 100% { transform: none; } }
+#keys .plus { color: #a1a1aa; font-size: 18px; }
+#keys .hint { color: #d4d4d8; font-size: 17px; margin-left: 6px; }
+
+/* Pointer: headless screenshots draw none. */
+#pointer {
+  position: absolute; left: 0; top: 0; z-index: 200; pointer-events: none;
+  transform: translate(-100px, -100px);
+}
+#pointer .ring {
+  position: absolute; left: -11px; top: -11px; width: 26px; height: 26px; border-radius: 50%;
+  border: 2px solid rgba(249, 115, 22, 0.9); opacity: 0; transform: scale(0.4);
+}
+#pointer.click .ring { animation: ring 380ms ease-out; }
+@keyframes ring { 0% { opacity: 1; transform: scale(0.4); } 100% { opacity: 0; transform: scale(1.4); } }
