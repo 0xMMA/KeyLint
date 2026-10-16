@@ -134,6 +134,13 @@ test.describe('website', () => {
     await expect(first.locator('video')).toHaveCount(1);
     await expect(first.locator('video source')).toHaveAttribute('src', 'img/demo-fix.webm');
     await expect(first.locator('video')).toHaveAttribute('preload', 'auto');
+    // Pyramidize is the next thing, ahead of the feature cards: one clip at a
+    // time, not two side by side too small to read.
+    const order = await page.evaluate(() => {
+      const pz = document.querySelector('video source[src="img/demo-pyramidize.webm"]')!;
+      return pz.compareDocumentPosition(document.getElementById('features')!) & Node.DOCUMENT_POSITION_FOLLOWING;
+    });
+    expect(order, 'the Pyramidize clip comes before the features').toBeTruthy();
   });
 
   // Four provider cards fell into three and one left over at full width.
