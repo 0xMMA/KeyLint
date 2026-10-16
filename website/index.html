@@ -77,9 +77,16 @@
 
     <section class="hero-shot">
       <div class="container">
+        <!-- The first thing a visitor sees is the hotkey at work, in another
+             app: what KeyLint is for. It starts on its own (muted, looped)
+             while on screen, unless the visitor asked for reduced motion. -->
         <figure class="shot">
-          <img src="img/fix.webp" width="1600" height="937"
-            alt="KeyLint's Fix page: the original text on the left, the corrected text on the right with new words underlined in orange and removed words struck through" />
+          <video class="demo-video" muted loop playsinline preload="auto" width="1600" height="1000"
+            poster="img/demo-fix.webp"
+            aria-label="A chat app: a message with typos is selected, Ctrl+G is pressed, KeyLint's tray icon shows it is working, the corrected message replaces it and is sent">
+            <source src="img/demo-fix.webm" type="video/webm" />
+          </video>
+          <figcaption>Silent Fix in a chat app: select, press <kbd>Ctrl+G</kbd>, done. Staged demo; the correction is what KeyLint actually returned.</figcaption>
         </figure>
       </div>
     </section>
@@ -139,18 +146,7 @@
       <div class="container">
         <div class="section-label">See it work</div>
         <h2>Right where you write</h2>
-        <p class="section-lead">Two staged clips: the chat app and the mail client are mock-ups made for this page. The KeyLint parts are the real app, and the correction and the email are what KeyLint actually returned.</p>
-
-        <h3 class="demo-title">Silent Fix in a chat app</h3>
-        <p class="demo-text">Select the message and press <kbd>Ctrl+G</kbd>. A dot on KeyLint's tray icon shows it is working, then the corrected text replaces your selection. Nothing else pops up.</p>
-        <figure class="shot">
-          <video class="demo-video" muted loop playsinline preload="none" width="1600" height="1000"
-            poster="img/demo-fix.webp"
-            aria-label="A chat app: a message with typos is typed and selected, Ctrl+G is pressed, the corrected message replaces it and is sent">
-            <source src="img/demo-fix.webm" type="video/webm" />
-          </video>
-          <figcaption>Staged demo. The correction is what KeyLint actually returned for this message.</figcaption>
-        </figure>
+        <p class="section-lead">The chat app above and the mail client below are mock-ups made for this page. The KeyLint parts are the real app, and the correction and the email are what KeyLint actually returned.</p>
 
         <h3 class="demo-title">Pyramidize from a mail client</h3>
         <p class="demo-text">Hold <kbd>Ctrl</kbd> and tap <kbd>G</kbd> twice on your notes. KeyLint opens with them, you pick the form, and it puts the point first. Copy the result as rich text and paste it back as a formatted email.</p>
@@ -161,6 +157,13 @@
             <source src="img/demo-pyramidize.webm" type="video/webm" />
           </video>
           <figcaption>Staged demo with the real KeyLint window. The email is what KeyLint actually returned; its first line is the suggested subject.</figcaption>
+        </figure>
+
+        <h3 class="demo-title">See every change on the Fix page</h3>
+        <p class="demo-text">Want to check before you send? Paste the text into KeyLint's Fix page: the original on the left, the corrected text on the right with every change marked.</p>
+        <figure class="shot">
+          <img src="img/fix.webp" width="1600" height="937" loading="lazy"
+            alt="KeyLint's Fix page: the original text on the left, the corrected text on the right with new words underlined in orange and removed words struck through" />
         </figure>
       </div>
     </section>

@@ -125,6 +125,9 @@ test('clip: Silent Fix in a chat app', async ({ page, context }) => {
   // Out of the way of the text while typing.
   await glide(page, b.x + 420 * Z, b.y - 150 * Z, 400);
   await box.pressSequentially(CHAT_INPUT, { delay: 8 });
+  // The clip is the page's hero: it starts here, with the message written,
+  // rather than on an empty chat (encode.py starts a moment before the mark).
+  rec.mark('start');
   await page.waitForTimeout(600);
 
   await press(page, 'Control+A', ['Ctrl', 'A'], 'select the message');
@@ -133,7 +136,11 @@ test('clip: Silent Fix in a chat app', async ({ page, context }) => {
   // The hotkey. KeyLint copies the selection and marks its tray icon busy...
   await caption(page, ['Ctrl', 'G'], 'KeyLint fixes it in place', 1600);
   await page.evaluate(() => (window as any).stage.busy(true));
-  await page.waitForTimeout(1500);
+  // The poster: the selection, the hotkey and KeyLint at work in one frame —
+  // what a visitor sees before the clip plays, and with reduced motion.
+  await page.waitForTimeout(300);
+  rec.mark('poster');
+  await page.waitForTimeout(1200);
   // ...then writes the fix to the clipboard and pastes it over the selection.
   await page.evaluate((t) => navigator.clipboard.writeText(t), CHAT_OUTPUT);
   await page.keyboard.press('Control+V');

@@ -125,6 +125,17 @@ test.describe('website', () => {
     expect(chips.map((c) => c.trim())).toEqual(appLabels);
   });
 
+  // Owner, 2026-10-16: a still of the Fix page under the hero wasted the
+  // first screen on a window KeyLint's main feature never opens. The first
+  // thing shown is the Silent Fix demo, playing, with a poster for the rest.
+  test('opens with the Silent Fix demo, not a still', async ({ page }) => {
+    await page.goto(url('index.html'));
+    const first = page.locator('main .shot').first();
+    await expect(first.locator('video')).toHaveCount(1);
+    await expect(first.locator('video source')).toHaveAttribute('src', 'img/demo-fix.webm');
+    await expect(first.locator('video')).toHaveAttribute('preload', 'auto');
+  });
+
   // Four provider cards fell into three and one left over at full width.
   test('lays the provider cards out in full rows at desktop width', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });

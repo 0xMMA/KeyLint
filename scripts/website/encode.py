@@ -3,7 +3,9 @@
 Run by capture.sh after the captures (`encode.py [name...]`, all by default):
 - stills (fix, providers) become WebP,
 - each demo clip becomes a WebM (VP8) with the recorded frame timing, plus a
-  WebP poster of its last frame (also what reduced-motion visitors see).
+  WebP poster (also what reduced-motion visitors see): the frame at the scene's
+  "poster" mark, else its last frame. A "start" mark trims the clip to begin
+  START_LEAD seconds before it.
 
 Needs Pillow and the ffmpeg build that Playwright installs next to its
 browsers (it can encode VP8 from piped JPEG frames, which is all this needs).
@@ -25,6 +27,7 @@ IMG = HERE.parent.parent / "website" / "img"
 STILL_WIDTH = 1600   # ~2x the page's 852px content column
 CLIP_WIDTH = 1600    # same; the clips are recorded at 2560x1600
 FPS = 25
+START_LEAD = 0.8     # seconds of the scene kept before its "start" mark
 
 
 def resized(im: Image.Image, width: int) -> Image.Image:
@@ -49,8 +52,10 @@ def playwright_ffmpeg() -> str:
 
 def clip(name: str) -> None:
     data = json.loads((OUT / f"{name}-frames" / "frames.json").read_text())
-    frames, end = data["frames"], data["end"]
+    frames, end, marks = data["frames"], data["end"], data.get("marks", {})
     start = frames[0]["t"]
+    if "start" in marks:
+        start = max(start, marks["start"] - START_LEAD)
     # The screencast sends a frame only when something changed; the end time
     # holds the last one. Guard against a clock that does not match.
     if not 0 <= end - frames[-1]["t"] < 30:
@@ -83,7 +88,9 @@ def clip(name: str) -> None:
         sys.exit(f"ffmpeg failed for {name}")
 
     poster = IMG / f"{name}.webp"
-    last = resized(Image.open(frames[-1]["file"]), CLIP_WIDTH)
+    at = marks.get("poster")
+    pick = frames[-1] if at is None else frames[max(i for i, f in enumerate(frames) if f["t"] <= at)]
+    last = resized(Image.open(pick["file"]), CLIP_WIDTH)
     last.save(poster, "WEBP", quality=85, method=6)
     print(f"{dest.name}: {last.width}x{last.height}, {total:.1f} s, {dest.stat().st_size // 1024} KB; "
           f"{poster.name}: {poster.stat().st_size // 1024} KB")

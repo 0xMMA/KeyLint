@@ -154,11 +154,13 @@ export async function settle(page: Page): Promise<void> {
 export interface Frame { file: string; t: number }
 
 /** Records every frame the page paints, with its timestamp, into dir. */
-export async function startScreencast(page: Page, dir: string): Promise<{ cdp: CDPSession; frames: Frame[]; stop(): Promise<void> }> {
+export async function startScreencast(page: Page, dir: string): Promise<{ cdp: CDPSession; frames: Frame[]; mark(name: string): void; stop(): Promise<void> }> {
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
   const cdp = await page.context().newCDPSession(page);
   const frames: Frame[] = [];
+  // Named moments for encode.py: where the clip starts, which frame is the poster.
+  const marks: Record<string, number> = {};
   cdp.on('Page.screencastFrame', async (f) => {
     const file = path.join(dir, `${String(frames.length).padStart(4, '0')}.png`);
     frames.push({ file, t: f.metadata.timestamp ?? Date.now() / 1000 });
@@ -171,12 +173,15 @@ export async function startScreencast(page: Page, dir: string): Promise<{ cdp: C
   return {
     cdp,
     frames,
+    mark(name: string) {
+      marks[name] = Date.now() / 1000;
+    },
     async stop() {
       const end = Date.now() / 1000;
       await cdp.send('Page.stopScreencast');
       await page.waitForTimeout(200);
       // The end time, so the encoder holds the last frame until the stop.
-      fs.writeFileSync(path.join(dir, 'frames.json'), JSON.stringify({ frames, end }, null, 1));
+      fs.writeFileSync(path.join(dir, 'frames.json'), JSON.stringify({ frames, end, marks }, null, 1));
     },
   };
 }
