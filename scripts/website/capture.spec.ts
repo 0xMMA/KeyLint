@@ -22,10 +22,8 @@ import { test, expect } from '@playwright/test';
 import * as http from 'http';
 import * as path from 'path';
 import { installFakeBackend } from '../../frontend/e2e/support/fake-backend';
-import { fakePyramidize, installFakePyramidize } from '../../frontend/e2e/support/fake-pyramidize';
 import {
-  BASE_URL, FIX_INPUT, OUT, PYRAMIDIZE_INPUT, PYRAMIDIZE_OUTPUT, VIEWPORT, configured, installFakeFix, installFakeUpdater,
-  settle, startServer, stopServer,
+  BASE_URL, FIX_INPUT, OUT, VIEWPORT, configured, installFakeFix, installFakeUpdater, settle, startServer, stopServer,
 } from './support';
 
 let server: http.Server;
@@ -61,22 +59,4 @@ test('still: Settings › AI providers, with the installed CLI signed in', async
   await page.setViewportSize({ width: VIEWPORT.width, height: Math.max(VIEWPORT.height, content) });
   await settle(page);
   await page.screenshot({ path: path.join(OUT, 'providers.png') });
-});
-
-// The hero's faded backdrop shows this next to the Fix page: an email written
-// from the sample notes, in Preview.
-test('still: Pyramidize, an email in Preview', async ({ page }) => {
-  await installFakeBackend(page, configured('claude-code'));
-  await installFakePyramidize(page, fakePyramidize({ fullDocument: PYRAMIDIZE_OUTPUT }));
-  await installFakeUpdater(page);
-  await page.goto('/enhance');
-  await page.getByTestId('original-textarea').fill(PYRAMIDIZE_INPUT);
-  await page.getByTestId('choose-form-btn').getByRole('button').click();
-  await page.getByTestId('form-email').click();
-  await page.getByTestId('pyramidize-btn').getByRole('button').click();
-  await expect(page.getByTestId('canvas-textarea')).not.toHaveValue('');
-  await page.getByTestId('canvas-mode').getByText('Preview', { exact: true }).click();
-  await expect(page.getByTestId('canvas-preview')).toBeVisible();
-  await settle(page);
-  await page.screenshot({ path: path.join(OUT, 'pyramidize.png') });
 });

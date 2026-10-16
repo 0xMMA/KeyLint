@@ -1,7 +1,7 @@
 """Turns the raw captures in scripts/website/out/ into the files keylint.io uses.
 
 Run by capture.sh after the captures (`encode.py [name...]`, all by default):
-- stills (fix, providers, pyramidize) become WebP,
+- stills (fix, providers) become WebP,
 - each demo clip becomes a WebM (VP8) with the recorded frame timing, plus a
   WebP poster (also what reduced-motion visitors see): the frame at the scene's
   "poster" mark, else its last frame. A "start" mark trims the clip to begin
@@ -96,7 +96,7 @@ def clip(name: str) -> None:
           f"{poster.name}: {poster.stat().st_size // 1024} KB")
 
 
-STILLS = ("fix", "providers", "pyramidize")
+STILLS = ("fix", "providers")
 CLIPS = ("demo-fix", "demo-pyramidize")
 
 
