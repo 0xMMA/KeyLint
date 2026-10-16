@@ -40,7 +40,7 @@ API keys are kept in your operating system's keyring and only ever sent to the p
 
 ## Install
 
-1. Download the latest release from [keylint.io](https://keylint.io) or the [Releases page](https://github.com/0xMMA/KeyLint/releases/latest): the installer (`…-windows-amd64-setup.exe`) or the portable `.exe`.
+1. Download the installer (`…-windows-amd64-setup.exe`) or the portable `.exe` from the [latest release](https://github.com/0xMMA/KeyLint/releases/latest).
 2. Start KeyLint. The setup wizard walks you through choosing a provider; if the Claude Code CLI is installed and signed in, it offers that in one click, with no key to enter.
 3. Select some text and press <kbd>Ctrl</kbd>+<kbd>G</kbd>.
 

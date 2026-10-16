@@ -39,6 +39,15 @@ test.describe('README', () => {
     for (const src of images) expect(fs.existsSync(path.join(ROOT, src)), src).toBe(true);
   });
 
+  // keylint.io's download button only leads to the GitHub release, so the
+  // install step links there directly, once (owner, 2026-10-16).
+  test('the download step links straight to the latest release', () => {
+    const step = README.split('\n').find((line) => /^1\. Download/.test(line));
+    expect(step, 'an install step starting "1. Download"').toBeTruthy();
+    const links = [...step!.matchAll(/\]\(([^)]+)\)/g)].map((m) => m[1]);
+    expect(links).toEqual(['https://github.com/0xMMA/KeyLint/releases/latest']);
+  });
+
   test('names no feature the app no longer has, and promises nothing untrue', () => {
     expect(README).not.toMatch(/Deep Enhance|BYOK|never leave your machine|local Go backend/i);
   });
