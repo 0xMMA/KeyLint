@@ -484,6 +484,39 @@ func TestBedrockNoRegionSendsNothing(t *testing.T) {
 	}
 }
 
+// TestBedrockModelNotOfferedToTheAccount: AWS gates some models (the 5.5s)
+// per account and answers a 403 that no console setting fixes. The error says
+// so and names a model every account can use — the first live test
+// (2026-10-16) got the generic "check model access" advice instead.
+func TestBedrockModelNotOfferedToTheAccount(t *testing.T) {
+	for _, tc := range []struct{ model, alternative string }{
+		{"anthropic.claude-haiku-5-5", "Claude Haiku 4.5"},
+		{"anthropic.claude-sonnet-5-5", "Claude Sonnet 5"},
+	} {
+		t.Run(tc.model, func(t *testing.T) {
+			isolateAWS(t)
+			url := newRawServer(t, func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("X-Amzn-Errortype", "AccessDeniedException:http://internal.amazon.com/coral/com.amazon.bedrock/")
+				w.WriteHeader(http.StatusForbidden)
+				io.WriteString(w, `{"message":"`+tc.model+` is not available for this account. You can explore other available models on Amazon Bedrock. For additional access options, contact AWS Sales at https://aws.amazon.com/contact-us/sales-support/"}`)
+			})
+			_, err := newBedrock(keyModeConfig(url)).Complete(context.Background(), Request{User: "x", Model: tc.model, MaxTokens: 64})
+			if !errors.Is(err, ErrBedrockModelUnavailable) {
+				t.Fatalf("err = %v, want ErrBedrockModelUnavailable", err)
+			}
+			for _, want := range []string{"AWS Bedrock error 403", tc.model, "not available to this AWS account", tc.alternative, "AWS Bedrock card"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error %q does not mention %q", err, want)
+				}
+			}
+			if strings.Contains(err.Error(), "use-case form") {
+				t.Errorf("error %q sends the user to a form that does not help here", err)
+			}
+		})
+	}
+}
+
 func TestBedrockErrorWording(t *testing.T) {
 	const marker = "BODYMARKER-user-text"
 	tests := []struct {
@@ -753,6 +786,12 @@ func TestCheckBedrock(t *testing.T) {
 			}
 			if thinking, _ := got.body["thinking"].(map[string]any); thinking["type"] != "disabled" {
 				t.Errorf("thinking = %v: Haiku is asked not to reason on a check", got.body["thinking"])
+			}
+			// The check has no system prompt, and an empty text block is
+			// invalid: the first live check (Haiku 4.5, 2026-10-16) got a
+			// 400 ValidationException for it.
+			if sys, ok := got.body["system"]; ok {
+				t.Errorf("system = %v: an empty system prompt must not be sent", sys)
 			}
 		})
 	}

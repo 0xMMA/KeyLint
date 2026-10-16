@@ -105,10 +105,14 @@ func (m messagesCall) run(ctx context.Context, cfg Config, req Request) (Respons
 		// so a model released after this SDK version still works.
 		Model:     anthropic.Model(m.model),
 		MaxTokens: int64(req.MaxTokens),
-		System:    []anthropic.TextBlockParam{{Text: req.System}},
 		Messages: []anthropic.MessageParam{
 			anthropic.NewUserMessage(anthropic.NewTextBlock(req.User)),
 		},
+	}
+	if req.System != "" {
+		// An empty text block is invalid: a request without a system prompt
+		// (the Bedrock connection check) sends none at all.
+		params.System = []anthropic.TextBlockParam{{Text: req.System}}
 	}
 	if req.Temperature != nil {
 		params.Temperature = anthropic.Float(*req.Temperature)
