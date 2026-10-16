@@ -5,7 +5,7 @@
 #   scripts/website/capture.sh stills fix-clip       # only these
 #
 # Targets:
-#   stills           Fix page and Settings › AI providers (capture.spec.ts)
+#   stills           Fix page, Settings › AI providers, a Pyramidize email (capture.spec.ts)
 #   fix-clip         Silent Fix in a chat app (demos.spec.ts)
 #   pyramidize-clip  Pyramidize from a webmail client (demos.spec.ts)
 #
@@ -39,11 +39,12 @@ recorded() { grep -Eq "^$1 [0-9-]+ KeyLint [0-9a-f]{7,}" "$HERE/samples/recorded
 greps=() encode=()
 for t in "${targets[@]}"; do
   case "$t" in
-    stills)          sample=fix ;;
+    stills)          sample=fix ;;  # and pyramidize, checked below
     fix-clip)        sample=chat ;;
     pyramidize-clip) sample=pyramidize ;;
     *) echo "unknown target: $t (stills, fix-clip, pyramidize-clip)" >&2; exit 3 ;;
   esac
+  if [ "$t" = stills ] && ! recorded pyramidize; then sample=pyramidize; fi
   if ! recorded "$sample"; then
     msg="$t: samples/$sample was not recorded by refresh-samples.sh; run scripts/website/refresh-samples.sh $sample first"
     if (( explicit )); then echo "$msg" >&2; exit 3; fi
@@ -51,7 +52,7 @@ for t in "${targets[@]}"; do
     continue
   fi
   case "$t" in
-    stills)          greps+=("still: "); encode+=(fix providers) ;;
+    stills)          greps+=("still: "); encode+=(fix providers pyramidize) ;;
     fix-clip)        greps+=("clip: Silent Fix"); encode+=(demo-fix) ;;
     pyramidize-clip) greps+=("clip: Pyramidize"); encode+=(demo-pyramidize) ;;
   esac

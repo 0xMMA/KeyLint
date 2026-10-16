@@ -88,6 +88,45 @@ nav .container {
 .hero {
   padding: 96px 0 72px;
   text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.hero .container {
+  position: relative;
+}
+
+/* The app, glimpsed: two screenshots either side of the headline, tilted
+   towards it and faded out at their edges, never competing with the text. */
+.hero-ghost {
+  position: absolute;
+  top: 88px;
+  width: 440px;
+  aspect-ratio: 1600 / 937;
+  background: center / cover no-repeat;
+  border-radius: 10px;
+  opacity: 0.16;
+  pointer-events: none;
+  -webkit-mask-image: radial-gradient(ellipse 70% 70% at center, #000 35%, transparent 100%);
+  mask-image: radial-gradient(ellipse 70% 70% at center, #000 35%, transparent 100%);
+}
+
+.hero-ghost-left {
+  right: calc(50% + 230px);
+  background-image: url(img/fix.webp);
+  transform: perspective(1400px) rotateY(16deg);
+}
+
+.hero-ghost-right {
+  left: calc(50% + 230px);
+  background-image: url(img/pyramidize.webp);
+  transform: perspective(1400px) rotateY(-16deg);
+}
+
+@media (max-width: 1100px) {
+  .hero-ghost {
+    display: none;
+  }
 }
 
 .hero-badge {

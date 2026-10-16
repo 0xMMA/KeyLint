@@ -143,6 +143,31 @@ test.describe('website', () => {
     expect(order, 'the Pyramidize clip comes before the features').toBeTruthy();
   });
 
+  // Owner, 2026-10-16: small, strongly faded glimpses of the Fix page and a
+  // Pyramidize result either side of the headline — backdrop, not content.
+  test('frames the headline with faded app glimpses, only where there is room', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(url('index.html'));
+    const ghosts = page.locator('.hero-ghost');
+    await expect(ghosts).toHaveCount(2);
+    for (const ghost of await ghosts.all()) {
+      await expect(ghost).toBeVisible();
+      await expect(ghost).toHaveAttribute('aria-hidden', 'true');
+      const style = await ghost.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { opacity: Number(cs.opacity), image: cs.backgroundImage, width: el.getBoundingClientRect().width };
+      });
+      expect(style.opacity, 'strongly faded').toBeLessThanOrEqual(0.25);
+      expect(style.width, 'not full size').toBeLessThan(600);
+      const file = /img\/[\w-]+\.webp/.exec(style.image)?.[0];
+      expect(file && fs.existsSync(path.join(SITE, file)), `${style.image} is on disk`).toBe(true);
+    }
+    await page.setViewportSize({ width: 375, height: 800 });
+    for (const ghost of await ghosts.all()) {
+      await expect(ghost).toBeHidden();
+    }
+  });
+
   // Four provider cards fell into three and one left over at full width.
   test('lays the provider cards out in full rows at desktop width', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
