@@ -1,4 +1,9 @@
-# KeyLint
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/img/keylint-wordmark-dark.svg">
+    <img alt="KeyLint" src="docs/img/keylint-wordmark-light.svg" height="48">
+  </picture>
+</h1>
 
 [![Build](https://github.com/0xMMA/KeyLint/actions/workflows/build-linux.yml/badge.svg)](https://github.com/0xMMA/KeyLint/actions/workflows/build-linux.yml)
 [![Latest release](https://img.shields.io/github/v/release/0xMMA/KeyLint)](https://github.com/0xMMA/KeyLint/releases/latest)

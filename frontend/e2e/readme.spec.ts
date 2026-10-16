@@ -34,9 +34,28 @@ test.describe('README', () => {
   });
 
   test('every local image it shows is on disk', () => {
-    const images = [...README.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)].map((m) => m[1]).filter((src) => !/^https?:/.test(src));
+    const images = [
+      ...[...README.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)].map((m) => m[1]),
+      ...[...README.matchAll(/<(?:img|source)\b[^>]*?(?:src|srcset)="([^"]+)"/g)].map((m) => m[1]),
+    ].filter((src) => !/^https?:/.test(src));
     expect(images.length).toBeGreaterThan(0);
     for (const src of images) expect(fs.existsSync(path.join(ROOT, src)), src).toBe(true);
+  });
+
+  // Owner, 2026-10-16: the title in the website's colours, "Key" and an
+  // orange "Lint". GitHub strips colour from Markdown, so it is an SVG
+  // wordmark per theme inside the h1, with "KeyLint" as its alt text.
+  test('opens with the KeyLint wordmark as its title, for both themes', () => {
+    const h1 = /^<h1>([\s\S]*?)<\/h1>/.exec(README.trimStart())?.[1] ?? '';
+    expect(h1, 'the README starts with an h1').not.toBe('');
+    expect(h1).toMatch(/<source media="\(prefers-color-scheme: dark\)" srcset="docs\/img\/keylint-wordmark-dark\.svg">/);
+    expect(h1).toMatch(/<img alt="KeyLint" src="docs\/img\/keylint-wordmark-light\.svg"/);
+    for (const mode of ['dark', 'light']) {
+      const svg = fs.readFileSync(path.join(ROOT, `docs/img/keylint-wordmark-${mode}.svg`), 'utf8');
+      // The website's orange on "Lint" (a darker shade on white, for contrast).
+      expect(svg, mode).toMatch(mode === 'dark' ? /<tspan fill="#f97316">Lint<\/tspan>/ : /<tspan fill="#ea580c">Lint<\/tspan>/);
+      expect(svg, mode).toMatch(/<tspan fill="#[0-9a-f]{6}">Key<\/tspan>/);
+    }
   });
 
   // keylint.io's download button only leads to the GitHub release, so the
