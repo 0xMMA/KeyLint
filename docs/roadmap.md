@@ -1,6 +1,6 @@
 # KeyLint Roadmap
 
-> Last updated: 2026-10-16 (`v4.8.0-beta` released; English input came back in German, fixed in #132; Send back pastes formatted text, #133, released as `v4.9.0-beta`; `v5.0.0` scope cut to Bedrock UI and OpenRouter, the reviewer moved after it; OpenRouter merged, #134; AWS Bedrock merged, #135, checked on Windows with a live key; `v5.0.0` released, the first stable release) · Owner: Michael · Source of truth for priorities.
+> Last updated: 2026-10-16 (`v4.8.0-beta` released; English input came back in German, fixed in #132; Send back pastes formatted text, #133, released as `v4.9.0-beta`; `v5.0.0` scope cut to Bedrock UI and OpenRouter, the reviewer moved after it; OpenRouter merged, #134; AWS Bedrock merged, #135, checked on Windows with a live key; `v5.0.0` released, the first stable release; website live, #126) · Owner: Michael · Source of truth for priorities.
 > Tracking: each epic links to a GitHub issue. This file holds the *why* and the order; issues hold the *what*.
 
 ---
@@ -246,7 +246,7 @@ The Fix page redesign (#36, E5) is the natural first screen for the new look.
 | `v4.7.1-beta` | ✅ released 2026-10-11: Pyramidize options fit the default window again (#124) |
 | `v4.8.0-beta` | ✅ released 2026-10-15: E3 Pyramidize v3: user picks the form, one call, new choice page, two judges · English input stays English (#132) · E4 upgrade wave (Angular 22 in with #125, Windows run done 2026-10-14) |
 | `v4.9.0-beta` | ✅ released 2026-10-15: Send back pastes rich text (E8, #133) · ~~E3 reviewer~~ moved after `v5.0.0` |
-| `v5.0.0` | ✅ released 2026-10-16, the first stable release (`/releases/latest` resolves to it): Bedrock UI (E6, ✅ #135) · OpenRouter (E10, ✅ #134) · website update (#126) merges right after, with its captures re-taken at v5.0.0. Scope decided 2026-10-15 (Michael): light theme and the Codex/Gemini CLI providers moved after it |
+| `v5.0.0` | ✅ released 2026-10-16, the first stable release (`/releases/latest` resolves to it): Bedrock UI (E6, ✅ #135) · OpenRouter (E10, ✅ #134) · website update (#126, ✅ merged 2026-10-16: opens with the Silent Fix clip, Pyramidize clip next, six providers; captures re-taken at v5.0.0). Scope decided 2026-10-15 (Michael): light theme and the Codex/Gemini CLI providers moved after it |
 | after `v5.0.0` | E3 reviewer (findings on single passages) · presentation form work · light theme (E7) · Codex/Gemini CLI providers (decided 2026-10-15) |
 
 ---
