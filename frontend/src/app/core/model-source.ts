@@ -59,7 +59,7 @@ export function noteForModelSource(source: string, provider: string, hasList: bo
       // Bedrock: Anthropic's Models API is not offered there, and KeyLint does
       // not ask AWS's own listings either. The list is curated, not
       // exhaustive — say both.
-      return "KeyLint does not ask AWS for a model list; these are the Claude models KeyLint knows. Type another model ID or an inference profile ARN to use one that isn't here.";
+      return "KeyLint does not ask AWS for a model list; these are the Claude models KeyLint knows. Type another Claude model ID or an inference profile ARN to use one that isn't here; other vendors' models (Nova, Llama, …) don't work with KeyLint on Bedrock.";
     case 'not-asked':
       // Not shown in practice — only the provider in use has pickers — but a
       // source with no sentence would leave a built-in list unexplained.

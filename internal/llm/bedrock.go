@@ -97,6 +97,10 @@ var (
 	ErrBedrockRoute = errors.New("no route keeps the text where it was chosen to stay")
 	// ErrAWSSignIn: this computer's AWS sign-in could not be used.
 	ErrAWSSignIn = errors.New("this computer's AWS sign-in could not be used")
+	// ErrBedrockNotClaude: the model is another vendor's (Nova, Llama, …).
+	// KeyLint sends Anthropic's request format, which Bedrock answers for
+	// those with a bare 400. Nothing is sent; see notClaudeError.
+	ErrBedrockNotClaude = errors.New("KeyLint calls only Anthropic's Claude models on Bedrock")
 )
 
 // bedrockRegion is one region KeyLint offers, and the geography a geographic
@@ -297,6 +301,8 @@ func BedrockRoutable(region, routing string) bool {
 // An ID that already carries a routing prefix, or is an ARN (an application
 // inference profile), is the user's own choice of route and is sent
 // unchanged; the AWS Bedrock card says where such a model's calls may go.
+// Another vendor's model (Nova, Llama, …) is refused: KeyLint sends
+// Anthropic's request format, which those do not take.
 // Worldwide adds global.; geo adds the region's geography. Text goes
 // worldwide only when the user chose Worldwide: "keep" in a region with no
 // geography is refused (the card offers that region Worldwide alone, to be
@@ -314,7 +320,11 @@ func BedrockInvokeID(model, region, routing string) (string, error) {
 	if strings.HasPrefix(model, "arn:") {
 		return model, nil
 	}
-	if prefix, _ := splitBedrockPrefix(model); prefix != "" {
+	prefix, base := splitBedrockPrefix(model)
+	if !strings.HasPrefix(base, "anthropic.") {
+		return "", &notClaudeError{model: model}
+	}
+	if prefix != "" {
 		return model, nil
 	}
 	if routing == BedrockRoutingGlobal {
@@ -339,6 +349,16 @@ func (e *badRegionError) Error() string {
 }
 
 func (e *badRegionError) Is(target error) bool { return target == ErrBedrockNoRegion }
+
+// notClaudeError is ErrBedrockNotClaude with the model named.
+type notClaudeError struct{ model string }
+
+func (e *notClaudeError) Error() string {
+	return fmt.Sprintf("%s: %s is not one of Anthropic's Claude models, and KeyLint calls only those on Bedrock, so nothing was sent — choose a Claude model on the AWS Bedrock card in Settings › AI providers",
+		bedrockProvider.name, e.model)
+}
+
+func (e *notClaudeError) Is(target error) bool { return target == ErrBedrockNotClaude }
 
 // bedrockRouteError is ErrBedrockRoute with the model and the place named.
 type bedrockRouteError struct {

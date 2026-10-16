@@ -369,6 +369,12 @@ func TestBedrockInvokeID(t *testing.T) {
 		{"global.anthropic.claude-opus-5-5", "eu-central-1", BedrockRoutingGeo, "global.anthropic.claude-opus-5-5", nil},
 		{"arn:aws:bedrock:eu-central-1:123456789012:application-inference-profile/abc", "eu-central-1", BedrockRoutingGlobal,
 			"arn:aws:bedrock:eu-central-1:123456789012:application-inference-profile/abc", nil},
+		// Not one of Anthropic's models: KeyLint sends Anthropic's request
+		// format, which Bedrock answers for another vendor's model with a bare
+		// 400. Refused before sending, routed or not.
+		{"amazon.nova-lite-v1:0", "eu-central-1", BedrockRoutingGeo, "", ErrBedrockNotClaude},
+		{"eu.amazon.nova-lite-v1:0", "eu-central-1", BedrockRoutingGeo, "", ErrBedrockNotClaude},
+		{"meta.llama3-70b-instruct-v1:0", "us-east-1", BedrockRoutingGlobal, "", ErrBedrockNotClaude},
 		// No region, no call.
 		{"anthropic.claude-haiku-5-5", "", BedrockRoutingGeo, "", ErrBedrockNoRegion},
 		{" anthropic.claude-haiku-5-5 ", "eu-central-1", BedrockRoutingGeo, "eu.anthropic.claude-haiku-5-5", nil},
@@ -437,6 +443,26 @@ func TestBedrockRouteRefusalSendsNothing(t *testing.T) {
 	_, err := newBedrock(cfg).Complete(context.Background(), Request{User: "x", Model: "anthropic.claude-sonnet-5-5", MaxTokens: 64})
 	if !errors.Is(err, ErrBedrockRoute) {
 		t.Fatalf("err = %v, want ErrBedrockRoute", err)
+	}
+	if got.hits != 0 {
+		t.Errorf("hits = %d, want none", got.hits)
+	}
+}
+
+// TestBedrockOtherVendorsModelSendsNothing: a Nova or Llama ID typed into the
+// model field is refused with words that say why, not sent for a bare 400.
+func TestBedrockOtherVendorsModelSendsNothing(t *testing.T) {
+	isolateAWS(t)
+	var got capture
+	srv := newServer(t, &got, http.StatusOK, bedrockReply)
+	_, err := newBedrock(keyModeConfig(srv.URL)).Complete(context.Background(), Request{User: "x", Model: "amazon.nova-lite-v1:0", MaxTokens: 64})
+	if !errors.Is(err, ErrBedrockNotClaude) {
+		t.Fatalf("err = %v, want ErrBedrockNotClaude", err)
+	}
+	for _, want := range []string{"amazon.nova-lite-v1:0", "Claude", "AWS Bedrock card", "nothing was sent"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
 	}
 	if got.hits != 0 {
 		t.Errorf("hits = %d, want none", got.hits)

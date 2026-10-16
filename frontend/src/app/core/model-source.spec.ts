@@ -14,6 +14,8 @@ describe('noteForModelSource', () => {
     expect(note).toContain('KeyLint does not ask AWS for a model list');
     expect(note).toContain('the Claude models KeyLint knows');
     expect(note).toMatch(/inference profile ARN/);
+    // A Nova ID got a bare 400 on the first live test (2026-10-16).
+    expect(note).toContain("other vendors' models (Nova, Llama, …) don't work");
   });
 
   it('says nothing for a provider with no endpoint to ask', () => {
