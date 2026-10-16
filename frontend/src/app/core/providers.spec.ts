@@ -14,9 +14,10 @@ describe('providers', () => {
   });
 
   // Both ways to reach Claude sit side by side, so a user choosing between
-  // a key and the subscription sees them together (owner, 2026-10-16).
-  it('lists Claude Code next to the Anthropic API, the local daemon last', () => {
-    expect(PROVIDER_OPTIONS.map(o => o.value)).toEqual(['openai', 'claude', 'claude-code', 'openrouter', 'bedrock', 'ollama']);
+  // a key and the subscription sees them together; OpenAI after OpenRouter
+  // (owner, 2026-10-16).
+  it('lists the Anthropic API and Claude Code first, OpenAI after OpenRouter, the local daemon last', () => {
+    expect(PROVIDER_OPTIONS.map(o => o.value)).toEqual(['claude', 'claude-code', 'openrouter', 'openai', 'bedrock', 'ollama']);
   });
 
   // The source of truth is envVars in internal/features/settings/service.go.
