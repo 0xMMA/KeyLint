@@ -113,6 +113,18 @@ test.describe('website', () => {
     }
   });
 
+  // The site listed four providers while the app had six (OpenRouter #134,
+  // AWS Bedrock #135): the chips follow the app's own list, labels and order.
+  test('lists the providers the app offers, in its order', async ({ page }) => {
+    const source = fs.readFileSync(path.join(__dirname, '../src/app/core/providers.ts'), 'utf8');
+    const block = source.slice(source.indexOf('PROVIDER_OPTIONS'), source.indexOf('];', source.indexOf('PROVIDER_OPTIONS')));
+    const appLabels = [...block.matchAll(/label: '([^']+)'/g)].map((m) => m[1]);
+    expect(appLabels.length, 'labels read from providers.ts').toBeGreaterThan(4);
+    await page.goto(url('index.html'));
+    const chips = await page.locator('.provider-chip').allInnerTexts();
+    expect(chips.map((c) => c.trim())).toEqual(appLabels);
+  });
+
   test('every download link is exactly /releases/latest', async ({ page }) => {
     for (const name of PAGES) {
       await page.goto(url(name));

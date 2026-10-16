@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KeyLint — Fix text instantly with AI | One hotkey, perfect writing</title>
-  <meta name="description" content="Fix any text with one hotkey. Free for Windows. Works with OpenAI, Anthropic, Ollama, or the Claude Code CLI you already use, with no API key." />
+  <meta name="description" content="Fix any text with one hotkey. Free for Windows. Works with Anthropic, OpenRouter, OpenAI, AWS Bedrock, Ollama, or the Claude Code CLI you already use." />
   <meta name="theme-color" content="#f97316" />
   <meta property="og:title" content="KeyLint — Fix text instantly with AI" />
   <meta property="og:description" content="One hotkey. Perfect text. Fixes grammar, tone, and style silently in the background." />
@@ -108,7 +108,7 @@
               <span class="feature-icon">🤖</span>
               <h3>Bring your own AI</h3>
             </div>
-            <p>An OpenAI or Anthropic API key, a local model through Ollama — or the Claude Code CLI you're already signed in to, with no key at all. <a href="#providers">How that works</a></p>
+            <p>An Anthropic, OpenRouter or OpenAI API key, your own AWS account through Bedrock, a local model through Ollama — or the Claude Code CLI you're already signed in to, with no key at all. <a href="#providers">How that works</a></p>
           </div>
           <div class="feature-card">
             <div class="feature-head">
@@ -129,7 +129,7 @@
               <span class="feature-icon">🔒</span>
               <h3>Private</h3>
             </div>
-            <p>Your text goes from your PC straight to the provider you picked — no KeyLint server in between. No telemetry, no cloud sync, no clipboard history stored, and logging is off by default. Besides your provider, KeyLint only contacts GitHub, to check for updates when it starts.</p>
+            <p>Your text goes from your PC straight to the provider you picked — no KeyLint server in between. No telemetry, no cloud sync, no clipboard history stored, and logging is off by default. Besides the providers you set up, KeyLint only contacts GitHub, to check for updates when it starts.</p>
           </div>
         </div>
       </div>
@@ -170,19 +170,25 @@
         <div class="section-label">AI providers</div>
         <h2>Use the AI you already have</h2>
         <div class="provider-list">
-          <span class="provider-chip">OpenAI</span>
           <span class="provider-chip">Anthropic API</span>
           <span class="provider-chip">Claude Code (installed CLI)</span>
+          <span class="provider-chip">OpenRouter</span>
+          <span class="provider-chip">OpenAI</span>
+          <span class="provider-chip">AWS Bedrock</span>
           <span class="provider-chip">Ollama (local)</span>
         </div>
         <div class="provider-grid">
           <div class="feature-card">
             <h3>An API key</h3>
-            <p>OpenAI or Anthropic: paste your key once. It is kept in your operating system's keyring and only ever sent to the provider it belongs to.</p>
+            <p>Anthropic, OpenRouter or OpenAI: paste your key once. It is kept in your operating system's keyring and only ever sent to the provider it belongs to. One OpenRouter key reaches models from many vendors.</p>
           </div>
           <div class="feature-card provider-card-highlight">
             <h3>No key: the Claude Code CLI</h3>
             <p>Already signed in to Claude Code on this PC? Then you need no API key. KeyLint runs your installed <code>claude</code> command, unmodified, so usage counts against your own Claude account. KeyLint never reads, stores or forwards your credentials and never asks you to log in: you sign in to Claude Code in your own terminal.</p>
+          </div>
+          <div class="feature-card">
+            <h3>Your AWS account: Bedrock</h3>
+            <p>Claude models in your own AWS account, with a Bedrock API key or the AWS sign-in already on this PC, which KeyLint does not store. You choose whether your text stays in your region's geography or may be processed worldwide.</p>
           </div>
           <div class="feature-card">
             <h3>Local: Ollama</h3>
@@ -190,11 +196,11 @@
           </div>
         </div>
         <figure class="shot">
-          <img src="img/providers.webp" width="1600" height="1533" loading="lazy"
-            alt="KeyLint Settings, AI providers tab: the installed Claude Code CLI is in use and signed in, with model choices for Fix and Pyramidize; OpenAI, Anthropic API and a local Ollama are listed as other connections" />
+          <img src="img/providers.webp" width="1600" height="2042" loading="lazy"
+            alt="KeyLint Settings, AI providers tab: the installed Claude Code CLI is in use and signed in, with model choices for Fix and Pyramidize; the Anthropic API, OpenRouter, OpenAI, AWS Bedrock and a local Ollama are listed as other connections" />
           <figcaption>Set up as many as you like. Fix and Pyramidize both use the one in use. The setup wizard picks a signed-in CLI by itself when nothing else is set up.</figcaption>
         </figure>
-        <p class="fine-print">Claude Code is Anthropic's product. KeyLint is an independent project and is not affiliated with or endorsed by Anthropic.</p>
+        <p class="fine-print">Claude Code is Anthropic's product. KeyLint is an independent project and is not affiliated with or endorsed by Anthropic, OpenRouter, OpenAI or Amazon Web Services.</p>
       </div>
     </section>
 
